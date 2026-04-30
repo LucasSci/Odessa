@@ -1,4 +1,4 @@
-# Odessa
+# Odessa Project
 
 Aplicacao React/Vite para capturar texto de lives via OCR, gerar reacoes de persona IA, auditar um fluxo de Autopilot e opcionalmente falar essas respostas por TTS.
 
