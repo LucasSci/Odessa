@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Optional
 import base64
+import binascii
 from datetime import datetime, timezone
 import io
 import json
@@ -19,8 +20,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from google import genai
 from openai import OpenAI
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SERVER_DIR = Path(__file__).resolve().parent
@@ -32,6 +34,9 @@ load_dotenv(SERVER_DIR / ".env", override=False)
 
 LOG_FILE = Path(os.getenv("CAPTURE_LOG_FILE", RUNTIME_DIR / "captura_chat.txt"))
 REGION_FILE = Path(os.getenv("CAPTURE_REGION_FILE", RUNTIME_DIR / "regions.json"))
+MAX_OCR_IMAGE_BYTES = int(os.getenv("OCR_MAX_IMAGE_BYTES", str(8 * 1024 * 1024)))
+MAX_OCR_IMAGE_PIXELS = int(os.getenv("OCR_MAX_IMAGE_PIXELS", "6000000"))
+Image.MAX_IMAGE_PIXELS = MAX_OCR_IMAGE_PIXELS
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
@@ -143,6 +148,13 @@ def save_to_log(text: str) -> None:
         logger.error("Error saving capture log: %s", exc)
 
 
+def cleanup_temp_file(path: str) -> None:
+    try:
+        Path(path).unlink(missing_ok=True)
+    except Exception as exc:
+        logger.warning("Could not remove temp file %s: %s", path, exc)
+
+
 def extract_json_object(text: str) -> dict:
     cleaned = text.strip()
     if cleaned.startswith("```"):
@@ -196,7 +208,7 @@ def normalize_decision(raw: dict, fallback_text: str) -> dict:
                     "type": action_type,
                     "label": label,
                     "payload": payload,
-                    "simulated": bool(action.get("simulated", action_type != "speak")),
+                    "simulated": action_type != "speak",
                     "status": "queued",
                 }
             )
@@ -251,12 +263,46 @@ def load_regions() -> tuple[tuple[int, int, int, int], tuple[int, int, int, int]
     return DEFAULT_CHAT_REGION, DEFAULT_GIFTS_REGION
 
 
+def decode_request_image(image_data: str) -> bytes:
+    img_data = image_data.split(",", 1)[1] if "," in image_data else image_data
+    img_data = "".join(img_data.split())
+    estimated_bytes = (len(img_data) * 3) // 4
+    if estimated_bytes > MAX_OCR_IMAGE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Image is too large for OCR. Limit is {MAX_OCR_IMAGE_BYTES} bytes.",
+        )
+
+    try:
+        image_bytes = base64.b64decode(img_data, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid base64 image payload") from exc
+
+    if len(image_bytes) > MAX_OCR_IMAGE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Image is too large for OCR. Limit is {MAX_OCR_IMAGE_BYTES} bytes.",
+        )
+    return image_bytes
+
+
+def validate_ocr_dimensions(width: int, height: int) -> None:
+    if width * height > MAX_OCR_IMAGE_PIXELS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Image dimensions are too large for OCR. Limit is {MAX_OCR_IMAGE_PIXELS} pixels.",
+        )
+
+
 def image_from_request(request: RegionRequest) -> np.ndarray:
     if request.image:
-        img_data = request.image.split(",", 1)[1] if "," in request.image else request.image
-        image_bytes = base64.b64decode(img_data)
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        return np.array(image)
+        image_bytes = decode_request_image(request.image)
+        try:
+            with Image.open(io.BytesIO(image_bytes)) as image:
+                validate_ocr_dimensions(image.width, image.height)
+                return np.array(image.convert("RGB"))
+        except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+            raise HTTPException(status_code=400, detail="Invalid image payload") from exc
 
     if (
         request.x is None
@@ -267,6 +313,8 @@ def image_from_request(request: RegionRequest) -> np.ndarray:
         or request.height <= 0
     ):
         raise HTTPException(status_code=400, detail="Invalid dimensions or missing image")
+
+    validate_ocr_dimensions(request.width, request.height)
 
     screenshot = pyautogui.screenshot(
         region=(request.x, request.y, request.width, request.height)
@@ -492,31 +540,43 @@ async def generate_tts(request: Request):
     if not text:
         raise HTTPException(status_code=400, detail="No text provided")
 
+    temp_path: Optional[str] = None
     try:
         openai_voices = {"alloy", "echo", "fable", "onyx", "nova", "shimmer"}
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-        temp_file.close()
-
         if voice in openai_voices:
             if not openai_client:
                 raise HTTPException(
                     status_code=503,
                     detail="OPENAI_API_KEY is not configured for premium TTS voices",
                 )
+
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        temp_path = temp_file.name
+        temp_file.close()
+
+        if voice in openai_voices:
             response = openai_client.audio.speech.create(
                 model="tts-1",
                 voice=voice,
                 input=text,
             )
-            response.stream_to_file(temp_file.name)
+            response.stream_to_file(temp_path)
         else:
             communicate = edge_tts.Communicate(text, voice)
-            await communicate.save(temp_file.name)
+            await communicate.save(temp_path)
 
-        return FileResponse(temp_file.name, media_type="audio/mpeg")
+        return FileResponse(
+            temp_path,
+            media_type="audio/mpeg",
+            background=BackgroundTask(cleanup_temp_file, temp_path),
+        )
     except HTTPException:
+        if temp_path:
+            cleanup_temp_file(temp_path)
         raise
     except Exception as exc:
+        if temp_path:
+            cleanup_temp_file(temp_path)
         logger.error("[TTS EXCEPTION] %s", exc, exc_info=True)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

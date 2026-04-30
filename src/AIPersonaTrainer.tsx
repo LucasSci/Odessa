@@ -37,11 +37,11 @@ import {
   type SimulatedEvent, type SimSpeed,
 } from './lib/simulation';
 import { cn } from './lib/utils';
-import type { LiveEventKind } from './types';
+import type { CapturedMessage, LiveEventKind } from './types';
 
 interface AIPersonaTrainerProps {
-  capturedText: { text: string; time: string }[];
-  setCapturedText: Dispatch<SetStateAction<any[]>>;
+  capturedText: CapturedMessage[];
+  setCapturedText: Dispatch<SetStateAction<CapturedMessage[]>>;
 }
 
 interface AIResponse {
@@ -176,7 +176,6 @@ export default function AIPersonaTrainer({ capturedText, setCapturedText }: AIPe
   const storedState = useMemo(() => getStoredState(), []);
   const [personaPrompt, setPersonaPrompt] = useState(storedState?.personaPrompt || DEFAULT_PERSONA);
   const [savedAt, setSavedAt] = useState<string | null>(null);
-  const [isSimulating, setIsSimulating] = useState(false);
   const [aiResponses, setAiResponses] = useState<AIResponse[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(storedState?.ttsEnabled ?? true);
@@ -201,13 +200,9 @@ export default function AIPersonaTrainer({ capturedText, setCapturedText }: AIPe
   const [simChat, setSimChat] = useState<SimChatItem[]>([]);
   const [simStartTime, setSimStartTime] = useState<number | null>(null);
   const [simElapsed, setSimElapsed] = useState('00:00');
-  const [simResponses, setSimResponses] = useState(0);
   const simTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const simChatEndRef = useRef<HTMLDivElement>(null);
-  const simQueueRef = useRef<SimulatedEvent[]>([]);
-  const simBusyRef = useRef(false);
 
-  const lastProcessedIndexRef = useRef(-1);
   const responsesEndRef = useRef<HTMLDivElement>(null);
 
   const recentChat = useMemo(() => capturedText.slice(-8).reverse(), [capturedText]);
@@ -402,144 +397,19 @@ Controles operacionais:
         mode,
         latencyMs: 0,
       });
-      setIsSimulating(false);
     } finally {
       setIsProcessing(false);
     }
   };
 
-  useEffect(() => {
-    if (!isSimulating) return;
-
-    const interval = setInterval(() => {
-      const currentLen = capturedText.length;
-      if (currentLen > 0 && lastProcessedIndexRef.current < currentLen - 1) {
-        const newMessages = capturedText.slice(lastProcessedIndexRef.current + 1);
-        lastProcessedIndexRef.current = currentLen - 1;
-        const chatContext = newMessages.map((message) => message.text).join('\n');
-        processChatContext(chatContext, 'live');
-      }
-    }, 4000);
-
-    return () => clearInterval(interval);
-  }, [capturedText, isSimulating, isProcessing, effectivePrompt, controls.temperature]);
-
-  // ── Simulation engine ─────────────────────────────────────
-  const processSimEvent = useCallback(async (event: SimulatedEvent) => {
-    if (simBusyRef.current) return;
-    simBusyRef.current = true;
-
-    const kindMap: Record<string, string> = {
-      gift: 'gift', follow: 'alert', alert: 'alert', moderation: 'moderation', chat: 'chat',
-    };
-
-    try {
-      const currentMemory = loadMemory();
-      const memoryBlock = buildMemoryContext(currentMemory, memoryWindow);
-      const currentProfiles = loadUserProfiles();
-      const usersBlock = buildUserContext(currentProfiles);
-
-      const promptParts: string[] = [effectivePrompt];
-      if (usersBlock) promptParts.push(`\n\n[PERFIS DE USUARIOS CONHECIDOS]:\n${usersBlock}`);
-      if (memoryBlock) promptParts.push(`\n\n[HISTORICO RECENTE DE FALAS - nao repita]:\n${memoryBlock}`);
-
-      const liveEvent = {
-        id: crypto.randomUUID(),
-        source: 'test',
-        zoneName: 'Simulação',
-        text: event.text,
-        kind: kindMap[event.type] || 'chat',
-        createdAt: new Date().toISOString(),
-        time: new Date().toLocaleTimeString(),
-      };
-
-      const response = await fetch(apiUrl('/ai/decide'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          persona_prompt: promptParts.join(''),
-          events: [liveEvent],
-          mode: 'autopilot_audited',
-          temperature: controls.temperature,
-        }),
-      });
-
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || 'Erro na decisão da IA');
-
-      const speech = data.speech || 'Hmm, vou acompanhar isso.';
-      const intent = data.intent || 'respond';
-      const confidence = data.confidence ?? 0.7;
-
-      // Add AI response to sim chat
-      setSimChat((prev) => [
-        ...prev,
-        {
-          kind: 'response' as const,
-          id: crypto.randomUUID(),
-          text: speech,
-          intent,
-          confidence: Math.round(confidence * 100),
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        },
-      ].slice(-200));
-      setSimResponses((n) => n + 1);
-
-      // Save to memory & user profiles
-      setMemory((current) => addTurn(current, event.text, speech, 'persona_studio'));
-      setUserProfiles((current) => trackUserInteraction(current, event.text));
-
-      // Also add to main response list
-      appendResponse({
-        response: speech,
-        context: event.text,
-        mode: 'live',
-        latencyMs: 0,
-      });
-
-      // TTS
-      await speakText(speech);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Erro';
-      setSimChat((prev) => [
-        ...prev,
-        {
-          kind: 'response' as const,
-          id: crypto.randomUUID(),
-          text: `[Erro: ${msg}]`,
-          intent: 'error',
-          confidence: 0,
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        },
-      ].slice(-200));
-    } finally {
-      simBusyRef.current = false;
-    }
-  }, [effectivePrompt, controls.temperature, memoryWindow]);
-
-  // Process simulation queue
-  useEffect(() => {
-    if (!simActive) return;
-    const interval = setInterval(() => {
-      if (simBusyRef.current || simQueueRef.current.length === 0) return;
-      const next = simQueueRef.current.shift();
-      if (next) processSimEvent(next);
-    }, 500);
-    return () => clearInterval(interval);
-  }, [simActive, processSimEvent]);
-
   const startSimulation = useCallback(() => {
     setSimChat([]);
-    setSimResponses(0);
     setSimStartTime(Date.now());
     setSimActive(true);
-    simQueueRef.current = [];
-    simBusyRef.current = false;
   }, []);
 
   const stopSimulation = useCallback(() => {
     setSimActive(false);
-    simQueueRef.current = [];
     if (simTimerRef.current) {
       clearTimeout(simTimerRef.current);
       simTimerRef.current = null;
@@ -567,22 +437,17 @@ Controles operacionais:
       }));
       setSimChat((prev) => [...prev, ...chatItems].slice(-200));
 
-      // Queue first event for AI processing (one per tick to avoid overload)
-      if (events.length > 0) {
-        simQueueRef.current.push(events[0]);
-      }
-
-      // Inject into capturedText for other tabs
+      // Route generated events to the Live Control Loop.
       const kindMap: Record<string, LiveEventKind> = {
         gift: 'gift', follow: 'alert', alert: 'alert', moderation: 'moderation', chat: 'chat',
       };
-      setCapturedText((prev: any[]) =>
+      setCapturedText((prev) =>
         [
           ...prev,
           ...events.map((e) => ({
             id: crypto.randomUUID(),
             source: 'test' as const,
-            zoneName: 'Simulação',
+            zoneName: 'Simulacao',
             text: e.text,
             kind: kindMap[e.type] || 'chat',
             createdAt: now.toISOString(),
@@ -625,18 +490,6 @@ Controles operacionais:
     await processChatContext(input, 'manual');
   };
 
-  const liveButton = isSimulating ? (
-    <>
-      <Square className="h-4 w-4 fill-current" />
-      Parar ao vivo
-    </>
-  ) : (
-    <>
-      <Play className="h-4 w-4 fill-current" />
-      Ativar ao vivo
-    </>
-  );
-
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[#0b0d12] text-slate-200">
       <div className="border-b border-slate-800 bg-[#11141c] px-4 py-4 lg:px-5">
@@ -648,7 +501,7 @@ Controles operacionais:
             <div>
               <h1 className="text-lg font-bold text-white">Persona Studio</h1>
               <p className="text-xs text-slate-400">
-                Controle de voz, memoria curta e respostas para a streamer em tempo real.
+                Configuracao da persona, memoria curta e testes manuais de voz.
               </p>
             </div>
           </div>
@@ -667,20 +520,10 @@ Controles operacionais:
             >
               <RefreshCw className="h-4 w-4" />
             </button>
-            <button
-              onClick={() => {
-                if (!isSimulating) lastProcessedIndexRef.current = capturedText.length - 1;
-                setIsSimulating((value) => !value);
-              }}
-              className={cn(
-                'inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-bold transition',
-                isSimulating
-                  ? 'border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20'
-                  : 'bg-violet-600 text-white shadow-lg shadow-violet-950/40 hover:bg-violet-500',
-              )}
-            >
-              {liveButton}
-            </button>
+            <span className="inline-flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-300">
+              <ShieldCheck className="h-4 w-4" />
+              Autopilot no Controle Live
+            </span>
           </div>
         </div>
       </div>
@@ -710,7 +553,7 @@ Controles operacionais:
                 <div className="rounded-md border border-slate-800 bg-[#0c0f16] p-2.5">
                   <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Modo</p>
                   <p className="mt-1 text-sm font-bold text-emerald-300">
-                    {isSimulating ? 'Ao vivo' : 'Estudio'}
+                    Studio
                   </p>
                 </div>
               </div>
@@ -846,8 +689,9 @@ Controles operacionais:
                   <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2">
                     <span className="text-[11px] font-bold uppercase tracking-widest text-slate-500">Live simulada</span>
                     <div className="flex items-center gap-3 text-[11px] text-slate-500">
-                      <span className="text-violet-300">{simResponses} respostas</span>
-                      <span>{simChat.filter((i) => i.kind === 'event').length} eventos</span>
+                      <span className="text-violet-300">
+                        {simChat.filter((i) => i.kind === 'event').length} eventos roteados
+                      </span>
                     </div>
                   </div>
                   <div className="max-h-72 overflow-y-auto p-2">
@@ -881,15 +725,14 @@ Controles operacionais:
                     <span>🎁 {simChat.filter((i) => i.kind === 'event' && i.event.type === 'gift').length}</span>
                     <span>👋 {simChat.filter((i) => i.kind === 'event' && i.event.type === 'follow').length}</span>
                     <span>🛡️ {simChat.filter((i) => i.kind === 'event' && i.event.type === 'moderation').length}</span>
-                    <span className="ml-auto text-violet-300">🎙️ {simResponses}</span>
+                    <span className="ml-auto text-violet-300">Controle Live decide e fala</span>
                   </div>
                 </div>
               )}
 
               {simChat.length === 0 && !simActive && (
                 <div className="rounded-md border border-dashed border-slate-700 p-4 text-center text-xs text-slate-500">
-                  Inicie a simulação para gerar uma live completa. A persona vai ler mensagens,
-                  agradecer presentes, moderar spam e conversar com o chat em tempo real.
+                  Inicie a simulacao para gerar eventos de teste. O Controle Live decide, audita e fala.
                 </div>
               )}
             </div>
@@ -977,7 +820,7 @@ Controles operacionais:
                   </div>
                 ) : (
                   <div className="rounded-lg border border-dashed border-slate-700 p-5 text-center text-sm text-slate-500">
-                    Gere um teste ou ative o ao vivo para ver a proxima fala da Juju.
+                    Gere um teste manual para ver a proxima fala da Juju.
                   </div>
                 )}
               </div>

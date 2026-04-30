@@ -167,7 +167,7 @@ function normalizeAction(action: Partial<AutopilotAction>, index: number): Autop
     type,
     label: action.label || ACTION_LABELS[type],
     payload: action.payload || {},
-    simulated: action.simulated ?? type !== 'speak',
+    simulated: type !== 'speak',
     status: 'queued',
   };
 }
@@ -492,9 +492,11 @@ export default function LiveAutopilotConsole({
   };
 
   const clearSession = () => {
+    setAutopilotEnabled(false);
     setPendingEvents([]);
     setCycles([]);
     setActionQueue([]);
+    setCapturedText([]);
     processedIdsRef.current.clear();
   };
 
