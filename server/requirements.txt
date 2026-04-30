@@ -1,0 +1,11 @@
+easyocr
+edge-tts
+fastapi
+google-genai
+numpy
+openai
+Pillow
+pydantic
+pyautogui
+python-dotenv
+uvicorn[standard]

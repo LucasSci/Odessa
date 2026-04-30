@@ -1,0 +1,1448 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { 
+  Camera, 
+  Play, 
+  Pause, 
+  Settings, 
+  FileText, 
+  Trash2, 
+  Crosshair, 
+  Save, 
+  AlertCircle,
+  Clock,
+  Terminal,
+  ExternalLink
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { createWorker } from 'tesseract.js';
+import { cn } from './lib/utils';
+import { GoogleGenAI } from "@google/genai";
+
+// Types
+interface SelectionRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+enum Status {
+  IDLE = 'Parado',
+  CAPTURING = 'Capturando',
+  SELECTING = 'Selecionando Área',
+  ERROR = 'Erro',
+}
+
+export default function App() {
+  // State
+  const [status, setStatus] = useState<Status>(Status.IDLE);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [zones, setZones] = useState<SelectionRect[]>([{ x: 100, y: 100, width: 400, height: 300 }]);
+  const [activeZoneIndex, setActiveZoneIndex] = useState<number>(0);
+  const [magnification, setMagnification] = useState<number>(3);
+  const [contrast, setContrast] = useState<number>(2.5);
+  const [showProcessedPreview, setShowProcessedPreview] = useState<boolean>(true);
+  const [invertOCR, setInvertOCR] = useState<boolean>(false);
+  const [brightness, setBrightness] = useState<number>(1.2);
+  const [intervalTime, setIntervalTime] = useState<number>(2000);
+  const [capturedText, setCapturedText] = useState<{ text: string; time: string }[]>([]);
+  const [lastTexts, setLastTexts] = useState<Record<number, string>>({});
+  const [filePath, setFilePath] = useState<string | null>(null);
+  const [threshold, setThreshold] = useState<number>(0);
+  const [psm, setPsm] = useState<string>('6'); // Uniform block often works better for chat line by line
+  const [error, setError] = useState<string | null>(null);
+  const [isInIframe, setIsInIframe] = useState<boolean>(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [currentRawText, setCurrentRawText] = useState<string>('');
+  const [isWorkerReady, setIsWorkerReady] = useState<boolean>(false);
+  const [workerLoadingProgress, setWorkerLoadingProgress] = useState<number>(0);
+  const [lastCaptureTime, setLastCaptureTime] = useState<string>('Nunca');
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [debugMode, setDebugMode] = useState<boolean>(true);
+  const [autoOptimize, setAutoOptimize] = useState<boolean>(true);
+  const logEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Auto-scroll log
+  useEffect(() => {
+    if (logEndRef.current) {
+      logEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [capturedText]);
+
+  // Refs for stable capture cycle
+  const magnificationRef = useRef(magnification);
+  const contrastRef = useRef(contrast);
+  const brightnessRef = useRef(brightness);
+  const thresholdRef = useRef(threshold);
+  const invertOCRRef = useRef(invertOCR);
+  const autoOptimizeRef = useRef(autoOptimize);
+  const psmRef = useRef(psm);
+  const debugModeRef = useRef(debugMode);
+  const intervalTimeRef = useRef(intervalTime);
+  const zonesRef = useRef(zones);
+  const capturedTextRef = useRef(capturedText);
+  const lastTextsRef = useRef(lastTexts);
+
+  // Sync refs with state
+  useEffect(() => { magnificationRef.current = magnification; }, [magnification]);
+  useEffect(() => { contrastRef.current = contrast; }, [contrast]);
+  useEffect(() => { brightnessRef.current = brightness; }, [brightness]);
+  useEffect(() => { thresholdRef.current = threshold; }, [threshold]);
+  useEffect(() => { invertOCRRef.current = invertOCR; }, [invertOCR]);
+  useEffect(() => { autoOptimizeRef.current = autoOptimize; }, [autoOptimize]);
+  useEffect(() => { psmRef.current = psm; }, [psm]);
+  useEffect(() => { debugModeRef.current = debugMode; }, [debugMode]);
+  useEffect(() => { intervalTimeRef.current = intervalTime; }, [intervalTime]);
+  useEffect(() => { zonesRef.current = zones; }, [zones]);
+  useEffect(() => { capturedTextRef.current = capturedText; }, [capturedText]);
+  useEffect(() => { lastTextsRef.current = lastTexts; }, [lastTexts]);
+
+  // Refs
+  const [dragInfo, setDragInfo] = useState<{ type: string; startX: number; startY: number; startRect: SelectionRect } | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const isBusyRef = useRef<boolean>(false);
+
+  // Helper to get actual video dimensions and offsets within the object-contain container
+  const getVideoLayout = () => {
+    if (!videoRef.current || !containerRef.current) return { x: 0, y: 0, width: 1, height: 1, scale: 1, vWidth: 1280, vHeight: 720 };
+    const video = videoRef.current;
+    
+    const container = containerRef.current.getBoundingClientRect();
+    
+    const vWidth = video.videoWidth || 1280;
+    const vHeight = video.videoHeight || 720;
+    const videoAspect = vWidth / vHeight;
+    const containerAspect = container.width / container.height;
+    
+    let renderWidth, renderHeight, offsetX, offsetY;
+    if (videoAspect > containerAspect) {
+      renderWidth = container.width;
+      renderHeight = container.width / videoAspect;
+      offsetX = 0;
+      offsetY = (container.height - renderHeight) / 2;
+    } else {
+      renderHeight = container.height;
+      renderWidth = container.height * videoAspect;
+      offsetY = 0;
+      offsetX = (container.width - renderWidth) / 2;
+    }
+    
+    return {
+      x: offsetX,
+      y: offsetY,
+      width: renderWidth,
+      height: renderHeight,
+      vWidth,
+      vHeight
+    };
+  };
+
+  // Mouse Handlers for Selection
+  const handleMouseDown = (e: React.MouseEvent, type: string) => {
+    if (!containerRef.current || !videoRef.current) return;
+    e.stopPropagation();
+    
+    const layout = getVideoLayout();
+    const rect = containerRef.current.getBoundingClientRect();
+    
+    // Calculate click relative to actual video area
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+    
+    const x = ((clickX - layout.x) / layout.width) * 1280;
+    const y = ((clickY - layout.y) / layout.height) * 720;
+
+    setDragInfo({
+      type,
+      startX: x,
+      startY: y,
+      startRect: { ...zones[activeZoneIndex] }
+    });
+  };
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!dragInfo || !containerRef.current) return;
+
+    const layout = getVideoLayout();
+    const rect = containerRef.current.getBoundingClientRect();
+    
+    const currentRelX = e.clientX - rect.left;
+    const currentRelY = e.clientY - rect.top;
+    
+    const currentX = ((currentRelX - layout.x) / layout.width) * 1280;
+    const currentY = ((currentRelY - layout.y) / layout.height) * 720;
+
+    const dx = currentX - dragInfo.startX;
+    const dy = currentY - dragInfo.startY;
+
+    setZones(prev => {
+      const newZones = [...prev];
+      const target = { ...newZones[activeZoneIndex] };
+      
+      if (dragInfo.type === 'move') {
+        target.x = Math.max(0, Math.min(1280 - target.width, dragInfo.startRect.x + dx));
+        target.y = Math.max(0, Math.min(720 - target.height, dragInfo.startRect.y + dy));
+      } else if (dragInfo.type === 'br') {
+        target.width = Math.max(20, Math.min(1280 - target.x, dragInfo.startRect.width + dx));
+        target.height = Math.max(20, Math.min(720 - target.y, dragInfo.startRect.height + dy));
+      } else if (dragInfo.type === 'tl') {
+        const nx = Math.max(0, Math.min(target.x + target.width - 20, dragInfo.startRect.x + dx));
+        const ny = Math.max(0, Math.min(target.y + target.height - 20, dragInfo.startRect.y + dy));
+        target.width = target.width + (target.x - nx);
+        target.height = target.height + (target.y - ny);
+        target.x = nx;
+        target.y = ny;
+      }
+      
+      newZones[activeZoneIndex] = target;
+      return newZones;
+    });
+  }, [dragInfo, activeZoneIndex]);
+
+  const handleMouseUp = useCallback(() => {
+    setDragInfo(null);
+  }, []);
+
+  // Update Tesseract Parameters when they change
+  useEffect(() => {
+    if (tesseractWorkerRef.current && isWorkerReady) {
+        tesseractWorkerRef.current.setParameters({
+            tessedit_pageseg_mode: psm as any,
+        }).catch(err => console.error('Error updating PSM:', err));
+    }
+  }, [psm, isWorkerReady]);
+
+  // Helper for manual image processing
+  const applyThreshold = (ctx: CanvasRenderingContext2D, width: number, height: number, thres: number) => {
+    const imgData = ctx.getImageData(0, 0, width, height);
+    const data = imgData.data;
+    for (let i = 0; i < data.length; i += 4) {
+        // Simple binary thresholding
+        const brightness = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+        const val = brightness > thres ? 255 : 0;
+        data[i] = data[i+1] = data[i+2] = val;
+    }
+    ctx.putImageData(imgData, 0, 0);
+  };
+
+  // Helper for auto-optimization analysis
+  const analyzeAndOptimize = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
+    if (!autoOptimize) return;
+    
+    const imgData = ctx.getImageData(0, 0, width, height);
+    const data = imgData.data;
+    let totalLuminance = 0;
+    
+    // Sampling for efficiency
+    const step = 4 * 4; // Check every 4th pixel
+    let count = 0;
+    for (let i = 0; i < data.length; i += step) {
+      const r = data[i];
+      const g = data[i+1];
+      const b = data[i+2];
+      totalLuminance += (0.2126 * r + 0.7152 * g + 0.0722 * b);
+      count++;
+    }
+    
+    const avgLuminance = totalLuminance / count;
+    
+    // target luminance is around 128 (middle gray)
+    // Adjust brightness if too far off
+    if (avgLuminance < 80) {
+      setBrightness(prev => Math.min(2.0, prev + 0.05));
+    } else if (avgLuminance > 180) {
+      setBrightness(prev => Math.max(0.5, prev - 0.05));
+    }
+    
+    // Simple contrast adjustment: if the range is too narrow, increase contrast
+    // (This is a simplified heuristic)
+    if (avgLuminance > 100 && avgLuminance < 150) {
+      setContrast(prev => Math.min(4.0, prev + 0.02));
+    }
+  };
+
+  // Live Preview Update for Calibration
+  useEffect(() => {
+    if (!showProcessedPreview || !stream || status === Status.CAPTURING) return;
+    
+    const updatePreview = async () => {
+        if (!videoRef.current || !captureCanvasRef.current) return;
+        const video = videoRef.current;
+        const canvas = captureCanvasRef.current;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const zone = zones[activeZoneIndex];
+
+        if (ctx && zone) {
+            const layout = getVideoLayout();
+            canvas.width = zone.width * magnification;
+            canvas.height = zone.height * magnification;
+            
+            const scaleX = layout.vWidth / 1280;
+            const scaleY = layout.vHeight / 720;
+            
+            ctx.filter = `grayscale(1) contrast(${contrast}) brightness(${brightness}) saturate(0) ${invertOCR ? 'invert(1)' : ''}`;
+            ctx.drawImage(
+                video,
+                zone.x * scaleX, zone.y * scaleY, 
+                zone.width * scaleX, zone.height * scaleY,
+                0, 0, canvas.width, canvas.height
+            );
+
+            // Apply manual thresholding for pure black and white
+            if (threshold > 0 && threshold < 255) {
+                applyThreshold(ctx, canvas.width, canvas.height, threshold);
+            } else if (autoOptimize) {
+                analyzeAndOptimize(ctx, canvas.width, canvas.height);
+            }
+
+            setPreviewImage(canvas.toDataURL('image/jpeg', 0.7));
+        }
+    };
+
+    const interval = setInterval(updatePreview, 300);
+    return () => clearInterval(interval);
+  }, [showProcessedPreview, stream, status, zones, activeZoneIndex, magnification, contrast, brightness, invertOCR, threshold]);
+
+
+  useEffect(() => {
+    if (dragInfo) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [dragInfo, handleMouseMove, handleMouseUp]);
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Check if in iframe on mount
+  useEffect(() => {
+    try {
+      setIsInIframe(window.self !== window.top);
+    } catch (e) {
+      setIsInIframe(true);
+    }
+  }, []);
+
+  // Sync stream to video element
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fileHandleRef = useRef<FileSystemFileHandle | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const tesseractWorkerRef = useRef<Tesseract.Worker | null>(null);
+
+  // Constants
+  const AI_MODEL = "gemini-1.5-flash"; // More stable for extraction
+  
+  const getGenAI = () => {
+    const apiKey = (process.env.GEMINI_API_KEY || (import.meta as any).env?.VITE_GEMINI_API_KEY) as string;
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY is not defined in the environment.");
+    }
+    return new GoogleGenAI({ apiKey });
+  };
+
+  // Initialize Tesseract Worker
+  useEffect(() => {
+    let worker: Tesseract.Worker | null = null;
+    const initWorker = async () => {
+      try {
+        console.log('Initializing Tesseract Worker...');
+        setIsWorkerReady(false);
+        setWorkerLoadingProgress(0);
+        worker = await createWorker('por+eng', 1, {
+          logger: m => {
+            if (m.status === 'recognizing text') {
+              setWorkerLoadingProgress(Math.round(m.progress * 100));
+            }
+          }
+        });
+        await worker.setParameters({
+          tessedit_pageseg_mode: '6' as any, // Assume a single uniform block of text
+          tessedit_char_whitelist: '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZáéíóúàèìòùâêîôûãõçÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÃÕÇ!@#$%^&*()-_=+[]{};:,.<>?/| ' // Broad whitelist for Latin characters
+        });
+        tesseractWorkerRef.current = worker;
+        setIsWorkerReady(true);
+        console.log('Tesseract Worker Ready');
+      } catch (err) {
+        console.error('Failed to init Tesseract:', err);
+        setError('Erro ao carregar motor OCR. Tente atualizar a página.');
+      }
+    };
+    initWorker();
+    return () => {
+      worker?.terminate();
+    };
+  }, []);
+
+  // Screen selection
+  const selectScreen = async () => {
+    try {
+      const streamData = await (navigator.mediaDevices as any).getDisplayMedia({
+        video: { cursor: 'always' } as any,
+        audio: false
+      });
+      setStream(streamData);
+      setStatus(Status.SELECTING);
+      
+      // Cleanup on stream end
+      streamData.getVideoTracks()[0].onended = () => {
+        stopCapture();
+        setStream(null);
+      };
+    } catch (err: any) {
+      console.error(err);
+      if (err.name === 'NotAllowedError' || err.message.includes('permissions policy') || err.message.includes('Permission denied')) {
+        if (isInIframe) {
+          setError('Acesso negado ou bloqueado no preview. Por favor, clique no botão "Abrir em nova aba" no canto superior direito para permitir a captura de tela.');
+        } else {
+          setError('Permissão negada. Certifique-se de permitir o acesso à tela/janela no prompt do navegador.');
+        }
+      } else {
+        setError('Erro ao acessar a tela: ' + (err.message || 'Erro desconhecido'));
+      }
+      setStatus(Status.ERROR);
+    }
+  };
+
+  // Start Capture Loop
+  const startCapture = () => {
+    if (!stream) {
+      setError('Selecione uma área da tela primeiro.');
+      return;
+    }
+    if (!fileHandleRef.current) {
+        // Fallback: If no file handle, we'll just keep it in memory
+        if (!filePath) {
+            setError('Aviso: Nenhum arquivo selecionado. O Log será mantido apenas em memória nesta sessão.');
+            setFilePath('Memória (Sessão Virtual)');
+        }
+    }
+    setStatus(Status.CAPTURING);
+    setError(null);
+    runCaptureCycle();
+  };
+
+  const testOCR = async () => {
+    if (!stream || !isWorkerReady || isProcessing) return;
+    try {
+        console.log('Testing OCR with manual capture...');
+        const originalStatus = status;
+        setStatus(Status.CAPTURING);
+        setIsProcessing(true);
+        
+        // Single cycle
+        setTimeout(async () => {
+            await runCaptureCycle();
+            setStatus(originalStatus);
+            setIsProcessing(false);
+            console.log('Test OCR complete.');
+        }, 100);
+    } catch (err) {
+        console.error('Test OCR failed:', err);
+        setIsProcessing(false);
+    }
+  };
+
+  const pauseCapture = () => {
+    setStatus(Status.IDLE);
+    if (timerRef.current) clearTimeout(timerRef.current);
+  };
+
+  const stopCapture = () => {
+    pauseCapture();
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      setStream(null);
+    }
+  };
+
+  const appendToFile = async (text: string) => {
+    const timestamp = new Date().toLocaleTimeString();
+    const contentToAppend = `[${timestamp}] ${text}`;
+
+    if (!fileHandleRef.current) {
+      // In-memory fallback if file system access is blocked
+      console.log('Appending to virtual log:', contentToAppend);
+      return;
+    }
+    
+    try {
+      const writable = await fileHandleRef.current.createWritable({ keepExistingData: true });
+      const currentBlob = await fileHandleRef.current.getFile();
+      const currentSize = currentBlob.size;
+      
+      const newline = currentSize > 0 ? '\n' : '';
+      
+      await writable.write({ type: 'write', position: currentSize, data: newline + contentToAppend });
+      await writable.close();
+    } catch (err: any) {
+      console.error('File write error:', err);
+      if (err.message.includes('cross origin')) {
+          setError('Acesso ao sistema de arquivos bloqueado no preview. O texto será capturado apenas na tela. Abra em nova aba para salvar no PC.');
+          fileHandleRef.current = null; // Switch to virtual mode
+      } else {
+          setError('Erro ao escrever no arquivo: ' + err.message);
+      }
+    }
+  };
+
+  const processExtractedText = useCallback(async (text: string, zoneIndex: number) => {
+    if (!text || text.length < 1) return;
+    
+    // Check against last captured text for this specific zone context
+    const currentLastTexts = lastTextsRef.current;
+    if (text === currentLastTexts[zoneIndex]) return;
+
+    try {
+        const genAI = getGenAI();
+        const model = (genAI as any).getGenerativeModel({ 
+            model: AI_MODEL,
+            systemInstruction: `Você é um monitor de chat ultra-preciso. Sua missão é extrair novas mensagens de chat vindas de um OCR ruidoso.
+            
+            CONTEXTO: Esta é a Zona de Captura ${zoneIndex + 1}.
+            
+            DIRETRIZES DE PUREZA SEMÂNTICA:
+            1. LIMPEZA: Remova lixo de OCR (caratere como | , . _ - soltos).
+            2. DETECÇÃO DE DUPLICATAS: Compare a nova mensagem com o HISTÓRICO RECENTE. 
+            3. SEMÂNTICA: Se a mensagem atual for contextualmente a mesma que uma mensagem recente (ex: a mesma frase picada pelo OCR ou uma pequena variação de pontuação), retorne IGNORE.
+            4. NOVAS MENSAGENS: Apenas retorne o texto se for uma mensagem REALMENTE nova ou uma continuação clara.
+            5. LIXO: Se o texto for ilegível, comandos de sistema irrelevantes ou apenas fragmentos, retorne IGNORE.`
+        });
+
+        const currentHistory = capturedTextRef.current;
+        const result = await model.generateContent(`HISTÓRICO RECENTE (Últimas 15 mensagens):\n${currentHistory.map(t => t.text).slice(-15).join('\n')}\n\nTEXTO OCR BRUTO ATUAL (ZONA ${zoneIndex + 1}):\n${text}\n\nINSTRUÇÃO: Extraia apenas mensagens novas e únicas. Se for repetitiva ou lixo, responda apenas: IGNORE`);
+        const response = await result.response;
+        const cleanedText = response.text().trim();
+        
+        console.log(`Zone ${zoneIndex + 1} Gemini Response:`, cleanedText);
+
+        if (debugModeRef.current) {
+            const time = new Date().toLocaleTimeString();
+            const debugText = `[RAW ZONE ${zoneIndex + 1}] ${text}`;
+            setCapturedText(prev => [...prev, { text: debugText, time }].slice(-100));
+            appendToFile(debugText);
+            setLastTexts(prev => ({ ...prev, [zoneIndex]: text }));
+            return;
+        }
+
+        if (cleanedText && cleanedText !== 'IGNORE' && !cleanedText.includes('IGNORE')) {
+            const time = new Date().toLocaleTimeString();
+            
+            setCapturedText(prev => {
+                const isDuplicate = prev.length > 0 && prev[prev.length - 1].text === cleanedText;
+                if (isDuplicate) return prev;
+                
+                appendToFile(cleanedText);
+                return [...prev, { text: cleanedText, time }].slice(-100);
+            });
+            
+            setLastTexts(prev => ({ ...prev, [zoneIndex]: text }));
+        } else {
+            if (text.length > 50) setLastTexts(prev => ({ ...prev, [zoneIndex]: text }));
+        }
+    } catch (err) {
+        console.error('Gemini error:', err);
+    }
+  }, []);
+
+  // The Capture Cycle
+  const runCaptureCycle = useCallback(async () => {
+    if (status !== Status.CAPTURING || !videoRef.current || !captureCanvasRef.current || isBusyRef.current) {
+        return;
+    }
+
+    try {
+      if (debugModeRef.current) console.log('Starting Capture Cycle...');
+      isBusyRef.current = true;
+      setIsProcessing(true);
+      
+      const video = videoRef.current;
+      const canvas = captureCanvasRef.current;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      
+      if (ctx) {
+        const currentZones = zonesRef.current;
+        const currentMagnification = magnificationRef.current;
+        const currentContrast = contrastRef.current;
+        const currentBrightness = brightnessRef.current;
+        const currentThreshold = thresholdRef.current;
+        const currentInvert = invertOCRRef.current;
+        const currentAutoOptimize = autoOptimizeRef.current;
+
+        // We iterate through all zones and process them
+        for (let i = 0; i < currentZones.length; i++) {
+          const zone = currentZones[i];
+          const layout = getVideoLayout();
+          
+          if (debugModeRef.current) console.log(`Processing Zone ${i+1}:`, zone);
+
+          // Magnification: Resolution multiplier for better character definition
+          canvas.width = zone.width * currentMagnification;
+          canvas.height = zone.height * currentMagnification;
+          
+          const videoW = video.videoWidth || 1280;
+          const videoH = video.videoHeight || 720;
+          const scaleX = videoW / 1280;
+          const scaleY = videoH / 720;
+          
+          // Image Processing for OCR optimization
+          ctx.filter = `grayscale(1) contrast(${currentContrast}) brightness(${currentBrightness}) saturate(0) ${currentInvert ? 'invert(1)' : ''}`;
+          
+          ctx.drawImage(
+            video,
+            zone.x * scaleX, zone.y * scaleY, 
+            zone.width * scaleX, zone.height * scaleY,
+            0, 0, canvas.width, canvas.height
+          );
+          
+          // Apply manual thresholding for pure black and white if set
+          if (currentThreshold > 0 && currentThreshold < 255) {
+            applyThreshold(ctx, canvas.width, canvas.height, currentThreshold);
+          } else if (currentAutoOptimize) {
+            analyzeAndOptimize(ctx, canvas.width, canvas.height);
+          }
+
+          if (currentMagnification > 3) {
+            ctx.filter = 'contrast(1.1) brightness(1.05)';
+            ctx.drawImage(canvas, 0, 0);
+          }
+
+          if (i === activeZoneIndex) {
+            const imageDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            setPreviewImage(imageDataUrl);
+          }
+
+          // Call the backend OCR service
+          if (debugModeRef.current) console.log(`Calling backend OCR for zone ${i+1}...`);
+          
+          try {
+            const videoW = video.videoWidth || 1280;
+            const videoH = video.videoHeight || 720;
+            
+            // Send screen coordinates to backend
+            const response = await fetch('http://localhost:8000/ocr', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                x: Math.round(zone.x),
+                y: Math.round(zone.y),
+                width: Math.round(zone.width),
+                height: Math.round(zone.height)
+              })
+            });
+            
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            const text = data.text || '';
+            const trimmed = text.trim();
+            
+            if (debugModeRef.current) {
+              console.log(`Backend OCR Result for zone ${i+1}: "${trimmed}"`);
+              if (data.error) console.error(`OCR Error: ${data.error}`);
+            }
+
+            if (i === activeZoneIndex) {
+              setCurrentRawText(trimmed || "(Nenhum texto detectado)");
+              setLastCaptureTime(new Date().toLocaleTimeString());
+            }
+
+            if (trimmed.length > 1) {
+              await processExtractedText(trimmed, i);
+            }
+          } catch (err) {
+            const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+            if (debugModeRef.current) console.error('Backend OCR error:', errorMsg);
+            setError('Erro ao conectar com o servidor OCR local. Certifique-se de que está rodando na porta 8000.');
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Capture error:', err);
+      setError('Erro durante captura: ' + (err as any).message);
+    } finally {
+      setIsProcessing(false);
+      isBusyRef.current = false;
+      if (status === Status.CAPTURING) {
+        timerRef.current = setTimeout(runCaptureCycle, intervalTimeRef.current);
+      }
+    }
+  }, [status, activeZoneIndex, processExtractedText]);
+
+  // Handle re-triggering cycle when status becomes capturing
+  useEffect(() => {
+    if (status === Status.CAPTURING) {
+      runCaptureCycle();
+    }
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [status, runCaptureCycle]);
+
+
+  const chooseFile = async () => {
+    if (isInIframe) {
+      setError('O navegador bloqueia salvamento em disco dentro do preview. Por favor, abra o app em uma "Nova Aba" (botão no canto superior) para habilitar esta função.');
+      return;
+    }
+
+    try {
+      if (!('showSaveFilePicker' in window)) {
+        setError('Seu navegador não suporta a API de Arquivos (FileSystem API). Use o botão "Baixar Log" como alternativa.');
+        return;
+      }
+      const handle = await (window as any).showSaveFilePicker({
+        suggestedName: 'captura_chat.txt',
+        types: [{
+          description: 'Arquivo de Texto',
+          accept: { 'text/plain': ['.txt'] },
+        }],
+      });
+      fileHandleRef.current = handle;
+      setFilePath(handle.name);
+      setError(null);
+    } catch (err: any) {
+      console.error(err);
+      if (err.name === 'AbortError') return;
+      
+      if (err.message?.includes('Cross origin sub frames') || err.name === 'SecurityError') {
+        setError('Bloqueio de Segurança: O seletor de arquivos não pode ser aberto aqui. Clique em "Abrir em nova aba" para salvar em disco.');
+      } else {
+        setError('Erro ao abrir seletor de arquivos: ' + err.message);
+      }
+    }
+  };
+
+  const addZone = () => {
+    if (zones.length >= 4) {
+      setError('Limite de 4 zonas atingido.');
+      return;
+    }
+    setZones(prev => [...prev, { x: 150, y: 150, width: 300, height: 200 }]);
+    setActiveZoneIndex(zones.length);
+  };
+
+  const removeZone = (index: number) => {
+    if (zones.length <= 1) return;
+    setZones(prev => prev.filter((_, i) => i !== index));
+    setActiveZoneIndex(Math.max(0, activeZoneIndex - (index <= activeZoneIndex ? 1 : 0)));
+    setLastTexts(prev => {
+      const next = { ...prev };
+      delete next[index];
+      return next;
+    });
+  };
+
+  const downloadLog = () => {
+    if (capturedText.length === 0) return;
+    const fullLog = capturedText.map(t => `[${t.time}] ${t.text}`).join('\n');
+    const blob = new Blob([fullLog], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `log_captura_${new Date().toISOString().split('T')[0]}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const clearHistory = () => {
+      setCapturedText([]);
+      setLastTexts({});
+  };
+
+  return (
+    <div className="h-screen flex flex-col bg-[#0F0F11] font-sans">
+      {error && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-md bg-red-600 text-white px-4 py-3 rounded shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          <div className="flex-1 text-[13px] font-medium leading-tight">
+            {error}
+          </div>
+          <button onClick={() => setError(null)} className="p-1 hover:bg-white/20 rounded transition-colors">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Top Bar */}
+      <header className="h-16 border-b border-[#334155] bg-[#1C1D21] flex items-center justify-between px-6 shrink-0 z-50">
+        <div className="flex items-center gap-3">
+          <div className="w-6 h-6 border-2 border-[#E11D48] rounded-[4px] relative after:content-[''] after:absolute after:inset-1 after:border after:border-[#E11D48]" />
+          <h1 className="text-lg font-bold tracking-tight text-[#E2E8F0]">
+            Assistente de Captura <span className="text-[#94A3B8] font-light">v1.0</span>
+          </h1>
+        </div>
+        
+        <div className={cn(
+          "flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-bold tracking-widest uppercase transition-all",
+          status === Status.CAPTURING ? "bg-[#881337] text-white" : "bg-[#334155] text-[#94A3B8]"
+        )}>
+          <div className={cn(
+            "w-2 h-2 rounded-full",
+            status === Status.CAPTURING ? "bg-white animate-pulse-white" : "bg-[#94A3B8]"
+          )} />
+          {status === Status.CAPTURING ? "Captura Ativa" : status}
+        </div>
+      </header>
+
+      <main className="flex-1 flex overflow-hidden">
+        {/* Sidebar */}
+        <aside className="w-[340px] border-r border-[#334155] bg-[#1C1D21] p-6 flex flex-col gap-6 overflow-y-auto">
+          {/* Section: Zonas de Captura */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-[11px] uppercase tracking-[0.1em] text-[#94A3B8] font-bold">Zonas de Captura</h2>
+              <button 
+                onClick={addZone}
+                className="text-[10px] text-[#E11D48] hover:text-white font-bold transition-colors"
+                disabled={zones.length >= 4}
+              >
+                + ADICIONAR
+              </button>
+            </div>
+            
+            <div className="space-y-2">
+              {zones.map((zone, idx) => (
+                <div 
+                  key={idx}
+                  onClick={() => setActiveZoneIndex(idx)}
+                  className={cn(
+                    "group flex items-center justify-between p-2 rounded border cursor-pointer transition-all",
+                    activeZoneIndex === idx 
+                      ? "bg-[#E11D4811] border-[#E11D48] shadow-[0_0_10px_rgba(225,29,72,0.1)]" 
+                      : "bg-[#0F0F11] border-[#334155] hover:border-[#475569]"
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className={cn(
+                      "w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold",
+                      activeZoneIndex === idx ? "bg-[#E11D48] text-white" : "bg-[#334155] text-[#94A3B8]"
+                    )}>
+                      {idx + 1}
+                    </div>
+                    <span className="text-[12px] text-[#E2E8F0] font-medium">Bloco {idx + 1}</span>
+                  </div>
+                  {zones.length > 1 && (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); removeZone(idx); }}
+                      className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 transition-all"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="bg-[#0F0F11] border border-[#334155] rounded-lg p-4 space-y-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[12px] text-[#94A3B8]">Contraste OCR</label>
+                    <span className="text-[10px] bg-[#334155] text-[#E2E8F0] px-1.5 rounded">{contrast.toFixed(1)}</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="1" 
+                    max="4" 
+                    step="0.1"
+                    value={contrast}
+                    onChange={(e) => setContrast(parseFloat(e.target.value))}
+                    className="w-full appearance-none bg-[#334155] h-1 rounded-full accent-[#E11D48] cursor-pointer"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[12px] text-[#94A3B8]">Luminosidade</label>
+                    <span className="text-[10px] bg-[#334155] text-[#E2E8F0] px-1.5 rounded">{brightness.toFixed(1)}</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0.5" 
+                    max="2" 
+                    step="0.1"
+                    value={brightness}
+                    onChange={(e) => setBrightness(parseFloat(e.target.value))}
+                    className="w-full appearance-none bg-[#334155] h-1 rounded-full accent-[#E11D48] cursor-pointer"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[12px] text-[#94A3B8]">Zoom da Lente</label>
+                    <span className="text-[10px] bg-[#334155] text-[#E2E8F0] px-1.5 rounded">{magnification}X</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="1" 
+                    max="10" 
+                    step="1"
+                    value={magnification}
+                    onChange={(e) => setMagnification(parseInt(e.target.value))}
+                    className="w-full appearance-none bg-[#334155] h-1 rounded-full accent-[#E11D48] cursor-pointer"
+                  />
+                  <p className="text-[9px] text-[#64748B]">Aumenta a resolução para capturar textos pequenos.</p>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[12px] text-[#94A3B8]">Limiar (Threshold)</label>
+                    <span className="text-[10px] bg-[#334155] text-[#E2E8F0] px-1.5 rounded">{threshold}</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max="255" 
+                    step="1"
+                    value={threshold}
+                    onChange={(e) => setThreshold(parseInt(e.target.value))}
+                    className="w-full appearance-none bg-[#334155] h-1 rounded-full accent-[#E11D48] cursor-pointer"
+                  />
+                  <p className="text-[9px] text-[#64748B]">Transforma em Preto e Branco puro. Experimente se falhar.</p>
+                </div>
+                <div className="flex flex-col gap-2 py-2">
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="checkbox" 
+                      id="autoOptimize"
+                      checked={autoOptimize}
+                      onChange={(e) => setAutoOptimize(e.target.checked)}
+                      className="w-3 h-3 accent-[#E11D48]"
+                    />
+                    <label htmlFor="autoOptimize" className="text-[12px] text-[#E2E8F0] font-medium">Auto-Otimização (IA)</label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="checkbox" 
+                      id="debugMode"
+                      checked={debugMode}
+                      onChange={(e) => setDebugMode(e.target.checked)}
+                      className="w-3 h-3 accent-[#E11D48]"
+                    />
+                    <label htmlFor="debugMode" className="text-[12px] text-[#E2E8F0] font-medium">Modo Debug (Geral)</label>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[12px] text-[#94A3B8]">Modo Segmentação (PSM)</label>
+                  <select 
+                    value={psm}
+                    onChange={(e) => setPsm(e.target.value)}
+                    className="w-full bg-black border border-[#334155] rounded-md px-2 py-2 text-[12px] text-[#E2E8F0] outline-none"
+                  >
+                    <option value="3">3 - Fully Automatic</option>
+                    <option value="4">4 - Coluna Variável (Recomendado)</option>
+                    <option value="6">6 - Bloco Uniforme</option>
+                    <option value="7">7 - Linha Única</option>
+                    <option value="11">11 - Sparse Text</option>
+                  </select>
+                </div>
+                  <div className="grid grid-cols-2 gap-2">
+                  <div className="relative">
+                    <span className="absolute left-2 top-1.5 text-[8px] text-[#E11D48] font-bold">X</span>
+                    <input 
+                      type="number"
+                      value={Math.round(zones[activeZoneIndex].x)}
+                      onChange={(e) => setZones(prev => {
+                        const next = [...prev];
+                        next[activeZoneIndex] = { ...next[activeZoneIndex], x: parseInt(e.target.value) || 0 };
+                        return next;
+                      })}
+                      className="w-full bg-black border border-[#334155] rounded-md pl-5 pr-2 py-2 font-mono text-[12px] text-[#E2E8F0] focus:border-[#E11D48] outline-none"
+                    />
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-2 top-1.5 text-[8px] text-[#E11D48] font-bold">Y</span>
+                    <input 
+                      type="number"
+                      value={Math.round(zones[activeZoneIndex].y)}
+                      onChange={(e) => setZones(prev => {
+                        const next = [...prev];
+                        next[activeZoneIndex] = { ...next[activeZoneIndex], y: parseInt(e.target.value) || 0 };
+                        return next;
+                      })}
+                      className="w-full bg-black border border-[#334155] rounded-md pl-5 pr-2 py-2 font-mono text-[12px] text-[#E2E8F0] focus:border-[#E11D48] outline-none"
+                    />
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-2 top-1.5 text-[8px] text-[#E11D48] font-bold">W</span>
+                    <input 
+                      type="number"
+                      value={Math.round(zones[activeZoneIndex].width)}
+                      onChange={(e) => setZones(prev => {
+                        const next = [...prev];
+                        next[activeZoneIndex] = { ...next[activeZoneIndex], width: parseInt(e.target.value) || 100 };
+                        return next;
+                      })}
+                      className="w-full bg-black border border-[#334155] rounded-md pl-5 pr-2 py-2 font-mono text-[12px] text-[#E2E8F0] focus:border-[#E11D48] outline-none"
+                    />
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-2 top-1.5 text-[8px] text-[#E11D48] font-bold">H</span>
+                    <input 
+                      type="number"
+                      value={Math.round(zones[activeZoneIndex].height)}
+                      onChange={(e) => setZones(prev => {
+                        const next = [...prev];
+                        next[activeZoneIndex] = { ...next[activeZoneIndex], height: parseInt(e.target.value) || 100 };
+                        return next;
+                      })}
+                      className="w-full bg-black border border-[#334155] rounded-md pl-5 pr-2 py-2 font-mono text-[12px] text-[#E2E8F0] focus:border-[#E11D48] outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[12px] text-[#94A3B8]">Frequência Global (segundos)</label>
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="range" 
+                      min="500" 
+                      max="5000" 
+                      step="500"
+                      value={intervalTime}
+                      onChange={(e) => setIntervalTime(parseInt(e.target.value))}
+                      className="flex-1 appearance-none bg-[#334155] h-1 rounded-full accent-[#E11D48] cursor-pointer"
+                    />
+                    <span className="text-[12px] font-mono text-[#E2E8F0] w-12 text-right">{(intervalTime/1000).toFixed(1)}s</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[12px] text-[#94A3B8]">Zoom/Magnificação OCR</label>
+                    <span className={cn(
+                      "text-[10px] font-bold px-1.5 rounded",
+                      magnification > 3 ? "bg-emerald-500/20 text-emerald-500" : "bg-[#334155] text-[#94A3B8]"
+                    )}>
+                      {magnification}X
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="range" 
+                      min="1" 
+                      max="8" 
+                      step="1"
+                      value={magnification}
+                      onChange={(e) => setMagnification(parseInt(e.target.value))}
+                      className="flex-1 appearance-none bg-[#334155] h-1 rounded-full accent-[#E11D48] cursor-pointer"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="checkbox" 
+                        id="showProcessed"
+                        checked={showProcessedPreview}
+                        onChange={(e) => setShowProcessedPreview(e.target.checked)}
+                        className="w-3 h-3 accent-[#E11D48]"
+                      />
+                      <label htmlFor="showProcessed" className="text-[9px] text-[#94A3B8]">Ver Visão OCR</label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="checkbox" 
+                        id="invertOCR"
+                        checked={invertOCR}
+                        onChange={(e) => setInvertOCR(e.target.checked)}
+                        className="w-3 h-3 accent-[#E11D48]"
+                      />
+                      <label htmlFor="invertOCR" className="text-[9px] text-[#94A3B8]">Inverter Cores</label>
+                    </div>
+                  </div>
+                  <p className="text-[9px] text-[#64748B] italic">Aumenta a precisão em textos pequenos, mas exige mais processamento.</p>
+                </div>
+
+                <button 
+                  onClick={selectScreen}
+                  className="w-full py-2.5 bg-[#334155] hover:bg-[#475569] text-[#E2E8F0] font-semibold text-[14px] rounded transition-colors flex items-center justify-center gap-2 mt-4"
+                >
+                  <Crosshair className="w-4 h-4" />
+                  {stream ? "Alterar Janela" : "Selecionar Janela"}
+                </button>
+              </div>
+            </div>
+          <div className="space-y-4">
+            <h2 className="text-[11px] uppercase tracking-[0.1em] text-[#94A3B8] font-bold">Parâmetros de Saída</h2>
+            <div className="bg-[#0F0F11] border border-[#334155] rounded-lg p-4 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[12px] text-[#94A3B8]">Arquivo .txt Destino</label>
+                <div className="bg-black border border-[#334155] rounded-md p-2.5 font-mono text-[10px] text-[#94A3B8] truncate">
+                  {filePath || "Nenhum arquivo selecionado"}
+                </div>
+              </div>
+              <button 
+                  onClick={chooseFile}
+                  className="w-full py-2.5 border border-[#334155] hover:border-[#475569] text-[#E2E8F0] font-semibold text-[14px] rounded transition-all flex items-center justify-center gap-2"
+              >
+                  <Save className="w-4 h-4" />
+                  Alterar Destino
+              </button>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="mt-auto space-y-3 pt-6 border-t border-[#334155]">
+            {!isWorkerReady && (
+              <div className="space-y-1.5 mb-2">
+                <div className="flex justify-between text-[10px] text-[#94A3B8] font-bold px-1">
+                  <span>MOTOR OCR</span>
+                  <span>{workerLoadingProgress}%</span>
+                </div>
+                <div className="h-1 bg-[#334155] rounded-full overflow-hidden">
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${workerLoadingProgress}%` }}
+                    className="h-full bg-[#E11D48]"
+                  />
+                </div>
+              </div>
+            )}
+            
+            <div className="grid grid-cols-2 gap-2">
+              <button 
+                disabled={!stream || status === Status.CAPTURING || !isWorkerReady}
+                onClick={startCapture}
+                className="col-span-2 py-3 bg-[#E11D48] hover:bg-[#F43F5E] text-white font-bold text-[14px] rounded transition-all flex items-center justify-center gap-2 disabled:opacity-20 disabled:cursor-not-allowed uppercase tracking-wider"
+              >
+                <Play className="w-4 h-4 fill-white" />
+                Iniciar Captura
+              </button>
+              
+              <button 
+                disabled={!stream || status === Status.CAPTURING || !isWorkerReady || isProcessing}
+                onClick={testOCR}
+                className="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[12px] rounded transition-all flex items-center justify-center gap-2 disabled:opacity-20 uppercase tracking-widest shadow-lg shadow-emerald-900/20"
+              >
+                <Crosshair className="w-3 h-3" />
+                Teste OCR Rápido
+              </button>
+
+              <button 
+                disabled={status !== Status.CAPTURING}
+                onClick={pauseCapture}
+                className="py-2.5 bg-[#334155] hover:bg-[#475569] text-[#E2E8F0] font-bold text-[12px] rounded transition-all flex items-center justify-center gap-2 disabled:opacity-20 uppercase tracking-widest"
+              >
+                <Pause className="w-3 h-3 fill-current" />
+                Pausar
+              </button>
+            </div>
+            
+            <button 
+                onClick={downloadLog}
+                disabled={capturedText.length === 0}
+                className="w-full py-2 text-[11px] font-bold text-blue-500 uppercase tracking-widest opacity-60 hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 disabled:opacity-20"
+            >
+                <FileText className="w-3 h-3" />
+                Baixar Log Atual (.txt)
+            </button>
+            <button 
+                onClick={clearHistory}
+                className="w-full py-2 text-[11px] font-bold text-red-500 uppercase tracking-widest opacity-60 hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5"
+            >
+                <Trash2 className="w-3 h-3" />
+                Limpar Histórico
+            </button>
+          </div>
+        </aside>
+
+        {/* Preview Area */}
+        <section className="flex-1 flex flex-col p-6 gap-6 overflow-hidden bg-[#0F0F11]">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 flex-1 min-h-0">
+            
+            {/* Viewport/Selector */}
+            <div 
+              ref={containerRef}
+              className="bg-[#1C1D21] border border-[#334155] rounded-xl flex flex-col items-center justify-center relative overflow-hidden group select-none"
+            >
+                <div className="absolute top-4 left-4 flex items-center gap-2 z-20 bg-black/40 px-2 py-1 rounded backdrop-blur-sm border border-white/5">
+                    <Camera className="w-3 h-3 text-[#E11D48]" />
+                    <span className="text-[10px] text-[#E2E8F0] uppercase tracking-widest font-bold">Monitor de Captura</span>
+                </div>
+
+                {stream ? (
+                    <div 
+                      className="relative w-full h-full bg-black flex items-center justify-center overflow-hidden"
+                      onWheel={(e) => {
+                        // Scroll to zoom functionality
+                        if (e.deltaY < 0) {
+                          setMagnification(prev => Math.min(10, prev + 1));
+                        } else {
+                          setMagnification(prev => Math.max(1, prev - 1));
+                        }
+                      }}
+                    >
+                        {showProcessedPreview && previewImage ? (
+                          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black overflow-hidden shadow-inner">
+                            <img 
+                                src={previewImage} 
+                                alt="OCR View" 
+                                className="w-full h-full object-contain"
+                            />
+                            
+                            {/* Visual Zoom Indicator Badge */}
+                            <div className="absolute top-4 left-1/2 -translate-x-1/2 flex gap-2 z-40 scale-110">
+                              <div className="px-3 py-1.5 bg-black/80 border-2 border-[#E11D48] rounded-full text-[11px] text-white font-mono shadow-[0_0_15px_rgba(225,29,72,0.4)] flex items-center gap-3 backdrop-blur-md">
+                                <span className="text-[#94A3B8] font-bold tracking-widest uppercase">Zoom</span>
+                                <span className="text-[#E11D48] font-black text-sm">{magnification}X</span>
+                              </div>
+                            </div>
+
+                            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1 bg-[#E11D48] rounded text-[10px] text-white font-bold animate-pulse shadow-lg z-30">
+                                {status === Status.CAPTURING ? "CAPTURANDO..." : "CALIBRAÇÃO OCR"}
+                            </div>
+                            
+                            {/* Visual Crosshair for Alignment */}
+                            <div className="absolute inset-0 pointer-events-none border border-white/5 flex items-center justify-center">
+                                <div className="w-full h-[1px] bg-white/10 absolute" />
+                                <div className="h-full w-[1px] bg-white/10 absolute" />
+                            </div>
+                          </div>
+                        ) : null}
+                        
+                        <video 
+                            ref={videoRef} 
+                            autoPlay 
+                            playsInline 
+                            muted
+                            className="w-full h-full object-contain grayscale"
+                        />
+                        
+                        {/* Area Selector Overlays */}
+                        <AnimatePresence>
+                            {(status === Status.SELECTING || status === Status.CAPTURING) && (
+                                <motion.div 
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    className="absolute inset-0 z-10"
+                                >
+                                  {zones.map((zone, idx) => {
+                                      const layout = getVideoLayout();
+                                      return (
+                                        <div 
+                                            key={idx}
+                                            onMouseDown={(e) => {
+                                              setActiveZoneIndex(idx);
+                                              handleMouseDown(e, 'move');
+                                            }}
+                                            className={cn(
+                                              "absolute border-2 shadow-[0_0_20px_rgba(225,29,72,0.1)] transition-colors duration-200 cursor-move group/rect",
+                                              activeZoneIndex === idx 
+                                                ? "border-[#E11D48] bg-[#E11D4811] z-30" 
+                                                : "border-blue-500/50 bg-blue-500/5 z-20"
+                                            )}
+                                            style={{ 
+                                                left: `${layout.x + (zone.x / 1280) * layout.width}px`, 
+                                                top: `${layout.y + (zone.y / 720) * layout.height}px`, 
+                                                width: `${(zone.width / 1280) * layout.width}px`, 
+                                                height: `${(zone.height / 720) * layout.height}px` 
+                                            }}
+                                        >
+                                            <div className={cn(
+                                              "absolute -top-6 left-0 text-white text-[10px] px-2 py-0.5 rounded-t font-mono whitespace-nowrap",
+                                              activeZoneIndex === idx ? "bg-[#E11D48]" : "bg-blue-500"
+                                            )}>
+                                                Bloco {idx + 1}: {Math.round(zone.width)}x{Math.round(zone.height)}
+                                            </div>
+
+                                            {/* Resize Handles - Only for active zone */}
+                                            {activeZoneIndex === idx && (
+                                              <>
+                                                <div 
+                                                  onMouseDown={(e) => handleMouseDown(e, 'tl')}
+                                                  className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-[#E11D48] rounded-full cursor-nw-resize opacity-0 group-hover/rect:opacity-100 transition-opacity" 
+                                                />
+                                                <div 
+                                                  onMouseDown={(e) => handleMouseDown(e, 'br')}
+                                                  className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-[#E11D48] rounded-full cursor-se-resize opacity-0 group-hover/rect:opacity-100 transition-opacity" 
+                                                />
+                                              </>
+                                            )}
+                                        </div>
+                                      );
+                                    })}
+                                    
+                                    {/* Instructional Overlay only when selecting */}
+                                    {status === Status.SELECTING && (
+                                      <div className="absolute inset-0 bg-black/40 pointer-events-none flex items-center justify-center">
+                                        <p className="bg-black/80 px-4 py-2 border border-[#334155] rounded-full text-[11px] text-[#E11D48] font-bold uppercase tracking-wider animate-pulse">
+                                          {zones.length > 1 ? "Ajuste ou Selecione um Bloco" : "Arraste os cantos para ajustar o alvo"}
+                                        </p>
+                                      </div>
+                                    )}
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </div>
+                ) : (
+                    <div className="text-center space-y-4">
+                        <div className="w-16 h-16 bg-[#0F0F11] rounded-full flex items-center justify-center mx-auto border border-[#334155]">
+                            <Camera className="w-8 h-8 text-[#334155]" />
+                        </div>
+                        <p className="text-[12px] text-[#94A3B8] max-w-[200px] mb-4">Selecione uma janela para configurar a área.</p>
+                        <button 
+                            onClick={selectScreen}
+                            className="px-6 py-2.5 bg-[#E11D48] hover:bg-[#F43F5E] text-white font-bold text-[13px] rounded transition-all uppercase tracking-wider shadow-lg shadow-[#E11D4822]"
+                        >
+                            Selecionar Tela / Janela
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {/* OCR Log */}
+            <div className="flex flex-col min-h-0 bg-black border border-[#334155] rounded-xl overflow-hidden font-mono relative p-6">
+                <div className="flex items-center gap-2 mb-4">
+                    <Terminal className="w-4 h-4 text-[#E11D48]" />
+                    <h2 className="text-[11px] uppercase tracking-[0.1em] text-[#94A3B8] font-bold">Log de Processamento</h2>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto space-y-2 scrollbar-thin scrollbar-thumb-[#334155]">
+                    {isProcessing && (
+                        <div className="absolute top-4 right-4 z-40 bg-[#E11D48] text-white text-[8px] font-bold px-2 py-0.5 rounded animate-pulse">
+                             OCUPADO
+                        </div>
+                    )}
+                    {isProcessing && capturedText.length === 0 && (
+                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-2">
+                             <div className="w-5 h-5 border-2 border-[#E11D48] border-t-transparent animate-spin rounded-full" />
+                             <span className="text-[9px] text-[#E11D48] font-bold">Lendo Pixels...</span>
+                        </div>
+                    )}
+                    {!isWorkerReady ? (
+                        <div className="h-full flex flex-col items-center justify-center gap-4 text-[#334155]">
+                            <div className="w-8 h-8 border-2 border-t-transparent border-[#E11D48] rounded-full animate-spin" />
+                            <span className="text-[11px] uppercase tracking-widest font-bold">Inicializando OCR Engine...</span>
+                            <span className="text-[10px] text-[#64748B]">Progresso: {workerLoadingProgress}%</span>
+                            <button 
+                                onClick={() => window.location.reload()}
+                                className="mt-2 text-[10px] text-[#E11D48] underline"
+                            >
+                                Se demorar muito, recarregue a página
+                            </button>
+                        </div>
+                    ) : capturedText.length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center gap-4 text-[#334155]">
+                            <Terminal className="w-12 h-12" />
+                            <span className="text-[11px] uppercase tracking-widest font-bold">Buffer de Log Vazio</span>
+                        </div>
+                    ) : (
+                        <>
+                        {capturedText.map((item, i) => (
+                            <motion.div 
+                                key={i}
+                                initial={{ opacity: 0, x: -10 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                className="text-emerald-300 text-[14px] flex gap-3 border-l-2 border-[#E11D48] pl-3 leading-relaxed py-1"
+                            >
+                                <span className="text-[#94A3B8] text-[9px] shrink-0 font-sans mt-1">[{item.time}]</span>
+                                <span className="break-words font-medium">{item.text}</span>
+                            </motion.div>
+                        ))}
+                        <div ref={logEndRef} />
+                        </>
+                    )}
+                </div>
+
+                <AnimatePresence>
+                    {status === Status.CAPTURING && (
+                        <motion.div 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="absolute bottom-6 right-6 bg-[#E11D4833] text-[#E11D48] text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded border border-[#E11D484D] animate-pulse"
+                        >
+                            Captura em Progresso...
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+          </div>
+
+          {/* Footer Info Area */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start mt-auto">
+             <div className="bg-[#1C1D21] border border-[#334155] rounded-xl p-5 flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                    <h3 className="text-[11px] uppercase tracking-[0.1em] text-[#94A3B8] font-bold">Diagnóstico em Tempo Real</h3>
+                    <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#E11D48] animate-pulse" />
+                        <span className="text-[10px] text-[#E11D48] font-mono">LIVE FEED</span>
+                    </div>
+                </div>
+
+                <div className="flex gap-4">
+                    <div className="w-40 aspect-video bg-black rounded border border-[#334155] overflow-hidden flex items-center justify-center relative shrink-0">
+                        {previewImage ? (
+                            <img src={previewImage} alt="Crop Preview" className="w-full h-full object-contain" />
+                        ) : (
+                            <Camera className="w-5 h-5 text-[#334155]" />
+                        )}
+                        <div className="absolute inset-0 border border-[#E11D4822] pointer-events-none" />
+                        <div className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/60 rounded text-[7px] text-emerald-400 font-mono uppercase tracking-tighter">
+                            OCR_OPTIMIZED
+                        </div>
+                    </div>
+                    
+                    <div className="flex-1 bg-black/40 rounded border border-[#334155] p-3 font-mono text-[11px] h-24 overflow-y-auto overflow-x-hidden">
+                        <div className="text-[#94A3B8] mb-1 opacity-50 text-[9px] uppercase tracking-tighter">Raw OCR Output:</div>
+                        <p className={cn(
+                            "transition-colors duration-300",
+                            currentRawText ? "text-blue-300" : "text-gray-700 italic"
+                        )}>
+                            {currentRawText || "Aguardando processamento de caracteres..."}
+                        </p>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-2 text-[10px] text-[#94A3B8]">
+                    <div className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+                    <span>Limpando ruído via Gemini (Auto-Filter: ON)</span>
+                </div>
+             </div>
+
+             <div className="flex flex-col gap-4 h-full">
+                <div className="flex-1 flex items-center justify-between">
+                    {isInIframe && (
+                        <div className="flex items-center gap-3 bg-[#E11D4811] border border-[#E11D4833] p-3 rounded-lg flex-1 mr-4">
+                            <ExternalLink className="w-4 h-4 text-[#E11D48] shrink-0" />
+                            <p className="text-[10px] text-[#E11D48] leading-tight">
+                                <strong>MODO PREVIEW:</strong> Captura de tela e disco requerem <strong>"Abrir em nova aba"</strong> no canto superior direito.
+                            </p>
+                        </div>
+                    )}
+                    <div className="w-12 h-12 rounded-full border-[3px] border-[#E11D48] flex items-center justify-center text-[10px] font-bold shadow-[0_0_10px_rgba(225,29,72,0.5)]">ON</div>
+                </div>
+                
+                <div className="flex justify-end gap-2 text-[10px] font-mono text-[#334155]">
+                    <span>SYS_RES: 1280x720</span>
+                    <span>•</span>
+                    <span>TESS_ENGINE: V1.0.3</span>
+                </div>
+             </div>
+          </div>
+        </section>
+      </main>
+
+      {/* Footer Stats */}
+      <footer className="h-10 bg-[#1C1D21] border-t border-[#334155] flex items-center px-6 gap-8 text-[11px] text-[#94A3B8] shrink-0">
+        <div className="flex items-center gap-2">Capturas Totais: <span className="text-[#E2E8F0] font-bold">{capturedText.length}</span></div>
+        <div className="flex items-center gap-2">Zonas Ativas: <span className="text-[#E2E8F0] font-bold">{zones.length}</span></div>
+        <div className="flex items-center gap-2 ml-auto">Última Captura: <span className="text-[#E2E8F0] font-bold">{lastCaptureTime}</span></div>
+        <div className="flex items-center gap-2">Resolução OCR: <span className="text-[#E2E8F0] font-bold">{magnification}x</span></div>
+      </footer>
+    </div>
+  );
+}
