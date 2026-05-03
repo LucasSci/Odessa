@@ -1,314 +1,317 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Teste OCR - Debug Simples</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            background: #0F0F11;
-            color: #E2E8F0;
-            font-family: 'Courier New', monospace;
-            padding: 20px;
-        }
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-        }
-        h1 {
-            color: #E11D48;
-            margin-bottom: 20px;
-        }
-        .section {
-            background: #1C1D21;
-            border: 1px solid #334155;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-        .controls {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-        }
-        button {
-            background: #E11D48;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-family: inherit;
-            font-weight: bold;
-        }
-        button:hover {
-            background: #F43F5E;
-        }
-        button:disabled {
-            background: #334155;
-            cursor: not-allowed;
-            opacity: 0.5;
-        }
-        .input-group {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-        input[type="number"] {
-            background: #0F0F11;
-            color: #E2E8F0;
-            border: 1px solid #334155;
-            padding: 8px;
-            border-radius: 4px;
-            font-family: inherit;
-            width: 100px;
-        }
-        .log {
-            background: #0F0F11;
-            border: 1px solid #334155;
-            border-radius: 4px;
-            padding: 15px;
-            height: 300px;
-            overflow-y: auto;
-            font-size: 11px;
-            line-height: 1.5;
-        }
-        .log-entry {
-            margin-bottom: 5px;
-            padding: 3px;
-        }
-        .log-entry.info {
-            color: #94A3B8;
-        }
-        .log-entry.success {
-            color: #86efac;
-        }
-        .log-entry.error {
-            color: #f87171;
-        }
-        .log-entry.warning {
-            color: #fbbf24;
-        }
-        .status {
-            display: inline-block;
-            padding: 8px 16px;
-            border-radius: 4px;
-            margin-bottom: 15px;
-        }
-        .status.idle {
-            background: #334155;
-            color: #94A3B8;
-        }
-        .status.success {
-            background: #166534;
-            color: #86efac;
-        }
-        .status.error {
-            background: #7f1d1d;
-            color: #f87171;
-        }
-        .status.loading {
-            background: #1e40af;
-            color: #93c5fd;
-        }
-        video {
-            max-width: 100%;
-            background: #000;
-            border-radius: 4px;
-            margin: 10px 0;
-        }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: #0f0f11;
+        color: #e2e8f0;
+        font-family: 'Courier New', monospace;
+        padding: 20px;
+      }
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+      }
+      h1 {
+        color: #e11d48;
+        margin-bottom: 20px;
+      }
+      .section {
+        background: #1c1d21;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+      }
+      .controls {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+      }
+      button {
+        background: #e11d48;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-family: inherit;
+        font-weight: bold;
+      }
+      button:hover {
+        background: #f43f5e;
+      }
+      button:disabled {
+        background: #334155;
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+      .input-group {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+      input[type='number'] {
+        background: #0f0f11;
+        color: #e2e8f0;
+        border: 1px solid #334155;
+        padding: 8px;
+        border-radius: 4px;
+        font-family: inherit;
+        width: 100px;
+      }
+      .log {
+        background: #0f0f11;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        padding: 15px;
+        height: 300px;
+        overflow-y: auto;
+        font-size: 11px;
+        line-height: 1.5;
+      }
+      .log-entry {
+        margin-bottom: 5px;
+        padding: 3px;
+      }
+      .log-entry.info {
+        color: #94a3b8;
+      }
+      .log-entry.success {
+        color: #86efac;
+      }
+      .log-entry.error {
+        color: #f87171;
+      }
+      .log-entry.warning {
+        color: #fbbf24;
+      }
+      .status {
+        display: inline-block;
+        padding: 8px 16px;
+        border-radius: 4px;
+        margin-bottom: 15px;
+      }
+      .status.idle {
+        background: #334155;
+        color: #94a3b8;
+      }
+      .status.success {
+        background: #166534;
+        color: #86efac;
+      }
+      .status.error {
+        background: #7f1d1d;
+        color: #f87171;
+      }
+      .status.loading {
+        background: #1e40af;
+        color: #93c5fd;
+      }
+      video {
+        max-width: 100%;
+        background: #000;
+        border-radius: 4px;
+        margin: 10px 0;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div class="container">
-        <h1>🔍 Teste OCR - Debug Simples</h1>
-        
-        <div class="section">
-            <h2>Status</h2>
-            <div id="status" class="status idle">Aguardando...</div>
+      <h1>🔍 Teste OCR - Debug Simples</h1>
+
+      <div class="section">
+        <h2>Status</h2>
+        <div id="status" class="status idle">Aguardando...</div>
+      </div>
+
+      <div class="section">
+        <h2>Controles</h2>
+        <div class="controls">
+          <button onclick="testServer()">1️⃣ Testar Servidor</button>
+          <button onclick="selectScreen()">2️⃣ Selecionar Tela</button>
+          <button onclick="captureOnce()">3️⃣ Capturar Uma Vez</button>
+          <button onclick="startCapture()">4️⃣ Iniciar Loop</button>
+          <button onclick="stopCapture()">⏸️ Parar Loop</button>
+          <button onclick="clearLog()">🗑️ Limpar Log</button>
         </div>
 
-        <div class="section">
-            <h2>Controles</h2>
-            <div class="controls">
-                <button onclick="testServer()">1️⃣ Testar Servidor</button>
-                <button onclick="selectScreen()">2️⃣ Selecionar Tela</button>
-                <button onclick="captureOnce()">3️⃣ Capturar Uma Vez</button>
-                <button onclick="startCapture()">4️⃣ Iniciar Loop</button>
-                <button onclick="stopCapture()">⏸️ Parar Loop</button>
-                <button onclick="clearLog()">🗑️ Limpar Log</button>
-            </div>
-
-            <h3>Coordenadas Customizadas</h3>
-            <div class="input-group">
-                <label>X:</label>
-                <input type="number" id="inputX" value="100">
-                <label>Y:</label>
-                <input type="number" id="inputY" value="100">
-                <label>W:</label>
-                <input type="number" id="inputW" value="400">
-                <label>H:</label>
-                <input type="number" id="inputH" value="300">
-                <button onclick="captureCustom()">Capturar Customizado</button>
-            </div>
+        <h3>Coordenadas Customizadas</h3>
+        <div class="input-group">
+          <label>X:</label>
+          <input type="number" id="inputX" value="100" />
+          <label>Y:</label>
+          <input type="number" id="inputY" value="100" />
+          <label>W:</label>
+          <input type="number" id="inputW" value="400" />
+          <label>H:</label>
+          <input type="number" id="inputH" value="300" />
+          <button onclick="captureCustom()">Capturar Customizado</button>
         </div>
+      </div>
 
-        <div class="section">
-            <h2>Preview de Vídeo</h2>
-            <video id="video" autoplay playsinline></video>
-        </div>
+      <div class="section">
+        <h2>Preview de Vídeo</h2>
+        <video id="video" autoplay playsinline></video>
+      </div>
 
-        <div class="section">
-            <h2>Log de Debug</h2>
-            <div id="log" class="log"></div>
-        </div>
+      <div class="section">
+        <h2>Log de Debug</h2>
+        <div id="log" class="log"></div>
+      </div>
     </div>
 
     <script>
-        let stream = null;
-        let captureInterval = null;
-        const LOG = document.getElementById('log');
-        const STATUS = document.getElementById('status');
+      let stream = null;
+      let captureInterval = null;
+      const LOG = document.getElementById('log');
+      const STATUS = document.getElementById('status');
 
-        function updateStatus(text, type = 'idle') {
-            STATUS.textContent = text;
-            STATUS.className = `status ${type}`;
+      function updateStatus(text, type = 'idle') {
+        STATUS.textContent = text;
+        STATUS.className = `status ${type}`;
+      }
+
+      function log(message, type = 'info') {
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${type}`;
+        const timestamp = new Date().toLocaleTimeString();
+        entry.textContent = `[${timestamp}] ${message}`;
+        LOG.appendChild(entry);
+        LOG.scrollTop = LOG.scrollHeight;
+      }
+
+      function clearLog() {
+        LOG.innerHTML = '';
+        log('Log limpo', 'info');
+      }
+
+      async function testServer() {
+        log('🧪 Testando servidor...', 'info');
+        updateStatus('Testando...', 'loading');
+
+        try {
+          const response = await fetch('http://localhost:8000/health');
+          const data = await response.json();
+          log(`✅ Servidor OK: ${JSON.stringify(data)}`, 'success');
+          updateStatus('Servidor OK ✅', 'success');
+        } catch (err) {
+          log(`❌ Erro: ${err.message}`, 'error');
+          updateStatus('Erro na conexão ❌', 'error');
+        }
+      }
+
+      async function selectScreen() {
+        log('📺 Solicitando tela compartilhada...', 'info');
+        updateStatus('Aguardando seleção...', 'loading');
+
+        try {
+          stream = await navigator.mediaDevices.getDisplayMedia({
+            video: { cursor: 'always' },
+            audio: false,
+          });
+
+          document.getElementById('video').srcObject = stream;
+          log('✅ Tela selecionada', 'success');
+          updateStatus('Tela selecionada ✅', 'success');
+        } catch (err) {
+          log(`❌ Erro: ${err.message}`, 'error');
+          updateStatus('Erro ao selecionar ❌', 'error');
+        }
+      }
+
+      async function captureOnce() {
+        if (!stream) {
+          log('❌ Selecione uma tela primeiro', 'error');
+          return;
         }
 
-        function log(message, type = 'info') {
-            const entry = document.createElement('div');
-            entry.className = `log-entry ${type}`;
-            const timestamp = new Date().toLocaleTimeString();
-            entry.textContent = `[${timestamp}] ${message}`;
-            LOG.appendChild(entry);
-            LOG.scrollTop = LOG.scrollHeight;
+        const x = parseInt(document.getElementById('inputX').value);
+        const y = parseInt(document.getElementById('inputY').value);
+        const w = parseInt(document.getElementById('inputW').value);
+        const h = parseInt(document.getElementById('inputH').value);
+
+        await sendOCRRequest(x, y, w, h);
+      }
+
+      function captureCustom() {
+        captureOnce();
+      }
+
+      async function sendOCRRequest(x, y, w, h) {
+        log(`📤 Enviando OCR: x=${x}, y=${y}, w=${w}, h=${h}`, 'info');
+        updateStatus('Enviando...', 'loading');
+
+        try {
+          const response = await fetch('http://localhost:8000/ocr', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ x, y, width: w, height: h }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          const data = await response.json();
+
+          if (data.error) {
+            log(`⚠️ OCR Error: ${data.error}`, 'warning');
+            updateStatus('Erro no OCR ⚠️', 'error');
+          } else {
+            const text = data.text || '(vazio)';
+            log(
+              `✅ OCR Result (${text.length} chars): "${text.substring(0, 80)}${text.length > 80 ? '...' : ''}"`,
+              'success',
+            );
+            updateStatus('Capturado com sucesso ✅', 'success');
+          }
+        } catch (err) {
+          log(`❌ Erro de requisição: ${err.message}`, 'error');
+          updateStatus('Erro na requisição ❌', 'error');
+        }
+      }
+
+      function startCapture() {
+        if (!stream) {
+          log('❌ Selecione uma tela primeiro', 'error');
+          return;
         }
 
-        function clearLog() {
-            LOG.innerHTML = '';
-            log('Log limpo', 'info');
+        log('▶️ Iniciando loop de captura (a cada 2 segundos)...', 'info');
+        updateStatus('Capturando...', 'loading');
+
+        captureInterval = setInterval(async () => {
+          const x = parseInt(document.getElementById('inputX').value);
+          const y = parseInt(document.getElementById('inputY').value);
+          const w = parseInt(document.getElementById('inputW').value);
+          const h = parseInt(document.getElementById('inputH').value);
+
+          await sendOCRRequest(x, y, w, h);
+        }, 2000);
+      }
+
+      function stopCapture() {
+        if (captureInterval) {
+          clearInterval(captureInterval);
+          captureInterval = null;
+          log('⏹️ Loop de captura parado', 'info');
+          updateStatus('Parado', 'idle');
         }
+      }
 
-        async function testServer() {
-            log('🧪 Testando servidor...', 'info');
-            updateStatus('Testando...', 'loading');
-            
-            try {
-                const response = await fetch('http://localhost:8000/health');
-                const data = await response.json();
-                log(`✅ Servidor OK: ${JSON.stringify(data)}`, 'success');
-                updateStatus('Servidor OK ✅', 'success');
-            } catch (err) {
-                log(`❌ Erro: ${err.message}`, 'error');
-                updateStatus('Erro na conexão ❌', 'error');
-            }
-        }
-
-        async function selectScreen() {
-            log('📺 Solicitando tela compartilhada...', 'info');
-            updateStatus('Aguardando seleção...', 'loading');
-            
-            try {
-                stream = await navigator.mediaDevices.getDisplayMedia({
-                    video: { cursor: 'always' },
-                    audio: false
-                });
-                
-                document.getElementById('video').srcObject = stream;
-                log('✅ Tela selecionada', 'success');
-                updateStatus('Tela selecionada ✅', 'success');
-            } catch (err) {
-                log(`❌ Erro: ${err.message}`, 'error');
-                updateStatus('Erro ao selecionar ❌', 'error');
-            }
-        }
-
-        async function captureOnce() {
-            if (!stream) {
-                log('❌ Selecione uma tela primeiro', 'error');
-                return;
-            }
-
-            const x = parseInt(document.getElementById('inputX').value);
-            const y = parseInt(document.getElementById('inputY').value);
-            const w = parseInt(document.getElementById('inputW').value);
-            const h = parseInt(document.getElementById('inputH').value);
-
-            await sendOCRRequest(x, y, w, h);
-        }
-
-        function captureCustom() {
-            captureOnce();
-        }
-
-        async function sendOCRRequest(x, y, w, h) {
-            log(`📤 Enviando OCR: x=${x}, y=${y}, w=${w}, h=${h}`, 'info');
-            updateStatus('Enviando...', 'loading');
-
-            try {
-                const response = await fetch('http://localhost:8000/ocr', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ x, y, width: w, height: h })
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-
-                const data = await response.json();
-                
-                if (data.error) {
-                    log(`⚠️ OCR Error: ${data.error}`, 'warning');
-                    updateStatus('Erro no OCR ⚠️', 'error');
-                } else {
-                    const text = data.text || '(vazio)';
-                    log(`✅ OCR Result (${text.length} chars): "${text.substring(0, 80)}${text.length > 80 ? '...' : ''}"`, 'success');
-                    updateStatus('Capturado com sucesso ✅', 'success');
-                }
-            } catch (err) {
-                log(`❌ Erro de requisição: ${err.message}`, 'error');
-                updateStatus('Erro na requisição ❌', 'error');
-            }
-        }
-
-        function startCapture() {
-            if (!stream) {
-                log('❌ Selecione uma tela primeiro', 'error');
-                return;
-            }
-
-            log('▶️ Iniciando loop de captura (a cada 2 segundos)...', 'info');
-            updateStatus('Capturando...', 'loading');
-
-            captureInterval = setInterval(async () => {
-                const x = parseInt(document.getElementById('inputX').value);
-                const y = parseInt(document.getElementById('inputY').value);
-                const w = parseInt(document.getElementById('inputW').value);
-                const h = parseInt(document.getElementById('inputH').value);
-                
-                await sendOCRRequest(x, y, w, h);
-            }, 2000);
-        }
-
-        function stopCapture() {
-            if (captureInterval) {
-                clearInterval(captureInterval);
-                captureInterval = null;
-                log('⏹️ Loop de captura parado', 'info');
-                updateStatus('Parado', 'idle');
-            }
-        }
-
-        // Log inicial
-        log('Página de teste carregada', 'info');
-        log('Siga os passos: 1️⃣ → 2️⃣ → 3️⃣ → 4️⃣', 'info');
+      // Log inicial
+      log('Página de teste carregada', 'info');
+      log('Siga os passos: 1️⃣ → 2️⃣ → 3️⃣ → 4️⃣', 'info');
     </script>
-</body>
+  </body>
 </html>

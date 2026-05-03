@@ -1,0 +1,132 @@
+{
+  "id": "odessaVisualAssets01",
+  "name": "Odessa - Visual Asset Generator",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 45
+            }
+          ]
+        }
+      },
+      "id": "visual-asset-schedule",
+      "name": "Every 45 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [160, 220]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "odessa/visual-assets",
+        "responseMode": "onReceived",
+        "options": {
+          "responseData": "{\"ok\":true,\"accepted\":true,\"workflow\":\"Odessa - Visual Asset Generator\"}"
+        }
+      },
+      "id": "visual-asset-webhook",
+      "name": "Visual Asset Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "odessa-visual-assets-webhook",
+      "position": [160, 440]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || {};\nconst fromSchedule = Boolean($json.timestamp || $json['Readable date']);\nconst list = (value, fallback) => Array.isArray(value) && value.length ? value : fallback;\nconst scheduleGeneratesImages = String($env.ODESSA_VISUAL_SCHEDULE_GENERATE_IMAGES || '').toLowerCase() === 'true';\nconst defaultGenerateImages = fromSchedule ? scheduleGeneratesImages : true;\nconst defaultReferences = [\n  {\n    source: 'safe_tango_live_style_seed',\n    notes: 'Use high-level social live visual language only: vertical mobile framing, warm host energy, ring light, compact studio, LED accents, gift reaction moments, colorful overlays, direct camera presence. Do not copy any real creator identity.'\n  },\n  {\n    source: 'safe_tango_live_environment_seed',\n    notes: 'Look for generic environment inspiration: cozy bedroom live rooms, clean camera composition, soft glam styling, music request moments, moderation/quiet-chat scenes, and audience gratitude rituals without usernames, faces, logos or identifiable private spaces.'\n  }\n];\nreturn [{ json: {\n  objective: body.objective || 'Gerar biblioteca visual segura da persona Odessa/Juju para lives sociais inspirada em linguagem visual do Tango Live sem copiar pessoas reais.',\n  mode: body.mode || (fromSchedule ? 'scheduled_visual_loop' : 'manual_webhook'),\n  references: list(body.references, defaultReferences),\n  seedPersona: body.seedPersona || 'Odessa/Juju, anfitria virtual brasileira para lives sociais, calorosa, proxima, expressiva, popular, segura e agradecida com a audiencia.',\n  requestedBy: body.requestedBy || 'n8n visual asset generator',\n  targetChannel: String(body.targetChannel || 'odessa-roadmap').replace(/^#/, ''),\n  maxPrompts: Number(body.maxPrompts || 6),\n  maxImages: Number(body.maxImages ?? (defaultGenerateImages ? 2 : 0)),\n  generateImages: typeof body.generateImages === 'boolean' ? body.generateImages : defaultGenerateImages,\n  imageProvider: body.imageProvider || $env.ODESSA_VISUAL_IMAGE_PROVIDER || 'auto',\n  aspectRatio: body.aspectRatio || '9:16',\n  imageSize: body.imageSize || '',\n  imageModel: body.imageModel || $env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image',\n  openaiImageModel: body.openaiImageModel || $env.OPENAI_IMAGE_MODEL || 'gpt-image-1',\n  model: body.model || 'gemini-2.5-flash',\n  temperature: Number(body.temperature || 0.58)\n} }];"
+      },
+      "id": "build-visual-request",
+      "name": "Code - Build Visual Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/visual-lab/run",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "odessa-visual-lab",
+      "name": "HTTP Request - Odessa Visual Lab",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [760, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhookUrl = String($env.N8N_SLACK_WEBHOOK_URL || $env.SLACK_WEBHOOK_URL || '').trim();\nconst slackMessage = $json.slackMessage || {};\nconst visualRun = $json.visualRun || {};\nconst slackDispatch = { configured: Boolean(webhookUrl), sent: false, status: null, error: null };\nif (webhookUrl && slackMessage.text) {\n  try {\n    const response = await fetch(webhookUrl, {\n      method: 'POST',\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify({ text: slackMessage.text })\n    });\n    slackDispatch.sent = response.ok;\n    slackDispatch.status = response.status;\n    if (!response.ok) slackDispatch.error = await response.text();\n  } catch (error) {\n    slackDispatch.error = error.message || 'Slack webhook failed';\n  }\n}\nreturn [{ json: { ok: true, visualRun, slackMessage, slackDispatch } }];"
+      },
+      "id": "optional-visual-slack",
+      "name": "Code - Optional Slack Send",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1060, 320]
+    }
+  ],
+  "connections": {
+    "Every 45 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Visual Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Visual Asset Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Visual Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Visual Request": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Odessa Visual Lab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Odessa Visual Lab": {
+      "main": [
+        [
+          {
+            "node": "Code - Optional Slack Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-05-02T00:00:00.000Z",
+  "versionId": "odessa-visual-asset-generator-v1",
+  "active": false
+}

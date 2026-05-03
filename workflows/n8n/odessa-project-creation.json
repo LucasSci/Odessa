@@ -1,0 +1,116 @@
+{
+  "name": "Odessa - Project Creation Pipeline",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "odessa/project-create",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "project-create-webhook",
+      "name": "Project Create Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "odessa-project-create-webhook",
+      "position": [180, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nconst clean = (value, fallback = '') => String(value ?? fallback).trim();\nconst title = clean(body.title, 'Nova etapa Odessa');\nconst brief = clean(body.brief || body.description || body.message);\nif (!brief) throw new Error('brief is required');\nconst priority = clean(body.priority, 'normal').toLowerCase();\nconst area = clean(body.area, 'produto').toLowerCase();\nconst targetChannel = clean(body.targetChannel, 'odessa-roadmap').replace(/^#/, '');\nconst constraints = Array.isArray(body.constraints) ? body.constraints.map((item) => String(item).trim()).filter(Boolean) : [];\nreturn [{ json: { title, brief, priority, area, requestedBy: clean(body.requestedBy, 'Lucas'), constraints, targetChannel } }];"
+      },
+      "id": "normalize-brief",
+      "name": "Code - Normalize Brief",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/project/create-plan",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "odessa-ai-plan",
+      "name": "HTTP Request - Odessa AI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $json;\nconst plan = response.projectPlan || {};\nconst channel = String(plan.slackRoute || 'odessa-roadmap').replace(/^#/, '');\nconst tasks = Array.isArray(plan.tasks) ? plan.tasks.slice(0, 6) : [];\nconst nextActions = Array.isArray(plan.nextActions) ? plan.nextActions.slice(0, 4) : [];\nconst taskText = tasks.length ? tasks.map((task) => `- ${task.id ? `*${task.id}* ` : ''}${task.title || task}`).join('\\n') : '- Sem tarefas geradas';\nconst actionText = nextActions.length ? nextActions.map((action) => `- ${action}`).join('\\n') : '- Revisar plano e escolher a primeira tarefa';\nconst text = `*${plan.title || 'Nova etapa Odessa'}*\\n${plan.summary || ''}\\n\\n*Backlog inicial*\\n${taskText}\\n\\n*Proximas acoes*\\n${actionText}`;\nconst slackMessage = {\n  channel: `#${channel}`,\n  text,\n  blocks: [\n    { type: 'section', text: { type: 'mrkdwn', text: `*${plan.title || 'Nova etapa Odessa'}*\\n${plan.summary || ''}` } },\n    { type: 'section', text: { type: 'mrkdwn', text: `*Backlog inicial*\\n${taskText}` } },\n    { type: 'section', text: { type: 'mrkdwn', text: `*Proximas acoes*\\n${actionText}` } }\n  ]\n};\nreturn [{ json: { ok: response.ok !== false, projectPlan: plan, slackMessage } }];"
+      },
+      "id": "build-slack-message",
+      "name": "Code - Build Slack Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhookUrl = String($env.N8N_SLACK_WEBHOOK_URL || $env.SLACK_WEBHOOK_URL || '').trim();\nconst slackDispatch = { configured: Boolean(webhookUrl), sent: false, status: null, error: null };\nif (webhookUrl) {\n  try {\n    const response = await fetch(webhookUrl, {\n      method: 'POST',\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify({ text: $json.slackMessage.text, blocks: $json.slackMessage.blocks })\n    });\n    slackDispatch.sent = response.ok;\n    slackDispatch.status = response.status;\n    if (!response.ok) slackDispatch.error = await response.text();\n  } catch (error) {\n    slackDispatch.error = error.message || 'Slack webhook failed';\n  }\n}\nreturn [{ json: { ...$json, slackDispatch } }];"
+      },
+      "id": "optional-slack-send",
+      "name": "Code - Optional Slack Send",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1220, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const plan = $json.projectPlan || {};\nconst createdAt = new Date().toISOString();\nconst safeTitle = String(plan.title || 'odessa-project').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 54) || 'odessa-project';\nconst projectId = `ods-${safeTitle}-${createdAt.slice(0, 10)}`;\nconst artifact = {\n  projectId,\n  createdAt,\n  brief: {\n    title: plan.title,\n    summary: plan.summary,\n    slackRoute: plan.slackRoute\n  },\n  roadmap: {\n    goals: plan.goals || [],\n    milestones: plan.milestones || [],\n    nextActions: plan.nextActions || []\n  },\n  tasks: plan.tasks || [],\n  decisions: plan.decisions || [],\n  risks: plan.risks || [],\n  acceptanceCriteria: plan.acceptanceCriteria || [],\n  slack: $json.slackMessage,\n  slackDispatch: $json.slackDispatch || { configured: false, sent: false }\n};\nreturn [{ json: { ok: true, projectPlan: plan, slackMessage: $json.slackMessage, slackDispatch: $json.slackDispatch, artifact } }];"
+      },
+      "id": "build-json-artifact",
+      "name": "Code - Build JSON Artifact",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1480, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: $json.ok, projectPlan: $json.projectPlan, slackMessage: $json.slackMessage, slackDispatch: $json.slackDispatch, artifact: $json.artifact } }}",
+        "options": {}
+      },
+      "id": "project-create-response",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1740, 300]
+    }
+  ],
+  "connections": {
+    "Project Create Webhook": {
+      "main": [[{ "node": "Code - Normalize Brief", "type": "main", "index": 0 }]]
+    },
+    "Code - Normalize Brief": {
+      "main": [[{ "node": "HTTP Request - Odessa AI", "type": "main", "index": 0 }]]
+    },
+    "HTTP Request - Odessa AI": {
+      "main": [[{ "node": "Code - Build Slack Message", "type": "main", "index": 0 }]]
+    },
+    "Code - Build Slack Message": {
+      "main": [[{ "node": "Code - Optional Slack Send", "type": "main", "index": 0 }]]
+    },
+    "Code - Optional Slack Send": {
+      "main": [[{ "node": "Code - Build JSON Artifact", "type": "main", "index": 0 }]]
+    },
+    "Code - Build JSON Artifact": {
+      "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-05-01T00:00:00.000Z",
+  "versionId": "odessa-project-creation-v1"
+}

@@ -8,17 +8,20 @@ O foco atual do projeto e a aplicacao React existente com um backend local Pytho
 
 - `src/`: aplicacao React/Vite.
 - `server/`: API local FastAPI usada pelo frontend.
+- `workflows/n8n/`: workflows exportaveis para automacoes externas.
 - `docs/`: documentacao enxuta do produto atual.
 - `archive/legacy-2026-04-29/`: material legado, POCs e planejamento amplo preservados fora do fluxo principal.
 
 ## Rodar localmente
 
 1. Instale as dependencias JS:
+
    ```bash
    npm install
    ```
 
 2. Instale as dependencias Python:
+
    ```bash
    pip install -r server/requirements.txt
    ```
@@ -26,19 +29,28 @@ O foco atual do projeto e a aplicacao React existente com um backend local Pytho
 3. Configure `.env` a partir de `.env.example`.
 
 4. Suba o backend:
+
    ```bash
    npm run dev:api
    ```
 
 5. Suba o frontend:
+
    ```bash
    npm run dev
    ```
+
+6. Opcional: suba o n8n para automacoes externas:
+   ```bash
+   npm run dev:n8n
+   ```
+   Depois importe os workflows em `workflows/n8n/` no editor em `http://localhost:5678`.
 
 ## Comandos
 
 - `npm run dev`: frontend em `http://localhost:3000`.
 - `npm run dev:api`: backend em `http://localhost:8000`.
+- `npm run dev:n8n`: n8n local em `http://localhost:5678`.
 - `npm run lint`: TypeScript sem emissao.
 - `npm run build`: build de producao.
 - `npm run clean`: remove `dist`.

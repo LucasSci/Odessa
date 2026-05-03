@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Dispatch, SetStateAction } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
+  BookOpen,
   Bot,
   CheckCircle2,
-  Clock3,
+  Download,
   Gauge,
   Gift,
   Layers,
   MessageSquare,
-  Mic2,
+  Music,
   Pause,
   Play,
   RadioTower,
@@ -18,7 +18,7 @@ import {
   RotateCcw,
   Send,
   ShieldAlert,
-  Sparkles,
+  SlidersHorizontal,
   SplitSquareHorizontal,
   Square,
   Volume2,
@@ -26,59 +26,30 @@ import {
   Wand2,
   Zap,
 } from 'lucide-react';
-import { apiUrl } from './lib/api';
+import { actionSummary } from './core/actionExecutor';
+import type { AutopilotRuntimeState } from './core/useAutopilotRuntime';
 import {
-  loadMemory, addTurn, buildMemoryContext, type ConversationTurn,
-  loadUserProfiles, trackUserInteraction, buildUserContext, type UserProfileMap,
-} from './lib/memory';
+  createScenarioQueue,
+  EVENT_TYPE_COLORS,
+  EVENT_TYPE_ICONS,
+  generateEventBatch,
+  SIM_SPEEDS,
+  type SimulatedEvent,
+  type SimSpeed,
+} from './lib/simulation';
 import { cn } from './lib/utils';
 import type {
   AutopilotAction,
-  AutopilotActionType,
   CapturedMessage,
+  CycleStage,
   LiveEvent,
   LiveEventKind,
-  PersonaDecision,
 } from './types';
 
 interface LiveAutopilotConsoleProps {
   capturedText: CapturedMessage[];
-  setCapturedText: Dispatch<SetStateAction<CapturedMessage[]>>;
+  runtime: AutopilotRuntimeState;
 }
-
-interface BackendHealth {
-  status: string;
-  ocr: string;
-  gemini_configured: boolean;
-  openai_tts_configured: boolean;
-}
-
-type CycleStage = 'capturado' | 'interpretado' | 'decidido' | 'executando' | 'concluido' | 'erro';
-
-interface CycleLog {
-  id: string;
-  time: string;
-  label: string;
-  status: 'done' | 'running' | 'error';
-}
-
-interface AutopilotCycle {
-  id: string;
-  event: LiveEvent;
-  stage: CycleStage;
-  decision?: PersonaDecision;
-  actions: AutopilotAction[];
-  logs: CycleLog[];
-  createdAt: string;
-  completedAt?: string;
-  error?: string;
-}
-
-const PERSONA_AUTOPILOT_PROMPT = `Voce e a Juju, uma streamer gamer com autonomia operacional na live.
-Sua funcao e decidir a proxima fala e as proximas acoes da transmissao com base nos eventos recebidos.
-Seja breve, natural, segura e carismatica.
-Quando for presente, agradeca. Quando for moderacao, priorize seguranca. Quando for cena/OBS, explique o comando planejado.
-Nunca afirme que uma acao externa real foi executada se ela estiver em modo simulado.`;
 
 const TEST_EVENTS: Array<{
   kind: LiveEventKind;
@@ -89,14 +60,32 @@ const TEST_EVENTS: Array<{
   {
     kind: 'chat',
     label: 'Chat',
-    text: '@Lucas: Juju, manda um salve e pergunta como esta a live!',
+    text: 'Ana disse oi e perguntou como esta a live.',
     icon: MessageSquare,
   },
   {
     kind: 'gift',
-    label: 'Presente',
-    text: 'Ana enviou Rosa x5 e entrou no top apoiadores.',
+    label: 'Rosa x5',
+    text: 'Ana enviou Rosa x5.',
     icon: Gift,
+  },
+  {
+    kind: 'gift',
+    label: 'Resgate cena',
+    text: 'Lucas resgatou Trocar Cena: Gameplay Focus.',
+    icon: SplitSquareHorizontal,
+  },
+  {
+    kind: 'gift',
+    label: 'Musica',
+    text: 'Lucas resgatou Escolher musica: synthwave neon.',
+    icon: Music,
+  },
+  {
+    kind: 'system',
+    label: 'Chat quieto',
+    text: 'Assunto atual acabou / chat quieto. Puxar novo topico.',
+    icon: RadioTower,
   },
   {
     kind: 'moderation',
@@ -104,41 +93,13 @@ const TEST_EVENTS: Array<{
     text: 'Mensagem suspeita no chat pedindo link externo e spam repetido.',
     icon: ShieldAlert,
   },
-  {
-    kind: 'scene',
-    label: 'Cena OBS',
-    text: 'Trocar para cena Gameplay Focus porque a partida comecou.',
-    icon: SplitSquareHorizontal,
-  },
-  {
-    kind: 'alert',
-    label: 'Alerta',
-    text: 'Novo seguidor: Mari entrou na live agora.',
-    icon: RadioTower,
-  },
 ];
 
-const ACTION_LABELS: Record<AutopilotActionType, string> = {
-  speak: 'Falar via TTS',
-  chat_reply: 'Resposta no chat',
-  ack_gift: 'Agradecer presente',
-  moderate_message: 'Moderar mensagem',
-  switch_scene: 'Trocar cena',
-  show_overlay: 'Exibir overlay',
-  log_event: 'Registrar evento',
+type SimLogItem = {
+  id: string;
+  event: SimulatedEvent;
+  time: string;
 };
-
-function formatClock(date = new Date()) {
-  return date.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-}
-
-function makeId(prefix: string) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
 
 function statusTone(stage: CycleStage) {
   if (stage === 'concluido') return 'text-emerald-300 bg-emerald-500/10 border-emerald-400/30';
@@ -147,53 +108,14 @@ function statusTone(stage: CycleStage) {
   return 'text-sky-200 bg-sky-500/10 border-sky-400/30';
 }
 
-function createLiveEvent(kind: LiveEventKind, text: string, source: LiveEvent['source']): LiveEvent {
-  const time = formatClock();
-  return {
-    id: makeId('event'),
-    source,
-    zoneName: source === 'test' ? 'Injetor de teste' : 'Controle Live',
-    text,
-    kind,
-    createdAt: new Date().toISOString(),
-    time,
-  };
-}
-
-function normalizeAction(action: Partial<AutopilotAction>, index: number): AutopilotAction {
-  const type = action.type || 'log_event';
-  return {
-    id: action.id || makeId(`action-${index}`),
-    type,
-    label: action.label || ACTION_LABELS[type],
-    payload: action.payload || {},
-    simulated: type !== 'speak',
-    status: 'queued',
-  };
-}
-
-function normalizeDecision(raw: Partial<PersonaDecision>): PersonaDecision {
-  const actions = Array.isArray(raw.actions) ? raw.actions : [];
-  return {
-    speech: raw.speech || 'Vou acompanhar isso com cuidado na live.',
-    intent: raw.intent || 'respond_live_event',
-    confidence: Math.max(0, Math.min(1, Number(raw.confidence ?? 0.7))),
-    reason: raw.reason || 'Decisao gerada a partir do evento atual.',
-    priority: raw.priority || 'normal',
-    actions: actions.map(normalizeAction),
-  };
-}
-
-function actionSummary(action: AutopilotAction) {
-  const detail =
-    typeof action.payload.text === 'string'
-      ? action.payload.text
-      : typeof action.payload.scene === 'string'
-        ? action.payload.scene
-        : typeof action.payload.message === 'string'
-          ? action.payload.message
-          : '';
-  return detail ? `${action.label}: ${detail}` : action.label;
+function actionTone(status: AutopilotAction['status']) {
+  if (status === 'done') return 'bg-emerald-500/10 text-emerald-300';
+  if (status === 'n8n_dispatched') return 'bg-cyan-500/10 text-cyan-300';
+  if (status === 'simulated') return 'bg-sky-500/10 text-sky-300';
+  if (status === 'error' || status === 'blocked') return 'bg-rose-500/10 text-rose-300';
+  if (status === 'approval_required') return 'bg-violet-500/10 text-violet-300';
+  if (status === 'running') return 'bg-amber-500/10 text-amber-300';
+  return 'bg-slate-800 text-slate-400';
 }
 
 function StepPill({ stage, active }: { key?: string; stage: CycleStage; active: boolean }) {
@@ -209,280 +131,44 @@ function StepPill({ stage, active }: { key?: string; stage: CycleStage; active: 
   );
 }
 
-export default function LiveAutopilotConsole({
-  capturedText,
-  setCapturedText,
-}: LiveAutopilotConsoleProps) {
-  const [autopilotEnabled, setAutopilotEnabled] = useState(false);
-  const [testMode, setTestMode] = useState(true);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const [pendingEvents, setPendingEvents] = useState<LiveEvent[]>([]);
-  const [cycles, setCycles] = useState<AutopilotCycle[]>([]);
-  const [actionQueue, setActionQueue] = useState<AutopilotAction[]>([]);
-  const [health, setHealth] = useState<BackendHealth | null>(null);
-  const [healthError, setHealthError] = useState<string | null>(null);
-  const [healthCheckedAt, setHealthCheckedAt] = useState('Nunca');
-  const [isProcessing, setIsProcessing] = useState(false);
+function metadataPreview(event: LiveEvent) {
+  const metadata = event.metadata || {};
+  const keys = [
+    'user',
+    'giftName',
+    'quantity',
+    'redeemable',
+    'mappedAction',
+    'requestedScene',
+    'requestedTrack',
+  ];
+  const parts = keys
+    .filter((key) => metadata[key] !== undefined)
+    .map((key) => `${key}: ${String(metadata[key])}`);
+  return parts.join(' | ');
+}
+
+function simulatedKind(type: SimulatedEvent['type']): LiveEventKind {
+  if (type === 'gift' || type === 'redeem_scene' || type === 'redeem_music') return 'gift';
+  if (type === 'quiet_moment') return 'system';
+  if (type === 'follow' || type === 'alert') return 'alert';
+  if (type === 'moderation') return 'moderation';
+  return 'chat';
+}
+
+export default function LiveAutopilotConsole({ capturedText, runtime }: LiveAutopilotConsoleProps) {
+  const injectRuntimeEvent = runtime.injectEvent;
+  const startRuntime = runtime.start;
+  const testModeEnabled = runtime.testMode;
   const [manualText, setManualText] = useState('');
-  const processedIdsRef = useRef<Set<string>>(new Set());
-  const audioUrlsRef = useRef<string[]>([]);
-  const memoryRef = useRef<ConversationTurn[]>(loadMemory());
-  const [memoryCount, setMemoryCount] = useState(() => loadMemory().length);
-
-  const latestCycle = cycles[cycles.length - 1];
-  const latestDecision = latestCycle?.decision;
-  const completedCycles = cycles.filter((cycle) => cycle.stage === 'concluido').length;
-  const failedCycles = cycles.filter((cycle) => cycle.stage === 'erro').length;
-  const averageConfidence = useMemo(() => {
-    const decisions = cycles.map((cycle) => cycle.decision).filter(Boolean) as PersonaDecision[];
-    if (!decisions.length) return 0;
-    return Math.round(
-      (decisions.reduce((sum, decision) => sum + decision.confidence, 0) / decisions.length) * 100,
-    );
-  }, [cycles]);
-
-  const refreshHealth = useCallback(async () => {
-    try {
-      const response = await fetch(apiUrl('/health'));
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = (await response.json()) as BackendHealth;
-      setHealth(data);
-      setHealthError(null);
-      setHealthCheckedAt(formatClock());
-    } catch (err) {
-      setHealth(null);
-      setHealthError(err instanceof Error ? err.message : 'Backend indisponivel');
-      setHealthCheckedAt(formatClock());
-    }
-  }, []);
-
-  useEffect(() => {
-    refreshHealth();
-    const interval = window.setInterval(refreshHealth, 15000);
-    return () => window.clearInterval(interval);
-  }, [refreshHealth]);
-
-  useEffect(() => {
-    return () => {
-      audioUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
-    };
-  }, []);
-
-  const enqueueEvent = useCallback((event: LiveEvent) => {
-    if (processedIdsRef.current.has(event.id)) return;
-    processedIdsRef.current.add(event.id);
-    setPendingEvents((current) => [...current, event].slice(-40));
-  }, []);
-
-  useEffect(() => {
-    if (!autopilotEnabled) return;
-    capturedText.forEach(enqueueEvent);
-  }, [autopilotEnabled, capturedText, enqueueEvent]);
-
-  const updateCycle = useCallback((cycleId: string, patch: Partial<AutopilotCycle>) => {
-    setCycles((current) =>
-      current.map((cycle) => (cycle.id === cycleId ? { ...cycle, ...patch } : cycle)),
-    );
-  }, []);
-
-  const appendCycleLog = useCallback((cycleId: string, label: string, status: CycleLog['status']) => {
-    setCycles((current) =>
-      current.map((cycle) =>
-        cycle.id === cycleId
-          ? {
-              ...cycle,
-              logs: [
-                ...cycle.logs,
-                {
-                  id: makeId('log'),
-                  time: formatClock(),
-                  label,
-                  status,
-                },
-              ],
-            }
-          : cycle,
-      ),
-    );
-  }, []);
-
-  const requestDecision = useCallback(async (event: LiveEvent) => {
-    const currentMemory = loadMemory();
-    const memoryBlock = buildMemoryContext(currentMemory);
-    const currentProfiles = loadUserProfiles();
-    const usersBlock = buildUserContext(currentProfiles);
-
-    const contextParts: string[] = [PERSONA_AUTOPILOT_PROMPT];
-    if (usersBlock) contextParts.push(`\n\n[PERFIS DE USUARIOS CONHECIDOS - use para personalizar respostas, lembrar presentes e historico]:\n${usersBlock}`);
-    if (memoryBlock) contextParts.push(`\n\n[HISTORICO RECENTE DE FALAS - mantenha coerencia e nao repita]:\n${memoryBlock}`);
-    const promptWithContext = contextParts.join('');
-
-    const response = await fetch(apiUrl('/ai/decide'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        persona_prompt: promptWithContext,
-        events: [event],
-        mode: 'autopilot_audited',
-        temperature: 0.72,
-      }),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(data.detail || 'Falha ao decidir proxima acao');
-    }
-    return normalizeDecision(data);
-  }, []);
-
-  const executeSpeak = useCallback(
-    async (text: string) => {
-      if (!voiceEnabled) return 'Voz desativada: fala registrada sem audio.';
-
-      const response = await fetch(apiUrl('/tts'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voice: 'pt-BR-FranciscaNeural' }),
-      });
-      if (!response.ok) {
-        const detail = await response.json().catch(() => ({}));
-        throw new Error(detail.detail || 'Falha no TTS');
-      }
-
-      const blob = await response.blob();
-      const audioUrl = URL.createObjectURL(blob);
-      audioUrlsRef.current.push(audioUrl);
-      const audio = new Audio(audioUrl);
-      audio.onended = () => URL.revokeObjectURL(audioUrl);
-      await audio.play();
-      return 'Audio enviado ao player local.';
-    },
-    [voiceEnabled],
-  );
-
-  const executeAction = useCallback(
-    async (action: AutopilotAction, decision: PersonaDecision) => {
-      if (action.type === 'speak') {
-        const text =
-          typeof action.payload.text === 'string' && action.payload.text.trim()
-            ? action.payload.text
-            : decision.speech;
-        return executeSpeak(text);
-      }
-
-      await new Promise((resolve) => window.setTimeout(resolve, 350));
-      return `Simulado: ${actionSummary(action)}`;
-    },
-    [executeSpeak],
-  );
-
-  const processEvent = useCallback(
-    async (event: LiveEvent) => {
-      const cycleId = makeId('cycle');
-      const cycle: AutopilotCycle = {
-        id: cycleId,
-        event,
-        stage: 'capturado',
-        actions: [],
-        logs: [
-          {
-            id: makeId('log'),
-            time: formatClock(),
-            label: `Evento recebido de ${event.source}: ${event.kind}`,
-            status: 'done',
-          },
-        ],
-        createdAt: new Date().toISOString(),
-      };
-
-      setCycles((current) => [...current, cycle].slice(-30));
-      setIsProcessing(true);
-
-      try {
-        updateCycle(cycleId, { stage: 'interpretado' });
-        appendCycleLog(cycleId, 'Evento interpretado e normalizado para a Persona', 'done');
-
-        const decision = await requestDecision(event);
-        updateCycle(cycleId, {
-          stage: 'decidido',
-          decision,
-          actions: decision.actions,
-        });
-        appendCycleLog(
-          cycleId,
-          `Decisao: ${decision.intent} (${Math.round(decision.confidence * 100)}%)`,
-          'done',
-        );
-
-        updateCycle(cycleId, { stage: 'executando' });
-        appendCycleLog(cycleId, 'Executando fila auditavel de acoes', 'running');
-
-        const executedActions: AutopilotAction[] = [];
-        for (const action of decision.actions) {
-          const runningAction = { ...action, status: 'running' as const };
-          setActionQueue((current) => [...current, runningAction].slice(-80));
-          try {
-            const result = await executeAction(runningAction, decision);
-            executedActions.push({ ...runningAction, status: 'done', result });
-            setActionQueue((current) =>
-              current.map((item) =>
-                item.id === runningAction.id ? { ...runningAction, status: 'done', result } : item,
-              ),
-            );
-            appendCycleLog(cycleId, result, 'done');
-          } catch (err) {
-            const message = err instanceof Error ? err.message : 'Falha ao executar acao';
-            executedActions.push({ ...runningAction, status: 'error', result: message });
-            setActionQueue((current) =>
-              current.map((item) =>
-                item.id === runningAction.id
-                  ? { ...runningAction, status: 'error', result: message }
-                  : item,
-              ),
-            );
-            appendCycleLog(cycleId, message, 'error');
-          }
-        }
-
-        updateCycle(cycleId, {
-          stage: 'concluido',
-          actions: executedActions,
-          completedAt: new Date().toISOString(),
-        });
-        appendCycleLog(cycleId, 'Ciclo concluido e registrado', 'done');
-        memoryRef.current = addTurn(memoryRef.current, event.text, decision.speech, 'autopilot');
-        setMemoryCount(memoryRef.current.length);
-        // Track user interaction
-        const currentProfiles = loadUserProfiles();
-        trackUserInteraction(currentProfiles, event.text);
-        await refreshHealth();
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Erro desconhecido';
-        updateCycle(cycleId, {
-          stage: 'erro',
-          error: message,
-          completedAt: new Date().toISOString(),
-        });
-        appendCycleLog(cycleId, message, 'error');
-        setAutopilotEnabled(false);
-      } finally {
-        setIsProcessing(false);
-      }
-    },
-    [appendCycleLog, executeAction, refreshHealth, requestDecision, updateCycle],
-  );
-
-  useEffect(() => {
-    if (!autopilotEnabled || isProcessing || pendingEvents.length === 0) return;
-
-    const [nextEvent, ...remaining] = pendingEvents;
-    setPendingEvents(remaining);
-    processEvent(nextEvent);
-  }, [autopilotEnabled, isProcessing, pendingEvents, processEvent]);
+  const [simActive, setSimActive] = useState(false);
+  const [simSpeed, setSimSpeed] = useState<SimSpeed>('normal');
+  const [simLog, setSimLog] = useState<SimLogItem[]>([]);
+  const simScenarioQueueRef = useRef<SimulatedEvent[]>([]);
+  const simTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
 
   const injectEvent = (kind: LiveEventKind, text: string) => {
-    const event = createLiveEvent(kind, text, testMode ? 'test' : 'manual');
-    setCapturedText((current) => [...current, event].slice(-100));
-    enqueueEvent(event);
+    injectRuntimeEvent(kind, text);
   };
 
   const injectManualEvent = () => {
@@ -491,25 +177,170 @@ export default function LiveAutopilotConsole({
     setManualText('');
   };
 
-  const clearSession = () => {
-    setAutopilotEnabled(false);
-    setPendingEvents([]);
-    setCycles([]);
-    setActionQueue([]);
-    setCapturedText([]);
-    processedIdsRef.current.clear();
+  const runFullFlowTest = () => {
+    startRuntime();
+    TEST_EVENTS.forEach((event, index) => {
+      window.setTimeout(() => injectRuntimeEvent(event.kind, event.text, 'test'), index * 120);
+    });
   };
 
+  const startSimulation = () => {
+    if (!testModeEnabled) return;
+    simScenarioQueueRef.current = createScenarioQueue();
+    setSimLog([]);
+    setSimActive(true);
+    startRuntime();
+  };
+
+  const stopSimulation = () => {
+    setSimActive(false);
+    if (simTimerRef.current) {
+      window.clearTimeout(simTimerRef.current);
+      simTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    if (!simActive || !testModeEnabled) return;
+
+    const speedCfg = SIM_SPEEDS[simSpeed];
+    const tick = () => {
+      const count =
+        speedCfg.eventsPerTick[Math.floor(Math.random() * speedCfg.eventsPerTick.length)];
+      const scriptedEvents = simScenarioQueueRef.current.splice(0, count);
+      const randomEvents =
+        scriptedEvents.length < count ? generateEventBatch(count - scriptedEvents.length) : [];
+      const events = [...scriptedEvents, ...randomEvents];
+      const time = new Date().toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+
+      events.forEach((event) => {
+        injectRuntimeEvent(simulatedKind(event.type), event.text, 'test');
+      });
+      setSimLog((current) =>
+        [
+          ...current,
+          ...events.map((event) => ({
+            id: crypto.randomUUID(),
+            event,
+            time,
+          })),
+        ].slice(-80),
+      );
+
+      const delay = speedCfg.minMs + Math.random() * (speedCfg.maxMs - speedCfg.minMs);
+      simTimerRef.current = window.setTimeout(tick, delay);
+    };
+
+    tick();
+    return () => {
+      if (simTimerRef.current) window.clearTimeout(simTimerRef.current);
+      simTimerRef.current = null;
+    };
+  }, [injectRuntimeEvent, testModeEnabled, simActive, simSpeed]);
+
+  useEffect(() => {
+    if (testModeEnabled || !simActive) return;
+    const timer = window.setTimeout(() => setSimActive(false), 0);
+    return () => window.clearTimeout(timer);
+  }, [testModeEnabled, simActive]);
+
   const stages: CycleStage[] = ['capturado', 'interpretado', 'decidido', 'executando', 'concluido'];
+  const {
+    actionQueue,
+    autopilotEnabled,
+    averageConfidence,
+    completedCycles,
+    currentRoundEvents,
+    cycles,
+    failedCycles,
+    health,
+    healthCheckedAt,
+    healthError,
+    isProcessing,
+    lastError,
+    latestCycle,
+    latestDecision,
+    memoryCount,
+    recognizedUsersCount,
+    pendingEvents,
+    rules,
+    roundCollectionMs,
+    speechCooldownMs,
+    testMode,
+    tools,
+    voiceEnabled,
+  } = runtime;
+  const activeTools = tools.filter((tool) => tool.enabled).length;
+  const activeRules = rules.filter((rule) => rule.enabled).length;
+  const n8nStatus = health?.n8n?.online
+    ? 'online'
+    : health?.n8n?.configured
+      ? 'configurado'
+      : 'off';
+  const n8nTone = health?.n8n?.online
+    ? 'text-cyan-300'
+    : health?.n8n?.configured
+      ? 'text-amber-300'
+      : 'text-slate-500';
+  const flowSteps = [
+    {
+      label: 'Entrada',
+      ok: capturedText.length > 0 || pendingEvents.length > 0,
+      detail: `${capturedText.length} evento(s) no Event Bus`,
+    },
+    {
+      label: 'Classificacao',
+      ok: Boolean(latestCycle?.event.metadata?.classifiedAt),
+      detail: latestCycle?.event.kind || 'aguardando',
+    },
+    {
+      label: 'Conteudo',
+      ok: Boolean(latestCycle?.contentUsed?.length),
+      detail: `${latestCycle?.contentUsed?.length || 0} item(ns) usado(s)`,
+    },
+    {
+      label: 'Regras',
+      ok: Boolean(latestCycle?.matchedRules.length),
+      detail: `${latestCycle?.matchedRules.length || 0} regra(s)`,
+    },
+    {
+      label: 'IA',
+      ok: Boolean(latestDecision),
+      detail: latestDecision?.intent || 'sem decisao',
+    },
+    {
+      label: 'Acoes',
+      ok: Boolean(latestCycle?.actions.length),
+      detail: `${latestCycle?.actions.length || 0} acao(oes)`,
+    },
+    {
+      label: 'TTS/chat',
+      ok: Boolean(
+        latestCycle?.actions.some(
+          (action) => action.type === 'speak' || action.type === 'chat_reply',
+        ),
+      ),
+      detail: latestCycle?.actions.find((action) => action.type === 'speak')?.status || 'pendente',
+    },
+    {
+      label: 'Auditoria',
+      ok: Boolean(latestCycle?.completedAt),
+      detail: latestCycle?.completedAt ? 'registrada' : 'aguardando',
+    },
+  ];
 
   return (
-    <main className="flex-1 overflow-y-auto bg-[#070A0F] text-slate-100">
-      <div className="grid min-h-full grid-cols-1 xl:grid-cols-[320px_minmax(0,1fr)_380px]">
-        <aside className="border-b border-slate-800 bg-[#111722] p-4 xl:border-b-0 xl:border-r">
+    <main className="flex-1 overflow-y-auto bg-[var(--odessa-bg)] text-slate-100">
+      <div className="grid min-h-full grid-cols-1 xl:grid-cols-[320px_minmax(0,1fr)_400px]">
+        <aside className="border-b border-[var(--odessa-border)] bg-[var(--odessa-surface)] p-4 xl:border-b-0 xl:border-r">
           <div className="mb-5 flex items-center justify-between">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500">
-                Live Control Loop
+                Persona Runtime
               </p>
               <h2 className="mt-1 text-lg font-black text-white">Controle Live</h2>
             </div>
@@ -525,10 +356,10 @@ export default function LiveAutopilotConsole({
             </span>
           </div>
 
-          <section className="rounded-lg border border-slate-800 bg-[#0B1018] p-3">
+          <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-3">
             <div className="grid grid-cols-2 gap-2">
               <button
-                onClick={() => setAutopilotEnabled(true)}
+                onClick={runtime.start}
                 disabled={autopilotEnabled}
                 className="inline-flex items-center justify-center gap-2 rounded-md bg-emerald-500 px-3 py-2 text-xs font-black text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -536,7 +367,7 @@ export default function LiveAutopilotConsole({
                 Iniciar
               </button>
               <button
-                onClick={() => setAutopilotEnabled(false)}
+                onClick={runtime.pause}
                 disabled={!autopilotEnabled}
                 className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-800 px-3 py-2 text-xs font-black text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -544,7 +375,7 @@ export default function LiveAutopilotConsole({
                 Pausar
               </button>
               <button
-                onClick={() => setTestMode((value) => !value)}
+                onClick={runtime.toggleTestMode}
                 className={cn(
                   'inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-xs font-black transition',
                   testMode
@@ -556,15 +387,16 @@ export default function LiveAutopilotConsole({
                 Modo teste
               </button>
               <button
-                onClick={clearSession}
+                onClick={runtime.clearSession}
                 className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-black text-slate-300 transition hover:bg-slate-800"
+                title="Resetar runtime local sem apagar persona ou memoria"
               >
                 <RotateCcw className="h-4 w-4" />
-                Limpar
+                Resetar
               </button>
             </div>
             <button
-              onClick={() => setVoiceEnabled((value) => !value)}
+              onClick={runtime.toggleVoice}
               className={cn(
                 'mt-2 inline-flex w-full items-center justify-center gap-2 rounded-md border px-3 py-2 text-xs font-black transition',
                 voiceEnabled
@@ -577,21 +409,71 @@ export default function LiveAutopilotConsole({
             </button>
           </section>
 
-          <section className="mt-4 rounded-lg border border-slate-800 bg-[#0B1018] p-3">
+          <section className="mt-4 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-3">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                Eventos de teste
+                Modo teste
               </h3>
-              <span className="text-[11px] font-bold text-slate-500">{pendingEvents.length} pendentes</span>
+              <span className="text-[11px] font-bold text-slate-500">
+                {pendingEvents.length} pendentes
+              </span>
+            </div>
+            <div className="mb-3 rounded-md border border-slate-800 bg-slate-950/60 p-3">
+              <div className="mb-2 flex flex-wrap gap-1">
+                {(Object.keys(SIM_SPEEDS) as SimSpeed[]).map((speed) => (
+                  <button
+                    key={speed}
+                    onClick={() => setSimSpeed(speed)}
+                    disabled={!testMode || simActive}
+                    className={cn(
+                      'rounded border px-2 py-1 text-[10px] font-black uppercase transition disabled:cursor-not-allowed disabled:opacity-40',
+                      simSpeed === speed
+                        ? 'border-sky-400/40 bg-sky-500/10 text-sky-200'
+                        : 'border-slate-800 text-slate-500 hover:text-white',
+                    )}
+                  >
+                    {SIM_SPEEDS[speed].label}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={simActive ? stopSimulation : startSimulation}
+                disabled={!testMode}
+                className={cn(
+                  'inline-flex w-full items-center justify-center gap-2 rounded-md px-3 py-2 text-xs font-black transition disabled:cursor-not-allowed disabled:opacity-40',
+                  simActive
+                    ? 'border border-rose-400/30 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20'
+                    : 'bg-sky-500 text-slate-950 hover:bg-sky-300',
+                )}
+              >
+                {simActive ? (
+                  <Square className="h-4 w-4 fill-current" />
+                ) : (
+                  <Play className="h-4 w-4 fill-current" />
+                )}
+                {simActive ? 'Parar simulacao' : 'Rodar cenario'}
+              </button>
+              <button
+                onClick={runFullFlowTest}
+                className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-md border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-xs font-black text-emerald-200 transition hover:bg-emerald-500/20"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                Teste de fluxo completo
+              </button>
+              <p className="mt-2 text-[11px] leading-4 text-slate-500">
+                Use apenas para teste. Rodadas coletam {Math.round(roundCollectionMs / 1000)}s e
+                respeitam {Math.round(speechCooldownMs / 1000)}s entre falas.
+              </p>
             </div>
             <div className="space-y-2">
               {TEST_EVENTS.map((event) => {
                 const Icon = event.icon;
                 return (
                   <button
-                    key={event.kind}
+                    key={event.label}
                     onClick={() => injectEvent(event.kind, event.text)}
-                    className="flex w-full items-center justify-between gap-3 rounded-md border border-slate-800 bg-slate-950/50 p-3 text-left transition hover:border-sky-400/50 hover:bg-sky-500/10"
+                    disabled={!testMode}
+                    className="flex w-full items-center justify-between gap-3 rounded-md border border-slate-800 bg-slate-950/50 p-3 text-left transition hover:border-sky-400/50 hover:bg-sky-500/10 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <span className="flex min-w-0 items-center gap-2">
                       <Icon className="h-4 w-4 flex-shrink-0 text-sky-300" />
@@ -602,9 +484,35 @@ export default function LiveAutopilotConsole({
                 );
               })}
             </div>
+            {simLog.length > 0 && (
+              <div className="mt-3 max-h-44 space-y-1 overflow-y-auto rounded-md border border-slate-800 bg-slate-950/60 p-2">
+                {simLog
+                  .slice(-18)
+                  .reverse()
+                  .map((item) => (
+                    <div key={item.id} className="flex items-start gap-2 text-[11px] leading-4">
+                      <span className="mt-0.5 flex-shrink-0">
+                        {EVENT_TYPE_ICONS[item.event.type]}
+                      </span>
+                      <span
+                        className={cn(
+                          'min-w-[74px] flex-shrink-0 font-black',
+                          EVENT_TYPE_COLORS[item.event.type],
+                        )}
+                      >
+                        @{item.event.username}
+                      </span>
+                      <span className="min-w-0 flex-1 text-slate-400">
+                        {item.event.displayText}
+                      </span>
+                      <span className="flex-shrink-0 text-slate-600">{item.time}</span>
+                    </div>
+                  ))}
+              </div>
+            )}
           </section>
 
-          <section className="mt-4 rounded-lg border border-slate-800 bg-[#0B1018] p-3">
+          <section className="mt-4 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-3">
             <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-400">
               Evento manual
             </h3>
@@ -626,89 +534,87 @@ export default function LiveAutopilotConsole({
         </aside>
 
         <section className="flex min-h-[760px] flex-col xl:min-h-0">
-          <div className="border-b border-slate-800 bg-[#0B1018] px-4 py-3">
+          <div className="border-b border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] px-4 py-3">
             <div className="flex flex-wrap items-center gap-2">
               {stages.map((stage) => (
                 <StepPill key={stage} stage={stage} active={latestCycle?.stage === stage} />
               ))}
-              <span className="ml-auto inline-flex items-center gap-2 rounded-md border border-slate-800 bg-slate-950/70 px-3 py-1.5 text-xs font-bold text-slate-300">
+              <button
+                onClick={runtime.exportSession}
+                className="ml-auto inline-flex items-center gap-2 rounded-md border border-slate-800 bg-slate-950/70 px-3 py-1.5 text-xs font-bold text-slate-300 transition hover:border-emerald-400/40 hover:text-white"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Exportar JSON
+              </button>
+              <span className="inline-flex items-center gap-2 rounded-md border border-slate-800 bg-slate-950/70 px-3 py-1.5 text-xs font-bold text-slate-300">
                 {isProcessing ? (
                   <>
                     <Activity className="h-3.5 w-3.5 animate-pulse text-emerald-300" />
-                    Processando ciclo
+                    Processando rodada ({currentRoundEvents.length || 1})
                   </>
                 ) : (
                   <>
                     <Square className="h-3.5 w-3.5 text-slate-500" />
-                    Aguardando evento
+                    Agrupando eventos
                   </>
                 )}
               </span>
             </div>
           </div>
 
-          <div className="grid gap-px bg-slate-800 sm:grid-cols-5">
-            <div className="bg-[#0B1018] p-4">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
-                <CheckCircle2 className="h-4 w-4" />
-                Ciclos OK
+          <div className="grid gap-px bg-slate-800 sm:grid-cols-6">
+            {[
+              ['Ciclos OK', completedCycles, CheckCircle2],
+              ['Erros', failedCycles, AlertTriangle],
+              ['Confianca', `${averageConfidence}%`, Gauge],
+              ['Rodada', currentRoundEvents.length || pendingEvents.length, Layers],
+              ['Tools', activeTools, SlidersHorizontal],
+              ['Regras', activeRules, Zap],
+            ].map(([label, value, Icon]) => (
+              <div key={String(label)} className="bg-[#0B1018] p-4">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
+                  <Icon className="h-4 w-4" />
+                  {label}
+                </div>
+                <p className="mt-2 font-mono text-lg font-black text-white">{value}</p>
               </div>
-              <p className="mt-2 font-mono text-lg font-black text-white">{completedCycles}</p>
-            </div>
-            <div className="bg-[#0B1018] p-4">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
-                <AlertTriangle className="h-4 w-4" />
-                Erros
-              </div>
-              <p className="mt-2 font-mono text-lg font-black text-white">{failedCycles}</p>
-            </div>
-            <div className="bg-[#0B1018] p-4">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
-                <Gauge className="h-4 w-4" />
-                Confianca
-              </div>
-              <p className="mt-2 font-mono text-lg font-black text-white">{averageConfidence}%</p>
-            </div>
-            <div className="bg-[#0B1018] p-4">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
-                <Layers className="h-4 w-4" />
-                Acoes
-              </div>
-              <p className="mt-2 font-mono text-lg font-black text-white">{actionQueue.length}</p>
-            </div>
-            <div className="bg-[#0B1018] p-4">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
-                <Bot className="h-4 w-4" />
-                Memoria
-              </div>
-              <p className="mt-2 font-mono text-lg font-black text-purple-300">{memoryCount}</p>
-            </div>
+            ))}
           </div>
 
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-            <section className="min-h-0 rounded-lg border border-slate-800 bg-[#111722]">
+            <section className="min-h-0 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface)]">
               <div className="border-b border-slate-800 px-4 py-3">
                 <h3 className="text-sm font-black text-white">Timeline auditavel</h3>
                 <p className="mt-1 text-xs text-slate-500">
-                  Cada ciclo mostra entrada, decisao, acoes e resultado.
+                  Entrada, interpretacao, decisao, acoes e resultado.
                 </p>
               </div>
-              <div className="max-h-[620px] space-y-3 overflow-y-auto p-4">
+              <div className="max-h-[640px] space-y-3 overflow-y-auto p-4">
                 {cycles.length === 0 ? (
                   <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 text-center text-slate-600">
                     <Bot className="h-12 w-12" />
-                    <p className="text-sm">Inicie o Autopilot e injete um evento para ver o ciclo completo.</p>
+                    <p className="text-sm">
+                      Inicie o Autopilot e injete um evento para ver o ciclo completo.
+                    </p>
                   </div>
                 ) : (
                   cycles
                     .slice()
                     .reverse()
                     .map((cycle) => (
-                      <article key={cycle.id} className="rounded-lg border border-slate-800 bg-[#0B1018] p-4">
+                      <article
+                        key={cycle.id}
+                        className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-4"
+                      >
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className={cn('rounded-md border px-2 py-1 text-[11px] font-black uppercase', statusTone(cycle.stage))}>
+                              <span
+                                className={cn(
+                                  'rounded-md border px-2 py-1 text-[11px] font-black uppercase',
+                                  statusTone(cycle.stage),
+                                )}
+                              >
                                 {cycle.stage}
                               </span>
                               <span className="rounded-md bg-slate-950 px-2 py-1 text-[11px] font-bold text-slate-400">
@@ -716,7 +622,55 @@ export default function LiveAutopilotConsole({
                               </span>
                               <span className="text-xs text-slate-500">{cycle.event.time}</span>
                             </div>
-                            <p className="mt-3 text-sm leading-6 text-slate-200">{cycle.event.text}</p>
+                            <p className="mt-3 text-sm leading-6 text-slate-200">
+                              {cycle.event.text}
+                            </p>
+                            {(cycle.events?.length || 1) > 1 && (
+                              <div className="mt-3 rounded-md border border-sky-400/20 bg-sky-500/10 p-2">
+                                <p className="text-[11px] font-black uppercase tracking-wide text-sky-300">
+                                  Rodada com {cycle.events.length} eventos agrupados
+                                </p>
+                                <div className="mt-2 space-y-1">
+                                  {cycle.events.slice(0, 5).map((event) => (
+                                    <p
+                                      key={event.id}
+                                      className="truncate text-[11px] text-slate-400"
+                                    >
+                                      [{event.kind}] {event.text}
+                                    </p>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {metadataPreview(cycle.event) && (
+                              <p className="mt-2 rounded-md border border-slate-800 bg-slate-950/60 px-2 py-1 text-[11px] text-slate-500">
+                                {metadataPreview(cycle.event)}
+                              </p>
+                            )}
+                            {cycle.matchedRules.length > 0 && (
+                              <p className="mt-2 text-[11px] font-bold text-amber-300">
+                                Regras: {cycle.matchedRules.join(', ')}
+                              </p>
+                            )}
+                            {Boolean(cycle.contentUsed?.length) && (
+                              <div className="mt-3 rounded-md border border-cyan-400/20 bg-cyan-500/10 p-2">
+                                <p className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wide text-cyan-300">
+                                  <BookOpen className="h-3.5 w-3.5" />
+                                  Conteudo usado
+                                </p>
+                                <div className="mt-2 space-y-1">
+                                  {cycle.contentUsed?.slice(0, 4).map((item) => (
+                                    <p
+                                      key={item.id}
+                                      className="text-[11px] leading-4 text-cyan-50/80"
+                                    >
+                                      <span className="font-bold text-cyan-200">{item.title}</span>
+                                      <span className="text-cyan-200/50"> / {item.reason}</span>
+                                    </p>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                           {cycle.decision && (
                             <div className="rounded-md border border-violet-400/20 bg-violet-500/10 px-3 py-2 text-right">
@@ -738,34 +692,63 @@ export default function LiveAutopilotConsole({
                             <p className="mt-2 text-sm font-semibold leading-6 text-emerald-50">
                               {cycle.decision.speech}
                             </p>
-                            <p className="mt-2 text-xs leading-5 text-emerald-200/70">{cycle.decision.reason}</p>
+                            <p className="mt-2 text-xs leading-5 text-emerald-200/70">
+                              {cycle.decision.reason}
+                            </p>
+                          </div>
+                        )}
+
+                        {cycle.actions.length > 0 && (
+                          <div className="mt-4 grid gap-2 md:grid-cols-2">
+                            {cycle.actions.map((action) => (
+                              <div
+                                key={action.id}
+                                className="rounded-md border border-slate-800 bg-slate-950/60 p-3"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-xs font-black text-white">
+                                    {action.label}
+                                  </span>
+                                  <span
+                                    className={cn(
+                                      'rounded px-2 py-0.5 text-[10px] font-black uppercase',
+                                      actionTone(action.status),
+                                    )}
+                                  >
+                                    {action.status}
+                                  </span>
+                                </div>
+                                <p className="mt-1 text-[11px] text-slate-500">
+                                  {action.capability}
+                                </p>
+                                <p className="mt-2 text-xs leading-5 text-slate-400">
+                                  {action.result || actionSummary(action)}
+                                </p>
+                              </div>
+                            ))}
                           </div>
                         )}
 
                         <div className="mt-4 grid gap-2 md:grid-cols-2">
-                          {cycle.logs.map((log) => (
+                          {cycle.logs.map((entry) => (
                             <div
-                              key={log.id}
+                              key={entry.id}
                               className={cn(
                                 'rounded-md border px-3 py-2 text-xs',
-                                log.status === 'error'
+                                entry.status === 'error'
                                   ? 'border-rose-400/30 bg-rose-500/10 text-rose-200'
-                                  : log.status === 'running'
+                                  : entry.status === 'running'
                                     ? 'border-amber-400/30 bg-amber-500/10 text-amber-200'
                                     : 'border-slate-800 bg-slate-950/60 text-slate-300',
                               )}
                             >
-                              <span className="font-mono text-[10px] text-slate-500">{log.time}</span>
-                              <p className="mt-1">{log.label}</p>
+                              <span className="font-mono text-[10px] text-slate-500">
+                                {entry.time}
+                              </span>
+                              <p className="mt-1">{entry.label}</p>
                             </div>
                           ))}
                         </div>
-
-                        {cycle.error && (
-                          <p className="mt-3 rounded-md border border-rose-400/30 bg-rose-500/10 p-3 text-xs text-rose-200">
-                            {cycle.error}
-                          </p>
-                        )}
                       </article>
                     ))
                 )}
@@ -773,10 +756,45 @@ export default function LiveAutopilotConsole({
             </section>
 
             <aside className="space-y-4">
-              <section className="rounded-lg border border-slate-800 bg-[#111722]">
+              <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface)]">
                 <div className="border-b border-slate-800 px-4 py-3">
-                  <h3 className="text-sm font-black text-white">Proxima acao da Persona</h3>
-                  <p className="mt-1 text-xs text-slate-500">Decisao mais recente pronta para auditoria.</p>
+                  <h3 className="text-sm font-black text-white">Fluxo conectado</h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Entrada ate auditoria da rodada atual.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 p-4">
+                  {flowSteps.map((step) => (
+                    <div
+                      key={step.label}
+                      className={cn(
+                        'rounded-md border p-3',
+                        step.ok
+                          ? 'border-emerald-400/20 bg-emerald-500/10'
+                          : 'border-slate-800 bg-slate-950/60',
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={cn(
+                            'h-2 w-2 rounded-full',
+                            step.ok ? 'bg-emerald-400' : 'bg-slate-600',
+                          )}
+                        />
+                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-300">
+                          {step.label}
+                        </p>
+                      </div>
+                      <p className="mt-2 truncate text-[11px] text-slate-500">{step.detail}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface)]">
+                <div className="border-b border-slate-800 px-4 py-3">
+                  <h3 className="text-sm font-black text-white">Proxima acao</h3>
+                  <p className="mt-1 text-xs text-slate-500">Decisao mais recente da Persona.</p>
                 </div>
                 <div className="p-4">
                   {latestDecision ? (
@@ -792,19 +810,6 @@ export default function LiveAutopilotConsole({
                       <div className="rounded-md border border-slate-800 bg-slate-950/60 p-3 text-xs leading-5 text-slate-400">
                         {latestDecision.reason}
                       </div>
-                      <div className="space-y-2">
-                        {latestDecision.actions.map((action) => (
-                          <div key={action.id} className="rounded-md border border-slate-800 bg-slate-950/60 p-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-black text-white">{action.label}</span>
-                              <span className="rounded bg-slate-900 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-400">
-                                {action.simulated ? 'simulado' : 'real'}
-                              </span>
-                            </div>
-                            <p className="mt-2 text-xs text-slate-500">{actionSummary(action)}</p>
-                          </div>
-                        ))}
-                      </div>
                     </div>
                   ) : (
                     <p className="rounded-md border border-dashed border-slate-800 p-5 text-center text-sm text-slate-600">
@@ -814,10 +819,12 @@ export default function LiveAutopilotConsole({
                 </div>
               </section>
 
-              <section className="rounded-lg border border-slate-800 bg-[#111722]">
+              <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface)]">
                 <div className="border-b border-slate-800 px-4 py-3">
                   <h3 className="text-sm font-black text-white">Fila de acoes</h3>
-                  <p className="mt-1 text-xs text-slate-500">Execucao real somente para TTS.</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Real, simulado, bloqueado ou aguardando aprovacao.
+                  </p>
                 </div>
                 <div className="max-h-[360px] space-y-2 overflow-y-auto p-4">
                   {actionQueue.length === 0 ? (
@@ -827,24 +834,22 @@ export default function LiveAutopilotConsole({
                       .slice()
                       .reverse()
                       .map((action) => (
-                        <div key={action.id} className="rounded-md border border-slate-800 bg-slate-950/60 p-3">
+                        <div
+                          key={action.id}
+                          className="rounded-md border border-slate-800 bg-slate-950/60 p-3"
+                        >
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-xs font-black text-white">{action.label}</span>
                             <span
                               className={cn(
                                 'rounded px-2 py-0.5 text-[10px] font-black uppercase',
-                                action.status === 'done'
-                                  ? 'bg-emerald-500/10 text-emerald-300'
-                                  : action.status === 'error'
-                                    ? 'bg-rose-500/10 text-rose-300'
-                                    : action.status === 'running'
-                                      ? 'bg-amber-500/10 text-amber-300'
-                                      : 'bg-slate-800 text-slate-400',
+                                actionTone(action.status),
                               )}
                             >
                               {action.status}
                             </span>
                           </div>
+                          <p className="mt-1 text-[11px] text-slate-500">{action.capability}</p>
                           <p className="mt-2 text-xs leading-5 text-slate-500">
                             {action.result || actionSummary(action)}
                           </p>
@@ -857,15 +862,15 @@ export default function LiveAutopilotConsole({
           </div>
         </section>
 
-        <aside className="border-t border-slate-800 bg-[#111722] p-4 xl:border-l xl:border-t-0">
-          <section className="rounded-lg border border-slate-800 bg-[#0B1018] p-4">
+        <aside className="border-t border-[var(--odessa-border)] bg-[var(--odessa-surface)] p-4 xl:border-l xl:border-t-0">
+          <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-sm font-black text-white">Saude do sistema</h3>
                 <p className="mt-1 text-xs text-slate-500">Verificado as {healthCheckedAt}</p>
               </div>
               <button
-                onClick={refreshHealth}
+                onClick={runtime.refreshHealth}
                 className="rounded-md p-2 text-slate-400 transition hover:bg-slate-800 hover:text-white"
               >
                 <RefreshCcw className="h-4 w-4" />
@@ -881,14 +886,57 @@ export default function LiveAutopilotConsole({
                 <p className="mt-1 text-sm font-black text-white">{health?.ocr || '-'}</p>
               </div>
               <div className="rounded-md border border-slate-800 bg-slate-950/60 p-3">
-                <p className="text-[10px] font-bold uppercase text-slate-500">Gemini</p>
+                <p className="text-[10px] font-bold uppercase text-slate-500">IA</p>
                 <p className="mt-1 text-sm font-black text-white">
-                  {health?.gemini_configured ? 'ok' : '-'}
+                  {health?.gemini_configured
+                    ? 'Gemini'
+                    : health?.openai_ai_configured
+                      ? 'OpenAI'
+                      : '-'}
                 </p>
               </div>
               <div className="rounded-md border border-slate-800 bg-slate-950/60 p-3">
-                <p className="text-[10px] font-bold uppercase text-slate-500">TTS</p>
-                <p className="mt-1 text-sm font-black text-white">Edge</p>
+                <p className="text-[10px] font-bold uppercase text-slate-500">
+                  Usuarios reconhecidos
+                </p>
+                <p className="mt-1 text-sm font-black text-white">{recognizedUsersCount}</p>
+                <p className="mt-1 text-[10px] text-slate-600">local: {memoryCount}</p>
+              </div>
+              <div className="col-span-2 rounded-md border border-slate-800 bg-slate-950/60 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase text-slate-500">
+                      OBS real via n8n
+                    </p>
+                    <p className="mt-1 text-sm font-black text-white">
+                      {runtime.currentObsScene || `${runtime.obsScenes.length} cena(s) carregadas`}
+                    </p>
+                  </div>
+                  <button
+                    onClick={runtime.refreshObsScenes}
+                    className="rounded-md border border-slate-800 px-2 py-1 text-[10px] font-bold text-slate-300 transition hover:border-cyan-400/40 hover:text-cyan-200"
+                  >
+                    Atualizar
+                  </button>
+                </div>
+                {runtime.obsError && (
+                  <p className="mt-2 truncate text-[11px] text-amber-300">{runtime.obsError}</p>
+                )}
+              </div>
+              <div className="col-span-2 rounded-md border border-slate-800 bg-slate-950/60 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase text-slate-500">n8n bridge</p>
+                    <p className={cn('mt-1 text-sm font-black', n8nTone)}>{n8nStatus}</p>
+                  </div>
+                  <div className="text-right text-[10px] font-bold uppercase leading-4 text-slate-600">
+                    <p>{health?.n8n?.action_webhook_configured ? 'actions on' : 'actions off'}</p>
+                    <p>{health?.n8n?.audit_webhook_configured ? 'audit on' : 'audit off'}</p>
+                  </div>
+                </div>
+                {health?.n8n?.error && (
+                  <p className="mt-2 truncate text-[11px] text-amber-300">{health.n8n.error}</p>
+                )}
               </div>
             </div>
             {healthError && (
@@ -896,38 +944,144 @@ export default function LiveAutopilotConsole({
                 {healthError}
               </p>
             )}
+            {lastError && (
+              <p className="mt-3 rounded-md border border-amber-400/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+                Runtime: {lastError}
+              </p>
+            )}
           </section>
 
-          <section className="mt-4 rounded-lg border border-slate-800 bg-[#0B1018]">
+          <section className="mt-4 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)]">
+            <div className="border-b border-slate-800 px-4 py-3">
+              <h3 className="text-sm font-black text-white">Ferramentas</h3>
+              <p className="mt-1 text-xs text-slate-500">Registry de capacidades acionaveis.</p>
+            </div>
+            <div className="max-h-[300px] space-y-2 overflow-y-auto p-4">
+              {tools.map((tool) => (
+                <div
+                  key={tool.id}
+                  className="rounded-md border border-slate-800 bg-slate-950/60 p-3"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-black text-white">{tool.label}</p>
+                      <p className="mt-1 truncate text-[11px] text-slate-500">{tool.capability}</p>
+                    </div>
+                    <button
+                      onClick={() =>
+                        runtime.toggleTool(tool.capability, { enabled: !tool.enabled })
+                      }
+                      className={cn(
+                        'rounded px-2 py-1 text-[10px] font-black uppercase',
+                        tool.enabled
+                          ? 'bg-emerald-500/10 text-emerald-300'
+                          : 'bg-slate-800 text-slate-500',
+                      )}
+                    >
+                      {tool.enabled ? 'on' : 'off'}
+                    </button>
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={() =>
+                        runtime.toggleTool(tool.capability, { simulated: !tool.simulated })
+                      }
+                      disabled={tool.capability === 'tts.speak'}
+                      className="rounded border border-slate-800 px-2 py-1 text-[10px] font-bold text-slate-400 disabled:opacity-40"
+                    >
+                      {tool.simulated ? 'simulado' : 'real'}
+                    </button>
+                    <button
+                      onClick={() =>
+                        runtime.toggleTool(tool.capability, {
+                          requiresApproval: !tool.requiresApproval,
+                        })
+                      }
+                      className="rounded border border-slate-800 px-2 py-1 text-[10px] font-bold text-slate-400"
+                    >
+                      {tool.requiresApproval ? 'aprovacao' : 'auto'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="mt-4 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)]">
+            <div className="border-b border-slate-800 px-4 py-3">
+              <h3 className="text-sm font-black text-white">Regras ativas</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Automacoes previsiveis antes da IA complementar.
+              </p>
+            </div>
+            <div className="max-h-[260px] space-y-2 overflow-y-auto p-4">
+              {rules.map((rule) => (
+                <div
+                  key={rule.id}
+                  className="flex items-center justify-between gap-3 rounded-md border border-slate-800 bg-slate-950/60 p-3"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-black text-white">{rule.label}</p>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      {rule.actions.length} acao(oes)
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => runtime.toggleRule(rule.id, !rule.enabled)}
+                    className={cn(
+                      'rounded px-2 py-1 text-[10px] font-black uppercase',
+                      rule.enabled
+                        ? 'bg-amber-500/10 text-amber-300'
+                        : 'bg-slate-800 text-slate-500',
+                    )}
+                  >
+                    {rule.enabled ? 'ativa' : 'off'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="mt-4 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)]">
             <div className="border-b border-slate-800 px-4 py-3">
               <h3 className="text-sm font-black text-white">Entradas recentes</h3>
-              <p className="mt-1 text-xs text-slate-500">{capturedText.length} eventos disponiveis</p>
+              <p className="mt-1 text-xs text-slate-500">
+                {capturedText.length} eventos no barramento
+              </p>
             </div>
-            <div className="max-h-[360px] space-y-2 overflow-y-auto p-4">
+            <div className="max-h-[300px] space-y-2 overflow-y-auto p-4">
               {capturedText.length === 0 ? (
-                <p className="py-8 text-center text-sm text-slate-600">Sem capturas ainda.</p>
+                <p className="py-8 text-center text-sm text-slate-600">Sem eventos ainda.</p>
               ) : (
                 capturedText
-                  .slice(-12)
+                  .slice(-10)
                   .reverse()
                   .map((event) => (
-                    <div key={event.id} className="rounded-md border border-slate-800 bg-slate-950/60 p-3">
+                    <div
+                      key={event.id}
+                      className="rounded-md border border-slate-800 bg-slate-950/60 p-3"
+                    >
                       <div className="mb-2 flex items-center justify-between">
-                        <span className="text-xs font-black uppercase text-sky-300">{event.kind}</span>
+                        <span className="text-xs font-black uppercase text-sky-300">
+                          {event.kind}
+                        </span>
                         <span className="text-[10px] text-slate-500">{event.time}</span>
                       </div>
                       <p className="text-xs leading-5 text-slate-300">{event.text}</p>
+                      {metadataPreview(event) && (
+                        <p className="mt-2 text-[11px] text-slate-500">{metadataPreview(event)}</p>
+                      )}
                     </div>
                   ))
               )}
             </div>
           </section>
 
-          <section className="mt-4 rounded-lg border border-slate-800 bg-[#0B1018] p-4">
+          <section className="mt-4 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-4">
             <div className="flex items-center gap-2 text-xs leading-5 text-slate-500">
               <Zap className="h-4 w-4 flex-shrink-0 text-amber-300" />
-              Acoes externas ficam simuladas ate existirem adaptadores reais para OBS, chat,
-              overlays e moderacao.
+              OBS, chat, overlay, media e moderacao podem ser enviados ao n8n; sem webhook, seguem
+              simulados localmente.
             </div>
           </section>
         </aside>

@@ -50,10 +50,7 @@ export function addTurn(
   return updated;
 }
 
-export function buildMemoryContext(
-  turns: ConversationTurn[],
-  windowSize = 8,
-): string {
+export function buildMemoryContext(turns: ConversationTurn[], windowSize = 8): string {
   if (turns.length === 0) return '';
 
   const recent = turns.slice(-windowSize);
@@ -156,7 +153,9 @@ export function extractUsername(text: string): string | null {
   if (colonMatch) return colonMatch[1];
 
   // "Ana enviou..." / "Lucas mandou..."
-  const actionMatch = cleaned.match(/^([A-Za-z0-9_.-]{2,25})\s+(enviou|mandou|entrou|seguiu|curtiu|comecou)/i);
+  const actionMatch = cleaned.match(
+    /^([A-Za-z0-9_.-]{2,25})\s+(enviou|mandou|entrou|seguiu|curtiu|comecou)/i,
+  );
   if (actionMatch) return actionMatch[1];
 
   // "Novo seguidor: Nome"
@@ -234,9 +233,7 @@ export function buildUserContext(profiles: UserProfileMap, maxUsers = 8): string
   if (entries.length === 0) return '';
 
   // Sort by lastSeen descending (most recent first)
-  const sorted = entries
-    .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen))
-    .slice(0, maxUsers);
+  const sorted = entries.sort((a, b) => b.lastSeen.localeCompare(a.lastSeen)).slice(0, maxUsers);
 
   const lines = sorted.map((profile) => {
     const parts: string[] = [`@${profile.username}`];

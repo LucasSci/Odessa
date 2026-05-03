@@ -1,33 +1,197 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 @theme {
-  --font-sans: "Inter", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", "Courier New", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: 'Inter', 'Helvetica Neue', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Courier New', ui-monospace, SFMono-Regular, monospace;
+}
+
+:root {
+  --bg: #080810;
+  --bg1: #0d0d18;
+  --bg2: #12121f;
+  --bg3: #181828;
+  --bg4: #1e1e32;
+  --border: rgba(255, 255, 255, 0.06);
+  --border2: rgba(255, 255, 255, 0.1);
+  --border3: rgba(255, 255, 255, 0.16);
+  --t1: #eeedf8;
+  --t2: #8886a8;
+  --t3: #44435a;
+  --accent: #7c6ff7;
+  --accent2: #a855f7;
+  --pink: #f472b6;
+  --green: #34d399;
+  --amber: #fbbf24;
+  --red: #f87171;
+  --blue: #60a5fa;
+  --glow-a: rgba(124, 111, 247, 0.15);
+  --glow-p: rgba(244, 114, 182, 0.12);
+
+  /* Legacy compatibility if needed */
+  --odessa-primary: var(--accent);
+  --odessa-bg: var(--bg);
 }
 
 @layer base {
-  :root {
-    --bg: #0F0F11;
-    --surface: #1C1D21;
-    --accent: #E11D48;
-    --accent-dim: #881337;
-    --border: #334155;
-    --text-main: #E2E8F0;
-    --text-dim: #94A3B8;
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
   }
 
+  html,
   body {
-    background-color: var(--bg);
-    color: var(--text-main);
+    height: 100%;
+    background: var(--bg);
+    color: var(--t1);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
     overflow: hidden;
   }
 }
 
-@keyframes pulse-white {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border3);
+  border-radius: 99px;
 }
 
-.animate-pulse-white {
-  animation: pulse-white 1s infinite;
+/* ══════════════════════════════
+   UTILITIES & COMPONENTS
+══════════════════════════════ */
+
+.glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--t1);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.btn:hover {
+  background: var(--bg4);
+  border-color: var(--border3);
+}
+
+.btn-accent {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 0 20px rgba(124, 111, 247, 0.3);
+}
+
+.btn-accent:hover {
+  background: #6a5ef0;
+  box-shadow: 0 0 28px rgba(124, 111, 247, 0.45);
+}
+
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 11px;
+  border-radius: 6px;
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--t2);
+}
+
+.btn-ghost:hover {
+  background: var(--bg3);
+  color: var(--t1);
+  border-color: var(--border);
+}
+
+.btn-full {
+  width: 100%;
+  justify-content: center;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 99px;
+}
+
+.b-ok {
+  background: rgba(52, 211, 153, 0.1);
+  color: var(--green);
+}
+.b-warn {
+  background: rgba(251, 191, 36, 0.1);
+  color: var(--amber);
+}
+.b-err {
+  background: rgba(248, 113, 113, 0.1);
+  color: var(--red);
+}
+.b-info {
+  background: rgba(96, 165, 250, 0.1);
+  color: var(--blue);
+}
+.b-purple {
+  background: rgba(124, 111, 247, 0.12);
+  color: #a89eff;
+}
+.b-pink {
+  background: rgba(244, 114, 182, 0.1);
+  color: var(--pink);
+}
+.b-dim {
+  background: var(--bg4);
+  color: var(--t2);
+  border: 1px solid var(--border2);
+}
+.bdot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+@keyframes pulse-green {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(52, 211, 153, 0);
+  }
+}
+
+@keyframes pulse-node {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(124, 111, 247, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(124, 111, 247, 0);
+  }
 }

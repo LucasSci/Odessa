@@ -1,9 +1,11 @@
 # Compliance e Segurança
 
 ## Objetivo da página
+
 Documentar políticas, regras de moderação, riscos legais e controles de segurança.
 
 ## Seções
+
 - Regras legais
 - Políticas de plataforma
 - Conteúdo proibido
@@ -12,12 +14,14 @@ Documentar políticas, regras de moderação, riscos legais e controles de segur
 - Kill switch e revisão manual
 
 ## Checklist
+
 - [ ] Mapear riscos legais e operacionais
 - [ ] Definir políticas de bloqueio de conteúdo
 - [ ] Documentar processo de moderação
 - [ ] Criar plano de incidentes
 
 ## Campos recomendados
+
 - Risco
 - Área afetada
 - Mitigação

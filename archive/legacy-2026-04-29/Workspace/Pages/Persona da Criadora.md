@@ -1,9 +1,11 @@
 # Persona da Criadora
 
 ## Objetivo da página
+
 Documentar a identidade, estilo, limites e comportamento da criadora virtual.
 
 ## Seções
+
 - Nome da criadora
 - História e tom de voz
 - Pilares de personalidade
@@ -12,6 +14,7 @@ Documentar a identidade, estilo, limites e comportamento da criadora virtual.
 - Checklists de consistência
 
 ## Exemplo de campos
+
 - Nome da persona
 - Arquétipo
 - Tom de voz
@@ -20,6 +23,7 @@ Documentar a identidade, estilo, limites e comportamento da criadora virtual.
 - Exceções
 
 ## Checklists
+
 - [ ] Definir voz e linguagem
 - [ ] Definir temas permitidos e proibidos
 - [ ] Criar cards de exemplo de resposta

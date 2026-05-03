@@ -1,9 +1,11 @@
 # Backlog
 
 ## Objetivo da página
+
 Gerenciar todas as tarefas do produto, priorizadas e categorizadas.
 
 ## Estrutura recomendada
+
 - Board de tarefas com colunas:
   - Ideia
   - Backlog
@@ -14,6 +16,7 @@ Gerenciar todas as tarefas do produto, priorizadas e categorizadas.
   - Bloqueado
 
 ## Categorias
+
 - Avatar
 - Chat IA
 - Live
@@ -26,6 +29,7 @@ Gerenciar todas as tarefas do produto, priorizadas e categorizadas.
 - Operação
 
 ## Exemplo de itens
+
 - Definir visão do produto
 - Modelar dados de fãs e memória
 - Criar API de mensagens
@@ -36,6 +40,7 @@ Gerenciar todas as tarefas do produto, priorizadas e categorizadas.
 - Documentar persona e prompts
 
 ## Campos recomendados
+
 - Tarefa
 - Categoria
 - Prioridade

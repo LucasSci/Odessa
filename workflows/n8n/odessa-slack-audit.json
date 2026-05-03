@@ -1,0 +1,59 @@
+{
+  "name": "Odessa - Slack Audit",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "odessa/audit",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "odessa-audit-webhook",
+      "name": "Odessa Audit Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "odessa-slack-audit-webhook",
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nconst payload = body.payload || body;\nconst cycle = payload.cycle || payload;\nconst stage = cycle.stage || payload.kind || 'audit';\nlet route = 'odessa-geral';\nif (stage === 'erro' || payload.kind === 'error') route = 'odessa-qa';\nif (payload.kind === 'decision') route = 'odessa-decisoes';\nif (payload.kind === 'autopilot_cycle') route = 'odessa-dev-log';\nconst actions = Array.isArray(cycle.actions) ? cycle.actions.map((action) => ({ capability: action.capability, status: action.status, result: action.result })) : [];\nreturn [{ json: { route, stage, slackChannel: `#${route}`, text: `Odessa audit: ${stage}`, summary: { id: cycle.id, intent: cycle.decision?.intent, confidence: cycle.decision?.confidence, actions, createdAt: body.createdAt || new Date().toISOString() } } }];"
+      },
+      "id": "route-audit",
+      "name": "Route Audit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, route: $json.route, slackChannel: $json.slackChannel, summary: $json.summary } }}",
+        "options": {}
+      },
+      "id": "audit-response",
+      "name": "Audit Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [760, 300]
+    }
+  ],
+  "connections": {
+    "Odessa Audit Webhook": {
+      "main": [[{ "node": "Route Audit", "type": "main", "index": 0 }]]
+    },
+    "Route Audit": {
+      "main": [[{ "node": "Audit Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-05-01T00:00:00.000Z",
+  "versionId": "odessa-slack-audit-v1"
+}

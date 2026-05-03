@@ -11,7 +11,7 @@ const { chromium } = require('playwright');
     const pages = context.pages();
 
     // Find the page that contains 'tango' in the URL (adjust if necessary)
-    const tangoPage = pages.find(page => page.url().toLowerCase().includes('tango'));
+    const tangoPage = pages.find((page) => page.url().toLowerCase().includes('tango'));
 
     if (!tangoPage) {
       console.error('Tango page not found. Ensure a logged-in Tango tab is open in the browser.');
@@ -20,7 +20,8 @@ const { chromium } = require('playwright');
     }
 
     // Selector for the chat input field (placeholder - may need adjustment based on Tango's UI)
-    const inputSelector = 'input[placeholder*="message" i], textarea[placeholder*="message" i], [data-testid*="chat-input"], #chat-input';
+    const inputSelector =
+      'input[placeholder*="message" i], textarea[placeholder*="message" i], [data-testid*="chat-input"], #chat-input';
 
     // Wait for the input field to be visible
     await tangoPage.waitForSelector(inputSelector, { timeout: 10000 });

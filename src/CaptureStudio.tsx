@@ -24,6 +24,7 @@ import {
   WifiOff,
   Zap,
 } from 'lucide-react';
+import { emitEvent } from './core/eventBus';
 import { apiUrl } from './lib/api';
 import { cn } from './lib/utils';
 import type { CapturedMessage, LiveEventKind } from './types';
@@ -31,6 +32,10 @@ import type { CapturedMessage, LiveEventKind } from './types';
 interface CaptureStudioProps {
   capturedText: CapturedMessage[];
   setCapturedText: React.Dispatch<React.SetStateAction<CapturedMessage[]>>;
+  autopilotEnabled?: boolean;
+  pendingAutopilotEvents?: number;
+  latestAutopilotActionStatus?: string;
+  onStartAutopilot?: () => void;
 }
 
 interface SelectionRect {
@@ -66,6 +71,8 @@ interface BackendHealth {
   status: string;
   ocr: string;
   gemini_configured: boolean;
+  openai_ai_configured: boolean;
+  openai_text_model?: string;
   openai_tts_configured: boolean;
 }
 
@@ -212,13 +219,11 @@ function clonePresets(presets: CapturePreset[]) {
   }));
 }
 
-function getStoredState():
-  | {
-      activePresetId?: string;
-      presets?: CapturePreset[];
-      settings?: CaptureSettings;
-    }
-  | null {
+function getStoredState(): {
+  activePresetId?: string;
+  presets?: CapturePreset[];
+  settings?: CaptureSettings;
+} | null {
   try {
     const raw =
       window.localStorage.getItem(STORAGE_KEY) || window.localStorage.getItem(LEGACY_STORAGE_KEY);
@@ -252,7 +257,7 @@ function TypewriterText({ text }: { text: string }) {
 
   useEffect(() => {
     let i = 0;
-    setDisplayed('');
+    const resetTimer = window.setTimeout(() => setDisplayed(''), 0);
     const interval = window.setInterval(() => {
       setDisplayed(text.substring(0, i));
       i += 1;
@@ -261,7 +266,10 @@ function TypewriterText({ text }: { text: string }) {
       }
     }, 12);
 
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearTimeout(resetTimer);
+      window.clearInterval(interval);
+    };
   }, [text]);
 
   const separators = [':', ' < ', ' > ', ' comecou a ver', ' Novo seguidor', ' curtiu'];
@@ -360,7 +368,14 @@ function SliderControl({
   );
 }
 
-export default function CaptureStudio({ capturedText, setCapturedText }: CaptureStudioProps) {
+export default function CaptureStudio({
+  capturedText,
+  setCapturedText,
+  autopilotEnabled = false,
+  pendingAutopilotEvents = 0,
+  latestAutopilotActionStatus,
+  onStartAutopilot,
+}: CaptureStudioProps) {
   const storedState = useMemo(() => getStoredState(), []);
   const [status, setStatus] = useState<CaptureStatus>(CaptureStatus.IDLE);
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -403,7 +418,7 @@ export default function CaptureStudio({ capturedText, setCapturedText }: Capture
     () => presets.find((preset) => preset.id === activePresetId) || presets[0],
     [activePresetId, presets],
   );
-  const zones = activePreset?.zones || [];
+  const zones = useMemo(() => activePreset?.zones || [], [activePreset?.zones]);
   const activeZone = zones[activeZoneIndex] || zones[0];
 
   const successfulEvents = captureEvents.filter((event) => event.routeStatus === 'sent');
@@ -421,8 +436,7 @@ export default function CaptureStudio({ capturedText, setCapturedText }: Capture
       setPresets((currentPresets) =>
         currentPresets.map((preset) => {
           if (preset.id !== activePresetId) return preset;
-          const nextZones =
-            typeof updater === 'function' ? updater(preset.zones) : updater;
+          const nextZones = typeof updater === 'function' ? updater(preset.zones) : updater;
           return { ...preset, zones: nextZones };
         }),
       );
@@ -485,9 +499,12 @@ export default function CaptureStudio({ capturedText, setCapturedText }: Capture
   }, [captureEvents.length]);
 
   useEffect(() => {
-    refreshHealth();
+    const firstRun = window.setTimeout(refreshHealth, 0);
     const interval = window.setInterval(refreshHealth, 15000);
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearTimeout(firstRun);
+      window.clearInterval(interval);
+    };
   }, [refreshHealth]);
 
   const pauseCapture = useCallback(() => {
@@ -529,7 +546,9 @@ export default function CaptureStudio({ capturedText, setCapturedText }: Capture
         stopCapture();
       };
     } catch (err) {
-      setError(`Erro ao selecionar fonte: ${err instanceof Error ? err.message : 'permissao negada'}`);
+      setError(
+        `Erro ao selecionar fonte: ${err instanceof Error ? err.message : 'permissao negada'}`,
+      );
       setStatus(CaptureStatus.ERROR);
     }
   };
@@ -608,7 +627,10 @@ export default function CaptureStudio({ capturedText, setCapturedText }: Capture
     const video = videoRef.current;
     if (!video || !video.videoWidth || !video.videoHeight) return {};
 
-    const scale = Math.min(video.offsetWidth / video.videoWidth, video.offsetHeight / video.videoHeight);
+    const scale = Math.min(
+      video.offsetWidth / video.videoWidth,
+      video.offsetHeight / video.videoHeight,
+    );
     const displayedWidth = video.videoWidth * scale;
     const displayedHeight = video.videoHeight * scale;
     const offsetX = (video.offsetWidth - displayedWidth) / 2;
@@ -832,19 +854,26 @@ export default function CaptureStudio({ capturedText, setCapturedText }: Capture
               latencyMs,
             };
             addCaptureEvent(captureEvent);
+            const liveEvent = emitEvent({
+              id: captureEvent.id,
+              source: 'ocr',
+              zoneName: captureEvent.zoneName,
+              text: `${captureEvent.zoneName}: ${captureEvent.text}`,
+              kind: kindFromZoneRole(zone.role),
+              createdAt: new Date().toISOString(),
+              time,
+              metadata: {
+                zoneId: captureEvent.zoneId,
+                zoneRole: zone.role,
+                rawText: captureEvent.rawText,
+                confidence: captureEvent.confidence,
+                latencyMs: captureEvent.latencyMs,
+              },
+            });
             setCapturedText((current) =>
-              [
-                ...current,
-                {
-                  id: captureEvent.id,
-                  source: 'ocr',
-                  zoneName: captureEvent.zoneName,
-                  text: `${captureEvent.zoneName}: ${captureEvent.text}`,
-                  kind: kindFromZoneRole(zone.role),
-                  createdAt: new Date().toISOString(),
-                  time,
-                },
-              ].slice(-MAX_PERSONA_MESSAGES),
+              [...current.filter((event) => event.id !== liveEvent.id), liveEvent].slice(
+                MAX_PERSONA_MESSAGES * -1,
+              ),
             );
             setError(null);
           }
@@ -884,6 +913,7 @@ export default function CaptureStudio({ capturedText, setCapturedText }: Capture
       setError('Selecione uma tela ou janela primeiro');
       return;
     }
+    onStartAutopilot?.();
     setStatus(CaptureStatus.CAPTURING);
     setError(null);
   };
@@ -901,14 +931,27 @@ export default function CaptureStudio({ capturedText, setCapturedText }: Capture
     { label: stream ? 'Fonte ativa' : 'Fonte pendente', icon: Monitor, active: Boolean(stream) },
     { label: `${zones.length} zonas`, icon: Layers, active: zones.length > 0 },
     { label: backendOnline ? 'OCR pronto' : 'OCR offline', icon: ScanText, active: backendOnline },
-    { label: `${captureEvents.length} eventos`, icon: FileText, active: captureEvents.length > 0 },
-    { label: 'Persona sync', icon: Bot, active: capturedText.length > 0 },
+    {
+      label: autopilotEnabled ? 'Autopilot ativo' : 'Autopilot liga ao iniciar',
+      icon: Bot,
+      active: autopilotEnabled,
+    },
+    {
+      label: `${pendingAutopilotEvents} pendentes`,
+      icon: FileText,
+      active: pendingAutopilotEvents > 0,
+    },
+    {
+      label: latestAutopilotActionStatus ? `Acao ${latestAutopilotActionStatus}` : 'Sem acao ainda',
+      icon: Zap,
+      active: Boolean(latestAutopilotActionStatus),
+    },
   ];
 
   return (
-    <main className="flex-1 overflow-y-auto bg-[#070A0F] text-slate-100 xl:overflow-hidden">
+    <main className="flex-1 overflow-y-auto bg-[var(--odessa-bg)] text-slate-100 xl:overflow-hidden">
       <div className="grid min-h-full grid-cols-1 xl:h-full xl:grid-cols-[304px_minmax(0,1fr)_372px]">
-        <aside className="border-b border-slate-800 bg-[#111722] p-4 xl:overflow-y-auto xl:border-b-0 xl:border-r">
+        <aside className="border-b border-[var(--odessa-border)] bg-[var(--odessa-surface)] p-4 xl:overflow-y-auto xl:border-b-0 xl:border-r">
           <div className="mb-5 flex items-center justify-between">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500">
@@ -923,7 +966,7 @@ export default function CaptureStudio({ capturedText, setCapturedText }: Capture
             />
           </div>
 
-          <section className="space-y-3 rounded-lg border border-slate-800 bg-[#0B1018] p-3">
+          <section className="space-y-3 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-3">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">Fonte</h3>
               <button
@@ -980,9 +1023,11 @@ export default function CaptureStudio({ capturedText, setCapturedText }: Capture
             )}
           </section>
 
-          <section className="mt-4 space-y-3 rounded-lg border border-slate-800 bg-[#0B1018] p-3">
+          <section className="mt-4 space-y-3 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">Presets</h3>
+              <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                Presets
+              </h3>
               <button
                 onClick={resetPreset}
                 className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-white"
@@ -1020,7 +1065,7 @@ export default function CaptureStudio({ capturedText, setCapturedText }: Capture
             </div>
           </section>
 
-          <section className="mt-4 space-y-3 rounded-lg border border-slate-800 bg-[#0B1018] p-3">
+          <section className="mt-4 space-y-3 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-3">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">Zonas</h3>
               <button
@@ -1103,12 +1148,10 @@ export default function CaptureStudio({ capturedText, setCapturedText }: Capture
             )}
           </section>
 
-          <section className="mt-4 space-y-4 rounded-lg border border-slate-800 bg-[#0B1018] p-3">
+          <section className="mt-4 space-y-4 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-3">
             <div className="flex items-center gap-2">
               <Settings2 className="h-4 w-4 text-slate-500" />
-              <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                OCR
-              </h3>
+              <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">OCR</h3>
             </div>
             <SliderControl
               label="Contraste"
@@ -1156,8 +1199,8 @@ export default function CaptureStudio({ capturedText, setCapturedText }: Capture
           </section>
         </aside>
 
-        <section className="flex min-h-[720px] flex-col bg-[#070A0F] xl:min-h-0">
-          <div className="border-b border-slate-800 bg-[#0B1018] px-4 py-3">
+        <section className="flex min-h-[720px] flex-col bg-[var(--odessa-bg)] xl:min-h-0">
+          <div className="border-b border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] px-4 py-3">
             <div className="flex flex-wrap items-center gap-2">
               {pipeline.map((step, index) => {
                 const Icon = step.icon;
@@ -1337,9 +1380,9 @@ export default function CaptureStudio({ capturedText, setCapturedText }: Capture
           </div>
         </section>
 
-        <aside className="border-t border-slate-800 bg-[#111722] xl:overflow-y-auto xl:border-l xl:border-t-0">
+        <aside className="border-t border-[var(--odessa-border)] bg-[var(--odessa-surface)] xl:overflow-y-auto xl:border-l xl:border-t-0">
           <div className="space-y-4 p-4">
-            <section className="rounded-lg border border-slate-800 bg-[#0B1018] p-4">
+            <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-black text-white">Backend local</h3>
@@ -1348,7 +1391,13 @@ export default function CaptureStudio({ capturedText, setCapturedText }: Capture
                 <StatusChip
                   label={backendOnline ? 'online' : 'offline'}
                   tone={backendOnline ? 'good' : 'danger'}
-                  icon={backendOnline ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
+                  icon={
+                    backendOnline ? (
+                      <Wifi className="h-3.5 w-3.5" />
+                    ) : (
+                      <WifiOff className="h-3.5 w-3.5" />
+                    )
+                  }
                 />
               </div>
               <div className="mt-4 grid grid-cols-3 gap-2 text-center">
@@ -1359,9 +1408,13 @@ export default function CaptureStudio({ capturedText, setCapturedText }: Capture
                   </p>
                 </div>
                 <div className="rounded-md border border-slate-800 bg-slate-950/50 p-2">
-                  <p className="text-[10px] font-bold uppercase text-slate-500">Gemini</p>
+                  <p className="text-[10px] font-bold uppercase text-slate-500">IA</p>
                   <p className="mt-1 text-xs font-black text-slate-100">
-                    {backendHealth?.gemini_configured ? 'ok' : '-'}
+                    {backendHealth?.gemini_configured
+                      ? 'Gemini'
+                      : backendHealth?.openai_ai_configured
+                        ? 'OpenAI'
+                        : '-'}
                   </p>
                 </div>
                 <div className="rounded-md border border-slate-800 bg-slate-950/50 p-2">
@@ -1378,11 +1431,13 @@ export default function CaptureStudio({ capturedText, setCapturedText }: Capture
               )}
             </section>
 
-            <section className="rounded-lg border border-slate-800 bg-[#0B1018]">
+            <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)]">
               <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
                 <div>
                   <h3 className="text-sm font-black text-white">Fila para Persona</h3>
-                  <p className="mt-1 text-xs text-slate-500">{capturedText.length} mensagens roteadas</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {capturedText.length} mensagens roteadas
+                  </p>
                 </div>
                 <button
                   onClick={downloadLog}
@@ -1451,7 +1506,7 @@ export default function CaptureStudio({ capturedText, setCapturedText }: Capture
               </div>
             </section>
 
-            <section className="rounded-lg border border-slate-800 bg-[#0B1018]">
+            <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)]">
               <div className="border-b border-slate-800 px-4 py-3">
                 <h3 className="text-sm font-black text-white">Texto bruto</h3>
                 <p className="mt-1 text-xs text-slate-500">

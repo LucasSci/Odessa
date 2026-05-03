@@ -11,6 +11,7 @@ This script automates sending messages in the Tango live chat using Playwright.
 ## Setup
 
 1. Install dependencies:
+
    ```
    npm install
    ```
@@ -26,15 +27,19 @@ This script automates sending messages in the Tango live chat using Playwright.
 ## Usage
 
 Run the script:
+
 ```
 npm start
 ```
+
 or
+
 ```
 node send_message.js
 ```
 
 The script will:
+
 - Connect to the running Chrome instance
 - Find the Tango page
 - Locate the chat input field

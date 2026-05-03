@@ -1,0 +1,3114 @@
+# ruff: noqa: F403, F405
+import asyncio
+import base64
+import binascii
+import importlib.util
+import io
+import json
+import logging
+import os
+import re
+import shutil
+import sqlite3
+import tempfile
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Optional
+from urllib import request as url_request
+from urllib.error import HTTPError, URLError
+
+import easyocr
+import edge_tts
+import numpy as np
+import pyautogui
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from google import genai
+from google.genai import types as genai_types
+from openai import OpenAI
+from PIL import Image, UnidentifiedImageError
+from starlette.background import BackgroundTask
+
+from .config import *
+
+openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+
+last_full_text_by_zone: dict[str, str] = {}
+kokoro_pipelines: dict[str, Any] = {}
+edge_voice_cache: dict[str, Any] = {"loaded_at": 0.0, "voices": []}
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="Odessa Local Capture API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+logger.info("Initializing EasyOCR reader...")
+reader = easyocr.Reader(["en", "pt"], gpu=False)
+logger.info("EasyOCR reader initialized")
+
+DEFAULT_CHAT_REGION = (17, 145, 331, 405)
+DEFAULT_GIFTS_REGION = (600, 200, 200, 300)
+
+
+from .models import (  # noqa: E402
+    AIDecideRequest,
+    AIRespondRequest,
+    ContinuousOrganizerRequest,
+    MemoryRoundContextRequest,
+    N8NDispatchRequest,
+    NightShiftRequest,
+    ProjectCreatePlanRequest,
+    RegionRequest,
+    VisualAssetRunRequest,
+    VisualReference,
+)
+
+ALLOWED_ACTIONS = {
+    "speak",
+    "chat_reply",
+    "ack_gift",
+    "moderate_message",
+    "switch_scene",
+    "show_overlay",
+    "play_music",
+    "play_video",
+    "stop_media",
+    "set_topic",
+    "suggest_topic",
+    "remember",
+    "log_event",
+}
+
+ALLOWED_EVENT_KINDS = {"chat", "gift", "alert", "moderation", "scene", "system"}
+ALLOWED_PROJECT_PRIORITIES = {"low", "normal", "high", "urgent"}
+ALLOWED_PROJECT_AREAS = {
+    "produto",
+    "runtime",
+    "frontend",
+    "backend",
+    "automacao",
+    "qa",
+    "docs",
+}
+ALLOWED_ODESSA_CHANNELS = {
+    "odessa-geral",
+    "odessa-roadmap",
+    "odessa-dev-log",
+    "odessa-decisoes",
+    "odessa-qa",
+}
+ALLOWED_EVENT_SOURCES = {
+    "ocr",
+    "manual",
+    "test",
+    "system",
+    "obs",
+    "media",
+    "chat_api",
+    "n8n",
+}
+
+OPENAI_TTS_VOICES = {
+    "alloy",
+    "ash",
+    "ballad",
+    "cedar",
+    "coral",
+    "echo",
+    "fable",
+    "marin",
+    "nova",
+    "onyx",
+    "sage",
+    "shimmer",
+    "verse",
+}
+KOKORO_VOICES = {
+    # PT-BR
+    "pf_dora": {"label": "Dora PT-BR", "lang": "p", "gender": "female", "grade": "experimental"},
+    "pm_alex": {"label": "Alex PT-BR", "lang": "p", "gender": "male", "grade": "experimental"},
+    "pm_santa": {"label": "Santa PT-BR", "lang": "p", "gender": "male", "grade": "experimental"},
+    # EN-US Female
+    "af_heart": {"label": "Heart EN-US", "lang": "a", "gender": "female", "grade": "A"},
+    "af_alloy": {"label": "Alloy EN-US", "lang": "a", "gender": "female", "grade": "C"},
+    "af_aoede": {"label": "Aoede EN-US", "lang": "a", "gender": "female", "grade": "C+"},
+    "af_bella": {"label": "Bella EN-US", "lang": "a", "gender": "female", "grade": "A-"},
+    "af_jessica": {"label": "Jessica EN-US", "lang": "a", "gender": "female", "grade": "D"},
+    "af_kore": {"label": "Kore EN-US", "lang": "a", "gender": "female", "grade": "C+"},
+    "af_nicole": {"label": "Nicole EN-US", "lang": "a", "gender": "female", "grade": "B-"},
+    "af_nova": {"label": "Nova EN-US", "lang": "a", "gender": "female", "grade": "C"},
+    "af_river": {"label": "River EN-US", "lang": "a", "gender": "female", "grade": "D"},
+    "af_sarah": {"label": "Sarah EN-US", "lang": "a", "gender": "female", "grade": "C+"},
+    "af_sky": {"label": "Sky EN-US", "lang": "a", "gender": "female", "grade": "C-"},
+    # EN-US Male
+    "am_adam": {"label": "Adam EN-US", "lang": "a", "gender": "male", "grade": "F+"},
+    "am_echo": {"label": "Echo EN-US", "lang": "a", "gender": "male", "grade": "D"},
+    "am_eric": {"label": "Eric EN-US", "lang": "a", "gender": "male", "grade": "D"},
+    "am_fenrir": {"label": "Fenrir EN-US", "lang": "a", "gender": "male", "grade": "C+"},
+    "am_liam": {"label": "Liam EN-US", "lang": "a", "gender": "male", "grade": "D"},
+    "am_michael": {"label": "Michael EN-US", "lang": "a", "gender": "male", "grade": "C+"},
+    "am_onyx": {"label": "Onyx EN-US", "lang": "a", "gender": "male", "grade": "D"},
+    "am_puck": {"label": "Puck EN-US", "lang": "a", "gender": "male", "grade": "C+"},
+    "am_santa": {"label": "Santa EN-US", "lang": "a", "gender": "male", "grade": "D-"},
+    # EN-GB Female
+    "bf_alice": {"label": "Alice EN-GB", "lang": "b", "gender": "female", "grade": "D"},
+    "bf_emma": {"label": "Emma EN-GB", "lang": "b", "gender": "female", "grade": "B-"},
+    "bf_isabella": {"label": "Isabella EN-GB", "lang": "b", "gender": "female", "grade": "C"},
+    "bf_lily": {"label": "Lily EN-GB", "lang": "b", "gender": "female", "grade": "D"},
+    # EN-GB Male
+    "bm_daniel": {"label": "Daniel EN-GB", "lang": "b", "gender": "male", "grade": "D"},
+    "bm_fable": {"label": "Fable EN-GB", "lang": "b", "gender": "male", "grade": "C"},
+    "bm_george": {"label": "George EN-GB", "lang": "b", "gender": "male", "grade": "C"},
+    "bm_lewis": {"label": "Lewis EN-GB", "lang": "b", "gender": "male", "grade": "D+"},
+    # JP, CN, ES, FR, HI, IT from Kokoro VOICES.md
+    "jf_alpha": {"label": "Alpha JP", "lang": "j", "gender": "female", "grade": "C+", "disabled_reason": "misaki[ja] nao instalado"},
+    "jf_gongitsune": {"label": "Gongitsune JP", "lang": "j", "gender": "female", "grade": "C", "disabled_reason": "misaki[ja] nao instalado"},
+    "jf_nezumi": {"label": "Nezumi JP", "lang": "j", "gender": "female", "grade": "C-", "disabled_reason": "misaki[ja] nao instalado"},
+    "jf_tebukuro": {"label": "Tebukuro JP", "lang": "j", "gender": "female", "grade": "C", "disabled_reason": "misaki[ja] nao instalado"},
+    "jm_kumo": {"label": "Kumo JP", "lang": "j", "gender": "male", "grade": "C-", "disabled_reason": "misaki[ja] nao instalado"},
+    "zf_xiaobei": {"label": "Xiaobei CN", "lang": "z", "gender": "female", "grade": "D", "disabled_reason": "misaki[zh] nao instalado"},
+    "zf_xiaoni": {"label": "Xiaoni CN", "lang": "z", "gender": "female", "grade": "D", "disabled_reason": "misaki[zh] nao instalado"},
+    "zf_xiaoxiao": {"label": "Xiaoxiao CN", "lang": "z", "gender": "female", "grade": "D", "disabled_reason": "misaki[zh] nao instalado"},
+    "zf_xiaoyi": {"label": "Xiaoyi CN", "lang": "z", "gender": "female", "grade": "D", "disabled_reason": "misaki[zh] nao instalado"},
+    "zm_yunjian": {"label": "Yunjian CN", "lang": "z", "gender": "male", "grade": "D", "disabled_reason": "misaki[zh] nao instalado"},
+    "zm_yunxi": {"label": "Yunxi CN", "lang": "z", "gender": "male", "grade": "D", "disabled_reason": "misaki[zh] nao instalado"},
+    "zm_yunxia": {"label": "Yunxia CN", "lang": "z", "gender": "male", "grade": "D", "disabled_reason": "misaki[zh] nao instalado"},
+    "zm_yunyang": {"label": "Yunyang CN", "lang": "z", "gender": "male", "grade": "D", "disabled_reason": "misaki[zh] nao instalado"},
+    "ef_dora": {"label": "Dora ES", "lang": "e", "gender": "female", "grade": "experimental"},
+    "em_alex": {"label": "Alex ES", "lang": "e", "gender": "male", "grade": "experimental"},
+    "em_santa": {"label": "Santa ES", "lang": "e", "gender": "male", "grade": "experimental"},
+    "ff_siwis": {"label": "Siwis FR", "lang": "f", "gender": "female", "grade": "B-"},
+    "hf_alpha": {"label": "Alpha HI", "lang": "h", "gender": "female", "grade": "C"},
+    "hf_beta": {"label": "Beta HI", "lang": "h", "gender": "female", "grade": "C"},
+    "hm_omega": {"label": "Omega HI", "lang": "h", "gender": "male", "grade": "C"},
+    "hm_psi": {"label": "Psi HI", "lang": "h", "gender": "male", "grade": "C"},
+    "if_sara": {"label": "Sara IT", "lang": "i", "gender": "female", "grade": "C"},
+    "im_nicola": {"label": "Nicola IT", "lang": "i", "gender": "male", "grade": "C"},
+}
+KOKORO_DISABLED_LANGS = {"j", "z"}
+EDGE_TTS_VOICES = {
+    "pt-BR-FranciscaNeural": "Francisca BR",
+    "pt-BR-AntonioNeural": "Antonio BR",
+    "pt-BR-ThalitaNeural": "Thalita BR",
+    "pt-PT-RaquelNeural": "Raquel PT",
+    "pt-PT-DuarteNeural": "Duarte PT",
+    "en-US-AriaNeural": "Aria EN-US",
+    "en-US-ChristopherNeural": "Christopher EN-US",
+    "en-GB-SoniaNeural": "Sonia EN-GB",
+    "en-GB-RyanNeural": "Ryan EN-GB",
+}
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def local_time_label() -> str:
+    return datetime.now().strftime("%H:%M:%S")
+
+
+def read_json_list(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8"))
+        return parsed if isinstance(parsed, list) else []
+    except Exception as exc:
+        logger.warning("Could not read JSON list %s: %s", path, exc)
+        return []
+
+
+def write_json_list(path: Path, items: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def verify_n8n_secret(request: Request) -> None:
+    if not N8N_WEBHOOK_SECRET:
+        return
+    provided = request.headers.get("X-Odessa-Secret", "")
+    if provided != N8N_WEBHOOK_SECRET:
+        raise HTTPException(status_code=401, detail="Invalid X-Odessa-Secret")
+
+
+def append_n8n_audit(
+    kind: str,
+    payload: dict[str, Any],
+    outcome: Optional[dict[str, Any]] = None,
+) -> None:
+    try:
+        items = read_json_list(N8N_AUDIT_FILE)
+        items.append(
+            {
+                "id": f"n8n-audit-{int(time.time() * 1000)}",
+                "kind": kind,
+                "payload": payload,
+                "outcome": outcome or {},
+                "createdAt": utc_now(),
+            }
+        )
+        write_json_list(N8N_AUDIT_FILE, items[-200:])
+    except Exception as exc:
+        logger.warning("Could not append n8n audit: %s", exc)
+
+
+def normalize_n8n_event(raw: Any, index: int) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raw = {"text": str(raw)}
+
+    metadata = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+    original_source = str(raw.get("source") or "n8n").strip() or "n8n"
+    source = original_source if original_source in ALLOWED_EVENT_SOURCES else "n8n"
+    if original_source != source:
+        metadata = {**metadata, "originalSource": original_source}
+
+    kind = str(raw.get("kind") or raw.get("type") or "chat").strip().lower()
+    if kind not in ALLOWED_EVENT_KINDS:
+        kind = "system"
+
+    text = str(raw.get("text") or raw.get("message") or "").strip()
+    if not text:
+        text = json.dumps(raw, ensure_ascii=False)
+
+    return {
+        "id": str(raw.get("id") or f"n8n-event-{int(time.time() * 1000)}-{index}"),
+        "source": source,
+        "zoneName": str(raw.get("zoneName") or raw.get("zone_name") or "n8n").strip()
+        or "n8n",
+        "text": text,
+        "kind": kind,
+        "createdAt": str(raw.get("createdAt") or raw.get("created_at") or utc_now()),
+        "time": str(raw.get("time") or local_time_label()),
+        "metadata": {**metadata, "n8nReceivedAt": utc_now()},
+    }
+
+
+def post_json_to_n8n(url: str, payload: dict[str, Any]) -> dict[str, Any]:
+    headers = {"Content-Type": "application/json"}
+    if N8N_WEBHOOK_SECRET:
+        headers["X-Odessa-Secret"] = N8N_WEBHOOK_SECRET
+
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = url_request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        with url_request.urlopen(request, timeout=N8N_HTTP_TIMEOUT) as response:
+            response_body = response.read(16384).decode("utf-8", errors="replace")
+            return {
+                "status_code": response.status,
+                "body": response_body,
+            }
+    except HTTPError as exc:
+        response_body = exc.read(4096).decode("utf-8", errors="replace")
+        raise HTTPException(
+            status_code=502,
+            detail=f"n8n webhook returned HTTP {exc.code}: {response_body[:240]}",
+        ) from exc
+    except (URLError, TimeoutError, OSError) as exc:
+        raise HTTPException(status_code=502, detail=f"n8n unreachable: {exc}") from exc
+
+
+def parse_json_body(value: Any) -> Any:
+    if isinstance(value, (dict, list)):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return None
+
+
+def first_dict(*values: Any) -> dict[str, Any]:
+    for value in values:
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def extract_scene_list(payload: Any) -> tuple[list[str], Optional[str]]:
+    data = first_dict(payload)
+    if not data and isinstance(payload, list) and payload and isinstance(payload[0], dict):
+        data = payload[0]
+
+    nested = first_dict(
+        data.get("payload"),
+        data.get("data"),
+        data.get("response"),
+        data.get("body"),
+    )
+    scene_candidates = (
+        data.get("scenes")
+        or data.get("sceneNames")
+        or nested.get("scenes")
+        or nested.get("sceneNames")
+        or []
+    )
+    scenes: list[str] = []
+    if isinstance(scene_candidates, list):
+        for scene in scene_candidates:
+            if isinstance(scene, str):
+                name = scene.strip()
+            elif isinstance(scene, dict):
+                name = str(scene.get("sceneName") or scene.get("name") or "").strip()
+            else:
+                name = ""
+            if name and name not in scenes:
+                scenes.append(name)
+
+    current_scene = (
+        data.get("currentScene")
+        or data.get("currentProgramSceneName")
+        or nested.get("currentScene")
+        or nested.get("currentProgramSceneName")
+    )
+    return scenes, str(current_scene).strip() if current_scene else None
+
+
+def model_payload(value: Any) -> dict[str, Any]:
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+    if hasattr(value, "dict"):
+        return value.dict()
+    return dict(value)
+
+
+def memory_db_connection() -> sqlite3.Connection:
+    ODESSA_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(ODESSA_DB_PATH)
+    connection.row_factory = sqlite3.Row
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            username TEXT NOT NULL,
+            first_seen TEXT NOT NULL,
+            last_seen TEXT NOT NULL,
+            total_messages INTEGER NOT NULL DEFAULT 0,
+            total_gifts INTEGER NOT NULL DEFAULT 0,
+            sentiment TEXT NOT NULL DEFAULT 'neutral'
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS interaction_logs (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            username TEXT,
+            kind TEXT NOT NULL,
+            source TEXT NOT NULL,
+            text TEXT NOT NULL,
+            metadata_json TEXT NOT NULL,
+            sentiment TEXT NOT NULL DEFAULT 'neutral',
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_interaction_user ON interaction_logs(user_id)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_interaction_created ON interaction_logs(created_at)"
+    )
+    connection.commit()
+    return connection
+
+
+def normalize_user_id(username: str) -> str:
+    normalized = re.sub(r"[^0-9a-zA-Z_.-]+", "-", username.strip().lower()).strip("-")
+    return normalized or f"user-{int(time.time() * 1000)}"
+
+
+def extract_username_from_event(event: dict[str, Any]) -> Optional[str]:
+    metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+    for key in ("user", "username", "sender", "author"):
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip().lstrip("@")
+
+    text = str(event.get("text") or "").strip()
+    patterns = [
+        r"^@?([A-Za-zÀ-ÿ0-9_.-]{2,32})\s*(?:[:\-]|disse|falou|comentou|enviou|mandou|deu|resgatou|pediu)\b",
+        r"\bde\s+@?([A-Za-zÀ-ÿ0-9_.-]{2,32})\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip().lstrip("@")
+    return None
+
+
+def numeric_metadata_value(metadata: dict[str, Any], key: str, default: int = 0) -> int:
+    value = metadata.get(key, default)
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def summarize_memory_users(users: list[dict[str, Any]]) -> str:
+    if not users:
+        return ""
+
+    lines = []
+    for user in users[:8]:
+        recurring = "recorrente" if user.get("returning") else "novo na memoria"
+        gifts = int(user.get("totalGifts") or 0)
+        interactions = int(user.get("interactions") or 0)
+        details = [f"{user.get('username')} e {recurring}"]
+        if gifts:
+            details.append(f"ja enviou {gifts} presente(s)")
+        if interactions:
+            details.append(f"tem {interactions} interacao(oes) registradas")
+        lines.append("- " + "; ".join(details))
+    return "Usuarios reconhecidos nesta rodada:\n" + "\n".join(lines)
+
+
+def get_memory_stats() -> dict[str, Any]:
+    try:
+        with memory_db_connection() as connection:
+            users = connection.execute("SELECT COUNT(*) AS count FROM users").fetchone()
+            interactions = connection.execute(
+                "SELECT COUNT(*) AS count FROM interaction_logs"
+            ).fetchone()
+            gifts = connection.execute(
+                "SELECT COALESCE(SUM(total_gifts), 0) AS total FROM users"
+            ).fetchone()
+        return {
+            "usersRecognized": int(users["count"] if users else 0),
+            "interactions": int(interactions["count"] if interactions else 0),
+            "gifts": int(gifts["total"] if gifts else 0),
+            "dbPath": str(ODESSA_DB_PATH),
+        }
+    except Exception as exc:
+        logger.warning("Could not read memory stats: %s", exc)
+        return {
+            "usersRecognized": 0,
+            "interactions": 0,
+            "gifts": 0,
+            "dbPath": str(ODESSA_DB_PATH),
+            "error": str(exc),
+        }
+
+
+def upsert_round_memory(events: list[dict[str, Any]]) -> dict[str, Any]:
+    now = utc_now()
+    users_seen: dict[str, dict[str, Any]] = {}
+    with memory_db_connection() as connection:
+        for index, event in enumerate(events):
+            username = extract_username_from_event(event)
+            if not username:
+                continue
+
+            metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+            kind = str(event.get("kind") or "chat")
+            source = str(event.get("source") or "manual")
+            user_id = normalize_user_id(username)
+            existing = connection.execute(
+                "SELECT * FROM users WHERE id = ?",
+                (user_id,),
+            ).fetchone()
+            quantity = numeric_metadata_value(metadata, "quantity", 1 if kind == "gift" else 0)
+            message_delta = 1 if kind == "chat" else 0
+            sentiment = str(metadata.get("sentiment") or "neutral")
+
+            if existing:
+                total_messages = int(existing["total_messages"]) + message_delta
+                total_gifts = int(existing["total_gifts"]) + quantity
+                connection.execute(
+                    """
+                    UPDATE users
+                    SET username = ?, last_seen = ?, total_messages = ?,
+                        total_gifts = ?, sentiment = ?
+                    WHERE id = ?
+                    """,
+                    (username, now, total_messages, total_gifts, sentiment, user_id),
+                )
+                returning = True
+                first_seen = str(existing["first_seen"])
+            else:
+                total_messages = message_delta
+                total_gifts = quantity
+                first_seen = now
+                connection.execute(
+                    """
+                    INSERT INTO users (
+                        id, username, first_seen, last_seen,
+                        total_messages, total_gifts, sentiment
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (user_id, username, first_seen, now, total_messages, total_gifts, sentiment),
+                )
+                returning = False
+
+            connection.execute(
+                """
+                INSERT INTO interaction_logs (
+                    id, user_id, username, kind, source, text,
+                    metadata_json, sentiment, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"log-{int(time.time() * 1000)}-{index}-{user_id}",
+                    user_id,
+                    username,
+                    kind,
+                    source,
+                    str(event.get("text") or ""),
+                    json.dumps(metadata, ensure_ascii=False),
+                    sentiment,
+                    str(event.get("createdAt") or now),
+                ),
+            )
+
+            users_seen[user_id] = {
+                "id": user_id,
+                "username": username,
+                "returning": returning,
+                "firstSeen": first_seen,
+                "lastSeen": now,
+                "totalMessages": total_messages,
+                "totalGifts": total_gifts,
+                "interactions": total_messages + total_gifts,
+                "sentiment": sentiment,
+            }
+        connection.commit()
+
+    users = list(users_seen.values())
+    return {
+        "usersRecognized": len(users),
+        "context": summarize_memory_users(users),
+        "users": users,
+    }
+
+
+def n8n_health() -> dict[str, Any]:
+    configured = bool(
+        N8N_BASE_URL
+        or N8N_AUDIT_WEBHOOK_URL
+        or N8N_ACTION_WEBHOOK_URL
+        or N8N_EVENT_INGEST_WEBHOOK_URL
+        or N8N_PROJECT_CREATION_WEBHOOK_URL
+        or N8N_NIGHT_SHIFT_WEBHOOK_URL
+        or N8N_VISUAL_ASSET_WEBHOOK_URL
+    )
+    status: dict[str, Any] = {
+        "configured": configured,
+        "base_url": N8N_BASE_URL or None,
+        "base_url_configured": bool(N8N_BASE_URL),
+        "audit_webhook_configured": bool(N8N_AUDIT_WEBHOOK_URL),
+        "action_webhook_configured": bool(N8N_ACTION_WEBHOOK_URL),
+        "event_ingest_webhook_configured": bool(N8N_EVENT_INGEST_WEBHOOK_URL),
+        "project_creation_webhook_configured": bool(N8N_PROJECT_CREATION_WEBHOOK_URL),
+        "night_shift_webhook_configured": bool(N8N_NIGHT_SHIFT_WEBHOOK_URL),
+        "visual_asset_webhook_configured": bool(N8N_VISUAL_ASSET_WEBHOOK_URL),
+        "secret_configured": bool(N8N_WEBHOOK_SECRET),
+        "online": False,
+        "error": None,
+    }
+    if not N8N_BASE_URL:
+        return status
+
+    try:
+        health_url = N8N_BASE_URL.rstrip("/") + "/healthz"
+        request = url_request.Request(health_url, method="GET")
+        with url_request.urlopen(request, timeout=1.2) as response:
+            status["online"] = 200 <= response.status < 500
+            status["status_code"] = response.status
+    except Exception as exc:
+        status["online"] = False
+        status["error"] = str(exc)
+    return status
+
+
+def normalize_project_priority(priority: str) -> str:
+    value = priority.strip().lower()
+    return value if value in ALLOWED_PROJECT_PRIORITIES else "normal"
+
+
+def normalize_project_area(area: str) -> str:
+    value = area.strip().lower()
+    return value if value in ALLOWED_PROJECT_AREAS else "produto"
+
+
+def normalize_slack_route(route: str, area: str) -> str:
+    cleaned = route.strip().lower().lstrip("#")
+    if cleaned in ALLOWED_ODESSA_CHANNELS:
+        return cleaned
+    if area == "qa":
+        return "odessa-qa"
+    if area == "docs":
+        return "odessa-dev-log"
+    if area in {"backend", "frontend", "runtime", "automacao"}:
+        return "odessa-roadmap"
+    return "odessa-roadmap"
+
+
+def normalize_string_list(value: Any, fallback: list[str]) -> list[str]:
+    if isinstance(value, list):
+        items = [str(item).strip() for item in value if str(item).strip()]
+        return items[:12] if items else fallback
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return fallback
+
+
+def normalize_object_list(
+    value: Any,
+    fallback: list[dict[str, Any]],
+    required_keys: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return fallback
+    items: list[dict[str, Any]] = []
+    for index, item in enumerate(value[:16]):
+        if isinstance(item, dict):
+            normalized = {key: str(item.get(key) or "").strip() for key in required_keys}
+            for key, val in item.items():
+                if key not in normalized:
+                    normalized[key] = val
+        else:
+            normalized = {required_keys[0]: str(item).strip()}
+        if not normalized.get(required_keys[0]):
+            normalized[required_keys[0]] = f"Item {index + 1}"
+        items.append(normalized)
+    return items or fallback
+
+
+def normalize_project_plan(
+    raw: dict[str, Any],
+    request: ProjectCreatePlanRequest,
+) -> dict[str, Any]:
+    title = str(raw.get("title") or request.title).strip() or "Nova etapa Odessa"
+    area = normalize_project_area(request.area)
+    priority = normalize_project_priority(request.priority)
+    slack_route = normalize_slack_route(str(raw.get("slackRoute") or request.targetChannel), area)
+    fallback_task = {
+        "id": "ODS-TASK-1",
+        "title": "Refinar e executar o plano inicial",
+        "area": area,
+        "priority": priority,
+        "status": "planned",
+        "acceptanceCriteria": ["Plano revisado e aceito no Slack."],
+    }
+    return {
+        "title": title,
+        "summary": str(raw.get("summary") or request.brief[:420]).strip(),
+        "goals": normalize_string_list(
+            raw.get("goals"),
+            ["Transformar o brief em uma etapa clara, priorizada e auditavel do Odessa."],
+        ),
+        "milestones": normalize_object_list(
+            raw.get("milestones"),
+            [{"id": "ODS-M1", "title": "Plano operacional aprovado", "outcome": "Backlog pronto para execucao."}],
+            ("id", "title", "outcome"),
+        ),
+        "tasks": normalize_object_list(raw.get("tasks"), [fallback_task], ("id", "title", "area", "priority", "status")),
+        "decisions": normalize_string_list(
+            raw.get("decisions"),
+            ["Manter o primeiro ciclo como planejamento e organizacao, sem geracao automatica de codigo."],
+        ),
+        "risks": normalize_string_list(
+            raw.get("risks"),
+            ["Escopo amplo demais pode prejudicar validacao rapida do MVP."],
+        ),
+        "acceptanceCriteria": normalize_string_list(
+            raw.get("acceptanceCriteria"),
+            ["Plano contem resumo, tarefas, decisoes, riscos e proximas acoes."],
+        ),
+        "slackRoute": slack_route,
+        "nextActions": normalize_string_list(
+            raw.get("nextActions"),
+            ["Publicar resumo no Slack e escolher a primeira tarefa executavel."],
+        ),
+    }
+
+
+def normalize_focus_areas(value: Optional[list[str]]) -> list[str]:
+    fallback = ["runtime", "automacao", "qa", "docs"]
+    if not value:
+        return fallback
+    areas = []
+    for item in value[:8]:
+        area = normalize_project_area(str(item))
+        if area not in areas:
+            areas.append(area)
+    return areas or fallback
+
+
+def normalize_night_shift_plan(
+    raw: dict[str, Any],
+    request: NightShiftRequest,
+) -> dict[str, Any]:
+    focus_areas = normalize_focus_areas(request.focusAreas)
+    max_items = max(1, min(request.maxAdvancements, 8))
+    fallback_advancement = {
+        "id": "ODS-NS-1",
+        "title": "Revisar proximo ciclo seguro",
+        "area": focus_areas[0],
+        "why": "Manter o projeto andando com organizacao e baixo risco.",
+        "tasks": ["Revisar backlog", "Escolher primeira tarefa executavel"],
+        "acceptanceCriteria": ["Brief de retorno contem proximas acoes claras."],
+        "risk": "Escopo amplo demais para uma rodada sem supervisao.",
+        "handoffPrompt": "Validar prioridades antes de executar codigo.",
+    }
+    advancements = normalize_object_list(
+        raw.get("advancements"),
+        [fallback_advancement],
+        ("id", "title", "area", "why", "risk", "handoffPrompt"),
+    )[:max_items]
+    for index, advancement in enumerate(advancements):
+        advancement["id"] = str(advancement.get("id") or f"ODS-NS-{index + 1}")
+        advancement["area"] = normalize_project_area(str(advancement.get("area") or focus_areas[0]))
+        advancement["tasks"] = normalize_string_list(
+            advancement.get("tasks"),
+            ["Transformar este avanco em tarefa executavel."],
+        )
+        advancement["acceptanceCriteria"] = normalize_string_list(
+            advancement.get("acceptanceCriteria"),
+            ["Criterio de aceite objetivo definido."],
+        )
+
+    return {
+        "title": str(raw.get("title") or "Odessa Night Shift").strip(),
+        "summary": str(
+            raw.get("summary")
+            or "Pacote seguro de avancos preparado para retomada do projeto."
+        ).strip(),
+        "safeMode": True,
+        "durationMinutes": max(15, min(request.durationMinutes, 480)),
+        "focusAreas": focus_areas,
+        "advancements": advancements,
+        "decisions": normalize_string_list(
+            raw.get("decisions"),
+            ["Nao executar alteracoes de codigo automaticamente durante a rodada sem supervisao."],
+        ),
+        "risks": normalize_string_list(
+            raw.get("risks"),
+            ["Automacao sem supervisao deve se limitar a planejamento, auditoria e preparacao."],
+        ),
+        "morningBrief": str(
+            raw.get("morningBrief")
+            or "Ao voltar, revise o pacote, escolha um avanco e execute com validacao."
+        ).strip(),
+        "slackRoute": normalize_slack_route(str(raw.get("slackRoute") or request.targetChannel), focus_areas[0]),
+        "createdAt": utc_now(),
+    }
+
+
+def normalize_task_status(value: Any) -> str:
+    status = str(value or "todo").strip().lower()
+    return status if status in {"next", "todo", "in_progress", "blocked", "done"} else "todo"
+
+
+def normalize_task_priority(value: Any) -> str:
+    priority = str(value or "normal").strip().lower()
+    return priority if priority in {"low", "normal", "high", "urgent"} else "normal"
+
+
+def make_task_id(index: int) -> str:
+    return f"ODS-TASK-{index + 1:03d}"
+
+
+def normalize_project_task(raw: Any, index: int, fallback_area: str) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raw = {"title": str(raw)}
+
+    title = str(raw.get("title") or raw.get("name") or f"Tarefa {index + 1}").strip()
+    task_id = str(raw.get("id") or make_task_id(index)).strip()
+    area = normalize_project_area(str(raw.get("area") or fallback_area))
+    priority = normalize_task_priority(raw.get("priority"))
+    status = normalize_task_status(raw.get("status"))
+    acceptance = normalize_string_list(
+        raw.get("acceptanceCriteria"),
+        ["Resultado verificavel e registrado no Odessa."],
+    )
+    depends_on = raw.get("dependsOn")
+    if isinstance(depends_on, list):
+        depends_on = [str(item).strip() for item in depends_on if str(item).strip()][:8]
+    else:
+        depends_on = []
+
+    return {
+        "id": task_id,
+        "title": title,
+        "area": area,
+        "priority": priority,
+        "status": status,
+        "why": str(raw.get("why") or raw.get("reason") or "").strip(),
+        "acceptanceCriteria": acceptance,
+        "dependsOn": depends_on,
+        "source": str(raw.get("source") or "continuous-organizer").strip(),
+        "updatedAt": utc_now(),
+    }
+
+
+def merge_project_tasks(
+    existing_tasks: list[dict[str, Any]],
+    incoming_tasks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for index, task in enumerate(existing_tasks):
+        if not isinstance(task, dict):
+            continue
+        normalized = normalize_project_task(task, index, str(task.get("area") or "produto"))
+        merged[normalized["id"]] = normalized
+
+    next_index = len(merged)
+    for task in incoming_tasks:
+        normalized = normalize_project_task(task, next_index, str(task.get("area") or "produto"))
+        next_index += 1
+        existing = merged.get(normalized["id"])
+        if existing and existing.get("status") in {"done", "in_progress"}:
+            normalized["status"] = existing["status"]
+        merged[normalized["id"]] = {**(existing or {}), **normalized}
+
+    priority_rank = {"urgent": 0, "high": 1, "normal": 2, "low": 3}
+    status_rank = {"next": 0, "in_progress": 1, "todo": 2, "blocked": 3, "done": 4}
+    tasks = list(merged.values())
+    tasks.sort(
+        key=lambda item: (
+            status_rank.get(str(item.get("status")), 5),
+            priority_rank.get(str(item.get("priority")), 4),
+            str(item.get("id") or ""),
+        )
+    )
+    return tasks[:MAX_PROJECT_TASKS]
+
+
+def fallback_continuous_organizer(
+    request: ContinuousOrganizerRequest,
+    focus_areas: list[str],
+    current_tasks: list[dict[str, Any]],
+    error: Optional[str] = None,
+) -> dict[str, Any]:
+    existing_open = [
+        task
+        for task in current_tasks
+        if isinstance(task, dict) and normalize_task_status(task.get("status")) != "done"
+    ][:4]
+    tasks = existing_open or [
+        {
+            "id": "ODS-TASK-001",
+            "title": "Validar fluxo Capture Studio -> Live Director -> fila de acoes",
+            "area": "runtime",
+            "priority": "urgent",
+            "status": "next",
+            "why": "Este e o fluxo central do produto final.",
+            "acceptanceCriteria": [
+                "Evento capturado aparece no Controle Live.",
+                "Decisao da Persona gera uma acao auditavel.",
+                "Resultado fica registrado em JSON.",
+            ],
+        },
+        {
+            "id": "ODS-TASK-002",
+            "title": "Conectar Slack real ao n8n para registrar roadmap e QA",
+            "area": "automacao",
+            "priority": "high",
+            "status": "todo",
+            "why": "Sem Slack real, os workflows so preparam mensagens.",
+            "acceptanceCriteria": [
+                "N8N_SLACK_WEBHOOK_URL configurado.",
+                "Project Organizer publica resumo no canal correto.",
+            ],
+        },
+        {
+            "id": "ODS-TASK-003",
+            "title": "Definir criterios de produto final do Odessa MVP",
+            "area": "produto",
+            "priority": "high",
+            "status": "todo",
+            "why": "O runtime precisa de uma direcao objetiva ate o produto final.",
+            "acceptanceCriteria": [
+                "Lista de criterios finalizada.",
+                "Cada criterio tem teste manual ou automatico associado.",
+            ],
+        },
+    ]
+    return {
+        "summary": (
+            "Organizacao continua executada em modo fallback local. "
+            "Use esta lista como fila de proximas tarefas ate a IA estar disponivel."
+        ),
+        "currentPhase": "mvp-runtime-auditavel",
+        "recommendedFocus": focus_areas[:3],
+        "tasks": tasks[: max(1, min(request.maxTasks, 12))],
+        "blocked": [],
+        "risks": normalize_string_list(
+            [error] if error else [],
+            ["IA indisponivel pode reduzir a qualidade da priorizacao automatica."],
+        ),
+        "questions": [
+            "Qual integracao real deve vir primeiro: Slack, OBS, media ou Tango Live?"
+        ],
+        "nextActions": [
+            "Executar a primeira tarefa com status next.",
+            "Registrar resultado no Controle Live ou Slack.",
+        ],
+    }
+
+
+def normalize_continuous_organizer(
+    raw: dict[str, Any],
+    request: ContinuousOrganizerRequest,
+    focus_areas: list[str],
+) -> dict[str, Any]:
+    max_tasks = max(1, min(request.maxTasks, 12))
+    raw_tasks = raw.get("tasks")
+    if not isinstance(raw_tasks, list):
+        raw_tasks = fallback_continuous_organizer(request, focus_areas, [])["tasks"]
+    tasks = [
+        normalize_project_task(task, index, focus_areas[index % len(focus_areas)])
+        for index, task in enumerate(raw_tasks[:max_tasks])
+    ]
+    if tasks and not any(task["status"] == "next" for task in tasks):
+        tasks[0]["status"] = "next"
+
+    return {
+        "id": f"ods-organizer-run-{int(time.time() * 1000)}",
+        "createdAt": utc_now(),
+        "cadence": str(request.cadence or "scheduled_30m"),
+        "summary": str(
+            raw.get("summary")
+            or "Rodada de organizacao continua concluida."
+        ).strip(),
+        "currentPhase": str(raw.get("currentPhase") or "mvp-runtime-auditavel").strip(),
+        "recommendedFocus": normalize_string_list(raw.get("recommendedFocus"), focus_areas),
+        "tasks": tasks,
+        "blocked": normalize_string_list(raw.get("blocked"), []),
+        "risks": normalize_string_list(raw.get("risks"), []),
+        "questions": normalize_string_list(raw.get("questions"), []),
+        "nextActions": normalize_string_list(
+            raw.get("nextActions"),
+            ["Executar a primeira tarefa com status next e registrar o resultado."],
+        ),
+        "slackRoute": normalize_slack_route(request.targetChannel, focus_areas[0]),
+    }
+
+
+def build_organizer_slack_message(organizer: dict[str, Any]) -> dict[str, Any]:
+    tasks = organizer.get("tasks") if isinstance(organizer.get("tasks"), list) else []
+    task_lines = []
+    for task in tasks[:8]:
+        task_lines.append(
+            f"- *{task.get('id')}* [{task.get('status')}/{task.get('priority')}] "
+            f"{task.get('title')}"
+        )
+    if not task_lines:
+        task_lines.append("- Nenhuma tarefa priorizada nesta rodada.")
+
+    risks = organizer.get("risks") if isinstance(organizer.get("risks"), list) else []
+    risk_text = "\n".join(f"- {risk}" for risk in risks[:4]) or "- Sem riscos novos."
+    next_actions = organizer.get("nextActions") if isinstance(organizer.get("nextActions"), list) else []
+    action_text = "\n".join(f"- {action}" for action in next_actions[:4]) or "- Revisar fila de tarefas."
+    channel = str(organizer.get("slackRoute") or "odessa-roadmap").lstrip("#")
+
+    text = (
+        f"*Odessa Continuous Organizer*\n{organizer.get('summary', '')}\n\n"
+        f"*Tarefas priorizadas*\n" + "\n".join(task_lines) + "\n\n"
+        f"*Riscos*\n{risk_text}\n\n"
+        f"*Proximas acoes*\n{action_text}"
+    )
+    return {
+        "channel": f"#{channel}",
+        "text": text,
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Odessa Continuous Organizer*\n{organizer.get('summary', '')}",
+                },
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "*Tarefas priorizadas*\n" + "\n".join(task_lines)},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*Proximas acoes*\n{action_text}"},
+            },
+        ],
+    }
+
+
+def slugify_filename(value: str, fallback: str = "asset") -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "-", value.strip().lower())
+    cleaned = re.sub(r"-+", "-", cleaned).strip("-")
+    return cleaned[:80] or fallback
+
+
+def default_visual_references() -> list[VisualReference]:
+    return [
+        VisualReference(
+            source="safe_seed",
+            notes=(
+                "Mobile social live aesthetic: vertical framing, warm host energy, "
+                "gift animations, compact bedroom/studio setups, colorful LED accents, "
+                "clear face lighting, expressive hand gestures and direct camera presence."
+            ),
+        ),
+        VisualReference(
+            source="safe_seed",
+            notes=(
+                "Tango Live audience context without copying creators: high interaction, "
+                "gratitude for gifts, upbeat conversation, intimate live-room atmosphere, "
+                "playful overlays and fast visual feedback."
+            ),
+        ),
+    ]
+
+
+def normalize_visual_reference(reference: VisualReference) -> dict[str, Any]:
+    metadata = reference.metadata if isinstance(reference.metadata, dict) else {}
+    url = str(reference.url or "").strip()
+    safe_metadata = {
+        key: value
+        for key, value in metadata.items()
+        if key not in {"username", "handle", "displayName", "profileUrl", "faceId"}
+    }
+    if url:
+        safe_metadata["referenceUrlProvided"] = True
+
+    return {
+        "source": str(reference.source or "manual").strip()[:80],
+        "notes": str(reference.notes or "").strip()[:1800],
+        "observedAt": str(reference.observedAt or utc_now()),
+        "metadata": safe_metadata,
+        "privacy": "identity_redacted",
+    }
+
+
+def normalize_visual_asset_request(
+    raw: Any,
+    index: int,
+    fallback_aspect_ratio: str,
+) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raw = {"prompt": str(raw)}
+
+    allowed_kinds = {
+        "persona_portrait",
+        "persona_angle",
+        "persona_action",
+        "environment",
+        "scene_background",
+        "overlay_concept",
+    }
+    kind = str(raw.get("kind") or "persona_action").strip()
+    if kind not in allowed_kinds:
+        kind = "persona_action"
+
+    asset_id = slugify_filename(str(raw.get("id") or f"visual-{index + 1}"), f"visual-{index + 1}")
+    title = str(raw.get("title") or f"Visual asset {index + 1}").strip()
+    prompt = str(raw.get("prompt") or "").strip()
+    if not prompt:
+        prompt = (
+            "Create an original vertical social live visual for Odessa/Juju, a fictional "
+            "AI live host, with warm lighting, expressive posture and a modern streaming room."
+        )
+
+    safety_suffix = (
+        " Safety constraints: original fictional character only; do not recreate, imitate "
+        "or identify any real Tango Live creator; no usernames, no logos, no exact face, "
+        "no recognizable tattoos, no deepfake likeness, no sexualized minors."
+    )
+    if "original fictional" not in prompt.lower():
+        prompt = prompt.rstrip(".") + "." + safety_suffix
+
+    negative_prompt = str(
+        raw.get("negativePrompt")
+        or "real person likeness, copied face, username, platform logo, low quality, distorted hands"
+    ).strip()
+    aspect_ratio = str(raw.get("aspectRatio") or fallback_aspect_ratio or "9:16").strip()
+    priority = str(raw.get("priority") or "normal").strip().lower()
+    if priority not in {"low", "normal", "high", "urgent"}:
+        priority = "normal"
+
+    return {
+        "id": asset_id,
+        "kind": kind,
+        "title": title,
+        "prompt": prompt,
+        "negativePrompt": negative_prompt,
+        "aspectRatio": aspect_ratio,
+        "priority": priority,
+        "status": "prompt_ready",
+    }
+
+
+def fallback_visual_plan(request: VisualAssetRunRequest) -> dict[str, Any]:
+    prompts = [
+        {
+            "id": "odessa-front-portrait",
+            "kind": "persona_portrait",
+            "title": "Odessa front camera portrait",
+            "priority": "urgent",
+            "prompt": (
+                "Vertical 9:16 portrait of Odessa/Juju, an original fictional Brazilian AI "
+                "live host for social streaming. Warm expressive smile, direct camera gaze, "
+                "soft glam makeup, modern casual outfit, flattering ring light, compact live "
+                "studio background with subtle LED accents, cinematic but realistic."
+            ),
+        },
+        {
+            "id": "odessa-side-angle",
+            "kind": "persona_angle",
+            "title": "Odessa side angle reference",
+            "priority": "high",
+            "prompt": (
+                "Three-quarter side angle of Odessa/Juju, original fictional virtual host, "
+                "turning toward a vertical live camera, expressive hands, warm room lighting, "
+                "social live interface energy without showing any real platform logo."
+            ),
+        },
+        {
+            "id": "odessa-thanking-gift",
+            "kind": "persona_action",
+            "title": "Gift thank-you pose",
+            "priority": "high",
+            "prompt": (
+                "Odessa/Juju celebrating a virtual gift in a live stream, hand near heart, "
+                "grateful expression, colorful gift glow reflections, vertical mobile live "
+                "composition, upbeat Tango-style social live mood without copying any creator."
+            ),
+        },
+        {
+            "id": "warm-live-room",
+            "kind": "environment",
+            "title": "Warm social live room",
+            "priority": "high",
+            "prompt": (
+                "Original vertical background for an AI host social live room: cozy bedroom "
+                "studio, clean desk, soft LED strips, pink and teal accents, ring light, "
+                "phone tripod, subtle animated overlay space, premium but approachable."
+            ),
+        },
+        {
+            "id": "music-redeem-scene",
+            "kind": "scene_background",
+            "title": "Music redeem scene",
+            "priority": "normal",
+            "prompt": (
+                "Vertical social live scene background for a music request moment, original "
+                "fictional streamer room, neon music notes as abstract overlay, clean space "
+                "for subtitles, cozy lighting, no logos, no real people."
+            ),
+        },
+        {
+            "id": "chat-quiet-topic-shift",
+            "kind": "scene_background",
+            "title": "Quiet chat topic shift",
+            "priority": "normal",
+            "prompt": (
+                "A calm but engaging vertical live background for when chat gets quiet, "
+                "warm studio lighting, inviting visual rhythm, subtle question-card area, "
+                "original AI host environment, no real platform UI."
+            ),
+        },
+    ]
+    return {
+        "summary": "Plano visual fallback criado com prompts seguros para Odessa/Juju.",
+        "sourceNotes": [
+            "Sem observacoes externas suficientes; usando sementes seguras de live social mobile."
+        ],
+        "personaDirection": {
+            "name": "Odessa/Juju",
+            "identity": request.seedPersona,
+            "visualTone": "calorosa, popular, expressiva, social live, segura",
+        },
+        "assetRequests": prompts[: max(1, min(request.maxPrompts, 12))],
+        "safetyNotes": [
+            "Nao copiar rosto, nome, usuario, tatuagem, voz ou identidade de criadoras reais.",
+            "Usar referencias reais apenas como linguagem visual de alto nivel.",
+        ],
+        "nextLoopSuggestion": "Na proxima rodada, adicionar observacoes textuais anonimizadas de lives reais.",
+    }
+
+
+def normalize_visual_plan(
+    raw: dict[str, Any],
+    request: VisualAssetRunRequest,
+    references: list[dict[str, Any]],
+) -> dict[str, Any]:
+    fallback = fallback_visual_plan(request)
+    asset_requests = raw.get("assetRequests")
+    if not isinstance(asset_requests, list):
+        asset_requests = fallback["assetRequests"]
+
+    normalized_assets = [
+        normalize_visual_asset_request(asset, index, request.aspectRatio)
+        for index, asset in enumerate(asset_requests[: max(1, min(request.maxPrompts, 12))])
+    ]
+
+    return {
+        "summary": str(raw.get("summary") or fallback["summary"]).strip(),
+        "sourceNotes": normalize_string_list(raw.get("sourceNotes"), fallback["sourceNotes"]),
+        "personaDirection": raw.get("personaDirection")
+        if isinstance(raw.get("personaDirection"), dict)
+        else fallback["personaDirection"],
+        "assetRequests": normalized_assets,
+        "safetyNotes": normalize_string_list(raw.get("safetyNotes"), fallback["safetyNotes"]),
+        "nextLoopSuggestion": str(
+            raw.get("nextLoopSuggestion") or fallback["nextLoopSuggestion"]
+        ).strip(),
+        "referencesUsed": references,
+    }
+
+
+def build_visual_asset_slack_message(run: dict[str, Any]) -> dict[str, Any]:
+    plan = run.get("plan") if isinstance(run.get("plan"), dict) else {}
+    assets = run.get("assets") if isinstance(run.get("assets"), list) else []
+    generated = [asset for asset in assets if asset.get("status") == "generated"]
+    errors = [asset for asset in assets if asset.get("status") == "error"]
+    prompt_lines = []
+    for asset in assets[:6]:
+        prompt_lines.append(
+            f"- *{asset.get('id')}* [{asset.get('kind')}/{asset.get('status')}] "
+            f"{asset.get('title')}"
+        )
+    if not prompt_lines:
+        prompt_lines.append("- Nenhum prompt gerado.")
+
+    text = (
+        f"*Odessa Visual Asset Generator*\n"
+        f"{plan.get('summary', 'Rodada visual concluida.')}\n\n"
+        f"*Run*: `{run.get('runId')}`\n"
+        f"*Imagens geradas*: {len(generated)} / {len(assets)}\n"
+        f"*Erros*: {len(errors)}\n"
+        f"*Pasta*: `{run.get('outputDir')}`\n\n"
+        f"*Assets*\n" + "\n".join(prompt_lines) + "\n\n"
+        f"*Proxima rodada*\n{plan.get('nextLoopSuggestion', 'Revisar prompts e escolher variacoes.')}"
+    )
+    return {
+        "channel": f"#{str(run.get('slackRoute') or 'odessa-roadmap').lstrip('#')}",
+        "text": text,
+    }
+
+
+def generate_gemini_image_asset(
+    *,
+    prompt: str,
+    output_path: Path,
+    model: str,
+    aspect_ratio: str,
+    image_size: str,
+) -> dict[str, Any]:
+    if not gemini_client:
+        raise RuntimeError("GEMINI_API_KEY is not configured for image generation")
+
+    image_config_kwargs: dict[str, Any] = {}
+    if aspect_ratio:
+        image_config_kwargs["aspect_ratio"] = aspect_ratio
+    if image_size:
+        image_config_kwargs["image_size"] = image_size
+
+    config_kwargs: dict[str, Any] = {"response_modalities": ["TEXT", "IMAGE"]}
+    if image_config_kwargs:
+        config_kwargs["image_config"] = genai_types.ImageConfig(**image_config_kwargs)
+
+    response = gemini_client.models.generate_content(
+        model=model,
+        contents=[prompt],
+        config=genai_types.GenerateContentConfig(**config_kwargs),
+    )
+
+    text_parts: list[str] = []
+    parts = []
+    if getattr(response, "candidates", None):
+        candidate = response.candidates[0]
+        content = getattr(candidate, "content", None)
+        parts = list(getattr(content, "parts", []) or [])
+
+    for part in parts:
+        text = getattr(part, "text", None)
+        if text:
+            text_parts.append(str(text).strip())
+
+        inline_data = getattr(part, "inline_data", None)
+        data = getattr(inline_data, "data", None) if inline_data else None
+        if not data:
+            continue
+
+        mime_type = str(getattr(inline_data, "mime_type", "image/png") or "image/png")
+        extension = ".jpg" if "jpeg" in mime_type else ".png"
+        if output_path.suffix.lower() != extension:
+            output_path = output_path.with_suffix(extension)
+
+        image_bytes = data if isinstance(data, bytes) else base64.b64decode(data)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(image_bytes)
+        return {
+            "path": str(output_path),
+            "mimeType": mime_type,
+            "bytes": len(image_bytes),
+            "modelText": "\n".join(text_parts).strip(),
+        }
+
+    raise RuntimeError("Gemini image model returned no image data")
+
+
+def openai_image_size_for_aspect(aspect_ratio: str) -> str:
+    if OPENAI_IMAGE_SIZE:
+        return OPENAI_IMAGE_SIZE
+
+    value = str(aspect_ratio or "").strip().lower()
+    vertical_ratios = {"9:16", "2:3", "3:4", "4:5", "1:2"}
+    horizontal_ratios = {"16:9", "3:2", "4:3", "5:4", "21:9", "2:1"}
+    if value in vertical_ratios:
+        return "1024x1536"
+    if value in horizontal_ratios:
+        return "1536x1024"
+    if value == "1:1":
+        return "1024x1024"
+    return "auto"
+
+
+def generate_openai_image_asset(
+    *,
+    prompt: str,
+    output_path: Path,
+    model: str,
+    aspect_ratio: str,
+) -> dict[str, Any]:
+    if not openai_client:
+        raise RuntimeError("OPENAI_API_KEY is not configured for image generation")
+
+    image_model = model or OPENAI_IMAGE_MODEL
+    size = openai_image_size_for_aspect(aspect_ratio)
+    kwargs: dict[str, Any] = {
+        "model": image_model,
+        "prompt": prompt,
+        "n": 1,
+        "size": size,
+    }
+    if image_model.startswith("gpt-image"):
+        kwargs["quality"] = OPENAI_IMAGE_QUALITY or "auto"
+        kwargs["output_format"] = "png"
+    else:
+        kwargs["response_format"] = "b64_json"
+        if OPENAI_IMAGE_QUALITY in {"standard", "hd"}:
+            kwargs["quality"] = OPENAI_IMAGE_QUALITY
+
+    response = openai_client.images.generate(**kwargs)
+    if not getattr(response, "data", None):
+        raise RuntimeError("OpenAI image model returned no image data")
+
+    image_item = response.data[0]
+    b64_json = getattr(image_item, "b64_json", None)
+    image_url = getattr(image_item, "url", None)
+    revised_prompt = getattr(image_item, "revised_prompt", None)
+
+    output_path = output_path.with_suffix(".png")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if b64_json:
+        image_bytes = base64.b64decode(b64_json)
+    elif image_url:
+        with url_request.urlopen(str(image_url), timeout=30) as response_body:
+            image_bytes = response_body.read()
+    else:
+        raise RuntimeError("OpenAI image response had neither b64_json nor url")
+
+    output_path.write_bytes(image_bytes)
+    return {
+        "path": str(output_path),
+        "mimeType": "image/png",
+        "bytes": len(image_bytes),
+        "modelText": str(revised_prompt or "").strip(),
+        "size": size,
+    }
+
+
+def generate_visual_image_asset(
+    *,
+    prompt: str,
+    output_path: Path,
+    provider_preference: str,
+    gemini_model: str,
+    openai_model: str,
+    aspect_ratio: str,
+    image_size: str,
+) -> dict[str, Any]:
+    preference = str(provider_preference or "auto").strip().lower()
+    if preference not in {"auto", "gemini", "openai"}:
+        preference = "auto"
+
+    provider_order = ["gemini", "openai"]
+    if preference == "openai":
+        provider_order = ["openai"]
+    elif preference == "gemini":
+        provider_order = ["gemini"]
+
+    errors: list[str] = []
+    for provider in provider_order:
+        try:
+            if provider == "gemini":
+                result = generate_gemini_image_asset(
+                    prompt=prompt,
+                    output_path=output_path,
+                    model=gemini_model,
+                    aspect_ratio=aspect_ratio,
+                    image_size=image_size,
+                )
+            else:
+                result = generate_openai_image_asset(
+                    prompt=prompt,
+                    output_path=output_path,
+                    model=openai_model,
+                    aspect_ratio=aspect_ratio,
+                )
+            return {
+                **result,
+                "provider": provider,
+                "model": gemini_model if provider == "gemini" else openai_model,
+                "fallbackErrors": errors,
+            }
+        except Exception as exc:
+            message = f"{provider}: {exc}"
+            logger.warning("[VISUAL IMAGE %s ERROR] %s", provider.upper(), exc, exc_info=True)
+            errors.append(message)
+
+    raise RuntimeError("; ".join(errors) or "No image provider available")
+
+
+def get_new_text(prev_text: str, current_text: str) -> str:
+    if not prev_text:
+        return current_text
+
+    max_len = min(len(prev_text), 50)
+    for length in range(max_len, 9, -1):
+        suffix = prev_text[-length:]
+        idx = current_text.find(suffix)
+        if idx != -1:
+            return current_text[idx + length :].strip()
+
+    if abs(len(prev_text) - len(current_text)) < 10:
+        return ""
+
+    return current_text
+
+
+def save_to_log(text: str) -> None:
+    try:
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if LOG_FILE.exists():
+            lines = LOG_FILE.read_text(encoding="utf-8").splitlines()
+            if lines and text.strip() in lines[-1]:
+                return
+
+        with LOG_FILE.open("a", encoding="utf-8") as file:
+            file.write(f"{text}\n")
+        logger.info("Saved capture log entry")
+    except Exception as exc:
+        logger.error("Error saving capture log: %s", exc)
+
+
+def cleanup_temp_file(path: str) -> None:
+    try:
+        Path(path).unlink(missing_ok=True)
+    except Exception as exc:
+        logger.warning("Could not remove temp file %s: %s", path, exc)
+
+
+def package_installed(package: str) -> bool:
+    return importlib.util.find_spec(package) is not None
+
+
+def espeak_ng_path() -> Optional[str]:
+    candidates = [
+        ESPEAK_NG_PATH,
+        shutil.which("espeak-ng") or "",
+        r"C:\Program Files\eSpeak NG\espeak-ng.exe",
+        r"C:\Program Files (x86)\eSpeak NG\espeak-ng.exe",
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return str(Path(candidate))
+    return None
+
+
+def ensure_espeak_on_path() -> None:
+    path = espeak_ng_path()
+    if not path:
+        return
+    folder = str(Path(path).parent)
+    current = os.environ.get("PATH", "")
+    if folder.lower() not in current.lower():
+        os.environ["PATH"] = f"{folder}{os.pathsep}{current}"
+
+
+def kokoro_available() -> bool:
+    ensure_espeak_on_path()
+    return KOKORO_ENABLED and package_installed("kokoro") and bool(espeak_ng_path())
+
+
+def infer_tts_provider(raw_provider: Any, voice: str) -> str:
+    provider = str(raw_provider or "auto").strip().lower()
+    if provider not in {"auto", "edge", "openai", "kokoro"}:
+        provider = "auto"
+
+    voice_key = voice.replace("kokoro:", "").strip()
+    if provider == "auto":
+        if voice_key in OPENAI_TTS_VOICES:
+            return "openai"
+        if voice_key in KOKORO_VOICES:
+            return "kokoro"
+        if TTS_DEFAULT_PROVIDER in {"edge", "openai", "kokoro"} and not voice_key:
+            return TTS_DEFAULT_PROVIDER
+        return "edge"
+    return provider
+
+
+def default_voice_for_provider(provider: str, requested_voice: str) -> str:
+    voice = str(requested_voice or "").replace("kokoro:", "").strip()
+    if voice:
+        return voice
+    if provider == "openai":
+        return "nova"
+    if provider == "kokoro":
+        return KOKORO_DEFAULT_VOICE
+    return "pt-BR-FranciscaNeural"
+
+
+def edge_rate_from_speed(speed: float) -> str:
+    percent = int(round((speed - 1.0) * 100))
+    return f"{percent:+d}%"
+
+
+def edge_pitch_from_value(pitch: float) -> str:
+    # edge-tts expects pitch as a signed Hz offset. The UI stores a gentle -12..12 scale.
+    hz_offset = int(round(pitch * 8))
+    return f"{hz_offset:+d}Hz"
+
+
+def get_kokoro_pipeline(lang_code: str) -> Any:
+    ensure_espeak_on_path()
+    if not KOKORO_ENABLED:
+        raise RuntimeError("Kokoro is disabled by KOKORO_ENABLED")
+    if not package_installed("kokoro"):
+        raise RuntimeError("kokoro is not installed in the Python environment")
+    if not espeak_ng_path():
+        raise RuntimeError("espeak-ng was not found on PATH")
+
+    lang = lang_code or KOKORO_DEFAULT_LANG
+    if lang not in kokoro_pipelines:
+        from kokoro import KPipeline
+
+        kokoro_pipelines[lang] = KPipeline(lang_code=lang)
+    return kokoro_pipelines[lang]
+
+
+def generate_kokoro_wav(text: str, voice: str, speed: float, output_path: str) -> None:
+    voice_key = voice.replace("kokoro:", "").strip() or KOKORO_DEFAULT_VOICE
+    voice_meta = KOKORO_VOICES.get(voice_key, {})
+    lang_code = str(voice_meta.get("lang") or KOKORO_DEFAULT_LANG)
+    pipeline = get_kokoro_pipeline(lang_code)
+    generator = pipeline(text, voice=voice_key, speed=speed, split_pattern=r"\n+")
+    chunks: list[np.ndarray] = []
+    for _, _, audio in generator:
+        if hasattr(audio, "detach"):
+            audio = audio.detach().cpu().numpy()
+        chunks.append(np.asarray(audio, dtype=np.float32))
+
+    if not chunks:
+        raise RuntimeError("Kokoro returned no audio")
+
+    waveform = chunks[0] if len(chunks) == 1 else np.concatenate(chunks)
+    import soundfile as sf
+
+    sf.write(output_path, waveform, 24000)
+
+
+def edge_voice_label(raw: dict[str, Any]) -> str:
+    short_name = str(raw.get("ShortName") or "")
+    local_name = str(raw.get("LocalName") or raw.get("FriendlyName") or short_name)
+    if local_name and local_name != short_name:
+        return local_name
+    parts = short_name.split("-")
+    return parts[-1].replace("Neural", "") if parts else short_name
+
+
+def load_edge_voices() -> list[dict[str, Any]]:
+    now = time.time()
+    cached = edge_voice_cache.get("voices")
+    if cached and now - float(edge_voice_cache.get("loaded_at") or 0) < 3600:
+        return list(cached)
+
+    try:
+        voices = asyncio.run(edge_tts.list_voices())
+        edge_voice_cache["voices"] = voices
+        edge_voice_cache["loaded_at"] = now
+        return voices
+    except Exception as exc:
+        logger.warning("Could not load Edge voices dynamically: %s", exc)
+        return [
+            {"ShortName": voice_id, "Gender": "Unknown", "Locale": "-".join(voice_id.split("-")[:2])}
+            for voice_id in EDGE_TTS_VOICES
+        ]
+
+
+def voice_enabled(provider: str, meta: dict[str, Any]) -> bool:
+    if provider == "edge":
+        return True
+    if provider == "openai":
+        return bool(openai_client)
+    if provider == "kokoro":
+        return kokoro_available() and not meta.get("disabled_reason") and meta.get("lang") not in KOKORO_DISABLED_LANGS
+    return False
+
+
+def extract_json_object(text: str) -> dict:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+      cleaned = cleaned.strip("`")
+      if cleaned.lower().startswith("json"):
+          cleaned = cleaned[4:].strip()
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise
+        return json.loads(cleaned[start : end + 1])
+
+
+def normalize_decision(raw: dict, fallback_text: str) -> dict:
+    speech = str(raw.get("speech") or "").strip()
+    if not speech:
+        speech = "Vou acompanhar isso agora e manter a live fluindo."
+
+    intent = str(raw.get("intent") or "respond_live_event").strip()
+    reason = str(raw.get("reason") or "Decisao baseada no evento recebido.").strip()
+    priority = str(raw.get("priority") or "normal").strip().lower()
+    if priority not in {"low", "normal", "high", "urgent"}:
+        priority = "normal"
+
+    try:
+        confidence = float(raw.get("confidence", 0.7))
+    except (TypeError, ValueError):
+        confidence = 0.7
+    confidence = max(0, min(1, confidence))
+
+    actions = raw.get("actions")
+    normalized_actions = []
+    if isinstance(actions, list):
+        for index, action in enumerate(actions):
+            if not isinstance(action, dict):
+                continue
+            action_type = str(action.get("type") or "log_event").strip()
+            if action_type not in ALLOWED_ACTIONS:
+                action_type = "log_event"
+            label = str(action.get("label") or action_type).strip()
+            payload = action.get("payload")
+            if not isinstance(payload, dict):
+                payload = {}
+            normalized_actions.append(
+                {
+                    "id": str(action.get("id") or f"action-{index + 1}"),
+                    "type": action_type,
+                    "label": label,
+                    "capability": action.get("capability"),
+                    "payload": payload,
+                    "simulated": action_type != "speak",
+                    "requiresApproval": bool(action.get("requiresApproval", False)),
+                    "status": "queued",
+                }
+            )
+
+    if not any(action["type"] == "speak" for action in normalized_actions):
+        normalized_actions.insert(
+            0,
+            {
+                "id": "action-speak",
+                "type": "speak",
+                "label": "Falar via TTS",
+                "capability": "tts.speak",
+                "payload": {"text": speech},
+                "simulated": False,
+                "requiresApproval": False,
+                "status": "queued",
+            },
+        )
+
+    if not normalized_actions:
+        normalized_actions.append(
+            {
+                "id": "action-log",
+                "type": "log_event",
+                "label": "Registrar evento",
+                "capability": "log.event",
+                "payload": {"message": fallback_text},
+                "simulated": True,
+                "requiresApproval": False,
+                "status": "queued",
+            }
+        )
+
+    return {
+        "speech": speech,
+        "intent": intent,
+        "confidence": confidence,
+        "reason": reason,
+        "priority": priority,
+        "actions": normalized_actions,
+    }
+
+
+def generate_openai_text(
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float,
+    *,
+    json_mode: bool = False,
+) -> str:
+    if not openai_client:
+        raise RuntimeError("OPENAI_API_KEY is not configured on the backend")
+
+    kwargs: dict[str, Any] = {
+        "model": OPENAI_TEXT_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": temperature,
+    }
+    if json_mode:
+        kwargs["response_format"] = {"type": "json_object"}
+
+    response = openai_client.chat.completions.create(**kwargs)
+    return response.choices[0].message.content or ""
+
+
+def generate_ai_text_with_fallback(
+    *,
+    gemini_model: str,
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float,
+    json_mode: bool = False,
+) -> tuple[str, str]:
+    errors: list[str] = []
+
+    if gemini_client:
+        try:
+            config: dict[str, Any] = {
+                "system_instruction": system_prompt,
+                "temperature": temperature,
+            }
+            if json_mode:
+                config["response_mime_type"] = "application/json"
+
+            result = gemini_client.models.generate_content(
+                model=gemini_model,
+                contents=user_prompt,
+                config=config,
+            )
+            text = result.text or ""
+            if not text.strip():
+                raise RuntimeError("Gemini returned an empty response")
+            return text, "gemini"
+        except Exception as exc:
+            logger.warning("[GEMINI FALLBACK] %s", exc, exc_info=True)
+            errors.append(f"Gemini: {exc}")
+    else:
+        errors.append("Gemini: GEMINI_API_KEY is not configured")
+
+    if openai_client:
+        try:
+            text = generate_openai_text(
+                system_prompt,
+                user_prompt,
+                temperature,
+                json_mode=json_mode,
+            )
+            if not text.strip():
+                raise RuntimeError("OpenAI returned an empty response")
+            return text, "openai"
+        except Exception as exc:
+            logger.error("[OPENAI FALLBACK EXCEPTION] %s", exc, exc_info=True)
+            errors.append(f"OpenAI: {exc}")
+    else:
+        errors.append("OpenAI: OPENAI_API_KEY is not configured")
+
+    status_code = 503 if not (gemini_client or openai_client) else 502
+    raise HTTPException(status_code=status_code, detail="; ".join(errors))
+
+
+def load_regions() -> tuple[tuple[int, int, int, int], tuple[int, int, int, int]]:
+    if REGION_FILE.exists():
+        try:
+            import json
+
+            data = json.loads(REGION_FILE.read_text(encoding="utf-8"))
+            return (
+                tuple(data.get("chat_region", DEFAULT_CHAT_REGION)),
+                tuple(data.get("gifts_region", DEFAULT_GIFTS_REGION)),
+            )
+        except Exception as exc:
+            logger.warning("Cannot load %s: %s", REGION_FILE, exc)
+    return DEFAULT_CHAT_REGION, DEFAULT_GIFTS_REGION
+
+
+def decode_request_image(image_data: str) -> bytes:
+    img_data = image_data.split(",", 1)[1] if "," in image_data else image_data
+    img_data = "".join(img_data.split())
+    estimated_bytes = (len(img_data) * 3) // 4
+    if estimated_bytes > MAX_OCR_IMAGE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Image is too large for OCR. Limit is {MAX_OCR_IMAGE_BYTES} bytes.",
+        )
+
+    try:
+        image_bytes = base64.b64decode(img_data, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid base64 image payload") from exc
+
+    if len(image_bytes) > MAX_OCR_IMAGE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Image is too large for OCR. Limit is {MAX_OCR_IMAGE_BYTES} bytes.",
+        )
+    return image_bytes
+
+
+def validate_ocr_dimensions(width: int, height: int) -> None:
+    if width * height > MAX_OCR_IMAGE_PIXELS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Image dimensions are too large for OCR. Limit is {MAX_OCR_IMAGE_PIXELS} pixels.",
+        )
+
+
+def image_from_request(request: RegionRequest) -> np.ndarray:
+    if request.image:
+        image_bytes = decode_request_image(request.image)
+        try:
+            with Image.open(io.BytesIO(image_bytes)) as image:
+                validate_ocr_dimensions(image.width, image.height)
+                return np.array(image.convert("RGB"))
+        except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+            raise HTTPException(status_code=400, detail="Invalid image payload") from exc
+
+    if (
+        request.x is None
+        or request.y is None
+        or request.width is None
+        or request.height is None
+        or request.width <= 0
+        or request.height <= 0
+    ):
+        raise HTTPException(status_code=400, detail="Invalid dimensions or missing image")
+
+    validate_ocr_dimensions(request.width, request.height)
+
+    screenshot = pyautogui.screenshot(
+        region=(request.x, request.y, request.width, request.height)
+    )
+    return np.array(screenshot)
+
+
+@app.get("/health")
+def health_check():
+    return {
+        "status": "ok",
+        "ocr": "ready",
+        "gemini_configured": bool(GEMINI_API_KEY),
+        "gemini_image_model": GEMINI_IMAGE_MODEL,
+        "gemini_image_configured": bool(GEMINI_API_KEY),
+        "openai_ai_configured": bool(OPENAI_API_KEY),
+        "openai_text_model": OPENAI_TEXT_MODEL,
+        "openai_image_model": OPENAI_IMAGE_MODEL,
+        "openai_image_configured": bool(OPENAI_API_KEY),
+        "openai_tts_configured": bool(OPENAI_API_KEY),
+        "tts_default_provider": TTS_DEFAULT_PROVIDER,
+        "kokoro_enabled": KOKORO_ENABLED,
+        "kokoro_package_installed": package_installed("kokoro"),
+        "kokoro_espeak_configured": bool(espeak_ng_path()),
+        "kokoro_espeak_path": espeak_ng_path(),
+        "kokoro_tts_configured": kokoro_available(),
+        "kokoro_default_voice": KOKORO_DEFAULT_VOICE,
+        "n8n": n8n_health(),
+        "obs": {
+            "configured": bool(N8N_ACTION_WEBHOOK_URL),
+            "source": "n8n",
+            "scene_whitelist": "automatic",
+        },
+        "memory": get_memory_stats(),
+    }
+
+
+@app.get("/")
+def read_root():
+    return {"message": "Odessa local capture API is running"}
+
+
+@app.post("/n8n/events")
+async def ingest_n8n_events(request: Request):
+    verify_n8n_secret(request)
+    try:
+        data = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
+
+    if isinstance(data, dict) and isinstance(data.get("events"), list):
+        raw_events = data["events"]
+    elif isinstance(data, dict) and data.get("event") is not None:
+        raw_events = [data["event"]]
+    elif isinstance(data, list):
+        raw_events = data
+    else:
+        raw_events = [data]
+
+    events = [normalize_n8n_event(raw, index) for index, raw in enumerate(raw_events)]
+    if not events:
+        raise HTTPException(status_code=400, detail="No events provided")
+
+    queue = read_json_list(N8N_EVENT_QUEUE_FILE)
+    queue.extend(events)
+    queue = queue[-MAX_N8N_QUEUE_EVENTS:]
+    write_json_list(N8N_EVENT_QUEUE_FILE, queue)
+    append_n8n_audit(
+        "event_ingest",
+        {"events": events},
+        {"accepted": len(events), "queued": len(queue)},
+    )
+    return {"accepted": len(events), "queued": len(queue), "events": events}
+
+
+@app.get("/n8n/events")
+def consume_n8n_events(limit: int = 20):
+    safe_limit = max(1, min(limit, 50))
+    queue = read_json_list(N8N_EVENT_QUEUE_FILE)
+    batch = queue[:safe_limit]
+    remaining = queue[safe_limit:]
+    if batch:
+        write_json_list(N8N_EVENT_QUEUE_FILE, remaining)
+    return {"events": batch, "remaining": len(remaining)}
+
+
+@app.get("/obs/scenes")
+def get_obs_scenes():
+    if not N8N_ACTION_WEBHOOK_URL:
+        return {
+            "ok": False,
+            "scenes": [],
+            "currentScene": None,
+            "source": "n8n",
+            "error": "N8N_ACTION_WEBHOOK_URL is not configured",
+        }
+
+    payload = {
+        "product": "Odessa",
+        "target": "action",
+        "createdAt": utc_now(),
+        "payload": {
+            "action": {
+                "id": "obs-list-scenes",
+                "type": "log_event",
+                "label": "Listar cenas OBS",
+                "capability": "obs.list_scenes",
+                "payload": {},
+                "simulated": False,
+                "requiresApproval": False,
+            },
+            "tool": {
+                "id": "tool-obs-scene",
+                "label": "OBS WebSocket via n8n",
+                "capability": "obs.list_scenes",
+                "simulated": False,
+            },
+            "decision": {"intent": "discover_obs_scenes"},
+        },
+    }
+    try:
+        result = post_json_to_n8n(N8N_ACTION_WEBHOOK_URL, payload)
+        parsed = parse_json_body(result.get("body"))
+        scenes, current_scene = extract_scene_list(parsed)
+        return {
+            "ok": bool(scenes or current_scene),
+            "scenes": scenes,
+            "currentScene": current_scene,
+            "source": "n8n",
+            "status_code": result.get("status_code"),
+            "response": parsed,
+            "error": None if scenes or current_scene else "n8n did not return OBS scenes",
+        }
+    except HTTPException as exc:
+        return {
+            "ok": False,
+            "scenes": [],
+            "currentScene": None,
+            "source": "n8n",
+            "error": exc.detail,
+        }
+
+
+@app.post("/memory/round-context")
+def create_memory_round_context(request: MemoryRoundContextRequest):
+    events = [model_payload(event) for event in request.events]
+    return upsert_round_memory(events)
+
+
+@app.get("/memory/stats")
+def read_memory_stats():
+    return get_memory_stats()
+
+
+@app.post("/n8n/dispatch")
+def dispatch_to_n8n(dispatch_request: N8NDispatchRequest):
+    target = dispatch_request.target.strip().lower()
+    urls = {
+        "audit": N8N_AUDIT_WEBHOOK_URL,
+        "action": N8N_ACTION_WEBHOOK_URL,
+        "event": N8N_EVENT_INGEST_WEBHOOK_URL,
+        "visual": N8N_VISUAL_ASSET_WEBHOOK_URL,
+    }
+    if target not in urls:
+        raise HTTPException(status_code=400, detail="Invalid n8n target")
+
+    payload = {
+        "product": "Odessa",
+        "target": target,
+        "createdAt": utc_now(),
+        "payload": dispatch_request.payload,
+    }
+    webhook_url = urls[target]
+    if not webhook_url:
+        append_n8n_audit(
+            f"{target}_dispatch_skipped",
+            payload,
+            {"ok": False, "reason": "webhook_not_configured"},
+        )
+        raise HTTPException(status_code=503, detail=f"N8N {target} webhook is not configured")
+
+    try:
+        result = post_json_to_n8n(webhook_url, payload)
+    except HTTPException as exc:
+        append_n8n_audit(
+            f"{target}_dispatch_error",
+            payload,
+            {"ok": False, "error": exc.detail},
+        )
+        raise
+
+    parsed = parse_json_body(result.get("body"))
+    if isinstance(parsed, list) and len(parsed) == 1 and isinstance(parsed[0], dict):
+        parsed = parsed[0]
+
+    response: dict[str, Any] = {"ok": True, "target": target, **result}
+    if parsed is not None:
+        response["response"] = parsed
+    if isinstance(parsed, dict):
+        for key in (
+            "executed",
+            "simulated",
+            "capability",
+            "scene",
+            "currentScene",
+            "scenes",
+            "status",
+            "message",
+            "error",
+        ):
+            if key in parsed:
+                response[key] = parsed[key]
+
+    append_n8n_audit(f"{target}_dispatch", payload, response)
+    return response
+
+
+@app.get("/n8n/audit/recent")
+def get_recent_n8n_audit(limit: int = 50):
+    safe_limit = max(1, min(limit, 200))
+    return {"items": read_json_list(N8N_AUDIT_FILE)[-safe_limit:]}
+
+
+@app.get("/project/tasks")
+def get_project_tasks(limit: int = 100):
+    safe_limit = max(1, min(limit, MAX_PROJECT_TASKS))
+    tasks = read_json_list(PROJECT_TASKS_FILE)
+    runs = read_json_list(PROJECT_ORGANIZER_RUNS_FILE)
+    return {
+        "tasks": tasks[:safe_limit],
+        "total": len(tasks),
+        "lastRun": runs[-1] if runs else None,
+    }
+
+
+@app.get("/visual-lab/runs")
+def get_visual_asset_runs(limit: int = 20):
+    safe_limit = max(1, min(limit, MAX_VISUAL_ASSET_RUNS))
+    runs = read_json_list(VISUAL_ASSET_RUNS_FILE)
+    return {"runs": runs[-safe_limit:], "total": len(runs)}
+
+
+@app.post("/visual-lab/run")
+def run_visual_asset_generator(request: VisualAssetRunRequest):
+    max_prompts = max(1, min(request.maxPrompts, 12))
+    max_images = max(0, min(request.maxImages, MAX_VISUAL_IMAGES_PER_RUN))
+    target_channel = normalize_slack_route(request.targetChannel, "automacao")
+    references = [
+        normalize_visual_reference(reference)
+        for reference in (request.references or default_visual_references())
+    ][:12]
+    run_id = f"ods-visual-{int(time.time() * 1000)}"
+    output_dir = ODESSA_VISUAL_OUTPUT_DIR / run_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    contract = {
+        "summary": "resumo curto da rodada visual",
+        "sourceNotes": ["tendencia visual anonima observada"],
+        "personaDirection": {
+            "name": "Odessa/Juju",
+            "visualTone": "calorosa, social live, energetica",
+            "wardrobe": "direcao de figurino",
+            "environment": "direcao de cenario",
+        },
+        "assetRequests": [
+            {
+                "id": "odessa-asset-1",
+                "kind": "persona_portrait | persona_angle | persona_action | environment | scene_background | overlay_concept",
+                "title": "nome curto do asset",
+                "prompt": "prompt de imagem detalhado em ingles",
+                "negativePrompt": "elementos que devem ser evitados",
+                "aspectRatio": request.aspectRatio or "9:16",
+                "priority": "low | normal | high | urgent",
+            }
+        ],
+        "safetyNotes": ["limite de seguranca visual"],
+        "nextLoopSuggestion": "o que observar ou gerar na proxima rodada",
+    }
+    user_payload = {
+        "objective": request.objective,
+        "mode": request.mode,
+        "seedPersona": request.seedPersona,
+        "requestedBy": request.requestedBy,
+        "maxPrompts": max_prompts,
+        "maxImages": max_images,
+        "imageProvider": request.imageProvider,
+        "references": references,
+        "productContext": (
+            "Odessa e uma persona IA para lives sociais. O Visual Lab cria assets "
+            "originais para ambientes, poses, reacoes e cenas da persona."
+        ),
+    }
+    system_prompt = (
+        "Voce e o diretor visual seguro do Odessa. Transforme observacoes anonimas "
+        "de lives sociais em prompts originais de imagem para uma persona ficticia. "
+        "Nao copie criadoras reais, nao cite nomes, nao replique rostos, tatuagens, "
+        "quartos identificaveis, handles, logos ou qualquer identidade pessoal. "
+        "Use referencias reais apenas como linguagem visual de alto nivel. "
+        "Responda somente JSON valido."
+    )
+    user_prompt = (
+        "Crie uma rodada de assets visuais para Odessa/Juju com este contexto:\n"
+        f"{json.dumps(user_payload, ensure_ascii=False)}\n\n"
+        "Retorne APENAS um objeto JSON valido seguindo este contrato:\n"
+        f"{json.dumps(contract, ensure_ascii=False)}\n\n"
+        "Regras:\n"
+        "- Escreva metadados em portugues do Brasil.\n"
+        "- Escreva os prompts de imagem em ingles, claros e completos.\n"
+        "- Gere prompts para persona de frente, angulo lateral, acao em live e cenario.\n"
+        "- Priorize formato vertical 9:16 para uso em live mobile.\n"
+        "- Nunca gere prompt para copiar uma pessoa real do Tango Live."
+    )
+
+    provider = "local-fallback"
+    try:
+        text, provider = generate_ai_text_with_fallback(
+            gemini_model=request.model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=request.temperature,
+            json_mode=True,
+        )
+        parsed = extract_json_object(text or "{}")
+    except Exception as exc:
+        logger.warning("[VISUAL LAB PLAN FALLBACK] %s", exc, exc_info=True)
+        parsed = fallback_visual_plan(request)
+        provider = "local-fallback"
+
+    plan = normalize_visual_plan(parsed, request, references)
+    assets = [dict(asset) for asset in plan["assetRequests"]]
+    errors: list[str] = []
+
+    priority_rank = {"urgent": 0, "high": 1, "normal": 2, "low": 3}
+    generation_candidates = sorted(
+        assets,
+        key=lambda asset: (
+            priority_rank.get(str(asset.get("priority")), 4),
+            str(asset.get("id") or ""),
+        ),
+    )[:max_images]
+    generate_ids = {asset["id"] for asset in generation_candidates}
+
+    if request.generateImages and max_images > 0 and not (gemini_client or openai_client):
+        errors.append(
+            "No image provider is configured; set GEMINI_API_KEY or OPENAI_API_KEY."
+        )
+
+    for asset in assets:
+        asset["createdAt"] = utc_now()
+        asset["outputPath"] = None
+        if not request.generateImages or asset["id"] not in generate_ids or not (
+            gemini_client or openai_client
+        ):
+            asset["status"] = "prompt_ready"
+            continue
+
+        filename = slugify_filename(f"{asset['id']}-{asset['kind']}", asset["id"])
+        output_path = output_dir / f"{filename}.png"
+        full_prompt = (
+            f"{asset['prompt']}\n\nNegative prompt: {asset['negativePrompt']}\n"
+            "Output should be polished concept art / realistic key visual suitable "
+            "for a fictional AI live host asset library."
+        )
+        try:
+            result = generate_visual_image_asset(
+                prompt=full_prompt,
+                output_path=output_path,
+                provider_preference=request.imageProvider,
+                gemini_model=request.imageModel or GEMINI_IMAGE_MODEL,
+                openai_model=request.openaiImageModel or OPENAI_IMAGE_MODEL,
+                aspect_ratio=asset.get("aspectRatio") or request.aspectRatio,
+                image_size=request.imageSize,
+            )
+            asset.update(
+                {
+                    "status": "generated",
+                    "outputPath": result["path"],
+                    "mimeType": result["mimeType"],
+                    "bytes": result["bytes"],
+                    "modelText": result.get("modelText", ""),
+                    "imageProvider": result.get("provider"),
+                    "imageModel": result.get("model"),
+                    "fallbackErrors": result.get("fallbackErrors", []),
+                }
+            )
+        except Exception as exc:
+            message = str(exc)
+            logger.warning("[VISUAL IMAGE GENERATION ERROR] %s", message, exc_info=True)
+            asset.update({"status": "error", "error": message})
+            errors.append(f"{asset['id']}: {message}")
+
+    manifest = {
+        "runId": run_id,
+        "createdAt": utc_now(),
+        "mode": request.mode,
+        "provider": provider,
+        "imageProvider": request.imageProvider,
+        "imageModel": request.imageModel or GEMINI_IMAGE_MODEL,
+        "openaiImageModel": request.openaiImageModel or OPENAI_IMAGE_MODEL,
+        "objective": request.objective,
+        "requestedBy": request.requestedBy,
+        "slackRoute": target_channel,
+        "outputDir": str(output_dir),
+        "plan": plan,
+        "assets": assets,
+        "errors": errors[:12],
+        "safetyBoundary": (
+            "Inspiracao de lives reais deve ser apenas estetica anonima; o workflow "
+            "nao deve copiar identidade ou likeness de pessoas reais."
+        ),
+    }
+    (output_dir / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    runs = read_json_list(VISUAL_ASSET_RUNS_FILE)
+    run_summary = {
+        "runId": run_id,
+        "createdAt": manifest["createdAt"],
+        "provider": provider,
+        "imageModel": manifest["imageModel"],
+        "outputDir": str(output_dir),
+        "assets": [
+            {
+                "id": asset.get("id"),
+                "kind": asset.get("kind"),
+                "title": asset.get("title"),
+                "status": asset.get("status"),
+                "outputPath": asset.get("outputPath"),
+            }
+            for asset in assets
+        ],
+        "errors": errors[:8],
+    }
+    runs.append(run_summary)
+    write_json_list(VISUAL_ASSET_RUNS_FILE, runs[-MAX_VISUAL_ASSET_RUNS:])
+
+    slack_message = build_visual_asset_slack_message(manifest)
+    append_n8n_audit(
+        "visual_asset_run",
+        {
+            "request": {
+                "objective": request.objective,
+                "mode": request.mode,
+                "maxPrompts": max_prompts,
+                "maxImages": max_images,
+                "targetChannel": target_channel,
+            },
+            "run": run_summary,
+        },
+        {
+            "ok": not errors,
+            "provider": provider,
+            "generated": len([asset for asset in assets if asset.get("status") == "generated"]),
+            "errors": len(errors),
+        },
+    )
+
+    return {
+        "ok": True,
+        "visualRun": manifest,
+        "slackMessage": slack_message,
+    }
+
+
+@app.post("/project/continuous-organizer")
+def run_continuous_project_organizer(request: ContinuousOrganizerRequest):
+    focus_areas = normalize_focus_areas(request.focusAreas)
+    max_tasks = max(1, min(request.maxTasks, 12))
+    target_channel = normalize_slack_route(request.targetChannel, focus_areas[0])
+    current_tasks = read_json_list(PROJECT_TASKS_FILE)
+    recent_audit = read_json_list(N8N_AUDIT_FILE)[-20:]
+    constraints = request.constraints or [
+        "local-first",
+        "sem edicao automatica de codigo",
+        "organizar tarefas ate o produto final",
+    ]
+    contract = {
+        "summary": "resumo curto da rodada",
+        "currentPhase": "fase atual do produto",
+        "recommendedFocus": focus_areas,
+        "tasks": [
+            {
+                "id": "ODS-TASK-001",
+                "title": "tarefa concreta para Lucas executar",
+                "area": "produto | runtime | frontend | backend | automacao | qa | docs",
+                "priority": "low | normal | high | urgent",
+                "status": "next | todo | in_progress | blocked | done",
+                "why": "por que esta tarefa importa para o produto final",
+                "acceptanceCriteria": ["criterio objetivo"],
+                "dependsOn": [],
+            }
+        ],
+        "blocked": ["bloqueio que precisa de decisao humana"],
+        "risks": ["risco atual"],
+        "questions": ["pergunta curta para Lucas, se necessaria"],
+        "nextActions": ["acao objetiva para a proxima rodada"],
+    }
+    user_payload = {
+        "objective": request.objective,
+        "cadence": request.cadence,
+        "focusAreas": focus_areas,
+        "maxTasks": max_tasks,
+        "requestedBy": request.requestedBy,
+        "constraints": constraints,
+        "targetChannel": target_channel,
+        "currentTasks": current_tasks[:40],
+        "recentAudit": recent_audit,
+        "productDefinition": (
+            "Odessa e um runtime local-first onde uma Persona IA recebe eventos "
+            "da live, decide acoes, executa ferramentas reais/simuladas e registra "
+            "todo o ciclo em auditoria."
+        ),
+    }
+    system_prompt = (
+        "Voce e o organizador continuo do projeto Odessa. Seu trabalho e manter "
+        "uma fila viva de tarefas pequenas, priorizadas e verificaveis ate o "
+        "produto final. Nao execute codigo, nao prometa deploy e nao dependa de "
+        "integracoes inexistentes. Produza JSON estrito."
+    )
+    user_prompt = (
+        "Organize o proximo lote de tarefas do Odessa com este contexto:\n"
+        f"{json.dumps(user_payload, ensure_ascii=False)}\n\n"
+        "Retorne APENAS um objeto JSON valido seguindo este contrato:\n"
+        f"{json.dumps(contract, ensure_ascii=False)}\n\n"
+        "Regras:\n"
+        "- Escreva em portugues do Brasil.\n"
+        "- Priorize o caminho ate o produto final, nao tarefas cosmeticas soltas.\n"
+        "- Marque exatamente 1 ou 2 tarefas como status next.\n"
+        "- Preserve tarefas relevantes ja existentes quando ainda fizerem sentido.\n"
+        "- Cada tarefa precisa ter criterio de aceite testavel.\n"
+        "- Se faltar decisao humana, registre em questions ou blocked."
+    )
+
+    provider = "local-fallback"
+    try:
+        text, provider = generate_ai_text_with_fallback(
+            gemini_model=request.model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=request.temperature,
+            json_mode=True,
+        )
+        parsed = extract_json_object(text or "{}")
+    except Exception as exc:
+        logger.warning("[CONTINUOUS ORGANIZER FALLBACK] %s", exc, exc_info=True)
+        parsed = fallback_continuous_organizer(
+            request,
+            focus_areas,
+            current_tasks,
+            error=str(exc),
+        )
+
+    organizer = normalize_continuous_organizer(parsed, request, focus_areas)
+    merged_tasks = merge_project_tasks(current_tasks, organizer["tasks"])
+    write_json_list(PROJECT_TASKS_FILE, merged_tasks)
+
+    runs = read_json_list(PROJECT_ORGANIZER_RUNS_FILE)
+    artifact = {
+        "organizerRunId": organizer["id"],
+        "createdAt": organizer["createdAt"],
+        "mode": "continuous_project_organizer",
+        "provider": provider,
+        "organizer": organizer,
+        "tasks": merged_tasks[: max_tasks],
+    }
+    runs.append(artifact)
+    write_json_list(PROJECT_ORGANIZER_RUNS_FILE, runs[-MAX_PROJECT_ORGANIZER_RUNS:])
+
+    slack_message = build_organizer_slack_message(organizer)
+    append_n8n_audit(
+        "continuous_organizer_run",
+        {
+            "request": {
+                "objective": request.objective,
+                "cadence": request.cadence,
+                "focusAreas": focus_areas,
+                "targetChannel": target_channel,
+            },
+            "organizer": organizer,
+        },
+        {"ok": True, "provider": provider, "tasks": len(merged_tasks)},
+    )
+    return {
+        "ok": True,
+        "organizer": organizer,
+        "tasks": merged_tasks[:max_tasks],
+        "slackMessage": slack_message,
+        "artifact": artifact,
+    }
+
+
+@app.post("/project/create-plan")
+def create_project_plan(request: ProjectCreatePlanRequest):
+    title = request.title.strip() or "Nova etapa Odessa"
+    brief = request.brief.strip()
+    if not brief:
+        raise HTTPException(status_code=400, detail="brief is required")
+
+    area = normalize_project_area(request.area)
+    priority = normalize_project_priority(request.priority)
+    target_channel = normalize_slack_route(request.targetChannel, area)
+    constraints = request.constraints or []
+    plan_contract = {
+        "title": "nome curto e claro da etapa",
+        "summary": "resumo executivo em portugues",
+        "goals": ["objetivo concreto"],
+        "milestones": [
+            {
+                "id": "ODS-M1",
+                "title": "marco",
+                "outcome": "resultado esperado",
+            }
+        ],
+        "tasks": [
+            {
+                "id": "ODS-TASK-1",
+                "title": "tarefa executavel",
+                "area": area,
+                "priority": priority,
+                "status": "planned",
+                "acceptanceCriteria": ["criterio objetivo"],
+            }
+        ],
+        "decisions": ["decisao de produto ou tecnica"],
+        "risks": ["risco ou dependencia"],
+        "acceptanceCriteria": ["criterio de aceite geral"],
+        "slackRoute": target_channel,
+        "nextActions": ["proxima acao concreta"],
+    }
+    system_prompt = (
+        "Voce e o planejador operacional do Odessa, um runtime local-first para "
+        "Persona IA operando lives com captura, decisoes, acoes e auditoria. "
+        "Transforme briefs em planos curtos, executaveis e rastreaveis. "
+        "Nao prometa automacao real de codigo, GitHub ou integracoes externas quando "
+        "o pedido for apenas organizacao de projeto. Responda somente JSON valido."
+    )
+    brief_payload = {
+        "title": title,
+        "brief": brief,
+        "priority": priority,
+        "area": area,
+        "requestedBy": request.requestedBy,
+        "constraints": constraints,
+        "targetChannel": target_channel,
+    }
+    user_prompt = (
+        "Brief recebido para criacao/evolucao do projeto Odessa:\n"
+        f"{json.dumps(brief_payload, ensure_ascii=False)}\n\n"
+        "Retorne APENAS um objeto JSON valido seguindo exatamente este contrato:\n"
+        f"{json.dumps(plan_contract, ensure_ascii=False)}\n\n"
+        "Regras:\n"
+        "- Escreva em portugues do Brasil.\n"
+        "- Crie tarefas pequenas, testaveis e ordenadas.\n"
+        "- Inclua riscos reais e criterios de aceite objetivos.\n"
+        "- Mantenha foco em Slack + JSON como saidas do primeiro ciclo.\n"
+        "- Use IDs legiveis com prefixo ODS."
+    )
+
+    try:
+        text, provider = generate_ai_text_with_fallback(
+            gemini_model=request.model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=request.temperature,
+            json_mode=True,
+        )
+        parsed = extract_json_object(text or "{}")
+        project_plan = normalize_project_plan(parsed, request)
+        append_n8n_audit(
+            "project_plan_created",
+            {
+                "request": {
+                    "title": title,
+                    "area": area,
+                    "priority": priority,
+                    "requestedBy": request.requestedBy,
+                    "targetChannel": target_channel,
+                },
+                "projectPlan": project_plan,
+            },
+            {"ok": True, "provider": provider},
+        )
+        return {"ok": True, "projectPlan": project_plan}
+    except HTTPException:
+        raise
+    except json.JSONDecodeError as exc:
+        logger.error("[PROJECT PLAN JSON EXCEPTION] %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="AI returned invalid project plan JSON") from exc
+    except Exception as exc:
+        logger.error("[PROJECT PLAN EXCEPTION] %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/project/night-shift")
+def create_night_shift_plan(request: NightShiftRequest):
+    objective = request.objective.strip()
+    if not objective:
+        raise HTTPException(status_code=400, detail="objective is required")
+
+    focus_areas = normalize_focus_areas(request.focusAreas)
+    duration = max(15, min(request.durationMinutes, 480))
+    max_advancements = max(1, min(request.maxAdvancements, 8))
+    target_channel = normalize_slack_route(request.targetChannel, focus_areas[0])
+    constraints = request.constraints or []
+    contract = {
+        "title": "Odessa Night Shift",
+        "summary": "resumo do trabalho seguro preparado",
+        "safeMode": True,
+        "focusAreas": focus_areas,
+        "advancements": [
+            {
+                "id": "ODS-NS-1",
+                "title": "avanco preparado",
+                "area": "runtime | automacao | qa | docs | produto | frontend | backend",
+                "why": "por que isso importa",
+                "tasks": ["tarefa pequena e executavel"],
+                "acceptanceCriteria": ["criterio objetivo"],
+                "risk": "risco ou dependencia",
+                "handoffPrompt": "instrucao curta para retomar a execucao",
+            }
+        ],
+        "decisions": ["decisao tomada para manter seguranca"],
+        "risks": ["risco geral da rodada"],
+        "morningBrief": "briefing curto para Lucas ao voltar",
+        "slackRoute": target_channel,
+    }
+    system_prompt = (
+        "Voce e o coordenador de uma rodada segura chamada Odessa Night Shift. "
+        "Seu papel e preparar avancos de projeto enquanto Lucas descansa, mas sem "
+        "executar alteracoes de codigo, comandos destrutivos, credenciais, deploys "
+        "ou integracoes reais sem supervisao. Produza backlog, criterios, riscos e "
+        "um briefing claro de retorno. Responda somente JSON valido."
+    )
+    user_payload = {
+        "objective": objective,
+        "durationMinutes": duration,
+        "focusAreas": focus_areas,
+        "maxAdvancements": max_advancements,
+        "requestedBy": request.requestedBy,
+        "constraints": constraints,
+        "targetChannel": target_channel,
+        "context": {
+            "product": "Odessa",
+            "currentMvp": "React/Vite + FastAPI local + Capture Studio + Persona Studio + Controle Live + n8n bridge",
+            "safeBoundary": "Preparar e auditar avancos; nao alterar codigo automaticamente durante o cochilo.",
+        },
+    }
+    user_prompt = (
+        "Prepare uma rodada Night Shift para o Odessa com este payload:\n"
+        f"{json.dumps(user_payload, ensure_ascii=False)}\n\n"
+        "Retorne APENAS um objeto JSON valido seguindo este contrato:\n"
+        f"{json.dumps(contract, ensure_ascii=False)}\n\n"
+        "Regras:\n"
+        "- Escreva em portugues do Brasil.\n"
+        f"- Gere no maximo {max_advancements} avancos.\n"
+        "- Cada avanco deve ter tarefas pequenas, criterios de aceite e um handoffPrompt.\n"
+        "- Priorize automacao n8n, QA, documentacao operacional e clareza do runtime.\n"
+        "- Nao inclua passos que exijam segredo, deploy, push, comandos destrutivos ou edicao automatica de codigo."
+    )
+
+    try:
+        text, provider = generate_ai_text_with_fallback(
+            gemini_model=request.model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=request.temperature,
+            json_mode=True,
+        )
+        parsed = extract_json_object(text or "{}")
+        night_shift = normalize_night_shift_plan(parsed, request)
+        append_n8n_audit(
+            "night_shift_created",
+            {
+                "request": {
+                    "objective": objective,
+                    "durationMinutes": duration,
+                    "focusAreas": focus_areas,
+                    "requestedBy": request.requestedBy,
+                    "targetChannel": target_channel,
+                },
+                "nightShift": night_shift,
+            },
+            {"ok": True, "provider": provider},
+        )
+        return {"ok": True, "nightShift": night_shift}
+    except HTTPException:
+        raise
+    except json.JSONDecodeError as exc:
+        logger.error("[NIGHT SHIFT JSON EXCEPTION] %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="AI returned invalid night shift JSON") from exc
+    except Exception as exc:
+        logger.error("[NIGHT SHIFT EXCEPTION] %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/ocr")
+def perform_ocr(request: RegionRequest):
+    started_at = time.perf_counter()
+    zone_id = (request.zone_id or "global").strip() or "global"
+    zone_name = (request.zone_name or zone_id).strip() or zone_id
+
+    try:
+        img_array = image_from_request(request)
+        results = reader.readtext(img_array)
+        text = " ".join(result[1] for result in results).strip()
+        confidence_values = [
+            float(result[2])
+            for result in results
+            if len(result) > 2 and isinstance(result[2], (float, int))
+        ]
+        confidence = (
+            sum(confidence_values) / len(confidence_values)
+            if confidence_values
+            else None
+        )
+
+        previous_text = last_full_text_by_zone.get(zone_id, "")
+        new_content = get_new_text(previous_text, text)
+        last_full_text_by_zone[zone_id] = text
+
+        if new_content and len(new_content) > 1:
+            save_to_log(new_content)
+
+        return {
+            "text": new_content,
+            "full_text": text,
+            "error": None,
+            "zone_id": zone_id,
+            "zone_name": zone_name,
+            "confidence": confidence,
+            "latency_ms": round((time.perf_counter() - started_at) * 1000),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[OCR EXCEPTION] %s", exc, exc_info=True)
+        return {
+            "text": "",
+            "full_text": "",
+            "error": str(exc),
+            "zone_id": zone_id,
+            "zone_name": zone_name,
+            "confidence": None,
+            "latency_ms": round((time.perf_counter() - started_at) * 1000),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+@app.post("/ai/respond")
+def generate_ai_response(request: AIRespondRequest):
+    chat_context = request.chat_context.strip()
+    if not chat_context:
+        raise HTTPException(status_code=400, detail="chat_context is required")
+
+    try:
+        text, provider = generate_ai_text_with_fallback(
+            gemini_model=request.model,
+            system_prompt=request.persona_prompt,
+            user_prompt=(
+                "[MENSAGENS DO CHAT RECEBIDAS AGORA]:\n"
+                f"{chat_context}\n\n"
+                "Responda agora como a streamer:"
+            ),
+            temperature=request.temperature,
+        )
+        return {"response": text, "provider": provider}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[AI EXCEPTION] %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/ai/decide")
+def generate_autopilot_decision(request: AIDecideRequest):
+    if not request.events:
+        raise HTTPException(status_code=400, detail="events is required")
+
+    events_payload = [
+        {
+            "id": event.id,
+            "source": event.source,
+            "zoneName": event.zoneName,
+            "kind": event.kind,
+            "text": event.text,
+            "createdAt": event.createdAt,
+            "metadata": event.metadata or {},
+        }
+        for event in request.events[-5:]
+    ]
+    tools_payload = request.tools or []
+    rules_payload = request.rules or []
+    context_payload = request.context or {}
+    fallback_text = events_payload[-1]["text"]
+
+    decision_contract = {
+        "context_analysis": "analise breve do que esta acontecendo no chat/live agora e qual o humor da streamer (PASSO 1: PENSAR)",
+        "sentiment": "positivo | negativo | neutro | hype | caotico",
+        "intent": "respond_chat | thank_gift | redeem_gift | moderate | switch_scene | media_request | topic_shift | handle_alert | log_only",
+        "reason": "por que esta decisao foi escolhida",
+        "priority": "low | normal | high | urgent",
+        "actions": [
+            {
+                "id": "action-1",
+                "type": "speak | chat_reply | ack_gift | moderate_message | switch_scene | show_overlay | play_music | play_video | stop_media | set_topic | suggest_topic | remember | log_event",
+                "capability": "tts.speak | chat.reply | gift.acknowledge | moderation.message | obs.switch_scene | obs.show_overlay | media.play_music | media.play_video | media.stop | topic.set | topic.suggest | memory.remember | log.event",
+                "label": "nome humano curto",
+                "payload": {"text": "detalhes da acao"},
+                "requiresApproval": False,
+                "simulated": True,
+                "status": "queued",
+            }
+        ],
+        "speech": "O roteiro final e perfeito do que a streamer vai falar em voz alta (PASSO FINAL: FALAR)",
+    }
+    user_prompt = (
+        "Eventos recentes da live em JSON:\n"
+        f"{json.dumps(events_payload, ensure_ascii=False)}\n\n"
+        "Ferramentas disponiveis em JSON:\n"
+        f"{json.dumps(tools_payload, ensure_ascii=False)}\n\n"
+        "Regras automaticas ja casadas em JSON:\n"
+        f"{json.dumps(rules_payload, ensure_ascii=False)}\n\n"
+        "Contexto operacional em JSON:\n"
+        f"{json.dumps(context_payload, ensure_ascii=False)}\n\n"
+        "Retorne APENAS um objeto JSON valido seguindo exatamente este contrato e na exata ordem das chaves (primeiro pense, depois gere a fala):\n"
+        f"{json.dumps(decision_contract, ensure_ascii=False)}\n\n"
+        "Regras:\n"
+        "- Gere SEMPRE as chaves na ordem do contrato: primeiro context_analysis, depois sentiment, intent, reason, actions e POR ULTIMO speech.\n"
+        "- O campo 'speech' deve ser gerado baseado na analise de contexto que voce acabou de escrever.\n"
+        "- Inclua sempre uma action 'speak' com simulated=false para a fala da streamer.\n"
+        "- Se uma regra automatica ja cobrir uma acao previsivel, nao duplique essa acao; complemente com fala/contexto.\n"
+        "- Use metadata para diferenciar presente simples, resgate, cena, musica e topico.\n"
+        "- Use 'ack_gift' para presentes, 'moderate_message' para spam/risco, "
+        "'switch_scene' para pedido de cena/OBS, 'show_overlay' para alerta visual e "
+        "'chat_reply' para resposta textual ao chat. Use 'play_music' ou 'play_video' "
+        "para pedidos de midia e 'suggest_topic' para chat quieto.\n"
+        "- Acoes externas que nao sejam speak devem vir com simulated=true.\n"
+        "- Seja seguro, curto e operacional."
+    )
+
+    try:
+        text, provider = generate_ai_text_with_fallback(
+            gemini_model=request.model,
+            system_prompt=request.persona_prompt,
+            user_prompt=user_prompt,
+            temperature=request.temperature,
+            json_mode=True,
+        )
+        try:
+            parsed = extract_json_object(text or "{}")
+        except json.JSONDecodeError:
+            if provider != "gemini" or not openai_client:
+                raise
+            logger.warning("[GEMINI JSON FALLBACK] Retrying decision with OpenAI")
+            text = generate_openai_text(
+                request.persona_prompt,
+                user_prompt,
+                request.temperature,
+                json_mode=True,
+            )
+            provider = "openai"
+            parsed = extract_json_object(text or "{}")
+
+        decision = normalize_decision(parsed, fallback_text)
+        decision["provider"] = provider
+        return decision
+    except HTTPException:
+        raise
+    except json.JSONDecodeError as exc:
+        logger.error("[AI DECIDE JSON EXCEPTION] %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="AI returned invalid JSON") from exc
+    except Exception as exc:
+        logger.error("[AI DECIDE EXCEPTION] %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/regions")
+def get_regions():
+    chat, gifts = load_regions()
+    return {
+        "chat_region": {"x": chat[0], "y": chat[1], "width": chat[2], "height": chat[3]},
+        "gifts_region": {
+            "x": gifts[0],
+            "y": gifts[1],
+            "width": gifts[2],
+            "height": gifts[3],
+        },
+    }
+
+
+@app.get("/log")
+def get_log():
+    try:
+        if LOG_FILE.exists():
+            lines = LOG_FILE.read_text(encoding="utf-8").splitlines(keepends=True)
+            return {"log": lines[-50:], "total_lines": len(lines)}
+        return {"log": [], "total_lines": 0}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/clear-log")
+def clear_log():
+    try:
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        LOG_FILE.write_text("", encoding="utf-8")
+        return {"message": "Log cleared"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/tts")
+async def generate_tts(request: Request):
+    try:
+        data = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+    text = data.get("text", "").strip()
+    provider = infer_tts_provider(data.get("provider"), str(data.get("voice") or ""))
+    voice = default_voice_for_provider(provider, str(data.get("voice") or ""))
+    try:
+        speed = float(data.get("speed", KOKORO_DEFAULT_SPEED))
+    except (TypeError, ValueError):
+        speed = KOKORO_DEFAULT_SPEED
+    speed = max(0.65, min(1.35, speed))
+    try:
+        pitch = float(data.get("pitch", 0))
+    except (TypeError, ValueError):
+        pitch = 0.0
+    pitch = max(-12.0, min(12.0, pitch))
+
+    if not text:
+        raise HTTPException(status_code=400, detail="No text provided")
+
+    temp_path: Optional[str] = None
+    try:
+        if provider == "openai":
+            if not openai_client:
+                raise HTTPException(
+                    status_code=503,
+                    detail="OPENAI_API_KEY is not configured for premium TTS voices",
+                )
+            if voice not in OPENAI_TTS_VOICES:
+                voice = "nova"
+        elif provider == "kokoro":
+            if not kokoro_available():
+                raise HTTPException(
+                    status_code=503,
+                    detail="Kokoro TTS is not ready. Install kokoro, soundfile and espeak-ng.",
+                )
+            if voice not in KOKORO_VOICES:
+                voice = KOKORO_DEFAULT_VOICE
+            voice_meta = KOKORO_VOICES.get(voice, {})
+            if voice_meta.get("disabled_reason") or voice_meta.get("lang") in KOKORO_DISABLED_LANGS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Kokoro voice {voice} is listed but unavailable: {voice_meta.get('disabled_reason', 'language runtime not installed')}",
+                )
+
+        suffix = ".wav" if provider == "kokoro" else ".mp3"
+        media_type = "audio/wav" if provider == "kokoro" else "audio/mpeg"
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+        temp_path = temp_file.name
+        temp_file.close()
+
+        if provider == "openai":
+            response = openai_client.audio.speech.create(
+                model=OPENAI_TTS_MODEL,
+                voice=voice,
+                input=text,
+                speed=speed,
+            )
+            response.stream_to_file(temp_path)
+        elif provider == "kokoro":
+            generate_kokoro_wav(text, voice, speed, temp_path)
+        else:
+            communicate = edge_tts.Communicate(
+                text,
+                voice,
+                rate=edge_rate_from_speed(speed),
+                pitch=edge_pitch_from_value(pitch),
+            )
+            await communicate.save(temp_path)
+
+        return FileResponse(
+            temp_path,
+            media_type=media_type,
+            headers={
+                "X-Odessa-TTS-Provider": provider,
+                "X-Odessa-TTS-Voice": voice,
+                "X-Odessa-TTS-Sample-Rate": "24000" if provider == "kokoro" else "",
+                "X-Odessa-TTS-Speed": str(speed),
+                "X-Odessa-TTS-Pitch": str(pitch),
+            },
+            background=BackgroundTask(cleanup_temp_file, temp_path),
+        )
+    except HTTPException:
+        if temp_path:
+            cleanup_temp_file(temp_path)
+        raise
+    except Exception as exc:
+        if temp_path:
+            cleanup_temp_file(temp_path)
+        logger.error("[TTS EXCEPTION] %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/tts/voices")
+def get_tts_voices():
+    kokoro_package = package_installed("kokoro")
+    espeak_path = espeak_ng_path()
+    kokoro_ready = kokoro_available()
+    edge_voices = load_edge_voices()
+    return {
+        "defaultProvider": TTS_DEFAULT_PROVIDER,
+        "providers": {
+            "edge": {"configured": True, "enabled": True, "supports": {"speed": True, "pitch": True}},
+            "openai": {
+                "configured": bool(OPENAI_API_KEY),
+                "enabled": bool(openai_client),
+                "defaultModel": OPENAI_TTS_MODEL,
+                "supports": {"speed": True, "pitch": False},
+            },
+            "kokoro": {
+                "configured": kokoro_ready,
+                "enabled": KOKORO_ENABLED,
+                "packageInstalled": kokoro_package,
+                "espeakInstalled": bool(espeak_path),
+                "espeakPath": espeak_path,
+                "defaultLang": KOKORO_DEFAULT_LANG,
+                "defaultVoice": KOKORO_DEFAULT_VOICE,
+                "defaultSpeed": KOKORO_DEFAULT_SPEED,
+                "supports": {"speed": True, "pitch": False},
+            },
+        },
+        "voices": [
+            *[
+                {
+                    "provider": "edge",
+                    "id": str(voice.get("ShortName") or ""),
+                    "label": edge_voice_label(voice),
+                    "language": str(voice.get("Locale") or ""),
+                    "gender": str(voice.get("Gender") or "unknown").lower(),
+                    "enabled": True,
+                    "configured": True,
+                    "reason": None,
+                }
+                for voice in edge_voices
+                if voice.get("ShortName")
+            ],
+            *[
+                {
+                    "provider": "openai",
+                    "id": voice_id,
+                    "label": voice_id.title(),
+                    "language": "multi",
+                    "gender": "neutral",
+                    "enabled": bool(openai_client),
+                    "configured": bool(openai_client),
+                    "reason": None if openai_client else "OPENAI_API_KEY ausente",
+                }
+                for voice_id in sorted(OPENAI_TTS_VOICES)
+            ],
+            *[
+                {
+                    "provider": "kokoro",
+                    "id": voice_id,
+                    "label": str(meta["label"]),
+                    "language": str(meta["lang"]),
+                    "gender": str(meta["gender"]),
+                    "grade": str(meta.get("grade") or ""),
+                    "experimental": str(meta.get("grade") or "").lower() == "experimental",
+                    "enabled": kokoro_ready
+                    and not meta.get("disabled_reason")
+                    and meta.get("lang") not in KOKORO_DISABLED_LANGS,
+                    "configured": kokoro_ready,
+                    "reason": meta.get("disabled_reason")
+                    or (None if kokoro_ready else "Kokoro, soundfile ou espeak-ng indisponivel"),
+                }
+                for voice_id, meta in KOKORO_VOICES.items()
+            ],
+        ],
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    logger.info("Starting server on http://0.0.0.0:8000")
+    uvicorn.run(app, host="0.0.0.0", port=8000)

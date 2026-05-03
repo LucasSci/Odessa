@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Dispatch, SetStateAction } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -9,8 +8,6 @@ import {
   Database,
   Gauge,
   Mic2,
-  Rocket,
-  Play,
   RefreshCw,
   Save,
   Send,
@@ -18,8 +15,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
-  Timer,
-  Square,
+  Star,
   Trash2,
   Volume2,
   VolumeX,
@@ -28,20 +24,32 @@ import {
 } from 'lucide-react';
 import { apiUrl } from './lib/api';
 import {
-  loadMemory, addTurn, buildMemoryContext, clearMemory, type ConversationTurn,
-  loadUserProfiles, trackUserInteraction, buildUserContext, getUserProfileList,
-  clearUserProfiles, type UserProfileMap,
+  loadMemory,
+  addTurn,
+  buildMemoryContext,
+  clearMemory,
+  type ConversationTurn,
+  loadUserProfiles,
+  trackUserInteraction,
+  buildUserContext,
+  getUserProfileList,
+  clearUserProfiles,
+  type UserProfileMap,
 } from './lib/memory';
-import {
-  generateEventBatch, SIM_SPEEDS, EVENT_TYPE_ICONS, EVENT_TYPE_COLORS,
-  type SimulatedEvent, type SimSpeed,
-} from './lib/simulation';
 import { cn } from './lib/utils';
-import type { CapturedMessage, LiveEventKind } from './types';
+import {
+  inferTtsProvider,
+  loadTtsSettings,
+  saveTtsSettings,
+  type TtsProvider,
+  type TtsSettings,
+  type TtsVoice,
+  type TtsVoicesResponse,
+} from './lib/ttsSettings';
+import type { CapturedMessage } from './types';
 
 interface AIPersonaTrainerProps {
   capturedText: CapturedMessage[];
-  setCapturedText: Dispatch<SetStateAction<CapturedMessage[]>>;
 }
 
 interface AIResponse {
@@ -49,7 +57,7 @@ interface AIResponse {
   time: string;
   response: string;
   context: string;
-  mode: 'live' | 'manual';
+  mode: 'manual';
   latencyMs: number;
 }
 
@@ -57,12 +65,15 @@ interface BackendHealth {
   status: string;
   ocr: string;
   gemini_configured: boolean;
+  openai_ai_configured: boolean;
+  openai_text_model?: string;
   openai_tts_configured: boolean;
+  kokoro_tts_configured?: boolean;
+  kokoro_enabled?: boolean;
+  kokoro_package_installed?: boolean;
+  kokoro_espeak_configured?: boolean;
+  tts_default_provider?: string;
 }
-
-type SimChatItem =
-  | { kind: 'event'; id: string; event: SimulatedEvent; time: string }
-  | { kind: 'response'; id: string; text: string; intent: string; confidence: number; time: string };
 
 interface PersonaControls {
   energy: number;
@@ -72,12 +83,13 @@ interface PersonaControls {
   replyLength: 'curta' | 'media';
 }
 
-const DEFAULT_PERSONA = `Voce e a Juju, uma vtuber e streamer gamer animada, sarcastica e carismatica.
-Sua missao e interagir com o chat ao vivo que esta assistindo sua live.
-Leia mensagens, agradeca presentes, responda perguntas e reaja ao que dizem.
-Mantenha respostas naturais e curtas, como se estivesse falando rapidamente enquanto joga.
-Use girias gamers com moderacao, preserve bom humor e nunca saia do personagem.
-Para rir, escreva "hahaha" ou "hihihi". Evite emojis.`;
+const DEFAULT_PERSONA = `Voce e a Odessa/Juju, uma anfitria de Tango Live calorosa, proxima e cheia de energia.
+Sua missao e conduzir uma live social com conversa direta, acolhimento e ritmo leve.
+Agradeca presentes de forma natural, valorize quem participa e chame o chat para interagir sem pressionar ninguem a gastar.
+Chat comum deve virar contexto; responda apenas quando isso ajudar o clima da live ou quando o Controle Live priorizar a rodada.
+Em resgates, confirme a acao com clareza e mantenha a expectativa segura quando a ferramenta ainda estiver simulada.
+Em moderacao, seja firme, curta e proteja o ambiente.
+Fale em frases curtas, populares e naturais para publico brasileiro no Tango Live. Evite emojis.`;
 
 const DEFAULT_CONTROLS: PersonaControls = {
   energy: 74,
@@ -88,9 +100,19 @@ const DEFAULT_CONTROLS: PersonaControls = {
 };
 
 const STORAGE_KEY = 'odessa-persona-studio';
-const LEGACY_STORAGE_KEY = 'dojobua-persona-studio';
+const LEGACY_STORAGE_KEY = 'odessa-persona-studio';
+const VOICE_TEST_TEXT = 'Oi chat, eu sou a Juju. Obrigada pelo carinho e pelos presentes!';
+const VOICE_FAVORITES_KEY = 'odessa:tts-favorites:v1';
+const VOICE_TEST_HISTORY_KEY = 'odessa:tts-test-history:v1';
 
-const openAIVoices = new Set(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']);
+interface VoiceTestHistoryItem {
+  id: string;
+  provider: TtsProvider;
+  voice: string;
+  label: string;
+  testedAt: string;
+  status: 'ok' | 'error';
+}
 
 function getStoredState() {
   try {
@@ -105,11 +127,6 @@ function getStoredState() {
   } catch {
     return null;
   }
-}
-
-function getActor(text: string) {
-  const match = text.match(/^[@#]?([A-Za-z0-9_.-]{3,20})(:|\s|>|<)/);
-  return match?.[1] || 'chat';
 }
 
 function trimText(text: string, max = 140) {
@@ -140,6 +157,8 @@ function SliderControl({
   max = 100,
   step = 1,
   suffix = '%',
+  disabled = false,
+  hint,
   onChange,
 }: {
   label: string;
@@ -148,10 +167,12 @@ function SliderControl({
   max?: number;
   step?: number;
   suffix?: string;
+  disabled?: boolean;
+  hint?: string;
   onChange: (value: number) => void;
 }) {
   return (
-    <label className="block">
+    <label className={cn('block', disabled && 'opacity-55')}>
       <div className="mb-1 flex items-center justify-between text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
         <span>{label}</span>
         <span className="rounded bg-slate-800 px-2 py-0.5 text-slate-300">
@@ -165,21 +186,96 @@ function SliderControl({
         max={max}
         step={step}
         value={value}
+        disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
         className="w-full accent-violet-500"
       />
+      {hint && <p className="mt-1 text-[10px] leading-relaxed text-slate-500">{hint}</p>}
     </label>
   );
 }
 
-export default function AIPersonaTrainer({ capturedText, setCapturedText }: AIPersonaTrainerProps) {
+function providerLabel(provider: TtsProvider) {
+  if (provider === 'openai') return 'OpenAI';
+  if (provider === 'kokoro') return 'Kokoro';
+  if (provider === 'edge') return 'Edge';
+  return 'Auto';
+}
+
+function loadStringList(key: string) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadVoiceHistory(): VoiceTestHistoryItem[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(VOICE_TEST_HISTORY_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.slice(-12) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveVoiceHistory(items: VoiceTestHistoryItem[]) {
+  const next = items.slice(-12);
+  localStorage.setItem(VOICE_TEST_HISTORY_KEY, JSON.stringify(next));
+  return next;
+}
+
+function fallbackVoices(selectedVoice: string, selectedProvider: TtsProvider): TtsVoice[] {
+  return [
+    {
+      provider: selectedProvider,
+      id: selectedVoice,
+      label: selectedVoice,
+      language: 'local',
+      enabled: true,
+      configured: true,
+    },
+    {
+      provider: 'edge',
+      id: 'pt-BR-FranciscaNeural',
+      label: 'Francisca BR',
+      language: 'pt-BR',
+      gender: 'female',
+      enabled: true,
+      configured: true,
+    },
+    {
+      provider: 'kokoro',
+      id: 'pf_dora',
+      label: 'Dora PT-BR',
+      language: 'p',
+      gender: 'female',
+      enabled: true,
+      configured: true,
+    },
+  ];
+}
+
+export default function AIPersonaTrainer({ capturedText }: AIPersonaTrainerProps) {
   const storedState = useMemo(() => getStoredState(), []);
   const [personaPrompt, setPersonaPrompt] = useState(storedState?.personaPrompt || DEFAULT_PERSONA);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [aiResponses, setAiResponses] = useState<AIResponse[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(storedState?.ttsEnabled ?? true);
-  const [selectedVoice, setSelectedVoice] = useState(storedState?.selectedVoice || 'pt-BR-FranciscaNeural');
+  const [ttsSettings, setTtsSettingsState] = useState(() =>
+    loadTtsSettings(
+      storedState?.selectedVoice
+        ? {
+            provider: inferTtsProvider(storedState.selectedVoice),
+            voice: storedState.selectedVoice,
+            speed: 1,
+            pitch: 0,
+          }
+        : null,
+    ),
+  );
   const [controls, setControls] = useState<PersonaControls>({
     ...DEFAULT_CONTROLS,
     ...storedState?.controls,
@@ -193,19 +289,24 @@ export default function AIPersonaTrainer({ capturedText, setCapturedText }: AIPe
   const [memoryWindow, setMemoryWindow] = useState(8);
   const [userProfiles, setUserProfiles] = useState<UserProfileMap>(() => loadUserProfiles());
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
-
-  // Simulation state
-  const [simActive, setSimActive] = useState(false);
-  const [simSpeed, setSimSpeed] = useState<SimSpeed>('normal');
-  const [simChat, setSimChat] = useState<SimChatItem[]>([]);
-  const [simStartTime, setSimStartTime] = useState<number | null>(null);
-  const [simElapsed, setSimElapsed] = useState('00:00');
-  const simTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const simChatEndRef = useRef<HTMLDivElement>(null);
+  const [voiceTestId, setVoiceTestId] = useState<string | null>(null);
+  const [voicesResponse, setVoicesResponse] = useState<TtsVoicesResponse | null>(null);
+  const [voiceSearch, setVoiceSearch] = useState('');
+  const [voiceProviderFilter, setVoiceProviderFilter] = useState<TtsProvider | 'all'>('all');
+  const [voiceLanguageFilter, setVoiceLanguageFilter] = useState('all');
+  const [voiceGenderFilter, setVoiceGenderFilter] = useState('all');
+  const [favoriteVoices, setFavoriteVoices] = useState<string[]>(() =>
+    loadStringList(VOICE_FAVORITES_KEY),
+  );
+  const [voiceHistory, setVoiceHistory] = useState<VoiceTestHistoryItem[]>(() =>
+    loadVoiceHistory(),
+  );
 
   const responsesEndRef = useRef<HTMLDivElement>(null);
 
-  const recentChat = useMemo(() => capturedText.slice(-8).reverse(), [capturedText]);
+  const selectedVoice = ttsSettings.voice;
+  const selectedProvider =
+    ttsSettings.provider === 'auto' ? inferTtsProvider(ttsSettings.voice) : ttsSettings.provider;
   const lastResponse = aiResponses[aiResponses.length - 1];
   const averageLatency = useMemo(() => {
     if (!aiResponses.length) return 0;
@@ -214,6 +315,127 @@ export default function AIPersonaTrainer({ capturedText, setCapturedText }: AIPe
   }, [aiResponses]);
 
   const userProfileList = useMemo(() => getUserProfileList(userProfiles), [userProfiles]);
+
+  const allVoices = useMemo(
+    () =>
+      voicesResponse?.voices?.length
+        ? voicesResponse.voices
+        : fallbackVoices(selectedVoice, selectedProvider),
+    [selectedProvider, selectedVoice, voicesResponse],
+  );
+
+  const selectedVoiceMeta = useMemo(
+    () =>
+      allVoices.find((voice) => voice.provider === selectedProvider && voice.id === selectedVoice),
+    [allVoices, selectedProvider, selectedVoice],
+  );
+
+  const voiceLanguages = useMemo(
+    () =>
+      Array.from(new Set(allVoices.map((voice) => voice.language).filter(Boolean))).sort((a, b) =>
+        a.localeCompare(b),
+      ),
+    [allVoices],
+  );
+
+  const filteredVoices = useMemo(() => {
+    const cleanSearch = voiceSearch.trim().toLowerCase();
+    return allVoices
+      .filter((voice) =>
+        voiceProviderFilter === 'all' ? true : voice.provider === voiceProviderFilter,
+      )
+      .filter((voice) =>
+        voiceLanguageFilter === 'all' ? true : voice.language === voiceLanguageFilter,
+      )
+      .filter((voice) => (voiceGenderFilter === 'all' ? true : voice.gender === voiceGenderFilter))
+      .filter((voice) => {
+        if (!cleanSearch) return true;
+        return [voice.id, voice.label, voice.provider, voice.language, voice.gender, voice.grade]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+          .includes(cleanSearch);
+      })
+      .sort((a, b) => {
+        const favoriteDelta =
+          Number(favoriteVoices.includes(`${b.provider}:${b.id}`)) -
+          Number(favoriteVoices.includes(`${a.provider}:${a.id}`));
+        if (favoriteDelta) return favoriteDelta;
+        if ((a.enabled !== false) !== (b.enabled !== false)) return a.enabled === false ? 1 : -1;
+        return `${a.provider}:${a.language}:${a.label}`.localeCompare(
+          `${b.provider}:${b.language}:${b.label}`,
+        );
+      });
+  }, [
+    allVoices,
+    favoriteVoices,
+    voiceGenderFilter,
+    voiceLanguageFilter,
+    voiceProviderFilter,
+    voiceSearch,
+  ]);
+
+  const voicePresets = useMemo(() => {
+    const findVoice = (provider: TtsProvider, ids: string[]) =>
+      ids
+        .map((id) => allVoices.find((voice) => voice.provider === provider && voice.id === id))
+        .find(Boolean);
+    const current = selectedVoiceMeta || {
+      provider: selectedProvider,
+      id: selectedVoice,
+      label: selectedVoice,
+      language: 'local',
+      enabled: true,
+    };
+    const picks = [
+      current,
+      findVoice('kokoro', ['pf_dora', 'af_bella', 'af_heart']),
+      findVoice('edge', ['pt-BR-FranciscaNeural', 'pt-BR-ThalitaMultilingualNeural']),
+      findVoice('openai', ['marin', 'cedar', 'nova']),
+      ...favoriteVoices
+        .map((key) => {
+          const [provider, id] = key.split(':') as [TtsProvider, string];
+          return allVoices.find((voice) => voice.provider === provider && voice.id === id);
+        })
+        .filter(Boolean),
+    ].filter(Boolean) as TtsVoice[];
+
+    const deduped = new Map<string, TtsVoice>();
+    picks.forEach((voice) => deduped.set(`${voice.provider}:${voice.id}`, voice));
+
+    return Array.from(deduped.values())
+      .slice(0, 6)
+      .map((voice) => ({
+        id: `${voice.provider}:${voice.id}`,
+        label: voice.label,
+        note: `${providerLabel(voice.provider)} / ${voice.language || 'multi'}${
+          voice.grade ? ` / nota ${voice.grade}` : ''
+        }`,
+        provider: voice.provider,
+        voice: voice.id,
+        speed: ttsSettings.speed,
+        pitch: ttsSettings.pitch,
+        enabled: voice.enabled !== false,
+        reason: voice.reason,
+      }));
+  }, [
+    allVoices,
+    favoriteVoices,
+    selectedProvider,
+    selectedVoice,
+    selectedVoiceMeta,
+    ttsSettings.pitch,
+    ttsSettings.speed,
+  ]);
+
+  const ttsProviderReady =
+    selectedProvider === 'openai'
+      ? health?.openai_tts_configured === true
+      : selectedProvider === 'kokoro'
+        ? health?.kokoro_tts_configured === true
+        : health?.status === 'ok';
+  const selectedProviderSupports = voicesResponse?.providers?.[selectedProvider]?.supports;
+  const pitchSupported = selectedProviderSupports?.pitch === true || selectedProvider === 'edge';
 
   const effectivePrompt = useMemo(() => {
     const lengthRule =
@@ -246,10 +468,30 @@ Controles operacionais:
     }
   };
 
+  const fetchVoices = async () => {
+    try {
+      const response = await fetch(apiUrl('/tts/voices'));
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = (await response.json()) as TtsVoicesResponse;
+      setVoicesResponse(data);
+    } catch (err) {
+      console.error('Voice catalog failed:', err);
+    }
+  };
+
   useEffect(() => {
-    fetchHealth();
-    const interval = setInterval(fetchHealth, 15000);
-    return () => clearInterval(interval);
+    const refresh = () => {
+      fetchHealth();
+      fetchVoices();
+    };
+    const firstRun = window.setTimeout(refresh, 0);
+    const interval = setInterval(() => {
+      refresh();
+    }, 15000);
+    return () => {
+      window.clearTimeout(firstRun);
+      clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -281,6 +523,21 @@ Controles operacionais:
     setControls((current) => ({ ...current, [key]: value }));
   };
 
+  const updateTtsSettings = (patch: Partial<TtsSettings>) => {
+    setTtsSettingsState((current) => saveTtsSettings({ ...current, ...patch }));
+  };
+
+  const toggleFavoriteVoice = (provider: TtsProvider, voice: string) => {
+    const key = `${provider}:${voice}`;
+    setFavoriteVoices((current) => {
+      const next = current.includes(key)
+        ? current.filter((item) => item !== key)
+        : [...current, key].slice(-24);
+      localStorage.setItem(VOICE_FAVORITES_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
   const generateAIResponse = async (chatContext: string) => {
     const start = performance.now();
     const memoryBlock = buildMemoryContext(memory, memoryWindow);
@@ -288,8 +545,14 @@ Controles operacionais:
     let fullContext = chatContext;
     if (memoryBlock || usersBlock) {
       const parts: string[] = [];
-      if (usersBlock) parts.push(`[PERFIS DE USUARIOS CONHECIDOS - use para personalizar respostas, lembrar presentes e historico]:\n${usersBlock}`);
-      if (memoryBlock) parts.push(`[HISTORICO RECENTE DE FALAS - mantenha coerencia e nao repita]:\n${memoryBlock}`);
+      if (usersBlock)
+        parts.push(
+          `[PERFIS DE USUARIOS CONHECIDOS - use para personalizar respostas, lembrar presentes e historico]:\n${usersBlock}`,
+        );
+      if (memoryBlock)
+        parts.push(
+          `[HISTORICO RECENTE DE FALAS - mantenha coerencia e nao repita]:\n${memoryBlock}`,
+        );
       parts.push(`[MENSAGENS NOVAS DO CHAT AGORA]:\n${chatContext}`);
       fullContext = parts.join('\n\n');
     }
@@ -332,7 +595,7 @@ Controles operacionais:
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ text: cleanText, voice: selectedVoice }),
+        body: JSON.stringify({ text: cleanText, ...ttsSettings }),
       });
 
       if (!response.ok) {
@@ -352,6 +615,63 @@ Controles operacionais:
     }
   };
 
+  const testVoicePreset = async (preset: TtsSettings & { id: string; label?: string }) => {
+    setVoiceTestId(preset.id);
+    setTtsError(null);
+    try {
+      const response = await fetch(apiUrl('/tts'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text: VOICE_TEST_TEXT, ...preset }),
+      });
+
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({}));
+        throw new Error(detail.detail || 'Erro ao testar voz');
+      }
+
+      const blob = await response.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      const audio = new Audio(audioUrl);
+      audio.onended = () => URL.revokeObjectURL(audioUrl);
+      await audio.play();
+      setVoiceHistory((current) =>
+        saveVoiceHistory([
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            provider: preset.provider,
+            voice: preset.voice,
+            label: preset.label || preset.id,
+            testedAt: new Date().toLocaleTimeString(),
+            status: 'ok',
+          },
+        ]),
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Falha ao testar voz';
+      setTtsError(message);
+      setVoiceHistory((current) =>
+        saveVoiceHistory([
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            provider: preset.provider,
+            voice: preset.voice,
+            label: preset.label || preset.id,
+            testedAt: new Date().toLocaleTimeString(),
+            status: 'error',
+          },
+        ]),
+      );
+      console.error('Falha no comparador de voz:', err);
+    } finally {
+      setVoiceTestId(null);
+    }
+  };
+
   const appendResponse = (response: Omit<AIResponse, 'id' | 'time'>) => {
     setAiResponses((current) =>
       [
@@ -365,7 +685,7 @@ Controles operacionais:
     );
   };
 
-  const processChatContext = async (chatContext: string, mode: 'live' | 'manual') => {
+  const processChatContext = async (chatContext: string) => {
     if (chatContext.trim().length < 5 || isProcessing) return;
 
     setIsProcessing(true);
@@ -375,10 +695,10 @@ Controles operacionais:
       appendResponse({
         response: result.text,
         context: chatContext,
-        mode,
+        mode: 'manual',
         latencyMs: result.latencyMs,
       });
-      setMemory((current) => addTurn(current, chatContext, result.text, mode === 'live' ? 'persona_studio' : 'manual'));
+      setMemory((current) => addTurn(current, chatContext, result.text, 'manual'));
       setUserProfiles((current) => {
         let updated = current;
         for (const line of chatContext.split('\n')) {
@@ -394,7 +714,7 @@ Controles operacionais:
       appendResponse({
         response: '[Erro na API da IA. Verifique GEMINI_API_KEY e o backend.]',
         context: chatContext,
-        mode,
+        mode: 'manual',
         latencyMs: 0,
       });
     } finally {
@@ -402,100 +722,19 @@ Controles operacionais:
     }
   };
 
-  const startSimulation = useCallback(() => {
-    setSimChat([]);
-    setSimStartTime(Date.now());
-    setSimActive(true);
-  }, []);
-
-  const stopSimulation = useCallback(() => {
-    setSimActive(false);
-    if (simTimerRef.current) {
-      clearTimeout(simTimerRef.current);
-      simTimerRef.current = null;
-    }
-  }, []);
-
-  // Event generation tick
-  useEffect(() => {
-    if (!simActive) return;
-
-    const speedCfg = SIM_SPEEDS[simSpeed];
-
-    const tick = () => {
-      const count = speedCfg.eventsPerTick[Math.floor(Math.random() * speedCfg.eventsPerTick.length)];
-      const events = generateEventBatch(count);
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-      // Add events to chat display
-      const chatItems: SimChatItem[] = events.map((e) => ({
-        kind: 'event' as const,
-        id: crypto.randomUUID(),
-        event: e,
-        time: timeStr,
-      }));
-      setSimChat((prev) => [...prev, ...chatItems].slice(-200));
-
-      // Route generated events to the Live Control Loop.
-      const kindMap: Record<string, LiveEventKind> = {
-        gift: 'gift', follow: 'alert', alert: 'alert', moderation: 'moderation', chat: 'chat',
-      };
-      setCapturedText((prev) =>
-        [
-          ...prev,
-          ...events.map((e) => ({
-            id: crypto.randomUUID(),
-            source: 'test' as const,
-            zoneName: 'Simulacao',
-            text: e.text,
-            kind: kindMap[e.type] || 'chat',
-            createdAt: now.toISOString(),
-            time: now.toLocaleTimeString(),
-          })),
-        ].slice(-100),
-      );
-
-      const delay = speedCfg.minMs + Math.random() * (speedCfg.maxMs - speedCfg.minMs);
-      simTimerRef.current = setTimeout(tick, delay);
-    };
-
-    tick();
-    return () => {
-      if (simTimerRef.current) clearTimeout(simTimerRef.current);
-    };
-  }, [simActive, simSpeed, setCapturedText]);
-
-  // Elapsed timer
-  useEffect(() => {
-    if (!simActive || !simStartTime) return;
-    const interval = setInterval(() => {
-      const diff = Math.floor((Date.now() - simStartTime) / 1000);
-      const mins = String(Math.floor(diff / 60)).padStart(2, '0');
-      const secs = String(diff % 60).padStart(2, '0');
-      setSimElapsed(`${mins}:${secs}`);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [simActive, simStartTime]);
-
-  // Auto-scroll simulated chat
-  useEffect(() => {
-    simChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [simChat]);
-
   const handleManualTest = async () => {
     if (!testInput.trim()) return;
     const input = testInput.trim();
     setTestInput('');
-    await processChatContext(input, 'manual');
+    await processChatContext(input);
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[#0b0d12] text-slate-200">
-      <div className="border-b border-slate-800 bg-[#11141c] px-4 py-4 lg:px-5">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--odessa-bg)] text-slate-200">
+      <div className="border-b border-[var(--odessa-border)] bg-[var(--odessa-surface)] px-4 py-4 lg:px-5">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-violet-400/20 bg-violet-500/15 text-violet-300">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--odessa-primary)] bg-[var(--odessa-primary-soft)] text-[var(--odessa-primary)]">
               <Brain className="h-5 w-5" />
             </div>
             <div>
@@ -507,12 +746,12 @@ Controles operacionais:
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <StatusDot ok={health?.gemini_configured === true} label="Gemini" />
-            <StatusDot ok={health?.ocr === 'ready'} label="OCR" />
             <StatusDot
-              ok={selectedVoice && (!openAIVoices.has(selectedVoice) || health?.openai_tts_configured === true)}
-              label={openAIVoices.has(selectedVoice) ? 'TTS OpenAI' : 'TTS Edge'}
+              ok={health?.gemini_configured === true || health?.openai_ai_configured === true}
+              label="IA"
             />
+            <StatusDot ok={health?.ocr === 'ready'} label="OCR" />
+            <StatusDot ok={ttsProviderReady} label={`TTS ${providerLabel(selectedProvider)}`} />
             <button
               onClick={fetchHealth}
               className="rounded-md border border-slate-700 bg-slate-900 px-2 py-2 text-slate-300 transition hover:border-slate-500 hover:text-white"
@@ -530,7 +769,7 @@ Controles operacionais:
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto p-3 xl:grid-cols-[360px_minmax(430px,1fr)_330px] xl:overflow-hidden">
         <section className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
-          <div className="rounded-lg border border-slate-800 bg-[#121620]">
+          <div className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface)]">
             <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
               <div className="flex items-center gap-2 text-sm font-bold text-violet-300">
                 <Settings2 className="h-4 w-4" />
@@ -547,14 +786,16 @@ Controles operacionais:
             <div className="space-y-3 p-3">
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-md border border-slate-800 bg-[#0c0f16] p-2.5">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Nome</p>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                    Nome
+                  </p>
                   <p className="mt-1 text-sm font-bold text-white">Juju</p>
                 </div>
                 <div className="rounded-md border border-slate-800 bg-[#0c0f16] p-2.5">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Modo</p>
-                  <p className="mt-1 text-sm font-bold text-emerald-300">
-                    Studio
+                  <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                    Modo
                   </p>
+                  <p className="mt-1 text-sm font-bold text-emerald-300">Studio</p>
                 </div>
               </div>
               <textarea
@@ -565,14 +806,17 @@ Controles operacionais:
               />
               <div className="flex items-center justify-between text-xs text-slate-500">
                 <span>{savedAt ? `Salvo as ${savedAt}` : 'Autosave local ativo'}</span>
-                <button onClick={resetPersona} className="font-bold text-slate-400 hover:text-white">
+                <button
+                  onClick={resetPersona}
+                  className="font-bold text-slate-400 hover:text-white"
+                >
                   Restaurar padrao
                 </button>
               </div>
             </div>
           </div>
 
-          <div className="rounded-lg border border-slate-800 bg-[#121620] p-3">
+          <div className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface)] p-3">
             <div className="mb-3 flex items-center gap-2 text-sm font-bold text-cyan-300">
               <SlidersHorizontal className="h-4 w-4" />
               Direcao de resposta
@@ -623,123 +867,8 @@ Controles operacionais:
         </section>
 
         <section className="flex min-h-0 flex-col gap-3">
-          {/* ── Simulation Panel ── */}
-          <div className="rounded-lg border border-slate-800 bg-[#121620]">
-            <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-              <div className="flex items-center gap-2 text-sm font-bold text-rose-300">
-                <Rocket className="h-4 w-4" />
-                Simulação de Live
-              </div>
-              <div className="flex items-center gap-2">
-                {simActive && (
-                  <span className="inline-flex items-center gap-1.5 rounded-md border border-rose-400/30 bg-rose-500/10 px-2 py-1 text-[11px] font-bold text-rose-200">
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-rose-400" />
-                    AO VIVO
-                  </span>
-                )}
-                {simActive && (
-                  <span className="inline-flex items-center gap-1 text-xs text-slate-400">
-                    <Timer className="h-3.5 w-3.5" />
-                    {simElapsed}
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="p-3">
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <div className="flex gap-1">
-                  {(Object.keys(SIM_SPEEDS) as SimSpeed[]).map((speed) => (
-                    <button
-                      key={speed}
-                      onClick={() => setSimSpeed(speed)}
-                      className={cn(
-                        'rounded-md border px-2.5 py-1.5 text-[11px] font-bold capitalize transition',
-                        simSpeed === speed
-                          ? 'border-rose-500/50 bg-rose-500/15 text-rose-200'
-                          : 'border-slate-800 bg-[#0c0f16] text-slate-500 hover:text-slate-300',
-                      )}
-                    >
-                      {SIM_SPEEDS[speed].label}
-                    </button>
-                  ))}
-                </div>
-                <div className="ml-auto flex items-center gap-2">
-                  {!simActive ? (
-                    <button
-                      onClick={startSimulation}
-                      className="inline-flex items-center gap-2 rounded-md bg-rose-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-rose-950/40 transition hover:bg-rose-500"
-                    >
-                      <Play className="h-3.5 w-3.5 fill-current" />
-                      Iniciar simulação
-                    </button>
-                  ) : (
-                    <button
-                      onClick={stopSimulation}
-                      className="inline-flex items-center gap-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs font-bold text-rose-300 transition hover:bg-rose-500/20"
-                    >
-                      <Square className="h-3.5 w-3.5 fill-current" />
-                      Parar
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {simChat.length > 0 && (
-                <div className="rounded-md border border-slate-800 bg-[#080A10]">
-                  <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2">
-                    <span className="text-[11px] font-bold uppercase tracking-widest text-slate-500">Live simulada</span>
-                    <div className="flex items-center gap-3 text-[11px] text-slate-500">
-                      <span className="text-violet-300">
-                        {simChat.filter((i) => i.kind === 'event').length} eventos roteados
-                      </span>
-                    </div>
-                  </div>
-                  <div className="max-h-72 overflow-y-auto p-2">
-                    <div className="space-y-0.5">
-                      {simChat.slice(-50).map((item) => {
-                        if (item.kind === 'event') {
-                          const e = item.event;
-                          return (
-                            <div key={item.id} className="flex items-start gap-1.5 px-1 py-0.5 text-[12px] leading-5">
-                              <span className="flex-shrink-0">{EVENT_TYPE_ICONS[e.type]}</span>
-                              <span className={cn('font-bold', EVENT_TYPE_COLORS[e.type])}>@{e.username}</span>
-                              <span className="text-slate-400">{e.displayText}</span>
-                              <span className="ml-auto flex-shrink-0 text-[10px] text-slate-600">{item.time}</span>
-                            </div>
-                          );
-                        }
-                        return (
-                          <div key={item.id} className="my-1 flex items-start gap-1.5 rounded-md border border-violet-500/20 bg-violet-500/5 px-2 py-1.5 text-[12px] leading-5">
-                            <span className="flex-shrink-0">🎙️</span>
-                            <span className="font-bold text-violet-300">Juju</span>
-                            <span className="text-violet-100">{item.text}</span>
-                            <span className="ml-auto flex-shrink-0 whitespace-nowrap text-[10px] text-violet-400/60">{item.intent} {item.confidence}%</span>
-                          </div>
-                        );
-                      })}
-                      <div ref={simChatEndRef} />
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4 border-t border-slate-800 px-3 py-2 text-[11px] text-slate-500">
-                    <span>💬 {simChat.filter((i) => i.kind === 'event' && i.event.type === 'chat').length}</span>
-                    <span>🎁 {simChat.filter((i) => i.kind === 'event' && i.event.type === 'gift').length}</span>
-                    <span>👋 {simChat.filter((i) => i.kind === 'event' && i.event.type === 'follow').length}</span>
-                    <span>🛡️ {simChat.filter((i) => i.kind === 'event' && i.event.type === 'moderation').length}</span>
-                    <span className="ml-auto text-violet-300">Controle Live decide e fala</span>
-                  </div>
-                </div>
-              )}
-
-              {simChat.length === 0 && !simActive && (
-                <div className="rounded-md border border-dashed border-slate-700 p-4 text-center text-xs text-slate-500">
-                  Inicie a simulacao para gerar eventos de teste. O Controle Live decide, audita e fala.
-                </div>
-              )}
-            </div>
-          </div>
-
           {/* ── Manual Test ── */}
-          <div className="rounded-lg border border-slate-800 bg-[#121620]">
+          <div className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface)]">
             <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
               <div className="flex items-center gap-2 text-sm font-bold text-emerald-300">
                 <Wand2 className="h-4 w-4" />
@@ -791,7 +920,7 @@ Controles operacionais:
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 rounded-lg border border-slate-800 bg-[#121620]">
+          <div className="min-h-0 flex-1 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface)]">
             <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
               <div className="flex items-center gap-2 text-sm font-bold text-white">
                 <Sparkles className="h-4 w-4 text-violet-300" />
@@ -816,7 +945,9 @@ Controles operacionais:
                       </span>
                       <span className="text-xs text-emerald-200">{lastResponse.latencyMs}ms</span>
                     </div>
-                    <p className="text-sm font-medium leading-6 text-emerald-50">{lastResponse.response}</p>
+                    <p className="text-sm font-medium leading-6 text-emerald-50">
+                      {lastResponse.response}
+                    </p>
                   </div>
                 ) : (
                   <div className="rounded-lg border border-dashed border-slate-700 p-5 text-center text-sm text-slate-500">
@@ -837,17 +968,13 @@ Controles operacionais:
                       .slice()
                       .reverse()
                       .map((item) => (
-                        <article key={item.id} className="rounded-md border border-slate-800 bg-[#0c0f16] p-3">
+                        <article
+                          key={item.id}
+                          className="rounded-md border border-slate-800 bg-[#0c0f16] p-3"
+                        >
                           <div className="mb-2 flex items-center justify-between">
-                            <span
-                              className={cn(
-                                'rounded px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.08em]',
-                                item.mode === 'live'
-                                  ? 'bg-emerald-500/10 text-emerald-300'
-                                  : 'bg-cyan-500/10 text-cyan-300',
-                              )}
-                            >
-                              {item.mode === 'live' ? 'ao vivo' : 'manual'}
+                            <span className="rounded bg-cyan-500/10 px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.08em] text-cyan-300">
+                              manual
                             </span>
                             <span className="text-xs text-slate-500">{item.time}</span>
                           </div>
@@ -866,28 +993,136 @@ Controles operacionais:
         </section>
 
         <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
-          <div className="rounded-lg border border-slate-800 bg-[#121620] p-4">
+          <div className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface)] p-4">
             <div className="mb-4 flex items-center gap-2 text-sm font-bold text-amber-300">
               <Mic2 className="h-4 w-4" />
               Voz e saida
             </div>
             <div className="space-y-3">
-              <select
-                value={selectedVoice}
-                onChange={(event) => setSelectedVoice(event.target.value)}
-                className="w-full rounded-md border border-slate-800 bg-[#0c0f16] px-3 py-2 text-sm text-white outline-none focus:border-amber-500"
-              >
-                <optgroup label="Vozes Edge">
-                  <option value="pt-BR-FranciscaNeural">Francisca BR</option>
-                  <option value="pt-BR-AntonioNeural">Antonio BR</option>
-                  <option value="pt-PT-RaquelNeural">Raquel PT</option>
-                </optgroup>
-                <optgroup label="Vozes OpenAI premium">
-                  <option value="nova">Nova</option>
-                  <option value="shimmer">Shimmer</option>
-                  <option value="alloy">Alloy</option>
-                </optgroup>
-              </select>
+              <div className="rounded-md border border-slate-800 bg-[#0c0f16] p-2.5">
+                <div className="mb-2 grid grid-cols-3 gap-2">
+                  <select
+                    value={voiceProviderFilter}
+                    onChange={(event) =>
+                      setVoiceProviderFilter(event.target.value as TtsProvider | 'all')
+                    }
+                    className="rounded border border-slate-800 bg-slate-950 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-amber-500"
+                  >
+                    {(['all', 'edge', 'openai', 'kokoro'] as (TtsProvider | 'all')[]).map(
+                      (provider) => (
+                        <option key={provider} value={provider}>
+                          {provider === 'all' ? 'Todos' : providerLabel(provider)}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                  <select
+                    value={voiceLanguageFilter}
+                    onChange={(event) => setVoiceLanguageFilter(event.target.value)}
+                    className="rounded border border-slate-800 bg-slate-950 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-amber-500"
+                  >
+                    <option value="all">Idiomas</option>
+                    {voiceLanguages.map((language) => (
+                      <option key={language} value={language}>
+                        {language}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={voiceGenderFilter}
+                    onChange={(event) => setVoiceGenderFilter(event.target.value)}
+                    className="rounded border border-slate-800 bg-slate-950 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-amber-500"
+                  >
+                    <option value="all">Generos</option>
+                    <option value="female">Feminina</option>
+                    <option value="male">Masculina</option>
+                    <option value="neutral">Neutra</option>
+                    <option value="unknown">Sem genero</option>
+                  </select>
+                </div>
+                <input
+                  value={voiceSearch}
+                  onChange={(event) => setVoiceSearch(event.target.value)}
+                  className="mb-2 w-full rounded border border-slate-800 bg-slate-950 px-2 py-1.5 text-xs text-slate-200 outline-none placeholder:text-slate-600 focus:border-amber-500"
+                  placeholder="Buscar voz, idioma ou provider..."
+                />
+                <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                  <span>
+                    {filteredVoices.length} de {allVoices.length} vozes carregadas
+                  </span>
+                  <button
+                    onClick={() => toggleFavoriteVoice(selectedProvider, selectedVoice)}
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded px-2 py-1 font-bold transition',
+                      favoriteVoices.includes(`${selectedProvider}:${selectedVoice}`)
+                        ? 'bg-amber-500/15 text-amber-300'
+                        : 'bg-slate-900 text-slate-400 hover:text-amber-200',
+                    )}
+                  >
+                    <Star className="h-3.5 w-3.5" />
+                    Favorita
+                  </button>
+                </div>
+                <select
+                  value={`${selectedProvider}:${selectedVoice}`}
+                  onChange={(event) => {
+                    const [provider, voice] = event.target.value.split(':') as [
+                      TtsProvider,
+                      string,
+                    ];
+                    updateTtsSettings({ provider, voice });
+                  }}
+                  className="w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-amber-500"
+                >
+                  {!filteredVoices.some(
+                    (voice) => voice.provider === selectedProvider && voice.id === selectedVoice,
+                  ) && (
+                    <option value={`${selectedProvider}:${selectedVoice}`}>
+                      {providerLabel(selectedProvider)} - {selectedVoice}
+                    </option>
+                  )}
+                  {filteredVoices.map((voice) => (
+                    <option
+                      key={`${voice.provider}:${voice.id}`}
+                      value={`${voice.provider}:${voice.id}`}
+                      disabled={voice.enabled === false}
+                    >
+                      {providerLabel(voice.provider)} - {voice.label} ({voice.language || 'local'})
+                      {voice.gender ? ` / ${voice.gender}` : ''}
+                      {voice.enabled === false ? ' - indisponivel' : ''}
+                    </option>
+                  ))}
+                </select>
+                {selectedVoiceMeta?.reason && (
+                  <p className="mt-2 rounded border border-amber-500/20 bg-amber-500/10 p-2 text-[11px] text-amber-200">
+                    {selectedVoiceMeta.reason}
+                  </p>
+                )}
+              </div>
+              <SliderControl
+                label="Velocidade"
+                value={Number(ttsSettings.speed.toFixed(2))}
+                min={0.65}
+                max={1.35}
+                step={0.05}
+                suffix="x"
+                onChange={(value) => updateTtsSettings({ speed: value })}
+              />
+              <SliderControl
+                label="Pitch"
+                value={Number(ttsSettings.pitch.toFixed(1))}
+                min={-12}
+                max={12}
+                step={0.5}
+                suffix=""
+                disabled={!pitchSupported}
+                hint={
+                  pitchSupported
+                    ? 'Aplicado ao Edge TTS durante a live.'
+                    : 'Provider atual nao suporta pitch; Odessa preserva o valor para comparacao.'
+                }
+                onChange={(value) => updateTtsSettings({ pitch: value })}
+              />
               <button
                 onClick={() => setTtsEnabled((value) => !value)}
                 className={cn(
@@ -900,10 +1135,110 @@ Controles operacionais:
                 {ttsEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
                 {ttsEnabled ? 'Voz ligada' : 'Voz mutada'}
               </button>
+              <div className="border-t border-slate-800 pt-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                    Comparador de voz
+                  </p>
+                  <span className="rounded bg-slate-800 px-2 py-0.5 text-[11px] font-bold text-slate-300">
+                    {providerLabel(selectedProvider)} / {selectedVoice}
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {voicePresets.map((preset) => {
+                    const isCurrent =
+                      preset.provider === selectedProvider && preset.voice === selectedVoice;
+                    return (
+                      <div
+                        key={preset.id}
+                        className="rounded-md border border-slate-800 bg-[#0c0f16] p-2.5"
+                      >
+                        <div className="mb-2 flex items-start justify-between gap-2">
+                          <div>
+                            <p className="text-xs font-bold text-slate-100">{preset.label}</p>
+                            <p className="mt-0.5 text-[11px] text-slate-500">{preset.note}</p>
+                          </div>
+                          <span
+                            className={cn(
+                              'rounded px-2 py-0.5 text-[10px] font-bold',
+                              preset.enabled
+                                ? 'bg-emerald-500/10 text-emerald-300'
+                                : 'bg-slate-800 text-slate-500',
+                            )}
+                          >
+                            {preset.enabled ? 'pronto' : 'indisp.'}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => testVoicePreset(preset)}
+                            disabled={!preset.enabled || voiceTestId === preset.id}
+                            className="rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs font-bold text-slate-200 transition hover:border-amber-500 hover:text-amber-200 disabled:cursor-not-allowed disabled:border-slate-800 disabled:text-slate-600"
+                          >
+                            {voiceTestId === preset.id ? 'Gerando' : 'Testar'}
+                          </button>
+                          <button
+                            onClick={() =>
+                              updateTtsSettings({
+                                provider: preset.provider,
+                                voice: preset.voice,
+                                speed: preset.speed,
+                                pitch: preset.pitch,
+                              })
+                            }
+                            disabled={!preset.enabled || isCurrent}
+                            className={cn(
+                              'rounded px-2 py-1.5 text-xs font-bold transition disabled:cursor-not-allowed',
+                              isCurrent
+                                ? 'bg-amber-500/10 text-amber-300'
+                                : 'bg-amber-600 text-white hover:bg-amber-500 disabled:bg-slate-800 disabled:text-slate-600',
+                            )}
+                          >
+                            {isCurrent ? 'Em uso' : 'Usar na live'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              {voiceHistory.length > 0 && (
+                <div className="border-t border-slate-800 pt-3">
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                    Historico de testes
+                  </p>
+                  <div className="space-y-1.5">
+                    {voiceHistory
+                      .slice()
+                      .reverse()
+                      .slice(0, 5)
+                      .map((item) => (
+                        <div
+                          key={item.id}
+                          className="flex items-center justify-between gap-2 rounded bg-[#0c0f16] px-2 py-1.5 text-[11px]"
+                        >
+                          <span className="truncate text-slate-300">
+                            {providerLabel(item.provider)} / {item.label}
+                          </span>
+                          <span
+                            className={cn(
+                              'rounded px-1.5 py-0.5 font-bold',
+                              item.status === 'ok'
+                                ? 'bg-emerald-500/10 text-emerald-300'
+                                : 'bg-red-500/10 text-red-300',
+                            )}
+                          >
+                            {item.status} {item.testedAt}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="rounded-lg border border-slate-800 bg-[#121620] p-4">
+          <div className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface)] p-4">
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2 text-sm font-bold text-purple-300">
                 <Brain className="h-4 w-4" />
@@ -933,18 +1268,28 @@ Controles operacionais:
               />
               {memory.length > 0 && (
                 <div className="mt-2 max-h-36 space-y-1.5 overflow-y-auto">
-                  {memory.slice(-3).reverse().map((turn) => (
-                    <div key={turn.id} className="rounded-md border border-slate-800 bg-[#0c0f16] p-2">
-                      <p className="truncate text-[11px] text-slate-500">Chat: {turn.userMessage.slice(0, 60)}</p>
-                      <p className="truncate text-[11px] text-purple-300">IA: {turn.aiResponse.slice(0, 80)}</p>
-                    </div>
-                  ))}
+                  {memory
+                    .slice(-3)
+                    .reverse()
+                    .map((turn) => (
+                      <div
+                        key={turn.id}
+                        className="rounded-md border border-slate-800 bg-[#0c0f16] p-2"
+                      >
+                        <p className="truncate text-[11px] text-slate-500">
+                          Chat: {turn.userMessage.slice(0, 60)}
+                        </p>
+                        <p className="truncate text-[11px] text-purple-300">
+                          IA: {turn.aiResponse.slice(0, 80)}
+                        </p>
+                      </div>
+                    ))}
                 </div>
               )}
             </div>
           </div>
 
-          <div className="rounded-lg border border-slate-800 bg-[#121620] p-4">
+          <div className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface)] p-4">
             <div className="mb-3 flex items-center gap-2 text-sm font-bold text-emerald-300">
               <Activity className="h-4 w-4" />
               Saude do sistema
@@ -953,27 +1298,55 @@ Controles operacionais:
               <div className="flex items-center justify-between rounded-md bg-[#0c0f16] px-3 py-2 text-xs">
                 <span className="text-slate-400">Backend</span>
                 <span className="inline-flex items-center gap-1 text-emerald-300">
-                  {health?.status === 'ok' ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+                  {health?.status === 'ok' ? (
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  ) : (
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                  )}
                   {health?.status || 'offline'}
                 </span>
               </div>
               <div className="flex items-center justify-between rounded-md bg-[#0c0f16] px-3 py-2 text-xs">
                 <span className="text-slate-400">Modelo IA</span>
-                <span className={health?.gemini_configured ? 'text-emerald-300' : 'text-amber-300'}>
-                  {health?.gemini_configured ? 'configurado' : 'sem chave'}
+                <span
+                  className={
+                    health?.gemini_configured || health?.openai_ai_configured
+                      ? 'text-emerald-300'
+                      : 'text-amber-300'
+                  }
+                >
+                  {health?.gemini_configured
+                    ? 'Gemini'
+                    : health?.openai_ai_configured
+                      ? `OpenAI ${health.openai_text_model || ''}`.trim()
+                      : 'sem chave'}
                 </span>
               </div>
               <div className="flex items-center justify-between rounded-md bg-[#0c0f16] px-3 py-2 text-xs">
-                <span className="text-slate-400">TTS premium</span>
-                <span className={health?.openai_tts_configured ? 'text-emerald-300' : 'text-slate-500'}>
+                <span className="text-slate-400">OpenAI TTS</span>
+                <span
+                  className={health?.openai_tts_configured ? 'text-emerald-300' : 'text-slate-500'}
+                >
                   {health?.openai_tts_configured ? 'disponivel' : 'opcional'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-md bg-[#0c0f16] px-3 py-2 text-xs">
+                <span className="text-slate-400">Kokoro</span>
+                <span
+                  className={health?.kokoro_tts_configured ? 'text-emerald-300' : 'text-amber-300'}
+                >
+                  {health?.kokoro_tts_configured
+                    ? 'disponivel'
+                    : health?.kokoro_package_installed
+                      ? 'falta espeak-ng'
+                      : 'nao instalado'}
                 </span>
               </div>
               <p className="pt-1 text-[11px] text-slate-600">Checado as {healthCheckedAt}</p>
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 rounded-lg border border-slate-800 bg-[#121620]">
+          <div className="min-h-0 flex-1 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface)]">
             <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
               <div className="flex items-center gap-2 text-sm font-bold text-cyan-300">
                 <Database className="h-4 w-4" />
@@ -1000,16 +1373,27 @@ Controles operacionais:
                   {userProfileList.map((profile) => {
                     const isExpanded = expandedUser === profile.username.toLowerCase();
                     const interactionTypeIcons: Record<string, string> = {
-                      chat: '💬', gift: '🎁', follow: '👋', alert: '🔔', moderation: '🛡️',
+                      chat: '💬',
+                      gift: '🎁',
+                      follow: '👋',
+                      alert: '🔔',
+                      moderation: '🛡️',
                     };
                     return (
-                      <div key={profile.username} className="rounded-md border border-slate-800 bg-[#0c0f16]">
+                      <div
+                        key={profile.username}
+                        className="rounded-md border border-slate-800 bg-[#0c0f16]"
+                      >
                         <button
-                          onClick={() => setExpandedUser(isExpanded ? null : profile.username.toLowerCase())}
+                          onClick={() =>
+                            setExpandedUser(isExpanded ? null : profile.username.toLowerCase())
+                          }
                           className="flex w-full items-center justify-between px-3 py-2 text-left transition hover:bg-slate-800/50"
                         >
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-slate-200">@{profile.username}</span>
+                            <span className="text-sm font-bold text-slate-200">
+                              @{profile.username}
+                            </span>
                             {profile.giftCount > 0 && (
                               <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-300">
                                 🎁 {profile.giftCount}
@@ -1017,8 +1401,15 @@ Controles operacionais:
                             )}
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-[11px] text-slate-500">{profile.messageCount} msgs</span>
-                            <span className={cn('text-[11px] transition', isExpanded ? 'rotate-90' : '')}>
+                            <span className="text-[11px] text-slate-500">
+                              {profile.messageCount} msgs
+                            </span>
+                            <span
+                              className={cn(
+                                'text-[11px] transition',
+                                isExpanded ? 'rotate-90' : '',
+                              )}
+                            >
                               ▸
                             </span>
                           </div>
@@ -1026,17 +1417,38 @@ Controles operacionais:
                         {isExpanded && (
                           <div className="border-t border-slate-800 px-3 py-2">
                             <div className="mb-2 flex items-center gap-3 text-[10px] text-slate-500">
-                              <span>Visto: {new Date(profile.firstSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                              <span>
+                                Visto:{' '}
+                                {new Date(profile.firstSeen).toLocaleTimeString([], {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
                               <span>→</span>
-                              <span>{new Date(profile.lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                              <span>
+                                {new Date(profile.lastSeen).toLocaleTimeString([], {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
                             </div>
                             <div className="space-y-1">
-                              {profile.interactions.slice(-5).reverse().map((interaction) => (
-                                <div key={interaction.id} className="flex items-start gap-1.5 text-[11px]">
-                                  <span>{interactionTypeIcons[interaction.type] || '•'}</span>
-                                  <span className="text-slate-400">{interaction.text.length > 80 ? `${interaction.text.slice(0, 80)}…` : interaction.text}</span>
-                                </div>
-                              ))}
+                              {profile.interactions
+                                .slice(-5)
+                                .reverse()
+                                .map((interaction) => (
+                                  <div
+                                    key={interaction.id}
+                                    className="flex items-start gap-1.5 text-[11px]"
+                                  >
+                                    <span>{interactionTypeIcons[interaction.type] || '•'}</span>
+                                    <span className="text-slate-400">
+                                      {interaction.text.length > 80
+                                        ? `${interaction.text.slice(0, 80)}…`
+                                        : interaction.text}
+                                    </span>
+                                  </div>
+                                ))}
                             </div>
                           </div>
                         )}
@@ -1048,10 +1460,11 @@ Controles operacionais:
             </div>
           </div>
 
-          <div className="rounded-lg border border-slate-800 bg-[#121620] p-3">
+          <div className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface)] p-3">
             <div className="flex items-center gap-2 text-xs text-slate-500">
               <Zap className="h-3.5 w-3.5 text-violet-300" />
-              Fluxo: OCR captura chat, Persona Studio decide tom, backend gera resposta e TTS fala.
+              Fluxo: Persona Studio configura tom, memoria e voz; Controle Live dirige a live em
+              rodadas.
             </div>
           </div>
         </aside>

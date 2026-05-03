@@ -3,15 +3,39 @@
 export interface SimulatedEvent {
   username: string;
   text: string;
-  type: 'chat' | 'gift' | 'follow' | 'alert' | 'moderation';
+  type:
+    | 'chat'
+    | 'gift'
+    | 'redeem_scene'
+    | 'redeem_music'
+    | 'quiet_moment'
+    | 'follow'
+    | 'alert'
+    | 'moderation';
   displayText: string;
 }
 
 const USERS = [
-  'Lucas_gg', 'AnaStarlight', 'PedroGamer22', 'MariLive', 'GuiNinja',
-  'SofiaRose', 'ThiagoFPS', 'JuliaStream', 'RafaelMod', 'CamilaBR',
-  'DarkKnight99', 'LunaGaming', 'MateusBR', 'BeatrizLive', 'FelipeDev',
-  'Kaio_zera', 'NandaBR', 'ViktorPlay', 'IsaGamer', 'BrunoTech',
+  'Lucas_gg',
+  'AnaStarlight',
+  'PedroGamer22',
+  'MariLive',
+  'GuiNinja',
+  'SofiaRose',
+  'ThiagoFPS',
+  'JuliaStream',
+  'RafaelMod',
+  'CamilaBR',
+  'DarkKnight99',
+  'LunaGaming',
+  'MateusBR',
+  'BeatrizLive',
+  'FelipeDev',
+  'Kaio_zera',
+  'NandaBR',
+  'ViktorPlay',
+  'IsaGamer',
+  'BrunoTech',
 ];
 
 const CHAT_MESSAGES = [
@@ -83,15 +107,77 @@ const SPAM_MESSAGES = [
   'GANHE DINHEIRO FACIL www.golpe.com LINK NA BIO LINK NA BIO',
 ];
 
+const SCENE_REDEEMS = [
+  'Gameplay Focus',
+  'Cena Just Chatting',
+  'Tela de reacts',
+  'Camera principal',
+];
+
+const MUSIC_REDEEMS = [
+  'synthwave neon',
+  'lofi para boss fight',
+  'trilha epica curta',
+  'musica escolhida pelo chat',
+];
+
+const QUIET_MOMENTS = [
+  'Assunto atual acabou / chat quieto. Puxar novo topico.',
+  'Chat ficou parado por alguns minutos. Sugerir pergunta para reativar a live.',
+  'Momento sem mensagens novas. Iniciar pauta curta com o chat.',
+];
+
 function pick<T>(arr: readonly T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
+}
+
+export const SCENARIO_EVENTS: SimulatedEvent[] = [
+  {
+    username: 'AnaStarlight',
+    text: '@AnaStarlight: Oi Juju, como esta a live?',
+    type: 'chat',
+    displayText: 'Oi Juju, como esta a live?',
+  },
+  {
+    username: 'AnaStarlight',
+    text: 'AnaStarlight enviou Rosa x5',
+    type: 'gift',
+    displayText: 'enviou Rosa x5',
+  },
+  {
+    username: 'Lucas_gg',
+    text: 'Lucas_gg resgatou Trocar Cena: Gameplay Focus',
+    type: 'redeem_scene',
+    displayText: 'resgatou Trocar Cena: Gameplay Focus',
+  },
+  {
+    username: 'MariLive',
+    text: 'MariLive resgatou Escolher musica: synthwave neon',
+    type: 'redeem_music',
+    displayText: 'resgatou Escolher musica: synthwave neon',
+  },
+  {
+    username: 'sistema',
+    text: 'Assunto atual acabou / chat quieto. Puxar novo topico.',
+    type: 'quiet_moment',
+    displayText: 'chat quieto: puxar novo topico',
+  },
+  {
+    username: 'xXSpamXx',
+    text: 'xXSpamXx: COMPRE SEGUIDORES BARATO www.fake.com spam repetido',
+    type: 'moderation',
+    displayText: 'spam repetido detectado',
+  },
+];
+
+export function createScenarioQueue(): SimulatedEvent[] {
+  return SCENARIO_EVENTS.map((event) => ({ ...event }));
 }
 
 export function generateSimEvent(): SimulatedEvent {
   const rand = Math.random();
 
-  if (rand < 0.58) {
-    // 58% chat messages
+  if (rand < 0.34) {
     const user = pick(USERS);
     const msg = pick(CHAT_MESSAGES);
     return {
@@ -102,8 +188,7 @@ export function generateSimEvent(): SimulatedEvent {
     };
   }
 
-  if (rand < 0.78) {
-    // 20% gifts
+  if (rand < 0.54) {
     const user = pick(USERS);
     const template = pick(GIFT_TEMPLATES);
     const amount = pick(template.amounts);
@@ -116,8 +201,29 @@ export function generateSimEvent(): SimulatedEvent {
     };
   }
 
-  if (rand < 0.91) {
-    // 13% follows
+  if (rand < 0.66) {
+    const user = pick(USERS);
+    const scene = pick(SCENE_REDEEMS);
+    return {
+      username: user,
+      text: `${user} resgatou Trocar Cena: ${scene}`,
+      type: 'redeem_scene',
+      displayText: `resgatou Trocar Cena: ${scene}`,
+    };
+  }
+
+  if (rand < 0.78) {
+    const user = pick(USERS);
+    const track = pick(MUSIC_REDEEMS);
+    return {
+      username: user,
+      text: `${user} resgatou Escolher musica: ${track}`,
+      type: 'redeem_music',
+      displayText: `resgatou Escolher musica: ${track}`,
+    };
+  }
+
+  if (rand < 0.88) {
     const user = pick(USERS);
     const phrase = pick(FOLLOW_PHRASES);
     return {
@@ -128,7 +234,16 @@ export function generateSimEvent(): SimulatedEvent {
     };
   }
 
-  // 9% spam / moderation
+  if (rand < 0.94) {
+    const text = pick(QUIET_MOMENTS);
+    return {
+      username: 'sistema',
+      text,
+      type: 'quiet_moment',
+      displayText: text,
+    };
+  }
+
   const spamUser = `xX${pick(USERS).slice(0, 5)}Xx`;
   const spam = pick(SPAM_MESSAGES);
   return {
@@ -146,13 +261,18 @@ export function generateEventBatch(count: number): SimulatedEvent[] {
 export const SIM_SPEEDS = {
   lento: { label: 'Lento', minMs: 5000, maxMs: 8000, eventsPerTick: [1, 1, 1, 2] as number[] },
   normal: { label: 'Normal', minMs: 3000, maxMs: 5500, eventsPerTick: [1, 1, 2, 2, 3] as number[] },
-  rapido: { label: 'Rapido', minMs: 1800, maxMs: 3500, eventsPerTick: [1, 2, 2, 3, 3, 4] as number[] },
+  rapido: {
+    label: 'Rapido',
+    minMs: 1800,
+    maxMs: 3500,
+    eventsPerTick: [1, 2, 2, 3, 3, 4] as number[],
+  },
   caos: { label: 'Caos', minMs: 900, maxMs: 2200, eventsPerTick: [2, 3, 3, 4, 5, 6] as number[] },
 } as const;
 
 export type SimSpeed = keyof typeof SIM_SPEEDS;
 
-export const EVENT_TYPE_ICONS: Record<SimulatedEvent['type'], string> = {
+export const EVENT_TYPE_ICONS: Record<string, string> = {
   chat: '💬',
   gift: '🎁',
   follow: '👋',
@@ -160,10 +280,22 @@ export const EVENT_TYPE_ICONS: Record<SimulatedEvent['type'], string> = {
   moderation: '🛡️',
 };
 
-export const EVENT_TYPE_COLORS: Record<SimulatedEvent['type'], string> = {
+Object.assign(EVENT_TYPE_ICONS, {
+  redeem_scene: 'OBS',
+  redeem_music: 'MUSIC',
+  quiet_moment: 'SYS',
+});
+
+export const EVENT_TYPE_COLORS: Record<string, string> = {
   chat: 'text-slate-200',
   gift: 'text-amber-300',
   follow: 'text-emerald-300',
   alert: 'text-sky-300',
   moderation: 'text-rose-300',
 };
+
+Object.assign(EVENT_TYPE_COLORS, {
+  redeem_scene: 'text-sky-300',
+  redeem_music: 'text-fuchsia-300',
+  quiet_moment: 'text-cyan-300',
+});

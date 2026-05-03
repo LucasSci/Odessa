@@ -1,14 +1,6 @@
 {
   "name": "Assistente de Captura de Eventos",
   "description": "Captura áreas da tela, extrai texto via OCR em tempo real e atualiza um arquivo .txt continuamente, ideal para monitorar chats ao vivo.",
-  "requestFramePermissions": [
-    "camera",
-    "microphone",
-    "display-capture"
-  ],
-  "majorCapabilities": [
-    "OCR",
-    "Screen Capture",
-    "File System Access"
-  ]
+  "requestFramePermissions": ["camera", "microphone", "display-capture"],
+  "majorCapabilities": ["OCR", "Screen Capture", "File System Access"]
 }

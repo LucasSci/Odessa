@@ -1,0 +1,5 @@
+Summary,Issue Type,Priority,Epic Name,Description,Labels,Fix Version
+"FASE 2 — MVP Estável",Epic,Highest,"FASE 2 — MVP Estável","Refatoração, testes, persistência SQLite, lint e documentação da API. Critérios: lint passa, cobertura >= 75%, dados em SQLite, componentes <= 300 linhas, Swagger completo.","mvp;qualidade",1.0.0
+"FASE 3 — Integrações Reais",Epic,High,"FASE 3 — Integrações Reais","Conectar OBS WebSocket, chat Tango Live, media player local e Slack real. Ações simuladas passam a executar de verdade.","integração;obs;tango",1.1.0
+"FASE 4 — Deploy & Ops",Epic,High,"FASE 4 — Deploy & Ops","CI/CD, autenticação, deploy frontend/backend, logging estruturado, rate limiting e hardening de segurança.","devops;deploy;segurança",1.2.0
+"FASE 5 — Produto Final",Epic,Medium,"FASE 5 — Produto Final","Mobile, analytics, templates persona, avatar animado, i18n, onboarding e documentação do usuário.","produto;polish;ux",2.0.0

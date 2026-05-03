@@ -1,12 +1,14 @@
 # IA Creator Live — Ambiente de Projeto
 
 ## 1. Visão Geral do Projeto
+
 - Projeto: IA Creator Live
 - Objetivo: desenvolver uma criadora virtual adulta baseada em IA para atuar em plataforma de conteúdo e live streaming.
 - Escopo inicial: estrutura técnica, produto e planejamento, sem desenvolver conteúdo adulto explícito no MVP.
 - Público-alvo: operadores de plataforma, equipe de produto, engenheiros, moderadores e parceiros de integração.
 
 ## 2. Objetivos do Produto
+
 - Criar um sistema escalável para gestão de persona e avatar.
 - Permitir interações em live e chat com respostas automatizadas.
 - Suportar presentes, monetização e recordação de fãs.
@@ -16,6 +18,7 @@
 ## 3. Estrutura do Workspace
 
 ### Áreas principais
+
 - Produto
 - Persona e Avatar
 - Conteúdo
@@ -27,6 +30,7 @@
 - Experimentos
 
 ### Organização de páginas (visão Notion)
+
 1. Dashboard Geral
 2. Visão do Produto
 3. Roadmap
@@ -51,6 +55,7 @@
 ## 4. Arquitetura de Páginas e Bancos de Dados
 
 ### Páginas e Objetivos
+
 - Dashboard Geral: visão única do status do projeto, prioridades e KPIs.
 - Visão do Produto: proposta de valor, público-alvo, objetivos, MVP vs versão 2.
 - Roadmap: fases, marcos, releases e entregas.
@@ -73,6 +78,7 @@
 - Prompts e Templates: templates de prompts e scripts de IA.
 
 ### Bancos de Dados Recomendados
+
 - Features
 - Tarefas
 - Riscos
@@ -88,6 +94,7 @@
 ## 5. MVP vs Versão 2 vs Visão Futura
 
 ### MVP
+
 - Chat automatizado básico com regras de resposta.
 - Gestão de persona e avatar como assets.
 - Painel administrativo simples.
@@ -97,6 +104,7 @@
 - Compliance e moderação inicial.
 
 ### Versão 2
+
 - Avatar animado e voz/TTS.
 - Interações em tempo real com chat live.
 - Resposta dinâmica a presentes com ações em stream.
@@ -105,6 +113,7 @@
 - Logs e auditoria detalhados.
 
 ### Visão Futura
+
 - Live interativa com avatar 3D em tempo real.
 - IA com memória profunda de fãs e persona adaptativa.
 - Automação multicanal para mensagens, posts e eventos.
@@ -136,6 +145,7 @@
 ## 8. Fluxos Principais
 
 ### Fluxo da Live
+
 1. Evento criado no painel.
 2. O sistema conecta à plataforma de streaming.
 3. Chat é monitorado e enviado à IA.
@@ -145,15 +155,18 @@
 7. Operação humana revisa e modera se necessário.
 
 ### Fluxo de Chat com IA
+
 - Entrada do fã -> pré-processamento de mensagem -> verificação de moderação -> prompt + contexto -> resposta da IA -> pós-processamento e envio.
 - Atualizar memória de fã e estado de persona.
 - Registrar métricas e sinal de sucesso.
 
 ### Fluxo de Resposta a Presentes
+
 - Recebe evento de presente -> valida regras de monetização -> seleciona reação apropriada -> envia resposta para chat/live -> registra ação e receita.
 - Exceção: gifts proibidos ou suspeitos -> acionar moderação manual.
 
 ### Fluxo de Criação e Gestão do Avatar
+
 - Cadastro de assets visuais.
 - Definição de estilo, poses e animações.
 - Relacionamento com persona e conteúdo.
@@ -162,6 +175,7 @@
 ## 9. Persona e Regras da IA
 
 ### Elementos da Persona
+
 - Nome da criadora
 - Idade aparente / identidade de marca
 - Tom de voz
@@ -171,6 +185,7 @@
 - Temas permitidos e proibidos
 
 ### Regras de Comportamento
+
 - Manter persona consistente.
 - Não inserir conteúdo explícito no sistema.
 - Responder de forma profissional dentro do contexto adulto.
@@ -180,6 +195,7 @@
 ## 10. Compliance e Segurança
 
 ### Áreas de foco
+
 - Regras legais e de plataforma.
 - Moderação de chat e presentes.
 - Filtros de conteúdo e classificação.
@@ -189,6 +205,7 @@
 - Proteção de dados de fãs.
 
 ### Riscos legais e operacionais
+
 - Conteúdo adulto público e privacidade.
 - Evitar violação de políticas de plataformas.
 - Exposição a fraudes de pagamento.
@@ -198,23 +215,27 @@
 ## 11. Stack Técnica Recomendada
 
 ### Backend
+
 - API REST/GraphQL
 - Banco de dados relacional + cache
 - Microserviços para chat e eventos
 - Filas de mensagens e processamento assíncrono
 
 ### IA e Media
+
 - LLM para geração de respostas
 - TTS para voz futura
 - Motor de avatar / animação
 - Integrações OBS/RTMP
 
 ### Frontend
+
 - Painel administrativo em React/Vue/Svelte
 - Páginas de gestão de persona, live, presentes e dashboards
 - Interface profissional responsiva
 
 ### Infraestrutura
+
 - Nuvem escalável (AWS/GCP/Azure)
 - Armazenamento de assets seguro
 - Monitoramento e logs
@@ -223,6 +244,7 @@
 ## 12. Backlog e Priorização
 
 ### Status possíveis
+
 - Ideia
 - Backlog
 - Priorizado
@@ -232,6 +254,7 @@
 - Bloqueado
 
 ### Categorias
+
 - Avatar
 - Chat IA
 - Live
@@ -244,6 +267,7 @@
 - Operação
 
 ### Exemplo de itens do backlog
+
 - Definir visão do produto (MVP)
 - Modelar dados de fãs e memória
 - Criar API de mensagens
@@ -258,6 +282,7 @@
 ## 13. Painel Administrativo
 
 ### Componentes principais
+
 - Visão geral do status e métricas
 - Gestão de eventos de live
 - Gestão de presente e monetização

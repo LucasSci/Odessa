@@ -1,0 +1,144 @@
+{
+  "name": "Odessa - Action Dispatch",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "odessa/action-dispatch",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "odessa-action-webhook",
+      "name": "Odessa Action Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "odessa-action-dispatch-webhook",
+      "position": [180, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nconst envelope = body.payload || body;\nconst payload = envelope.payload || envelope;\nconst action = payload.action || payload;\nconst tool = payload.tool || {};\nconst capability = action.capability || tool.capability || payload.capability || 'log.event';\nconst actionPayload = action.payload || payload.payload || {};\nconst scene = String(actionPayload.scene || payload.scene || '').trim();\nconst isObsSwitch = capability === 'obs.switch_scene';\nconst isObsList = capability === 'obs.list_scenes';\nreturn [{\n  json: {\n    product: body.product || payload.product || 'Odessa',\n    capability,\n    route: isObsSwitch || isObsList ? 'obs' : 'simulated',\n    operation: isObsSwitch ? 'setCurrent' : 'list',\n    scene,\n    action,\n    tool,\n    decision: payload.decision || {},\n    receivedAt: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "normalize-action",
+      "name": "Normalize Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "route-obs",
+              "leftValue": "={{ $json.route }}",
+              "rightValue": "obs",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "is-obs-action",
+      "name": "Is OBS Action?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "resource": "scene",
+        "operation": "={{ $json.operation }}",
+        "sceneName": "={{ $json.scene }}"
+      },
+      "id": "obs-websocket-scene",
+      "name": "OBS WebSocket - Scene",
+      "type": "@mashgizmo/n8n-nodes-obs-websocket.obsWebsocket",
+      "typeVersion": 1,
+      "position": [910, 180],
+      "credentials": {
+        "obsWebsocketApi": {
+          "id": "REPLACE_WITH_OBS_CREDENTIAL_ID",
+          "name": "OBS local"
+        }
+      },
+      "notes": "Install the community node @mashgizmo/n8n-nodes-obs-websocket and configure an OBS credential for localhost:4455."
+    },
+    {
+      "parameters": {
+        "jsCode": "const original = $('Normalize Action').first().json;\nconst obs = $json;\nconst rawScenes = obs.scenes || obs.sceneList || obs.data?.scenes || [];\nconst scenes = Array.isArray(rawScenes)\n  ? rawScenes.map((scene) => typeof scene === 'string' ? scene : (scene.sceneName || scene.name || '')).filter(Boolean)\n  : [];\nconst currentScene = obs.currentScene || obs.currentSceneName || obs.currentProgramSceneName || original.scene || null;\nconst executed = original.capability === 'obs.switch_scene';\nreturn [{\n  json: {\n    ok: true,\n    executed,\n    simulated: false,\n    capability: original.capability,\n    scene: original.scene || currentScene,\n    currentScene,\n    scenes,\n    message: executed\n      ? `OBS trocou para ${currentScene || original.scene}`\n      : `OBS retornou ${scenes.length} cena(s)`,\n    obsResponse: obs,\n    receivedAt: original.receivedAt,\n    completedAt: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "normalize-obs-response",
+      "name": "Normalize OBS Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1160, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "const routes = {\n  'media.play_music': 'Media music adapter placeholder',\n  'media.play_video': 'Media video adapter placeholder',\n  'chat.reply': 'Chat reply adapter placeholder',\n  'moderation.message': 'Moderation adapter placeholder',\n  'obs.show_overlay': 'Overlay adapter placeholder',\n  'gift.acknowledge': 'Gift acknowledge log',\n  'topic.suggest': 'Topic suggestion log',\n  'topic.set': 'Topic state log',\n  'memory.remember': 'Memory log',\n  'log.event': 'Local log'\n};\nreturn [{\n  json: {\n    ok: true,\n    executed: false,\n    simulated: true,\n    capability: $json.capability,\n    adapter: routes[$json.capability] || 'Generic adapter placeholder',\n    message: `Action audited in n8n: ${$json.capability}`,\n    action: $json.action,\n    receivedAt: $json.receivedAt,\n    completedAt: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "simulate-non-obs-action",
+      "name": "Simulate Non-OBS Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [910, 430]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "action-response",
+      "name": "Action Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1410, 300]
+    }
+  ],
+  "connections": {
+    "Odessa Action Webhook": {
+      "main": [[{ "node": "Normalize Action", "type": "main", "index": 0 }]]
+    },
+    "Normalize Action": {
+      "main": [[{ "node": "Is OBS Action?", "type": "main", "index": 0 }]]
+    },
+    "Is OBS Action?": {
+      "main": [
+        [{ "node": "OBS WebSocket - Scene", "type": "main", "index": 0 }],
+        [{ "node": "Simulate Non-OBS Action", "type": "main", "index": 0 }]
+      ]
+    },
+    "OBS WebSocket - Scene": {
+      "main": [[{ "node": "Normalize OBS Response", "type": "main", "index": 0 }]]
+    },
+    "Normalize OBS Response": {
+      "main": [[{ "node": "Action Response", "type": "main", "index": 0 }]]
+    },
+    "Simulate Non-OBS Action": {
+      "main": [[{ "node": "Action Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-05-03T00:00:00.000Z",
+  "versionId": "odessa-action-dispatch-v2-obs-real"
+}

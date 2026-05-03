@@ -24,6 +24,7 @@ Since automated installation may fail, please install manually:
 ## Setup
 
 1. Install Python dependencies:
+
    ```
    pip install -r requirements.txt
    ```
@@ -40,11 +41,13 @@ Since automated installation may fail, please install manually:
 ## Usage
 
 Run the script:
+
 ```
 python ocr_capture.py
 ```
 
 The script will:
+
 - Continuously capture screenshots of the defined regions every 2 seconds
 - Perform OCR on the images
 - Print the extracted text to the console
