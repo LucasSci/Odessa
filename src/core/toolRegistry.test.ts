@@ -37,7 +37,7 @@ describe('toolRegistry', () => {
 
   it('should save tools to localStorage', () => {
     const toolsToSave: PersonaTool[] = [
-      { id: '1', label: 'T', capability: 'tts.speak', enabled: true, simulated: false },
+      { id: '1', label: 'T', capability: 'tts.speak', enabled: true, simulated: false, requiresApproval: false },
     ];
     saveToolRegistry(toolsToSave);
     expect(localStorage.setItem).toHaveBeenCalledWith(

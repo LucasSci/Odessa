@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   selectContentForEvents,
-  loadContentItems,
-  saveContentItems,
   buildContentPromptContext,
   markContentUsed,
   DEFAULT_CONTENT_ITEMS,
@@ -25,6 +23,8 @@ describe('contentLibrary', () => {
       source: 'ocr',
       text: 'Rosa',
       time: '12:00',
+      createdAt: '2026-05-05T00:00:00Z',
+      zoneName: 'chat',
       metadata: { giftName: 'Rosa', user: 'Lucas' },
     };
 

@@ -6,7 +6,7 @@ import pytest
 def test_ai_respond_success(client):
     """Test /ai/respond endpoint - validates it handles requests."""
     response = client.post(
-        "/ai/respond",
+        "/api/v1/ai/respond",
         json={
             "chat_context": "User: Hello\nJuju:",
             "persona_prompt": "You are Juju.",
@@ -21,7 +21,7 @@ def test_ai_respond_success(client):
 def test_ai_respond_missing_context(client):
     """Test /ai/respond with missing context."""
     response = client.post(
-        "/ai/respond",
+        "/api/v1/ai/respond",
         json={
             "persona_prompt": "You are Juju.",
         },
@@ -34,7 +34,7 @@ def test_ai_respond_missing_context(client):
 def test_ai_decide_success(client):
     """Test /ai/decide endpoint - validates structure."""
     response = client.post(
-        "/ai/decide",
+        "/api/v1/ai/decide",
         json={
             "events": [
                 {
@@ -61,7 +61,7 @@ def test_ai_decide_success(client):
 def test_ai_decide_missing_events(client):
     """Test /ai/decide with missing events."""
     response = client.post(
-        "/ai/decide",
+        "/api/v1/ai/decide",
         json={
             "persona_prompt": "You are Juju.",
         },
@@ -74,7 +74,7 @@ def test_ai_decide_missing_events(client):
 def test_ai_fallback_to_openai(client):
     """Test /ai/respond fallback handling."""
     response = client.post(
-        "/ai/respond",
+        "/api/v1/ai/respond",
         json={
             "chat_context": "Test context",
             "persona_prompt": "Test persona",

@@ -1,12 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Upload, 
-  Settings, 
   Save, 
-  Plus, 
   Trash2, 
   Film, 
-  Tag, 
   Link as LinkIcon,
   Play,
   X,
@@ -35,6 +32,47 @@ interface PersonaConfig {
     gift_keywords: string[];
     message_keywords: string[];
   };
+
+  const addGiftMapping = () => {
+    if (!config) return;
+    const key = newGiftName.trim();
+    if (!key) return;
+    const gm = { ...(config.gift_map || {}) } as Record<string, string[]>;
+    gm[key] = Array.from(newGiftSelected);
+    setConfig({ ...config, gift_map: gm });
+    setNewGiftName('');
+    setNewGiftSelected([]);
+  };
+
+  const startEditGift = (key: string) => {
+    if (!config || !config.gift_map) return;
+    setEditingGiftKey(key);
+    setEditingGiftSelected(Array.from(config.gift_map[key] || []));
+  };
+
+  const saveEditedGift = () => {
+    if (!config || !editingGiftKey) return;
+    const gm = { ...(config.gift_map || {}) } as Record<string, string[]>;
+    gm[editingGiftKey] = Array.from(editingGiftSelected);
+    setConfig({ ...config, gift_map: gm });
+    setEditingGiftKey(null);
+    setEditingGiftSelected([]);
+  };
+
+  const deleteGiftMapping = (key: string) => {
+    if (!config || !config.gift_map) return;
+    const gm = { ...(config.gift_map || {}) } as Record<string, string[]>;
+    delete gm[key];
+    setConfig({ ...config, gift_map: gm });
+  };
+
+  const toggleVideoSelectionForNew = (id: string) => {
+    setNewGiftSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const toggleVideoSelectionForEdit = (id: string) => {
+    setEditingGiftSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
 }
 
 interface PersonaMediaLibraryProps {
@@ -52,9 +90,12 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [isUploading, setIsUploading] = useState(false);
   const [previewVideoId, setPreviewVideoId] = useState<string | null>(null);
+  const [newGiftName, setNewGiftName] = useState('');
+  const [newGiftSelected, setNewGiftSelected] = useState<string[]>([]);
+  const [editingGiftKey, setEditingGiftKey] = useState<string | null>(null);
+  const [editingGiftSelected, setEditingGiftSelected] = useState<string[]>([]);
 
-  const fetchConfig = useCallback(async (isInitial = false) => {
-    if (isInitial) setIsLoading(true);
+  const fetchConfig = useCallback(async () => {
     try {
       const res = await fetch(apiUrl('/api/video/config'));
       const data = await res.json();
@@ -62,12 +103,15 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
     } catch (err) {
       console.error('Failed to fetch config', err);
     } finally {
-      if (isInitial) setIsLoading(false);
+      setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchConfig(true);
+    const t = setTimeout(() => {
+      fetchConfig();
+    }, 0);
+    return () => clearTimeout(t);
   }, [fetchConfig]);
 
   const handleSave = async () => {
@@ -103,7 +147,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
         setUploadStatus({ type: 'success', message: 'Configuração salva com sucesso!' });
         setTimeout(() => setUploadStatus({ type: 'none', message: '' }), 3000);
       }
-    } catch (err) {
+    } catch {
       setUploadStatus({ type: 'error', message: 'Erro ao salvar configuração' });
     } finally {
       setIsSaving(false);
@@ -122,7 +166,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
         fetchConfig();
         onConfigChange?.();
       }
-    } catch (err) {
+    } catch {
       setUploadStatus({ type: 'error', message: 'Erro ao excluir vídeo' });
     }
   };
@@ -140,7 +184,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
       setSelectedIds([]);
       fetchConfig();
       onConfigChange?.();
-    } catch (err) {
+    } catch {
       setUploadStatus({ type: 'error', message: 'Erro ao excluir alguns vídeos' });
     } finally {
       setIsSaving(false);
@@ -319,7 +363,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                 <label className="flex items-center gap-2 text-[10px] text-slate-500 cursor-pointer hover:text-slate-300 transition">
                   <input 
                     type="checkbox"
-                    checked={config?.videos.length > 0 && selectedIds.length === (config?.videos.length || 0)}
+                    checked={(config?.videos?.length ?? 0) > 0 && selectedIds.length === (config?.videos?.length || 0)}
                     onChange={(e) => {
                       if (e.target.checked) {
                         setSelectedIds(config?.videos.map(v => v.id) || []);
@@ -602,6 +646,69 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                         }
                       }}
                     />
+                  </div>
+                </div>
+              </div>
+
+              {/* Gift -> Video Mapping */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Mapeamento de Gifts → Vídeos</label>
+                <div className="p-4 bg-slate-950/30 rounded-xl border border-slate-800 space-y-3">
+                  <div className="flex flex-col gap-2">
+                    {(config?.gift_map && Object.keys(config.gift_map).length > 0) ? (
+                      Object.keys(config!.gift_map!).map((key) => (
+                        <div key={key} className="flex items-center justify-between bg-slate-900/50 rounded px-3 py-2">
+                          <div className="flex items-center gap-3">
+                            <strong className="text-[11px] text-rose-300">{key}</strong>
+                            <div className="flex gap-1 flex-wrap">
+                              {(config!.gift_map![key] || []).map(vId => (
+                                <span key={vId} className="text-[10px] bg-blue-500/10 text-blue-300 px-2 py-0.5 rounded border border-blue-500/20">{config?.videos.find(v => v.id === vId)?.label || vId}</span>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {editingGiftKey === key ? (
+                              <>
+                                <button onClick={saveEditedGift} className="px-2 py-1 bg-emerald-600/20 text-emerald-300 rounded text-[10px]">Salvar</button>
+                                <button onClick={() => setEditingGiftKey(null)} className="px-2 py-1 bg-slate-800/60 text-slate-300 rounded text-[10px]">Cancelar</button>
+                              </>
+                            ) : (
+                              <>
+                                <button onClick={() => startEditGift(key)} className="px-2 py-1 bg-blue-600/20 text-blue-300 rounded text-[10px]">Editar</button>
+                                <button onClick={() => deleteGiftMapping(key)} className="px-2 py-1 bg-rose-600/20 text-rose-300 rounded text-[10px]">Remover</button>
+                              </>
+                            )}
+                          </div>
+
+                          {/* Edit mode inline */}
+                          {editingGiftKey === key && (
+                            <div className="w-full mt-2 grid grid-cols-3 gap-2">
+                              {config?.videos.map(v => (
+                                <label key={v.id} className="flex items-center gap-2 text-[10px]">
+                                  <input type="checkbox" checked={editingGiftSelected.includes(v.id)} onChange={() => toggleVideoSelectionForEdit(v.id)} />
+                                  <span className="truncate">{v.label}</span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-[10px] text-slate-600 italic">Nenhum mapeamento de gifts configurado.</div>
+                    )}
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-800/40">
+                    <div className="flex gap-2 items-center">
+                      <input value={newGiftName} onChange={(e) => setNewGiftName(e.target.value)} placeholder="Nome do presente (ex: Rosa)" className="flex-1 bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-xs outline-none" />
+                      <button onClick={addGiftMapping} className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs">Adicionar mapeamento</button>
+                    </div>
+
+                    <div className="mt-2 grid grid-cols-3 gap-2 max-h-40 overflow-y-auto pr-1">
+                      {config?.videos.map(v => (
+                        <button key={v.id} type="button" onClick={() => toggleVideoSelectionForNew(v.id)} className={cn("text-[10px] px-2 py-1 rounded border", newGiftSelected.includes(v.id) ? "bg-blue-600/30 text-blue-300 border-blue-500/40" : "bg-slate-900/40 text-slate-400 border-slate-800")}>{v.label}</button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>

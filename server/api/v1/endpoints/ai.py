@@ -5,7 +5,7 @@ from server.models import AIRespondRequest, AIDecideRequest
 from server.services.ai_service import ai_service
 from server.utils.text_utils import extract_json_object
 
-router = APIRouter(prefix="/ai", tags=["AI"])
+router = APIRouter(tags=["AI"])
 logger = logging.getLogger("odessa.routes.ai")
 
 @router.post("/respond")

@@ -26,9 +26,9 @@ global.URL.revokeObjectURL = vi.fn();
 
 describe('actionExecutor', () => {
   const tools: PersonaTool[] = [
-    { id: 'tts', label: 'TTS', capability: 'tts.speak', enabled: true, simulated: false },
-    { id: 'chat', label: 'Chat', capability: 'chat.reply', enabled: true, simulated: true },
-    { id: 'obs', label: 'OBS', capability: 'obs.switch_scene', enabled: true, simulated: true },
+    { id: 'tts', label: 'TTS', capability: 'tts.speak', enabled: true, simulated: false, requiresApproval: false },
+    { id: 'chat', label: 'Chat', capability: 'chat.reply', enabled: true, simulated: true, requiresApproval: false },
+    { id: 'obs', label: 'OBS', capability: 'obs.switch_scene', enabled: true, simulated: true, requiresApproval: false },
   ];
 
   const decision: PersonaDecision = {
@@ -96,8 +96,8 @@ describe('actionExecutor', () => {
   });
 
   it('should block execution if tool is disabled', async () => {
-    const disabledTools = [
-      { id: 'tts', label: 'TTS', capability: 'tts.speak', enabled: false, simulated: false },
+    const disabledTools: PersonaTool[] = [
+      { id: 'tts', label: 'TTS', capability: 'tts.speak', enabled: false, simulated: false, requiresApproval: false },
     ];
     const action: AutopilotAction = {
       id: '3',
@@ -121,7 +121,7 @@ describe('actionExecutor', () => {
   });
 
   it('should require approval if tool requires it', async () => {
-    const approvalTools = [
+    const approvalTools: PersonaTool[] = [
       {
         id: 'obs',
         label: 'OBS',

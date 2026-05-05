@@ -1,0 +1,148 @@
+PLANO COMPLETO DE MELHORIAS
+PROJETO ODESSA
+Persona Studio para Lives com IA
+Repositório: github.com/LucasSci/Odessa
+Versão 1.0 | Maio 2026
+1. Resumo Executivo
+O projeto Odessa (Persona Studio) já se encontra em um estágio avançado, com a Fase 1 aproximadamente 85% concluída. O sistema atual oferece OCR em tempo real, sistema de persona com 16 estados comportamentais, integração com OBS, workflows n8n e testes automatizados tanto no frontend (React/TypeScript) quanto no backend (FastAPI/Python).
+Este plano compila TODAS as melhorias necessárias para transformar o projeto em um produto profissional, escalável e pronto para produção. O plano está estruturado em 3 fases claras, com priorização por impacto e esforço.
+Principais Áreas de Melhoria
+CI/CD completo com GitHub Actions (frontend + backend + Docker + Security)
+Docker + docker-compose para setup em 1 comando
+Arquitetura da Persona IA (modularização, RAG, Multi-LLM)
+Persistência de OCR e WebSocket robusto
+Aumento de cobertura de testes (meta: 85%+)
+Segurança (secrets, rate limiting, CORS, input validation)
+Documentação profissional e onboarding
+Infraestrutura escalável (Redis, microserviços, multi-tenant)
+2. Estado Atual do Projeto
+Pontos Fortes (já implementados)
+Fase 1 ~85% concluída com sistema de estados comportamentais (16 clipes)
+Arquitetura Hub-and-Spoke para animações
+Integração OBS via player.html e video_logic.py
+Testes automatizados (Vitest + Pytest) com ~64% coverage
+Documentação extensa (PERSONA_STUDIO_*.md, FASE_1_*.md)
+Workflows n8n prontos para automação
+Electron app + estrutura full-stack (React + FastAPI)
+Pontos a Melhorar (Identificados)
+CI/CD inexistente ou básico
+Setup local complexo (múltiplos comandos)
+Arquitetura da Persona ainda monolítica
+OCR sem persistência em mudanças de foco
+Falta de WebSocket bidirecional robusto
+Cobertura de testes abaixo de 70%
+Ausência de Docker para desenvolvimento
+Documentação do README pode ser mais atrativa
+3. FASE 1 - Quick Wins (1 a 3 dias)
+Foco: Implementar melhorias de alto impacto com baixo esforço para gerar momentum imediato.
+3.1 GitHub & DevOps
+Item
+Descrição
+Entregável
+CI/CD Completo
+GitHub Actions rodando lint + testes + build + security scan em todo PR/push
+.github/workflows/ci.yml
+Docker + Compose
+Setup completo em 1 comando (frontend + backend + Redis + n8n)
+docker-compose.yml + Dockerfiles
+Templates de Issue/PR
+Padronizar contribuições com templates profissionais
+.github/ISSUE_TEMPLATE/ + PULL_REQUEST_TEMPLATE.md
+Dependabot
+Atualização automática de dependências npm e pip
+.github/dependabot.yml
+3.2 Documentação
+README.md reescrito: Badges, quickstart de 5 minutos, arquitetura visual, comandos claros
+CONTRIBUTING.md: Guia completo para contribuidores
+Atualizar docs existentes: Revisar FASE_1_*.md e PERSONA_STUDIO_*.md com status atualizado
+3.3 Repositório
+Adicionar Topics: ai, persona, live-streaming, ocr, tts, react, fastapi, obs-studio
+Melhorar descrição do repositório
+Adicionar License (MIT recomendado)
+4. FASE 2 - Qualidade & Estrutura (1 a 2 semanas)
+4.1 Frontend (React + TypeScript)
+Ativar strict: true no tsconfig.json
+Adicionar ESLint + Prettier com regras rigorosas
+Implementar Error Boundary global
+Migrar para React Query ou SWR para gerenciamento de estado do servidor
+Refatorar LongTermMemory e MoodEngine para classes modulares
+Adicionar Storybook para documentação de componentes
+4.2 Backend (FastAPI + Python)
+Estruturar com routers e dependencies injection
+Usar Pydantic v2 com validação forte em todos os models
+Adicionar middleware de logging, CORS restrito e rate limiting
+Integrar Sentry ou Prometheus para observabilidade
+Refatorar ocr_service.py com persistência e WebSocket
+Criar health checks avançados (/health/detailed)
+4.3 Testes
+Meta: 85%+ de coverage
+Adicionar testes de integração com Playwright
+Testes de contrato (backend)
+Testes de performance com Locust ou Artillery
+4.4 Segurança
+Implementar secrets management (Doppler ou Infisical)
+Adicionar Helmet.js (frontend) e CORS restrito
+Validação de input em todos os endpoints
+Rate limiting por IP + usuário
+5. FASE 3 - Arquitetura Avançada & Produto (3 a 6 semanas)
+5.1 Arquitetura de Persona IA (Prioridade Alta)
+Refatorar para arquitetura modular: PersonaRuntime, MemoryManager, ActionExecutor, MoodEngine
+Adicionar RAG (Retrieval-Augmented Generation) para memória de longo prazo
+Implementar Multi-LLM (Groq + OpenAI + Claude + Ollama local)
+Sistema de Tool Calling avançado
+Pipeline de fine-tuning para personas personalizadas
+5.2 Infraestrutura Escalável
+Adicionar Redis para cache e fila de tarefas
+WebSocket escalável com Redis adapter
+Migrar OCR para microserviço separado
+Suporte a multi-tenant (múltiplas lives simultâneas)
+Kubernetes manifests + Helm charts
+5.3 Produto & Features
+Dashboard web de analytics da persona
+Sistema de presets de persona (Streamer, Educador, Gamer, etc.)
+Plugin nativo para OBS
+Marketplace de personas (futuro)
+Feature flags + A/B testing de respostas
+6. Arquivos Prontos para Implementar
+Os seguintes arquivos já foram criados e estão prontos para copiar para o repositório:
+Arquivo
+Descrição
+.github/workflows/ci.yml
+CI/CD completo (frontend + backend + Docker + Security)
+docker-compose.yml
+Setup completo (frontend + backend + Redis + n8n)
+Dockerfile.backend
+Imagem Docker otimizada para o backend FastAPI + OCR
+Dockerfile.frontend
+Imagem Docker para o frontend React
+README.md (melhorado)
+README profissional com badges, quickstart e arquitetura
+PULL_REQUEST_TEMPLATE.md
+Template profissional de Pull Request
+.github/ISSUE_TEMPLATE/*.md
+Templates de Bug Report e Feature Request
+.github/dependabot.yml
+Configuração de atualizações automáticas de dependências
+7. Timeline Sugerido
+Período
+Fase
+Entregáveis Principais
+Dia 1-3
+FASE 1
+CI/CD + Docker + README + Templates
+Semana 1-2
+FASE 2
+Arquitetura modular + Testes 85% + Segurança
+Semana 3-6
+FASE 3
+RAG + Multi-LLM + Redis + Dashboard + Multi-tenant
+Próximos Passos Imediatos (Recomendação)
+Hoje: Copiar CI/CD + Docker + README melhorado
+Amanhã: Implementar Fase 1 completa e testar CI
+Esta semana: Começar Fase 2 (arquitetura da Persona e testes)
+Próximas 4 semanas: Fase 3 - transformar em produto escalável
+8. Conclusão
+O projeto Odessa já possui uma base sólida e uma visão clara. Com a implementação deste plano completo, ele tem potencial para se tornar uma das principais ferramentas de persona IA para streamers no Brasil e no mundo.
+O foco principal deve ser: primeiro estabilizar e profissionalizar (Fase 1 e 2), depois escalar e inovar (Fase 3).
+Estou à disposição para ajudar na implementação de qualquer parte deste plano, seja criando código, revisando arquivos específicos ou gerando mais documentação.
+Odessa: Sua persona de IA que realmente entende sua live.

@@ -70,5 +70,25 @@
       "grok-998cb92c-3b48-4c1a-ba60-51ffa08ae60e-720p"
     ]
   },
+  "gift_map": {
+    "/ros.*/i": [
+      "grok-36d81c34-d3c6-4602-8a14-0b966b7c8176-720p"
+    ],
+    "Rosa": [
+      "grok-36d81c34-d3c6-4602-8a14-0b966b7c8176-720p"
+    ],
+    "coração": [
+      "grok-5ca32a97-ef1e-41bf-9c69-b4108a44e1f8-720p"
+    ],
+    "flores": [
+      "grok-855849df-aab8-4ec5-8845-132732e358c7-720p"
+    ],
+    "💖": [
+      "grok-5ca32a97-ef1e-41bf-9c69-b4108a44e1f8-720p"
+    ],
+    "default": [
+      "grok-36d81c34-d3c6-4602-8a14-0b966b7c8176-720p"
+    ]
+  },
   "transitions": {}
 }

@@ -88,9 +88,9 @@ export default function OdessaLiveCenter({
   const [contentItems, setContentItems] = useState<ContentItem[]>(() => loadContentItems());
   const [ttsSettings, setTtsSettings] = useState<TtsSettings>(() => loadTtsSettings());
   const [videoTransitionCallback, setVideoTransitionCallback] = useState<{
-    gift: () => void;
-    message: () => void;
-    reaction: () => void;
+    gift: (data?: any) => void;
+    message: (data?: any) => void;
+    reaction: (data?: any) => void;
   } | null>(null);
   const [personaConfig, setPersonaConfig] = useState<any>(null);
 
@@ -102,17 +102,28 @@ export default function OdessaLiveCenter({
   }, []);
 
   // Setup triggers for video transitions based on chat events
-  usePersonaTriggers(capturedText, {
-    enableGiftTrigger: true,
-    enableMessageTrigger: true,
-    enableReactionTrigger: true,
-    giftKeywords: personaConfig?.triggers?.gift_keywords,
-    messageKeywords: personaConfig?.triggers?.message_keywords,
-  }, (type) => {
-    if (videoTransitionCallback && videoTransitionCallback[type]) {
-      videoTransitionCallback[type]();
-    }
-  });
+  usePersonaTriggers(
+    capturedText,
+    {
+      enableGiftTrigger: true,
+      enableMessageTrigger: Boolean(
+        personaConfig?.triggers && Array.isArray(personaConfig.triggers.message_keywords) &&
+          personaConfig.triggers.message_keywords.length > 0,
+      ),
+      enableReactionTrigger: true,
+      giftKeywords: personaConfig?.triggers?.gift_keywords,
+      messageKeywords: personaConfig?.triggers?.message_keywords,
+    },
+    (type, data) => {
+      if (videoTransitionCallback && videoTransitionCallback[type]) {
+        try {
+          videoTransitionCallback[type](data);
+        } catch (err) {
+          console.error('[Trigger] videoTransitionCallback error', err);
+        }
+      }
+    },
+  );
 
   useEffect(() => {
     const handleContentChange = (event: Event) => {
@@ -261,37 +272,37 @@ export default function OdessaLiveCenter({
                 icon={<LayoutDashboard className="h-3.5 w-3.5" />}
               />
               <TabButton
-                active={activeTab === 'signals'}
+                active={(activeTab as string) === 'signals'}
                 onClick={() => setActiveTab('signals')}
                 label="Sinais"
                 icon={<RadioTower className="h-3.5 w-3.5" />}
               />
               <TabButton
-                active={activeTab === 'persona'}
+                active={(activeTab as string) === 'persona'}
                 onClick={() => setActiveTab('persona')}
                 label="Odessa"
                 icon={<Bot className="h-3.5 w-3.5" />}
               />
               <TabButton
-                active={activeTab === 'persona-studio'}
+                active={(activeTab as string) === 'persona-studio'}
                 onClick={() => setActiveTab('persona-studio')}
                 label="Studio Video"
                 icon={<Video className="h-3.5 w-3.5" />}
               />
               <TabButton
-                active={activeTab === 'content'}
+                active={(activeTab as string) === 'content'}
                 onClick={() => setActiveTab('content')}
                 label="Conteúdo"
                 icon={<BookOpen className="h-3.5 w-3.5" />}
               />
               <TabButton
-                active={activeTab === 'actions'}
+                active={(activeTab as string) === 'actions'}
                 onClick={() => setActiveTab('actions')}
                 label="Ações"
                 icon={<Zap className="h-3.5 w-3.5" />}
               />
               <TabButton
-                active={activeTab === 'audit'}
+                active={(activeTab as string) === 'audit'}
                 onClick={() => setActiveTab('audit')}
                 label="Auditoria"
                 icon={<ClipboardList className="h-3.5 w-3.5" />}

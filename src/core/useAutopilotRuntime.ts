@@ -86,7 +86,7 @@ export interface AutopilotRuntimeState {
   latestAction?: AutopilotAction;
   roundCollectionMs: number;
   speechCooldownMs: number;
-  start: () => void;
+  start: (opts?: StartOptions) => void;
   pause: () => void;
   toggleVoice: () => void;
   toggleTestMode: () => void;
@@ -106,6 +106,14 @@ interface UseAutopilotRuntimeOptions {
   capturedText: CapturedMessage[];
   setCapturedText: Dispatch<SetStateAction<CapturedMessage[]>>;
 }
+
+type StartOptions = {
+  voiceEnabled?: boolean;
+  toolPatches?: Array<{
+    capability: string;
+    patch: Partial<Pick<PersonaTool, 'enabled' | 'requiresApproval' | 'simulated'>>;
+  }>;
+};
 
 const PERSONA_AUTOPILOT_PROMPT = `Voce e a Odessa/Juju, anfitria de uma live social no Tango Live.
 Sua funcao e dirigir a live com autonomia auditavel: observar entradas, priorizar o que importa e escolher a proxima fala e acoes.
@@ -212,7 +220,7 @@ export function useAutopilotRuntime({
     new Set(capturedText.filter((event) => event.processedAt).map((event) => event.id)),
   );
   const pendingEventsRef = useRef<LiveEvent[]>([]);
-  const roundTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const roundTimerRef = useRef<number | null>(null);
   const lastSpeechAtRef = useRef(0);
   const lastEventAtRef = useRef(0);
 
@@ -451,8 +459,20 @@ export function useAutopilotRuntime({
     };
   }, []);
 
-  const start = useCallback(() => {
+  const start = useCallback((opts?: StartOptions) => {
     setLastError(null);
+    if (opts?.voiceEnabled !== undefined) {
+      setVoiceEnabled(opts.voiceEnabled);
+    }
+    if (opts?.toolPatches && opts.toolPatches.length) {
+      setTools((current) => {
+        let next = current;
+        for (const p of opts.toolPatches || []) {
+          next = updateToolRegistry(next, p.capability as any, p.patch as any);
+        }
+        return next;
+      });
+    }
     lastEventAtRef.current = Date.now();
     setAutopilotEnabled(true);
     getRecentEvents().forEach(enqueueEvent);

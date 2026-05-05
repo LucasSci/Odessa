@@ -22,6 +22,7 @@ def load_persona_config() -> Dict[str, Any]:
             if "videos" not in data: data["videos"] = []
             if "action_map" not in data: data["action_map"] = {"gift": [], "message": [], "idle": ["04", "05", "14", "16"]}
             if "transitions" not in data: data["transitions"] = {}
+            if "gift_map" not in data: data["gift_map"] = {}
             if "triggers" not in data: 
                 data["triggers"] = {
                     "gift_keywords": ["presente", "enviar", "gift", "mimo", "donate"],
@@ -35,6 +36,7 @@ def load_persona_config() -> Dict[str, Any]:
         return {
             "videos": [], 
             "action_map": {"gift": [], "message": [], "idle": []}, 
+            "gift_map": {},
             "transitions": {},
             "triggers": {
                 "gift_keywords": ["gift", "presente"],

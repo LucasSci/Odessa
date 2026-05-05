@@ -1,6 +1,7 @@
 import logging
 import shutil
 import os
+from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from server.core.video_files import list_available_videos, get_video_path, get_video_directory
@@ -8,7 +9,7 @@ from server.core.config_manager import load_persona_config, save_persona_config
 
 logger = logging.getLogger("odessa.routes.video")
 
-router = APIRouter(prefix="/api/video", tags=["video"])
+router = APIRouter(tags=["video"])
 
 @router.get("/available")
 async def get_available_videos():
@@ -37,10 +38,10 @@ async def play_video(video_id: str):
     )
 
 @router.get("/next")
-async def get_next_video(trigger: str = None):
-    """Determine the next video ID based on current state and optional trigger"""
+async def get_next_video(trigger: str = None, giftName: str = None):
+    """Determine the next video ID based on current state and optional trigger and giftName"""
     from server.services.video_service import video_service
-    video_filename = video_service.get_next_video(trigger)
+    video_filename = video_service.get_next_video(trigger, gift_name=giftName)
     # Extract ID from filename (video_04.mp4 -> 04)
     video_id = video_filename.replace("video_", "").replace(".mp4", "")
     return {"id": video_id, "filename": video_filename}
@@ -50,6 +51,15 @@ async def get_video_state():
     """Get the current state for synchronization across clients"""
     from server.services.video_service import video_service
     return video_service.get_state()
+
+@router.post("/scenario/{scenario_id}")
+async def trigger_scenario(scenario_id: str):
+    """Trigger a predefined video sequence scenario"""
+    from server.services.video_service import video_service
+    if video_service.set_scenario(scenario_id):
+        return {"status": "success", "scenario": scenario_id}
+    else:
+        raise HTTPException(status_code=404, detail=f"Scenario '{scenario_id}' not found")
 
 @router.get("/safe-next/{video_id}")
 async def get_safe_next(video_id: str):

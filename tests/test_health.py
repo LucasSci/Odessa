@@ -8,7 +8,7 @@ from server.main import app
 async def test_health_endpoint():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.get("/health")
+        response = await ac.get("/api/v1/misc/health")
     assert response.status_code == 200
     data = response.json()
     # Validate required fields

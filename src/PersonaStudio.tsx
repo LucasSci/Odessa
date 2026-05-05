@@ -6,13 +6,9 @@ import {
   Volume2,
   VolumeX,
   Zap,
-  ChevronLeft,
   ChevronRight,
   Sparkles,
-  AlertCircle,
   Film,
-  Settings,
-  Loader2,
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { apiUrl } from './lib/api';
@@ -38,6 +34,7 @@ interface PersonaConfig {
   videos: VideoState[];
   action_map: Record<string, string[]>;
   transitions: Record<string, { safe_next: string[] }>;
+  gift_map?: Record<string, string[]>;
   triggers?: {
     gift_keywords: string[];
     message_keywords: string[];
@@ -54,9 +51,9 @@ interface PersonaStudioProps {
   onVideoChange?: (videoId: string) => void;
   autoPlayNext?: boolean;
   onRegisterTriggers?: (triggers: {
-    gift: () => void;
-    message: () => void;
-    reaction: () => void;
+    gift: (data?: any) => void;
+    message: (data?: any) => void;
+    reaction: (data?: any) => void;
   }) => void;
 }
 
@@ -69,47 +66,24 @@ export default function PersonaStudio({
   // Dual video refs for cross-fading
   const videoRefA = useRef<HTMLVideoElement>(null);
   const videoRefB = useRef<HTMLVideoElement>(null);
+  const audioKeepAliveRef = useRef<HTMLAudioElement>(null);
   
   const [activePlayer, setActivePlayer] = useState<'A' | 'B'>('A');
   const [currentVideoId, setCurrentVideoId] = useState<string>('');
-  const [safeNextIds, setSafeNextIds] = useState<string[]>([]);
   
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(true); // Obrigatório para AutoPlay funcionar sempre
   const [showControls, setShowControls] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
-  const [recentTriggers, setRecentTriggers] = useState<TransitionTrigger[]>([]);
-  const [lastEventTime, setLastEventTime] = useState(Date.now());
+  const [lastEventTime, setLastEventTime] = useState(() => Date.now());
   const [showMediaLibrary, setShowMediaLibrary] = useState(false);
   const [videoCatalog, setVideoCatalog] = useState<Record<string, VideoState>>(DEFAULT_CATALOG);
+  const [personaConfig, setPersonaConfig] = useState<PersonaConfig | null>(null);
   const [preloadedId, setPreloadedId] = useState<string | null>(null);
   const [queuedActionId, setQueuedActionId] = useState<string | null>(null);
   
   const [isCleanMode, setIsCleanMode] = useState(false);
 
-  // Web Worker for background persistence
-  useEffect(() => {
-    const worker = new Worker('/timer-worker.js');
-    worker.postMessage({ action: 'start', interval: 500 });
-    
-    worker.onmessage = (e) => {
-      if (e.data.type === 'tick') {
-        // Heartbeat check for background transitions
-        const activeRef = activePlayer === 'A' ? videoRefA : videoRefB;
-        if (activeRef.current && !isTransitioning) {
-          const v = activeRef.current;
-          if (v.duration > 0 && v.currentTime > v.duration - 0.45) {
-            handleVideoEnd();
-          }
-        }
-      }
-    };
-    
-    return () => {
-      worker.postMessage({ action: 'stop' });
-      worker.terminate();
-    };
-  }, [activePlayer, isTransitioning]);
 
   const currentVideo = videoCatalog[currentVideoId];
 
@@ -117,8 +91,8 @@ export default function PersonaStudio({
   const fetchSafeNext = useCallback(async (videoId: string) => {
     try {
       const res = await fetch(apiUrl(`/api/video/safe-next/${videoId}`));
-      const data = await res.json();
-      setSafeNextIds(data.safe_next || []);
+      await res.json(); // Consumir para evitar erros, mas safeNextIds foi removido
+      // No-op for now
     } catch (err) {
       console.error('[VIDEO] Failed to fetch safe transitions:', err);
     }
@@ -129,6 +103,7 @@ export default function PersonaStudio({
     try {
       const res = await fetch(apiUrl('/api/video/config'));
       const data: PersonaConfig = await res.json();
+      setPersonaConfig(data);
       if (data && Array.isArray(data.videos)) {
         const catalog: Record<string, VideoState> = {};
         data.videos.forEach((v) => {
@@ -160,14 +135,48 @@ export default function PersonaStudio({
   }, [fetchConfig, fetchSafeNext]);
 
   // Helper to fetch next video from backend
-  const fetchNextVideoId = useCallback(async (trigger?: string) => {
+  const findGiftMapping = useCallback((giftMap: Record<string, string[]> | undefined, giftName: string) => {
+    if (!giftMap) return null;
+    const gn = (giftName || '').toLowerCase().trim();
+    // 1) Exact match
+    for (const k of Object.keys(giftMap)) {
+      if (k.toLowerCase() === gn) return giftMap[k];
+    }
+    // 2) Substring heuristics
+    for (const k of Object.keys(giftMap)) {
+      const kl = k.toLowerCase();
+      if (!kl) continue;
+      if (gn.includes(kl) || kl.includes(gn)) return giftMap[k];
+    }
+    // 3) Wildcards / defaults
+    if (giftMap['*'] && giftMap['*'].length) return giftMap['*'];
+    if (giftMap['default'] && giftMap['default'].length) return giftMap['default'];
+    return null;
+  }, []);
+
+  const fetchNextVideoId = useCallback(async (trigger?: string, detail?: Record<string, any>) => {
     // If we have a queued action, it takes priority
     if (queuedActionId && !trigger) {
       return queuedActionId;
     }
 
     try {
-      const url = apiUrl(`/api/video/next${trigger ? `?trigger=${trigger}` : ''}`);
+      // If we have a frontend gift_map configured, allow resolving by giftName locally
+      if (trigger === 'gift' && detail && detail.giftName && personaConfig && personaConfig.gift_map) {
+        const mapped = findGiftMapping(personaConfig.gift_map, String(detail.giftName));
+        if (mapped && mapped.length > 0) {
+          const pick = mapped[Math.floor(Math.random() * mapped.length)];
+          console.log('[VIDEO] Resolved giftName -> video (local map):', detail.giftName, pick);
+          return pick;
+        }
+      }
+
+      let path = `/api/video/next`;
+      if (trigger) path += `?trigger=${encodeURIComponent(trigger)}`;
+      if (detail && detail.giftName) {
+        path += `${path.includes('?') ? '&' : '?'}giftName=${encodeURIComponent(String(detail.giftName))}`;
+      }
+      const url = apiUrl(path);
       const res = await fetch(url);
       const data = await res.json();
       return data.id as string;
@@ -175,7 +184,7 @@ export default function PersonaStudio({
       console.error('[VIDEO] Failed to fetch next video:', err);
       return '04'; // Fallback
     }
-  }, [apiUrl, queuedActionId]);
+  }, [apiUrl, queuedActionId, personaConfig, findGiftMapping]);
 
 
   // Smooth transition logic
@@ -269,7 +278,7 @@ export default function PersonaStudio({
           }
         }
 
-        setRecentTriggers((prev) => [trigger, ...prev.slice(0, 4)]);
+        // trigger history removed
         onVideoChange?.(targetVideoId);
       } catch (err) {
         console.error('[VIDEO] Transition fatal error:', err);
@@ -280,11 +289,35 @@ export default function PersonaStudio({
   );
 
   // Handle automatic transition when video ends
-  const handleVideoEnd = useCallback(async () => {
+  const handleVideoEnd = async () => {
     if (!autoPlayNext) return;
     const nextId = await fetchNextVideoId();
     transitionToVideo(nextId, { type: 'natural', label: 'Natural Flow' });
-  }, [autoPlayNext, fetchNextVideoId, transitionToVideo]);
+  };
+
+  // Web Worker for background persistence
+  useEffect(() => {
+    const worker = new Worker('/timer-worker.js');
+    worker.postMessage({ action: 'start', interval: 500 });
+    
+    worker.onmessage = (e) => {
+      if (e.data.type === 'tick') {
+        // Heartbeat check for background transitions
+        const activeRef = activePlayer === 'A' ? videoRefA : videoRefB;
+        if (activeRef.current && !isTransitioning) {
+          const v = activeRef.current;
+          if (v.duration > 0 && v.currentTime > v.duration - 0.45) {
+            handleVideoEnd();
+          }
+        }
+      }
+    };
+    
+    return () => {
+      worker.postMessage({ action: 'stop' });
+      worker.terminate();
+    };
+  }, [activePlayer, isTransitioning, autoPlayNext, fetchNextVideoId, transitionToVideo]);
 
   // Watchdog: ensures video is always playing and alternating
   useEffect(() => {
@@ -311,7 +344,6 @@ export default function PersonaStudio({
 
   // Initial load / Sync
   useEffect(() => {
-    fetchConfig();
     if (currentVideoId && videoRefA.current && !videoRefA.current.src) {
       console.log("[STUDIO] Setting initial src:", currentVideoId);
       videoRefA.current.src = apiUrl(`${videoPath}${currentVideoId}`);
@@ -370,9 +402,9 @@ export default function PersonaStudio({
   }, [currentVideoId, activePlayer, isTransitioning, fetchNextVideoId, apiUrl, videoPath]);
 
   const handleTrigger = useCallback(
-    async (triggerType: 'gift' | 'message') => {
-      console.log(`[QUEUE] Adding action to queue: ${triggerType}`);
-      const nextId = await fetchNextVideoId(triggerType);
+    async (triggerType: 'gift' | 'message', detail?: Record<string, any>) => {
+      console.log(`[QUEUE] Adding action to queue: ${triggerType}`, detail || '');
+      const nextId = await fetchNextVideoId(triggerType, detail);
       setQueuedActionId(nextId);
     },
     [fetchNextVideoId]
@@ -380,9 +412,9 @@ export default function PersonaStudio({
 
   useEffect(() => {
     onRegisterTriggers?.({
-      gift: () => handleTrigger('gift'),
-      message: () => handleTrigger('message'),
-      reaction: () => handleTrigger('message'), 
+      gift: (data?: any) => handleTrigger('gift', data),
+      message: (data?: any) => handleTrigger('message', data),
+      reaction: (data?: any) => handleTrigger('message', data),
     });
   }, [onRegisterTriggers, handleTrigger]);
 
@@ -588,7 +620,7 @@ export default function PersonaStudio({
               disabled={isTransitioning}
               className="w-full rounded-xl border border-slate-700 bg-slate-800/50 px-4 py-3 text-xs font-medium text-white outline-none focus:border-blue-500"
             >
-              {Object.entries(videoCatalog).map(([id, video]: [string, any]) => (
+              {Object.entries(videoCatalog).map(([id, video]) => (
                 <option key={id} value={id}>{id} - {video.label}</option>
               ))}
             </select>

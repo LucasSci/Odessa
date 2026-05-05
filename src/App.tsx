@@ -29,6 +29,46 @@ export default function App() {
 
   const runtime = useAutopilotRuntime({ capturedText, setCapturedText });
 
+  const LIVE_CONFIG_KEY = 'odessa:live-config:v1';
+  type LiveConfig = {
+    voiceEnabled?: boolean;
+    enableChat?: boolean;
+  };
+  const [liveConfigOpen, setLiveConfigOpen] = useState(false);
+  const [liveConfig, setLiveConfig] = useState<LiveConfig>(() => {
+    try {
+      const raw = window.localStorage.getItem(LIVE_CONFIG_KEY);
+      return raw ? JSON.parse(raw) : { voiceEnabled: false, enableChat: false };
+    } catch {
+      return { voiceEnabled: false, enableChat: false };
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LIVE_CONFIG_KEY, JSON.stringify(liveConfig));
+    } catch {
+      // ignore
+    }
+  }, [liveConfig]);
+
+  const startLiveWithConfig = () => {
+    const toolPatches = [
+      { capability: 'tts.speak', patch: { enabled: liveConfig.voiceEnabled ?? runtime.voiceEnabled } },
+      { capability: 'chat.reply', patch: { enabled: !!liveConfig.enableChat } },
+    ];
+    // Trigger capture start (user gesture) before starting runtime
+    try {
+      window.dispatchEvent(
+        new CustomEvent('odessa:start-live', { detail: { prefer: 'monitor' } }),
+      );
+    } catch {
+      // ignore
+    }
+
+    runtime.start({ voiceEnabled: liveConfig.voiceEnabled, toolPatches });
+  };
+
   useEffect(() => {
     const handleHashChange = () => setRequestedPanel(getPanelFromHash());
     window.addEventListener('hashchange', handleHashChange);
@@ -157,12 +197,51 @@ export default function App() {
               {runtime.autopilotEnabled ? 'ativa' : 'pausada'}
             </div>
             <button className="btn btn-sm btn-ghost ml-1">Modo teste</button>
-            <button
-              onClick={runtime.autopilotEnabled ? runtime.pause : runtime.start}
-              className="btn btn-accent btn-sm"
-            >
-              {runtime.autopilotEnabled ? '⏸ Pausar Live' : '▶ Iniciar Live'}
-            </button>
+            <div className="ml-2 flex items-center gap-2">
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={() => setLiveConfigOpen((v) => !v)}
+                title="Configurar opções da Live"
+              >
+                ⚙
+              </button>
+              <button
+                onClick={runtime.autopilotEnabled ? runtime.pause : startLiveWithConfig}
+                className="btn btn-accent btn-sm"
+              >
+                {runtime.autopilotEnabled ? '⏸ Pausar Live' : '▶ Iniciar Live'}
+              </button>
+            </div>
+            {liveConfigOpen && (
+              <div className="absolute right-6 top-14 z-50 w-64 rounded-md border border-[var(--border)] bg-[var(--bg1)] p-3 shadow-lg">
+                <div className="flex flex-col gap-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={!!liveConfig.voiceEnabled}
+                      onChange={(e) => setLiveConfig((c) => ({ ...c, voiceEnabled: e.target.checked }))}
+                    />
+                    <span>Vozes IA (TTS)</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={!!liveConfig.enableChat}
+                      onChange={(e) => setLiveConfig((c) => ({ ...c, enableChat: e.target.checked }))}
+                    />
+                    <span>Interação com chat</span>
+                  </label>
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => setLiveConfigOpen(false)}
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </header>
 

@@ -23,6 +23,8 @@ describe('automationRules', () => {
       source: 'ocr',
       text: 'Rosa',
       time: '12:00',
+      createdAt: '2026-05-05T00:00:00Z',
+      zoneName: 'chat',
       metadata: { giftName: 'Rosa', user: 'Lucas', quantity: 10 },
     };
 
@@ -39,6 +41,8 @@ describe('automationRules', () => {
       source: 'ocr',
       text: 'Resgate',
       time: '12:00',
+      createdAt: '2026-05-05T00:00:00Z',
+      zoneName: 'chat',
       metadata: { redeemable: true, mappedAction: 'obs.switch_scene', requestedScene: 'Gaming' },
     };
 
@@ -57,6 +61,8 @@ describe('automationRules', () => {
       source: 'ocr',
       text: 'Rosa',
       time: '12:00',
+      createdAt: '2026-05-05T00:00:00Z',
+      zoneName: 'chat',
       metadata: { giftName: 'Rosa' },
     };
     const disabledRules = DEFAULT_AUTOMATION_RULES.map((r) => ({ ...r, enabled: false }));

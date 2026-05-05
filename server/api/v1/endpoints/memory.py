@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from server.models import MemoryRoundContextRequest
 from server.services.memory_service import memory_service
 
-router = APIRouter(prefix="/memory", tags=["Memory"])
+router = APIRouter(tags=["Memory"])
 
 @router.get("/stats")
 def get_memory_stats():

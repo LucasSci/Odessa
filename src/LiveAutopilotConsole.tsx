@@ -165,7 +165,7 @@ export default function LiveAutopilotConsole({ capturedText, runtime }: LiveAuto
   const [simSpeed, setSimSpeed] = useState<SimSpeed>('normal');
   const [simLog, setSimLog] = useState<SimLogItem[]>([]);
   const simScenarioQueueRef = useRef<SimulatedEvent[]>([]);
-  const simTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const simTimerRef = useRef<number | null>(null);
 
   const injectEvent = (kind: LiveEventKind, text: string) => {
     injectRuntimeEvent(kind, text);
@@ -570,15 +570,18 @@ export default function LiveAutopilotConsole({ capturedText, runtime }: LiveAuto
               ['Rodada', currentRoundEvents.length || pendingEvents.length, Layers],
               ['Tools', activeTools, SlidersHorizontal],
               ['Regras', activeRules, Zap],
-            ].map(([label, value, Icon]) => (
-              <div key={String(label)} className="bg-[#0B1018] p-4">
-                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
-                  <Icon className="h-4 w-4" />
-                  {label}
+            ].map(([label, value, Icon]) => {
+              const IconComp = Icon as React.ElementType;
+              return (
+                <div key={String(label)} className="bg-[#0B1018] p-4">
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
+                    <IconComp className="h-4 w-4" />
+                    {label as React.ReactNode}
+                  </div>
+                  <p className="mt-2 font-mono text-lg font-black text-white">{value as React.ReactNode}</p>
                 </div>
-                <p className="mt-2 font-mono text-lg font-black text-white">{value}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[minmax(0,1fr)_340px]">

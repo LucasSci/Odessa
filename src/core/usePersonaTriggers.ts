@@ -11,7 +11,7 @@ interface PersonaStudioTriggerConfig {
 }
 
 interface UsePersonaTriggersReturn {
-  triggerVideoTransition: (trigger: 'gift' | 'message' | 'reaction') => void;
+  triggerVideoTransition: (trigger: 'gift' | 'message' | 'reaction', data?: any) => void;
   recentEventCount: number;
 }
 
@@ -22,11 +22,11 @@ interface UsePersonaTriggersReturn {
 export function usePersonaTriggers(
   capturedText: CapturedMessage[],
   config: PersonaStudioTriggerConfig = {},
-  onTrigger?: (type: 'gift' | 'message' | 'reaction') => void,
+  onTrigger?: (type: 'gift' | 'message' | 'reaction', data?: any) => void,
 ): UsePersonaTriggersReturn {
   const {
     enableGiftTrigger = true,
-    enableMessageTrigger = true,
+    enableMessageTrigger = false,
     enableReactionTrigger = true,
     giftKeywords = ['gift', 'present', 'donate', 'doação', 'presente', 'enviar'],
     messageKeywords = [],
@@ -70,7 +70,7 @@ export function usePersonaTriggers(
     const latestMessage = capturedText[capturedText.length - 1];
     if (!latestMessage) return;
 
-    const messageId = `${latestMessage.timestamp}-${latestMessage.text}`;
+    const messageId = latestMessage.id;
 
     // Skip if already processed
     if (messageId === lastProcessedRef.current) return;
@@ -80,24 +80,38 @@ export function usePersonaTriggers(
 
     const messageText = latestMessage.text || '';
 
-    // Detect and trigger based on message content
-    if (detectGift(messageText)) {
-      onTrigger?.('gift');
-    } else if (detectReaction(messageText)) {
-      onTrigger?.('reaction');
-    } else if (enableMessageTrigger) {
+    // Prefer explicit classification
+    const isExplicitGift = latestMessage.kind === 'gift' || Boolean(latestMessage.metadata?.giftName);
+
+    if (enableGiftTrigger && (isExplicitGift || detectGift(messageText))) {
+      onTrigger?.('gift', {
+        giftName: latestMessage.metadata?.giftName || null,
+        quantity: latestMessage.metadata?.quantity || null,
+        user: latestMessage.metadata?.user || null,
+        text: messageText,
+        event: latestMessage,
+      });
+      return;
+    }
+
+    if (enableReactionTrigger && detectReaction(messageText)) {
+      onTrigger?.('reaction', { text: messageText, event: latestMessage });
+      return;
+    }
+
+    if (enableMessageTrigger) {
       const lowerText = messageText.toLowerCase();
-      const hasMessageKeyword = messageKeywords.length > 0 && messageKeywords.some(kw => lowerText.includes(kw.toLowerCase()));
-      
+      const hasMessageKeyword = messageKeywords.length > 0 && messageKeywords.some((kw) => lowerText.includes(kw.toLowerCase()));
+
       if (hasMessageKeyword || messageText.length > 25) {
-        onTrigger?.('message');
+        onTrigger?.('message', { text: messageText, event: latestMessage });
       }
     }
-  }, [capturedText, detectGift, detectReaction, enableMessageTrigger, onTrigger]);
+  }, [capturedText, detectGift, detectReaction, enableMessageTrigger, messageKeywords, onTrigger]);
 
   return {
-    triggerVideoTransition: (trigger: 'gift' | 'message' | 'reaction') => {
-      onTrigger?.(trigger);
+    triggerVideoTransition: (trigger: 'gift' | 'message' | 'reaction', data?: any) => {
+      onTrigger?.(trigger, data);
     },
     recentEventCount: capturedText.length,
   };

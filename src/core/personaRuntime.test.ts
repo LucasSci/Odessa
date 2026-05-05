@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { runPersonaRound } from './personaRuntime';
-import type { LiveEvent, PersonaRuntimeOptions } from '../types';
+import type { PersonaRuntimeOptions } from './personaRuntime';
+import type { LiveEvent } from '../types';
 
 // Mock dependencies
 vi.mock('./actionExecutor', () => ({
@@ -56,7 +57,7 @@ vi.mock('./longTermMemory', () => ({
 
 describe('personaRuntime', () => {
   const events: LiveEvent[] = [
-    { id: '1', source: 'ocr', text: 'Olá', kind: 'chat', time: '12:00:00' },
+    { id: '1', source: 'ocr', zoneName: 'chat', text: 'Olá', kind: 'chat', createdAt: '2026-05-05T00:00:00Z', time: '12:00:00' },
   ];
   const options: PersonaRuntimeOptions = {
     personaPrompt: 'You are Juju.',
@@ -79,6 +80,7 @@ describe('personaRuntime', () => {
         zoneName: 'chat',
         text: 'Olá Juju!',
         kind: 'chat',
+        createdAt: '2026-05-05T00:00:00Z',
         time: '12:00:00',
       },
     ];
@@ -116,6 +118,7 @@ describe('personaRuntime', () => {
         zoneName: 'chat',
         text: 'Olá Juju!',
         kind: 'chat',
+        createdAt: '2026-05-05T00:00:00Z',
         time: '12:00:00',
       },
     ];
@@ -188,7 +191,7 @@ describe('personaRuntime', () => {
 
   it('should record an error if a critical step fails outside local try/catches', async () => {
     const events: LiveEvent[] = [
-      { id: '3', source: 'ocr', text: 'fail', kind: 'chat', time: '12:00:00' },
+      { id: '3', source: 'ocr', zoneName: 'test', text: 'fail', kind: 'chat', createdAt: '2026-05-05T00:00:00Z', time: '12:00:00' },
     ];
 
     // Force a critical failure in classifyEvent which is not caught locally

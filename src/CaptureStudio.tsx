@@ -507,6 +507,32 @@ export default function CaptureStudio({
     };
   }, [refreshHealth]);
 
+  // Listen for start-live events to initiate capture when user clicks "Iniciar Live"
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const custom = ev as CustomEvent<{ prefer?: 'monitor' | 'window' }>;
+      const prefer = custom?.detail?.prefer || 'monitor';
+      if (status === CaptureStatus.CAPTURING) return;
+
+      // If we already have a stream, just start capturing
+      if (stream) {
+        startCapture();
+        return;
+      }
+
+      // Otherwise try to obtain a display media and start
+      selectScreen(prefer as 'monitor' | 'window')
+        .then(() => startCapture())
+        .catch((err) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          setError(`Falha ao iniciar captura: ${msg}`);
+        });
+    };
+
+    window.addEventListener('odessa:start-live', handler as EventListener);
+    return () => window.removeEventListener('odessa:start-live', handler as EventListener);
+  }, [selectScreen, startCapture, stream, status]);
+
   const pauseCapture = useCallback(() => {
     setStatus(CaptureStatus.IDLE);
     if (timerRef.current) {
