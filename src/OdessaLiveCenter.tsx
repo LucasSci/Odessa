@@ -142,6 +142,19 @@ export default function OdessaLiveCenter({
     };
   }, []);
 
+  const contentPacks = useMemo(() => {
+    const activeContent = contentItems.filter((item) => item.enabled);
+    return {
+      activeContent,
+      topics: activeContent.filter((item) => item.type === 'topic'),
+      ctas: activeContent.filter((item) => item.type === 'cta'),
+      redeems: activeContent.filter((item) => item.type === 'gift_redeem'),
+      safety: activeContent.filter((item) =>
+        ['moderation_policy', 'blocked_topic'].includes(item.type),
+      ),
+    };
+  }, [contentItems]);
+
   const view = useMemo(() => {
     const health = runtime.health;
     const backendReady = health?.status === 'ok';
@@ -153,12 +166,16 @@ export default function OdessaLiveCenter({
           ? health?.kokoro_tts_configured === true
           : backendReady;
     const ready = Boolean(backendReady && aiReady && ttsReady);
-    const lastOcr = capturedText
-      .slice()
-      .reverse()
-      .find((event) => event.source === 'ocr');
+
+    let lastOcr;
+    for (let i = capturedText.length - 1; i >= 0; i--) {
+      if (capturedText[i].source === 'ocr') {
+        lastOcr = capturedText[i];
+        break;
+      }
+    }
+
     const nextAction = selectPrimaryAction(runtime.actionQueue);
-    const activeContent = contentItems.filter((item) => item.enabled);
     const obsReady = runtime.obsScenes.length > 0 && !runtime.obsError;
 
     return {
@@ -169,16 +186,10 @@ export default function OdessaLiveCenter({
       obsReady,
       lastOcr,
       nextAction,
-      activeContent,
-      topics: contentItems.filter((item) => item.enabled && item.type === 'topic'),
-      ctas: contentItems.filter((item) => item.enabled && item.type === 'cta'),
-      redeems: contentItems.filter((item) => item.enabled && item.type === 'gift_redeem'),
-      safety: contentItems.filter(
-        (item) => item.enabled && ['moderation_policy', 'blocked_topic'].includes(item.type),
-      ),
-      tangoReady: Boolean(ready && obsReady && lastOcr && activeContent.length > 0),
+      ...contentPacks,
+      tangoReady: Boolean(ready && obsReady && lastOcr && contentPacks.activeContent.length > 0),
     };
-  }, [capturedText, contentItems, runtime, ttsSettings.provider]);
+  }, [capturedText, contentPacks, runtime, ttsSettings.provider]);
 
   return (
     <div className="content flex h-full flex-col gap-4 overflow-y-auto p-5 pb-8 lg:p-6 lg:pb-10">
