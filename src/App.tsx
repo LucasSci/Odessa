@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import OdessaLiveCenter, { type AdvancedPanel } from './OdessaLiveCenter';
+import PersonaOverlay from './PersonaOverlay';
 import { getRecentEvents, replaceEvents } from './core/eventBus';
 import { useAutopilotRuntime } from './core/useAutopilotRuntime';
 import { cn } from './lib/utils';
@@ -11,6 +12,7 @@ function getPanelFromHash(): AdvancedPanel {
   if (window.location.hash === '#persona') return 'persona';
   if (window.location.hash === '#content') return 'content';
   if (window.location.hash === '#runtime') return 'runtime';
+  if (window.location.hash === '#overlay') return 'overlay' as any;
   return 'overview';
 }
 
@@ -35,6 +37,10 @@ export default function App() {
 
   const pendingCount = runtime.currentRoundEvents.length || runtime.pendingEvents.length;
   const health = runtime.health;
+
+  if (requestedPanel === ('overlay' as any)) {
+    return <PersonaOverlay />;
+  }
 
   return (
     <div className="app flex h-screen w-screen overflow-hidden bg-[var(--bg)] text-[var(--t1)]">

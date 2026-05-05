@@ -68,6 +68,8 @@ export default defineConfig(() => {
         ignored: [
           '**/archive/**',
           '**/server/runtime/**',
+          '**/server/data/**',
+          '**/assets/videos/**',
           '**/captura_chat.txt',
           '**/regions.json',
           '**/*.log',

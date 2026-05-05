@@ -111,7 +111,10 @@ describe('actionExecutor', () => {
       createdAt: new Date().toISOString(),
     };
 
-    const result = await executeAction(action, decision, { tools: disabledTools, voiceEnabled: true });
+    const result = await executeAction(action, decision, {
+      tools: disabledTools,
+      voiceEnabled: true,
+    });
 
     expect(result.status).toBe('blocked');
     expect(result.result).toContain('Ferramenta desativada');
@@ -119,7 +122,14 @@ describe('actionExecutor', () => {
 
   it('should require approval if tool requires it', async () => {
     const approvalTools = [
-      { id: 'obs', label: 'OBS', capability: 'obs.switch_scene', enabled: true, simulated: true, requiresApproval: true },
+      {
+        id: 'obs',
+        label: 'OBS',
+        capability: 'obs.switch_scene',
+        enabled: true,
+        simulated: true,
+        requiresApproval: true,
+      },
     ];
     const action: AutopilotAction = {
       id: '4',
@@ -133,7 +143,10 @@ describe('actionExecutor', () => {
       createdAt: new Date().toISOString(),
     };
 
-    const result = await executeAction(action, decision, { tools: approvalTools, voiceEnabled: true });
+    const result = await executeAction(action, decision, {
+      tools: approvalTools,
+      voiceEnabled: true,
+    });
 
     expect(result.status).toBe('approval_required');
   });

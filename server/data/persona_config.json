@@ -1,0 +1,74 @@
+{
+  "videos": [
+    {
+      "id": "grok-5b3ca276-77ba-45f0-8d83-531b47c68858-720p",
+      "label": "Check the cell",
+      "group": "base_idle",
+      "description": "Uploaded video: grok-5b3ca276-77ba-45f0-8d83-531b47c68858-720p.mp4"
+    },
+    {
+      "id": "grok-36d81c34-d3c6-4602-8a14-0b966b7c8176-720p",
+      "label": "Tank you for the gift",
+      "group": "base_idle",
+      "description": "Uploaded video: grok-36d81c34-d3c6-4602-8a14-0b966b7c8176-720p.mp4",
+      "action_trigger": "gift"
+    },
+    {
+      "id": "grok-998cb92c-3b48-4c1a-ba60-51ffa08ae60e-720p",
+      "label": "idle loop",
+      "group": "base_idle",
+      "description": "Uploaded video: grok-998cb92c-3b48-4c1a-ba60-51ffa08ae60e-720p.mp4",
+      "loop": true,
+      "action_trigger": "idle"
+    },
+    {
+      "id": "grok-855849df-aab8-4ec5-8845-132732e358c7-720p",
+      "label": "take selfie",
+      "group": "base_idle",
+      "description": "Uploaded video: grok-855849df-aab8-4ec5-8845-132732e358c7-720p.mp4"
+    },
+    {
+      "id": "grok-10d3fee5-92c5-40be-8d01-e2c118526396-720p",
+      "label": "send kiss",
+      "group": "base_idle",
+      "description": "Uploaded video: grok-10d3fee5-92c5-40be-8d01-e2c118526396-720p.mp4"
+    },
+    {
+      "id": "grok-28ca992c-c7a5-4554-ae03-067ddeebd705-720p",
+      "label": "lendo mensagem",
+      "group": "base_idle",
+      "description": "Uploaded video: grok-28ca992c-c7a5-4554-ae03-067ddeebd705-720p.mp4",
+      "action_trigger": "message"
+    },
+    {
+      "id": "grok-9f24160a-1f10-4365-8b39-97e038e10847-720p",
+      "label": "Dizendo Oi",
+      "group": "base_idle",
+      "description": "Uploaded video: grok-9f24160a-1f10-4365-8b39-97e038e10847-720p.mp4"
+    },
+    {
+      "id": "grok-5ca32a97-ef1e-41bf-9c69-b4108a44e1f8-720p",
+      "label": "Mandando beijo",
+      "group": "base_idle",
+      "description": "Uploaded video: grok-5ca32a97-ef1e-41bf-9c69-b4108a44e1f8-720p.mp4"
+    },
+    {
+      "id": "grok-8590e5b4-afdf-4add-a3ea-2a7b864743e9-720p",
+      "label": "Vendo mensagem",
+      "group": "base_idle",
+      "description": "Uploaded video: grok-8590e5b4-afdf-4add-a3ea-2a7b864743e9-720p.mp4"
+    }
+  ],
+  "action_map": {
+    "gift": [
+      "grok-36d81c34-d3c6-4602-8a14-0b966b7c8176-720p"
+    ],
+    "message": [
+      "grok-28ca992c-c7a5-4554-ae03-067ddeebd705-720p"
+    ],
+    "idle": [
+      "grok-998cb92c-3b48-4c1a-ba60-51ffa08ae60e-720p"
+    ]
+  },
+  "transitions": {}
+}

@@ -2,7 +2,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from server.routes import ocr, ai, tts, memory, misc
+from server.routes import ocr, ai, tts, memory, misc, video
 
 # Logging configuration
 logging.basicConfig(
@@ -35,6 +35,7 @@ app.include_router(ai.router)
 app.include_router(tts.router)
 app.include_router(memory.router)
 app.include_router(misc.router)
+app.include_router(video.router)
 
 @app.on_event("startup")
 async def startup_event():

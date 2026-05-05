@@ -52,8 +52,64 @@ O foco atual do projeto e a aplicacao React existente com um backend local Pytho
 - `npm run dev:api`: backend em `http://localhost:8000`.
 - `npm run dev:n8n`: n8n local em `http://localhost:5678`.
 - `npm run lint`: TypeScript sem emissao.
+- `npm run format`: formata código TypeScript.
 - `npm run build`: build de producao.
 - `npm run clean`: remove `dist`.
+- `npm run test`: testes Vitest (frontend).
+- `npm run test:watch`: testes em modo watch.
+- `npm run test:coverage`: coverage frontend.
+
+## Testing
+
+### Backend (Python/Pytest)
+
+```bash
+# Rodar todos os testes
+venv\Scripts\python.exe -m pytest tests/ -v
+
+# Rodar com coverage
+venv\Scripts\python.exe -m pytest tests/ --cov=server --cov-report=html
+
+# Rodar testes específicos
+venv\Scripts\python.exe -m pytest tests/test_health.py -v
+```
+
+**Testes disponíveis:**
+
+- `test_health.py`: Validação do endpoint `/health`
+- `test_ocr.py`: Testes do endpoint `/ocr` e processamento OCR
+- `test_ai.py`: Testes dos endpoints `/ai/respond` e `/ai/decide`
+- `test_tts.py`: Testes dos endpoints `/tts` e síntese de voz
+
+**Coverage atual:** 64% (15+ testes passando)
+
+### Frontend (TypeScript/Vitest)
+
+```bash
+# Rodar todos os testes
+npm run test
+
+# Modo watch para desenvolvimento
+npm run test:watch
+
+# Com coverage
+npm run test:coverage
+```
+
+**Testes criados:**
+
+- `src/core/eventClassifier.test.ts` - Classificação de eventos
+- `src/core/personaRuntime.test.ts` - Runtime de persona
+- `src/core/actionExecutor.test.ts` - Executor de ações
+- `src/core/toolRegistry.test.ts` - Registry de tools
+- `src/core/longTermMemory.test.ts` - Memória de longo prazo
+- `src/core/moodEngine.test.ts` - Motor de mood
+- `src/core/automationRules.test.ts` - Regras de automação
+- `src/core/contentLibrary.test.ts` - Biblioteca de conteúdo
+
+Relatório de coverage HTML gerado em `htmlcov/` (backend) e após `npm run test:coverage` (frontend).
+
+Veja [TESTING.md](TESTING.md) para guia detalhado sobre escrita e manutenção de testes.
 
 ## Areas do app
 

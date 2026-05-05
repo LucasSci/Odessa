@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import {
   Activity,
@@ -13,14 +13,18 @@ import {
   ShieldCheck,
   Wand2,
   Zap,
+  Video,
 } from 'lucide-react';
 import AIPersonaTrainer from './AIPersonaTrainer';
+import PersonaStudio from './PersonaStudio';
 import CaptureStudio from './CaptureStudio';
 import ContentLibrary from './ContentLibrary';
 import LiveAutopilotConsole from './LiveAutopilotConsole';
 import { loadContentItems } from './core/contentLibrary';
+import { usePersonaTriggers } from './core/usePersonaTriggers';
 import type { AutopilotRuntimeState } from './core/useAutopilotRuntime';
 import { cn } from './lib/utils';
+import { apiUrl } from './lib/api';
 import { loadTtsSettings, type TtsSettings } from './lib/ttsSettings';
 import type { AutopilotAction, CapturedMessage, ContentItem } from './types';
 
@@ -79,10 +83,36 @@ export default function OdessaLiveCenter({
   requestedPanel,
 }: OdessaLiveCenterProps) {
   const [activeTab, setActiveTab] = useState<
-    'studio' | 'signals' | 'persona' | 'content' | 'actions' | 'audit'
+    'studio' | 'signals' | 'persona' | 'persona-studio' | 'content' | 'actions' | 'audit'
   >(() => panelToTab(requestedPanel));
   const [contentItems, setContentItems] = useState<ContentItem[]>(() => loadContentItems());
   const [ttsSettings, setTtsSettings] = useState<TtsSettings>(() => loadTtsSettings());
+  const [videoTransitionCallback, setVideoTransitionCallback] = useState<{
+    gift: () => void;
+    message: () => void;
+    reaction: () => void;
+  } | null>(null);
+  const [personaConfig, setPersonaConfig] = useState<any>(null);
+
+  useEffect(() => {
+    fetch(apiUrl('/api/video/config'))
+      .then(res => res.json())
+      .then(setPersonaConfig)
+      .catch(console.error);
+  }, []);
+
+  // Setup triggers for video transitions based on chat events
+  usePersonaTriggers(capturedText, {
+    enableGiftTrigger: true,
+    enableMessageTrigger: true,
+    enableReactionTrigger: true,
+    giftKeywords: personaConfig?.triggers?.gift_keywords,
+    messageKeywords: personaConfig?.triggers?.message_keywords,
+  }, (type) => {
+    if (videoTransitionCallback && videoTransitionCallback[type]) {
+      videoTransitionCallback[type]();
+    }
+  });
 
   useEffect(() => {
     const handleContentChange = (event: Event) => {
@@ -241,6 +271,12 @@ export default function OdessaLiveCenter({
                 onClick={() => setActiveTab('persona')}
                 label="Odessa"
                 icon={<Bot className="h-3.5 w-3.5" />}
+              />
+              <TabButton
+                active={activeTab === 'persona-studio'}
+                onClick={() => setActiveTab('persona-studio')}
+                label="Studio Video"
+                icon={<Video className="h-3.5 w-3.5" />}
               />
               <TabButton
                 active={activeTab === 'content'}
@@ -513,6 +549,15 @@ export default function OdessaLiveCenter({
               />
             ) : activeTab === 'persona' ? (
               <AIPersonaTrainer capturedText={capturedText} />
+            ) : activeTab === 'persona-studio' ? (
+              <PersonaStudio
+                videoPath="/api/video/play/"
+                onVideoChange={(videoId) => {
+                  console.log(`[Persona Studio] Video changed to: ${videoId}`);
+                }}
+                autoPlayNext={true}
+                onRegisterTriggers={setVideoTransitionCallback}
+              />
             ) : activeTab === 'content' ? (
               <ContentLibrary />
             ) : (
@@ -609,6 +654,7 @@ function PautaItem({
   color,
   urgent,
 }: {
+  key?: string;
   item: ContentItem;
   color: string;
   urgent?: boolean;

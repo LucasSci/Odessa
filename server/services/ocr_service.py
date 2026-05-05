@@ -7,9 +7,8 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
 import numpy as np
-import pyautogui
 import easyocr
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageGrab, UnidentifiedImageError
 from fastapi import HTTPException
 
 from server.models import RegionRequest
@@ -60,10 +59,27 @@ class OCRService:
 
         self.validate_ocr_dimensions(request.width, request.height)
 
-        screenshot = pyautogui.screenshot(
-            region=(request.x, request.y, request.width, request.height)
-        )
-        return np.array(screenshot)
+        # Use PIL.ImageGrab for robust capture that works even when window is not focused
+        # This is crucial for persistent OCR during tab switching
+        try:
+            screenshot = ImageGrab.grab(
+                bbox=(request.x, request.y, request.x + request.width, request.y + request.height)
+            )
+            logger.debug(f"Successfully captured region via PIL.ImageGrab: ({request.x}, {request.y}, {request.width}x{request.height})")
+            return np.array(screenshot.convert("RGB"))
+        except Exception as grab_error:
+            logger.warning(f"PIL.ImageGrab failed, attempting fallback: {grab_error}")
+            # Fallback to full desktop screenshot if region capture fails
+            try:
+                full_screenshot = ImageGrab.grab()
+                # Crop to requested region
+                cropped = full_screenshot.crop(
+                    (request.x, request.y, request.x + request.width, request.y + request.height)
+                )
+                return np.array(cropped.convert("RGB"))
+            except Exception as fallback_error:
+                logger.error(f"Both PIL.ImageGrab methods failed: {fallback_error}", exc_info=True)
+                raise HTTPException(status_code=500, detail="Screenshot capture failed") from fallback_error
 
     def get_new_text(self, prev_text: str, current_text: str) -> str:
         """Simple diff to get new content. In a real scenario, this could be more complex."""
