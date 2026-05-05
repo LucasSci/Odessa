@@ -368,7 +368,7 @@ function SliderControl({
   );
 }
 
-export default function CaptureStudio({
+const CaptureStudio = React.memo(function CaptureStudio({
   capturedText,
   setCapturedText,
   autopilotEnabled = false,
@@ -421,14 +421,17 @@ export default function CaptureStudio({
   const zones = useMemo(() => activePreset?.zones || [], [activePreset?.zones]);
   const activeZone = zones[activeZoneIndex] || zones[0];
 
-  const successfulEvents = captureEvents.filter((event) => event.routeStatus === 'sent');
+  // ⚡ Bolt: Memoize expensive array operations to prevent recalculation on every render
+  const successfulEvents = useMemo(() => captureEvents.filter((event) => event.routeStatus === 'sent'), [captureEvents]);
   const lastEvent = captureEvents[captureEvents.length - 1];
-  const averageConfidence =
+  const averageConfidence = useMemo(() =>
     successfulEvents.reduce((sum, event) => sum + (event.confidence ?? 0), 0) /
-    Math.max(1, successfulEvents.filter((event) => event.confidence !== null).length);
-  const averageLatency =
+    Math.max(1, successfulEvents.filter((event) => event.confidence !== null).length)
+  , [successfulEvents]);
+  const averageLatency = useMemo(() =>
     successfulEvents.reduce((sum, event) => sum + (event.latencyMs ?? 0), 0) /
-    Math.max(1, successfulEvents.filter((event) => event.latencyMs !== null).length);
+    Math.max(1, successfulEvents.filter((event) => event.latencyMs !== null).length)
+  , [successfulEvents]);
   const backendOnline = backendHealth?.status === 'ok' && !healthError;
 
   const updateActivePresetZones = useCallback(
@@ -506,6 +509,32 @@ export default function CaptureStudio({
       window.clearInterval(interval);
     };
   }, [refreshHealth]);
+
+  // Listen for start-live events to initiate capture when user clicks "Iniciar Live"
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const custom = ev as CustomEvent<{ prefer?: 'monitor' | 'window' }>;
+      const prefer = custom?.detail?.prefer || 'monitor';
+      if (status === CaptureStatus.CAPTURING) return;
+
+      // If we already have a stream, just start capturing
+      if (stream) {
+        startCapture();
+        return;
+      }
+
+      // Otherwise try to obtain a display media and start
+      selectScreen(prefer as 'monitor' | 'window')
+        .then(() => startCapture())
+        .catch((err) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          setError(`Falha ao iniciar captura: ${msg}`);
+        });
+    };
+
+    window.addEventListener('odessa:start-live', handler as EventListener);
+    return () => window.removeEventListener('odessa:start-live', handler as EventListener);
+  }, [selectScreen, startCapture, stream, status]);
 
   const pauseCapture = useCallback(() => {
     setStatus(CaptureStatus.IDLE);
@@ -1540,4 +1569,6 @@ export default function CaptureStudio({
       <canvas ref={captureCanvasRef} className="hidden" />
     </main>
   );
-}
+});
+
+export default CaptureStudio;

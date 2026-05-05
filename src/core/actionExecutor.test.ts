@@ -26,9 +26,9 @@ global.URL.revokeObjectURL = vi.fn();
 
 describe('actionExecutor', () => {
   const tools: PersonaTool[] = [
-    { id: 'tts', label: 'TTS', capability: 'tts.speak', enabled: true, simulated: false },
-    { id: 'chat', label: 'Chat', capability: 'chat.reply', enabled: true, simulated: true },
-    { id: 'obs', label: 'OBS', capability: 'obs.switch_scene', enabled: true, simulated: true },
+    { id: 'tts', label: 'TTS', capability: 'tts.speak', enabled: true, simulated: false, requiresApproval: false },
+    { id: 'chat', label: 'Chat', capability: 'chat.reply', enabled: true, simulated: true, requiresApproval: false },
+    { id: 'obs', label: 'OBS', capability: 'obs.switch_scene', enabled: true, simulated: true, requiresApproval: false },
   ];
 
   const decision: PersonaDecision = {
@@ -96,8 +96,8 @@ describe('actionExecutor', () => {
   });
 
   it('should block execution if tool is disabled', async () => {
-    const disabledTools = [
-      { id: 'tts', label: 'TTS', capability: 'tts.speak', enabled: false, simulated: false },
+    const disabledTools: PersonaTool[] = [
+      { id: 'tts', label: 'TTS', capability: 'tts.speak', enabled: false, simulated: false, requiresApproval: false },
     ];
     const action: AutopilotAction = {
       id: '3',
@@ -111,15 +111,25 @@ describe('actionExecutor', () => {
       createdAt: new Date().toISOString(),
     };
 
-    const result = await executeAction(action, decision, { tools: disabledTools, voiceEnabled: true });
+    const result = await executeAction(action, decision, {
+      tools: disabledTools,
+      voiceEnabled: true,
+    });
 
     expect(result.status).toBe('blocked');
     expect(result.result).toContain('Ferramenta desativada');
   });
 
   it('should require approval if tool requires it', async () => {
-    const approvalTools = [
-      { id: 'obs', label: 'OBS', capability: 'obs.switch_scene', enabled: true, simulated: true, requiresApproval: true },
+    const approvalTools: PersonaTool[] = [
+      {
+        id: 'obs',
+        label: 'OBS',
+        capability: 'obs.switch_scene',
+        enabled: true,
+        simulated: true,
+        requiresApproval: true,
+      },
     ];
     const action: AutopilotAction = {
       id: '4',
@@ -133,7 +143,10 @@ describe('actionExecutor', () => {
       createdAt: new Date().toISOString(),
     };
 
-    const result = await executeAction(action, decision, { tools: approvalTools, voiceEnabled: true });
+    const result = await executeAction(action, decision, {
+      tools: approvalTools,
+      voiceEnabled: true,
+    });
 
     expect(result.status).toBe('approval_required');
   });

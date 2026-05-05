@@ -2,7 +2,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from server.routes import ocr, ai, tts, memory, misc
+from server.api.v1.api import api_router
 
 # Logging configuration
 logging.basicConfig(
@@ -13,33 +13,31 @@ logger = logging.getLogger("odessa")
 
 app = FastAPI(
     title="Odessa API",
-    description="Modular backend for the Odessa AI Streamer Persona",
-    version="1.0.0"
+    description="Professional backend for the Odessa AI Streamer Persona",
+    version="1.1.0"
 )
 
 # CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=["*"], # Expand for development, restrict in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include Routers
-app.include_router(ocr.router)
-app.include_router(ai.router)
-app.include_router(tts.router)
-app.include_router(memory.router)
-app.include_router(misc.router)
+# Include Modular API Routers
+app.include_router(api_router, prefix="/api/v1")
+
+# Health check at root
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "version": "1.1.0", "service": "odessa-api"}
 
 @app.on_event("startup")
 async def startup_event():
-    logger.info("Odessa Backend starting up...")
-    # Initialize services if needed (most are singletons initialized on import)
+    logger.info("Odessa Backend v1.1.0 starting up...")
+    logger.info("Modular API mounted at /api/v1")
     logger.info("Odessa Backend is ready.")
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ describe('MoodEngine', () => {
 
   it('should increase hype with gift events', () => {
     const events: LiveEvent[] = [
-      { id: '1', kind: 'gift', source: 'ocr', text: 'Rosa', time: '12:00' }
+      { id: '1', kind: 'gift', source: 'ocr', zoneName: 'chat', text: 'Rosa', createdAt: '2026-05-05T00:00:00Z', time: '12:00' },
     ];
     engine.processEvents(events);
     const mood = engine.getCurrentMood();
@@ -30,8 +30,8 @@ describe('MoodEngine', () => {
 
   it('should reach focused state with two gifts', () => {
     const events: LiveEvent[] = [
-      { id: '1', kind: 'gift', source: 'ocr', text: 'Rosa', time: '12:00' },
-      { id: '2', kind: 'gift', source: 'ocr', text: 'Rosa', time: '12:00' }
+      { id: '1', kind: 'gift', source: 'ocr', zoneName: 'chat', text: 'Rosa', createdAt: '2026-05-05T00:00:00Z', time: '12:00' },
+      { id: '2', kind: 'gift', source: 'ocr', zoneName: 'chat', text: 'Rosa', createdAt: '2026-05-05T00:00:00Z', time: '12:00' },
     ];
     engine.processEvents(events); // 2 * 25 = 50 hype
     const mood = engine.getCurrentMood();
@@ -41,10 +41,10 @@ describe('MoodEngine', () => {
 
   it('should reach hype state with four gifts', () => {
     const events: LiveEvent[] = [
-      { id: '1', kind: 'gift', source: 'ocr', text: 'Rosa', time: '12:00' },
-      { id: '2', kind: 'gift', source: 'ocr', text: 'Rosa', time: '12:00' },
-      { id: '3', kind: 'gift', source: 'ocr', text: 'Rosa', time: '12:00' },
-      { id: '4', kind: 'gift', source: 'ocr', text: 'Rosa', time: '12:00' }
+      { id: '1', kind: 'gift', source: 'ocr', zoneName: 'chat', text: 'Rosa', createdAt: '2026-05-05T00:00:00Z', time: '12:00' },
+      { id: '2', kind: 'gift', source: 'ocr', zoneName: 'chat', text: 'Rosa', createdAt: '2026-05-05T00:00:00Z', time: '12:00' },
+      { id: '3', kind: 'gift', source: 'ocr', zoneName: 'chat', text: 'Rosa', createdAt: '2026-05-05T00:00:00Z', time: '12:00' },
+      { id: '4', kind: 'gift', source: 'ocr', zoneName: 'chat', text: 'Rosa', createdAt: '2026-05-05T00:00:00Z', time: '12:00' },
     ];
     engine.processEvents(events); // 4 * 25 = 100 hype
     const mood = engine.getCurrentMood();
@@ -55,14 +55,16 @@ describe('MoodEngine', () => {
   it('should decrease hype with moderation events', () => {
     // Set 50 hype (focused)
     engine.processEvents([
-      { id: '1', kind: 'gift', source: 'ocr', text: 'Rosa', time: '12:00' },
-      { id: '2', kind: 'gift', source: 'ocr', text: 'Rosa', time: '12:00' }
+      { id: '1', kind: 'gift', source: 'ocr', zoneName: 'chat', text: 'Rosa', createdAt: '2026-05-05T00:00:00Z', time: '12:00' },
+      { id: '2', kind: 'gift', source: 'ocr', zoneName: 'chat', text: 'Rosa', createdAt: '2026-05-05T00:00:00Z', time: '12:00' },
     ]);
     let mood = engine.getCurrentMood();
     expect(mood.state).toBe('focused');
 
     // Add moderation event (-10 hype) -> 40 hype
-    engine.processEvents([{ id: '3', kind: 'moderation', source: 'ocr', text: 'Spam', time: '12:00' }]);
+    engine.processEvents([
+      { id: '3', kind: 'moderation', source: 'ocr', zoneName: 'chat', text: 'Spam', createdAt: '2026-05-05T00:00:00Z', time: '12:00' },
+    ]);
     mood = engine.getCurrentMood();
     // 40 is not > 40, so it falls back to cozy
     expect(mood.state).toBe('cozy');
@@ -70,13 +72,13 @@ describe('MoodEngine', () => {
 
   it('should decay hype over time', () => {
     // Set 100 hype
-    engine.processEvents(Array(4).fill({ kind: 'gift' }));
+    engine.processEvents(Array(4).fill({ id: '0', kind: 'gift', source: 'ocr', zoneName: 'chat', text: 'Rosa', createdAt: '2026-05-05T00:00:00Z', time: '12:00' }));
     expect(engine.getCurrentMood().state).toBe('hype');
 
     // Fast forward 10 minutes (should lose 50 points)
     vi.advanceTimersByTime(10 * 60 * 1000);
     engine.processEvents([]); // Trigger decay calculation
-    
+
     const mood = engine.getCurrentMood();
     expect(mood.state).toBe('focused'); // 100 - 50 = 50
   });

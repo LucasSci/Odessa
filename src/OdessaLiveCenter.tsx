@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import {
   Activity,
@@ -13,14 +13,18 @@ import {
   ShieldCheck,
   Wand2,
   Zap,
+  Video,
 } from 'lucide-react';
 import AIPersonaTrainer from './AIPersonaTrainer';
+import PersonaStudio from './PersonaStudio';
 import CaptureStudio from './CaptureStudio';
 import ContentLibrary from './ContentLibrary';
 import LiveAutopilotConsole from './LiveAutopilotConsole';
 import { loadContentItems } from './core/contentLibrary';
+import { usePersonaTriggers } from './core/usePersonaTriggers';
 import type { AutopilotRuntimeState } from './core/useAutopilotRuntime';
 import { cn } from './lib/utils';
+import { apiUrl } from './lib/api';
 import { loadTtsSettings, type TtsSettings } from './lib/ttsSettings';
 import type { AutopilotAction, CapturedMessage, ContentItem } from './types';
 
@@ -79,10 +83,47 @@ export default function OdessaLiveCenter({
   requestedPanel,
 }: OdessaLiveCenterProps) {
   const [activeTab, setActiveTab] = useState<
-    'studio' | 'signals' | 'persona' | 'content' | 'actions' | 'audit'
+    'studio' | 'signals' | 'persona' | 'persona-studio' | 'content' | 'actions' | 'audit'
   >(() => panelToTab(requestedPanel));
   const [contentItems, setContentItems] = useState<ContentItem[]>(() => loadContentItems());
   const [ttsSettings, setTtsSettings] = useState<TtsSettings>(() => loadTtsSettings());
+  const [videoTransitionCallback, setVideoTransitionCallback] = useState<{
+    gift: (data?: any) => void;
+    message: (data?: any) => void;
+    reaction: (data?: any) => void;
+  } | null>(null);
+  const [personaConfig, setPersonaConfig] = useState<any>(null);
+
+  useEffect(() => {
+    fetch(apiUrl('/api/video/config'))
+      .then(res => res.json())
+      .then(setPersonaConfig)
+      .catch(console.error);
+  }, []);
+
+  // Setup triggers for video transitions based on chat events
+  usePersonaTriggers(
+    capturedText,
+    {
+      enableGiftTrigger: true,
+      enableMessageTrigger: Boolean(
+        personaConfig?.triggers && Array.isArray(personaConfig.triggers.message_keywords) &&
+          personaConfig.triggers.message_keywords.length > 0,
+      ),
+      enableReactionTrigger: true,
+      giftKeywords: personaConfig?.triggers?.gift_keywords,
+      messageKeywords: personaConfig?.triggers?.message_keywords,
+    },
+    (type, data) => {
+      if (videoTransitionCallback && videoTransitionCallback[type]) {
+        try {
+          videoTransitionCallback[type](data);
+        } catch (err) {
+          console.error('[Trigger] videoTransitionCallback error', err);
+        }
+      }
+    },
+  );
 
   useEffect(() => {
     const handleContentChange = (event: Event) => {
@@ -242,31 +283,37 @@ export default function OdessaLiveCenter({
                 icon={<LayoutDashboard className="h-3.5 w-3.5" />}
               />
               <TabButton
-                active={activeTab === 'signals'}
+                active={(activeTab as string) === 'signals'}
                 onClick={() => setActiveTab('signals')}
                 label="Sinais"
                 icon={<RadioTower className="h-3.5 w-3.5" />}
               />
               <TabButton
-                active={activeTab === 'persona'}
+                active={(activeTab as string) === 'persona'}
                 onClick={() => setActiveTab('persona')}
                 label="Odessa"
                 icon={<Bot className="h-3.5 w-3.5" />}
               />
               <TabButton
-                active={activeTab === 'content'}
+                active={(activeTab as string) === 'persona-studio'}
+                onClick={() => setActiveTab('persona-studio')}
+                label="Studio Video"
+                icon={<Video className="h-3.5 w-3.5" />}
+              />
+              <TabButton
+                active={(activeTab as string) === 'content'}
                 onClick={() => setActiveTab('content')}
                 label="Conteúdo"
                 icon={<BookOpen className="h-3.5 w-3.5" />}
               />
               <TabButton
-                active={activeTab === 'actions'}
+                active={(activeTab as string) === 'actions'}
                 onClick={() => setActiveTab('actions')}
                 label="Ações"
                 icon={<Zap className="h-3.5 w-3.5" />}
               />
               <TabButton
-                active={activeTab === 'audit'}
+                active={(activeTab as string) === 'audit'}
                 onClick={() => setActiveTab('audit')}
                 label="Auditoria"
                 icon={<ClipboardList className="h-3.5 w-3.5" />}
@@ -524,6 +571,15 @@ export default function OdessaLiveCenter({
               />
             ) : activeTab === 'persona' ? (
               <AIPersonaTrainer capturedText={capturedText} />
+            ) : activeTab === 'persona-studio' ? (
+              <PersonaStudio
+                videoPath="/api/video/play/"
+                onVideoChange={(videoId) => {
+                  console.log(`[Persona Studio] Video changed to: ${videoId}`);
+                }}
+                autoPlayNext={true}
+                onRegisterTriggers={setVideoTransitionCallback}
+              />
             ) : activeTab === 'content' ? (
               <ContentLibrary />
             ) : (
@@ -620,6 +676,7 @@ function PautaItem({
   color,
   urgent,
 }: {
+  key?: string;
   item: ContentItem;
   color: string;
   urgent?: boolean;

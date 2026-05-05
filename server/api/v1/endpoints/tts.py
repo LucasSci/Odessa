@@ -12,7 +12,7 @@ from server.config import (
 from server.services.tts_service import tts_service
 from server.services.ai_service import ai_service
 
-router = APIRouter(prefix="/tts", tags=["TTS"])
+router = APIRouter(tags=["TTS"])
 logger = logging.getLogger("odessa.routes.tts")
 
 @router.post("")

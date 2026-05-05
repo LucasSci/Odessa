@@ -1,11 +1,8 @@
 @import 'tailwindcss';
 
-@theme {
+:root {
   --font-sans: 'Inter', 'Helvetica Neue', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Courier New', ui-monospace, SFMono-Regular, monospace;
-}
-
-:root {
   --bg: #080810;
   --bg1: #0d0d18;
   --bg2: #12121f;

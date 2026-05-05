@@ -1,10 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { 
-  applyAutomationRules, 
-  loadAutomationRules, 
-  saveAutomationRules,
+import {
+  applyAutomationRules,
+  loadAutomationRules,
   updateAutomationRule,
-  DEFAULT_AUTOMATION_RULES 
+  DEFAULT_AUTOMATION_RULES,
 } from './automationRules';
 import type { LiveEvent } from '../types';
 
@@ -24,9 +23,11 @@ describe('automationRules', () => {
       source: 'ocr',
       text: 'Rosa',
       time: '12:00',
-      metadata: { giftName: 'Rosa', user: 'Lucas', quantity: 10 }
+      createdAt: '2026-05-05T00:00:00Z',
+      zoneName: 'chat',
+      metadata: { giftName: 'Rosa', user: 'Lucas', quantity: 10 },
     };
-    
+
     const matches = applyAutomationRules(event, DEFAULT_AUTOMATION_RULES);
     expect(matches.length).toBeGreaterThan(0);
     expect(matches[0].rule.id).toBe('rule-gift-rose');
@@ -40,18 +41,31 @@ describe('automationRules', () => {
       source: 'ocr',
       text: 'Resgate',
       time: '12:00',
-      metadata: { redeemable: true, mappedAction: 'obs.switch_scene', requestedScene: 'Gaming' }
+      createdAt: '2026-05-05T00:00:00Z',
+      zoneName: 'chat',
+      metadata: { redeemable: true, mappedAction: 'obs.switch_scene', requestedScene: 'Gaming' },
     };
-    
+
     const matches = applyAutomationRules(event, DEFAULT_AUTOMATION_RULES);
-    const redeemMatch = matches.find(m => m.rule.id === 'rule-redeem-scene');
+    const redeemMatch = matches.find((m) => m.rule.id === 'rule-redeem-scene');
     expect(redeemMatch).toBeDefined();
-    expect(redeemMatch?.actions.find(a => a.type === 'switch_scene')?.payload.scene).toBe('Gaming');
+    expect(redeemMatch?.actions.find((a) => a.type === 'switch_scene')?.payload.scene).toBe(
+      'Gaming',
+    );
   });
 
   it('should not match if rule is disabled', () => {
-    const event: LiveEvent = { id: '1', kind: 'gift', source: 'ocr', text: 'Rosa', time: '12:00', metadata: { giftName: 'Rosa' } };
-    const disabledRules = DEFAULT_AUTOMATION_RULES.map(r => ({ ...r, enabled: false }));
+    const event: LiveEvent = {
+      id: '1',
+      kind: 'gift',
+      source: 'ocr',
+      text: 'Rosa',
+      time: '12:00',
+      createdAt: '2026-05-05T00:00:00Z',
+      zoneName: 'chat',
+      metadata: { giftName: 'Rosa' },
+    };
+    const disabledRules = DEFAULT_AUTOMATION_RULES.map((r) => ({ ...r, enabled: false }));
     const matches = applyAutomationRules(event, disabledRules);
     expect(matches.length).toBe(0);
   });
@@ -60,13 +74,15 @@ describe('automationRules', () => {
     const saved = [{ id: 'rule-gift-rose', enabled: false }];
     (localStorage.getItem as any).mockReturnValue(JSON.stringify(saved));
     const rules = loadAutomationRules();
-    const roseRule = rules.find(r => r.id === 'rule-gift-rose');
+    const roseRule = rules.find((r) => r.id === 'rule-gift-rose');
     expect(roseRule?.enabled).toBe(false);
   });
 
   it('should update and save a rule', () => {
-    const nextRules = updateAutomationRule(DEFAULT_AUTOMATION_RULES, 'rule-gift-rose', { enabled: false });
-    expect(nextRules.find(r => r.id === 'rule-gift-rose')?.enabled).toBe(false);
+    const nextRules = updateAutomationRule(DEFAULT_AUTOMATION_RULES, 'rule-gift-rose', {
+      enabled: false,
+    });
+    expect(nextRules.find((r) => r.id === 'rule-gift-rose')?.enabled).toBe(false);
     expect(localStorage.setItem).toHaveBeenCalled();
   });
 });

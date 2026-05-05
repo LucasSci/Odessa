@@ -11,6 +11,7 @@ describe('eventClassifier', () => {
       text: 'Olá Juju!',
       kind: 'chat',
       time: '12:00:00',
+      createdAt: '2026-05-05T00:00:00Z',
     };
     const classified = classifyEvent(event);
     expect(classified.kind).toBe('chat');
@@ -25,6 +26,7 @@ describe('eventClassifier', () => {
       text: '@lucas: Oi Juju',
       kind: 'chat',
       time: '12:00:01',
+      createdAt: '2026-05-05T00:00:00Z',
     };
     const classified = classifyEvent(event);
     expect(classified.metadata?.user).toBe('lucas');
@@ -38,6 +40,7 @@ describe('eventClassifier', () => {
       text: 'Lucas enviou Rosa x10',
       kind: 'chat',
       time: '12:00:02',
+      createdAt: '2026-05-05T00:00:00Z',
     };
     const classified = classifyEvent(event);
     expect(classified.kind).toBe('gift');
@@ -54,6 +57,7 @@ describe('eventClassifier', () => {
       text: 'Lucas resgatou: trocar cena Gameplay Focus',
       kind: 'chat',
       time: '12:00:03',
+      createdAt: '2026-05-05T00:00:00Z',
     };
     const classified = classifyEvent(event);
     expect(classified.kind).toBe('gift');
@@ -70,6 +74,7 @@ describe('eventClassifier', () => {
       text: 'tocar: Sweet Child O Mine',
       kind: 'chat',
       time: '12:00:04',
+      createdAt: '2026-05-05T00:00:00Z',
     };
     const classified = classifyEvent(event);
     expect(classified.metadata?.mappedAction).toBe('media.play_music');
@@ -84,6 +89,7 @@ describe('eventClassifier', () => {
       text: 'Para de fazer spam!',
       kind: 'chat',
       time: '12:00:05',
+      createdAt: '2026-05-05T00:00:00Z',
     };
     const classified = classifyEvent(event);
     expect(classified.kind).toBe('moderation');
@@ -97,6 +103,7 @@ describe('eventClassifier', () => {
       text: 'OCR: @lucas: Mensagem limpa',
       kind: 'chat',
       time: '12:00:06',
+      createdAt: '2026-05-05T00:00:00Z',
     };
     const classified = classifyEvent(event);
     expect(classified.text).toBe('@lucas: Mensagem limpa');

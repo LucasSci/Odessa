@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { 
-  loadToolRegistry, 
-  saveToolRegistry, 
-  updateToolRegistry, 
+import {
+  loadToolRegistry,
+  saveToolRegistry,
+  updateToolRegistry,
   findTool,
   capabilityForAction,
-  DEFAULT_TOOLS
+  DEFAULT_TOOLS,
 } from './toolRegistry';
 import type { PersonaTool } from '../types';
 
@@ -27,26 +27,29 @@ describe('toolRegistry', () => {
   });
 
   it('should load tools from localStorage and merge with defaults', () => {
-    const savedTools = [
-      { capability: 'tts.speak', enabled: false }
-    ];
+    const savedTools = [{ capability: 'tts.speak', enabled: false }];
     (localStorage.getItem as any).mockReturnValue(JSON.stringify(savedTools));
-    
+
     const tools = loadToolRegistry();
-    const ttsTool = tools.find(t => t.capability === 'tts.speak');
+    const ttsTool = tools.find((t) => t.capability === 'tts.speak');
     expect(ttsTool?.enabled).toBe(false);
   });
 
   it('should save tools to localStorage', () => {
-    const toolsToSave: PersonaTool[] = [{ id: '1', label: 'T', capability: 'tts.speak', enabled: true, simulated: false }];
+    const toolsToSave: PersonaTool[] = [
+      { id: '1', label: 'T', capability: 'tts.speak', enabled: true, simulated: false, requiresApproval: false },
+    ];
     saveToolRegistry(toolsToSave);
-    expect(localStorage.setItem).toHaveBeenCalledWith(expect.any(String), JSON.stringify(toolsToSave));
+    expect(localStorage.setItem).toHaveBeenCalledWith(
+      expect.any(String),
+      JSON.stringify(toolsToSave),
+    );
   });
 
   it('should update a tool in the registry', () => {
     const initialTools = [...DEFAULT_TOOLS];
     const nextTools = updateToolRegistry(initialTools, 'tts.speak', { enabled: false });
-    const ttsTool = nextTools.find(t => t.capability === 'tts.speak');
+    const ttsTool = nextTools.find((t) => t.capability === 'tts.speak');
     expect(ttsTool?.enabled).toBe(false);
     expect(localStorage.setItem).toHaveBeenCalled();
   });

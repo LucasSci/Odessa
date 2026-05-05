@@ -23,7 +23,7 @@ describe('LongTermMemoryManager', () => {
     manager.storeFact('user1', 'comida', 'gosta de pizza');
     manager.storeFact('user1', 'comida', 'gosta de pizza');
     const context = manager.retrieveContext(['user1']);
-    const lines = context.split('\n').filter(l => l.startsWith('- '));
+    const lines = context.split('\n').filter((l) => l.startsWith('- '));
     expect(lines.length).toBe(1);
   });
 
@@ -50,7 +50,7 @@ describe('LongTermMemoryManager', () => {
   it('should load from localStorage on creation', () => {
     const savedFacts = [{ userId: 'user1', topic: 'T', content: 'C', id: '1', timestamp: '2026' }];
     (localStorage.getItem as any).mockReturnValue(JSON.stringify(savedFacts));
-    
+
     const newManager = new LongTermMemoryManager();
     const context = newManager.retrieveContext(['user1']);
     expect(context).toContain('C');

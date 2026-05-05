@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { runPersonaRound } from './personaRuntime';
-import type { LiveEvent, PersonaRuntimeOptions } from '../types';
+import type { PersonaRuntimeOptions } from './personaRuntime';
+import type { LiveEvent } from '../types';
 
 // Mock dependencies
 vi.mock('./actionExecutor', () => ({
@@ -55,7 +56,9 @@ vi.mock('./longTermMemory', () => ({
 }));
 
 describe('personaRuntime', () => {
-  const events: LiveEvent[] = [{ id: '1', source: 'ocr', text: 'Olá', kind: 'chat', time: '12:00:00' }];
+  const events: LiveEvent[] = [
+    { id: '1', source: 'ocr', zoneName: 'chat', text: 'Olá', kind: 'chat', createdAt: '2026-05-05T00:00:00Z', time: '12:00:00' },
+  ];
   const options: PersonaRuntimeOptions = {
     personaPrompt: 'You are Juju.',
     tools: [],
@@ -77,6 +80,7 @@ describe('personaRuntime', () => {
         zoneName: 'chat',
         text: 'Olá Juju!',
         kind: 'chat',
+        createdAt: '2026-05-05T00:00:00Z',
         time: '12:00:00',
       },
     ];
@@ -90,12 +94,13 @@ describe('personaRuntime', () => {
     // Mock AI decision response
     (fetch as any).mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({
-        speech: 'Oi pessoal!',
-        intent: 'respond_chat',
-        confidence: 0.9,
-        actions: [{ type: 'speak', payload: { text: 'Oi pessoal!' } }],
-      }),
+      json: () =>
+        Promise.resolve({
+          speech: 'Oi pessoal!',
+          intent: 'respond_chat',
+          confidence: 0.9,
+          actions: [{ type: 'speak', payload: { text: 'Oi pessoal!' } }],
+        }),
     });
 
     const cycle = await runPersonaRound(events, options);
@@ -113,6 +118,7 @@ describe('personaRuntime', () => {
         zoneName: 'chat',
         text: 'Olá Juju!',
         kind: 'chat',
+        createdAt: '2026-05-05T00:00:00Z',
         time: '12:00:00',
       },
     ];
@@ -145,7 +151,7 @@ describe('personaRuntime', () => {
       }
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ speech: 'OK', intent: 'test', actions: [] })
+        json: () => Promise.resolve({ speech: 'OK', intent: 'test', actions: [] }),
       });
     });
 
@@ -158,7 +164,7 @@ describe('personaRuntime', () => {
     (fetch as any).mockResolvedValue({
       ok: false,
       status: 500,
-      json: () => Promise.resolve({ detail: 'AI Down' })
+      json: () => Promise.resolve({ detail: 'AI Down' }),
     });
 
     const cycle = await runPersonaRound(events, options);
@@ -170,13 +176,13 @@ describe('personaRuntime', () => {
   it('should handle action execution error', async () => {
     const { executeActionQueue } = await import('./actionExecutor');
     (executeActionQueue as any).mockResolvedValueOnce([
-      { id: 'a1', label: 'Action 1', status: 'error', result: 'Failed', type: 'speak' }
+      { id: 'a1', label: 'Action 1', status: 'error', result: 'Failed', type: 'speak' },
     ]);
 
     const cycle = await runPersonaRound(events, options);
     expect(cycle.stage).toBe('concluido');
     expect(cycle.actions[0].status).toBe('error');
-    expect(cycle.logs.some(l => l.status === 'error')).toBe(true);
+    expect(cycle.logs.some((l) => l.status === 'error')).toBe(true);
   });
 
   it('should throw error if events list is empty', async () => {
@@ -184,8 +190,10 @@ describe('personaRuntime', () => {
   });
 
   it('should record an error if a critical step fails outside local try/catches', async () => {
-    const events: LiveEvent[] = [{ id: '3', source: 'ocr', text: 'fail', kind: 'chat', time: '12:00:00' }];
-    
+    const events: LiveEvent[] = [
+      { id: '3', source: 'ocr', zoneName: 'test', text: 'fail', kind: 'chat', createdAt: '2026-05-05T00:00:00Z', time: '12:00:00' },
+    ];
+
     // Force a critical failure in classifyEvent which is not caught locally
     const { classifyEvent } = await import('./eventClassifier');
     (classifyEvent as any).mockImplementationOnce(() => {

@@ -6,20 +6,21 @@
 
 ## 📊 Resumo Executivo
 
-| Item | Status | Progresso |
-|------|--------|-----------|
-| **Lints & Formatters** | ✅ 100% | ESLint + Prettier + Ruff |
-| **Testes Backend** | ✅ 100% | 15 testes PASSANDO |
+| Item                    | Status  | Progresso                  |
+| ----------------------- | ------- | -------------------------- |
+| **Lints & Formatters**  | ✅ 100% | ESLint + Prettier + Ruff   |
+| **Testes Backend**      | ✅ 100% | 15 testes PASSANDO         |
 | **Configuração Testes** | ✅ 100% | Vitest + Pytest + Conftest |
-| **Testes Frontend** | ⏳ 0% | Próxima etapa |
-| **Coverage Reports** | ⏳ 0% | Próxima etapa |
-| **Documentação** | ⏳ 50% | TESTING.md faltando |
+| **Testes Frontend**     | ⏳ 0%   | Próxima etapa              |
+| **Coverage Reports**    | ⏳ 0%   | Próxima etapa              |
+| **Documentação**        | ⏳ 50%  | TESTING.md faltando        |
 
 ---
 
 ## ✅ CONCLUÍDO
 
 ### Lints & Formatters (100%)
+
 ```
 ✅ npm run lint               → 0 ERROS
 ✅ npm run format            → EXECUTADO
@@ -27,6 +28,7 @@
 ```
 
 ### Testes Backend (100%)
+
 ```
 15 TESTES CRIADOS:
 ├─ test_health.py      → 1 teste ✅ PASSOU
@@ -38,6 +40,7 @@ RESULTADO: 15 PASSED, 1 SKIPPED ✅
 ```
 
 ### Configuração Testes (100%)
+
 ```
 ✅ vitest.config.ts criado
 ✅ pytest.ini atualizado com marcadores
@@ -47,6 +50,7 @@ RESULTADO: 15 PASSED, 1 SKIPPED ✅
 ```
 
 ### Arquivos Criados
+
 ```
 ✅ vitest.config.ts
 ✅ tests/conftest.py
@@ -64,6 +68,7 @@ RESULTADO: 15 PASSED, 1 SKIPPED ✅
 ## ⏳ FALTANDO (15%)
 
 ### 1. Testes Frontend (~4 horas)
+
 ```
 ⏳ eventClassifier.test.ts   → 5+ testes
 ⏳ personaRuntime.test.ts    → 5+ testes + mocks
@@ -71,12 +76,14 @@ RESULTADO: 15 PASSED, 1 SKIPPED ✅
 ```
 
 ### 2. Coverage Reports (~1 hora)
+
 ```
 ⏳ pytest --cov=server
 ⏳ npm run test:coverage
 ```
 
 ### 3. Documentação TESTING.md (~1 hora)
+
 ```
 ⏳ Guia de testes
 ⏳ Padrões de naming
@@ -85,6 +92,7 @@ RESULTADO: 15 PASSED, 1 SKIPPED ✅
 ```
 
 ### 4. Refatoração (Opcional, ~4 horas)
+
 ```
 ⏳ normalize_decision() - C901 (complexidade 11)
 ⏳ generate_tts() - C901 (complexidade 18)
@@ -116,22 +124,23 @@ npm run test:coverage
 
 ## 📈 Métricas Finais
 
-| Métrica | Antes | Depois | Ganho |
-|---------|-------|--------|-------|
-| Linting Errors | 4 | 0 | ✅ 100% |
-| Linting Warnings | ? | 2 | ✅ Aceitável |
-| Testes Backend | 0 | 15 | ✅ 1500% |
-| Coverage Backend | 0% | ~25% | ✅ 25% |
-| Testes Frontend | 0 | 0 | ⏳ Próximo |
-| Coverage Frontend | 0% | 0% | ⏳ Próximo |
+| Métrica           | Antes | Depois | Ganho        |
+| ----------------- | ----- | ------ | ------------ |
+| Linting Errors    | 4     | 0      | ✅ 100%      |
+| Linting Warnings  | ?     | 2      | ✅ Aceitável |
+| Testes Backend    | 0     | 15     | ✅ 1500%     |
+| Coverage Backend  | 0%    | ~25%   | ✅ 25%       |
+| Testes Frontend   | 0     | 0      | ⏳ Próximo   |
+| Coverage Frontend | 0%    | 0%     | ⏳ Próximo   |
 
 ---
 
 ## ✨ Conclusão
 
-**Fase 1 está 85% concluída!** 
+**Fase 1 está 85% concluída!**
 
 Toda a infraestrutura de testes está pronta. Faltam apenas:
+
 - Testes unitários do frontend (pequeno)
 - Coverage reports
 - Documentação

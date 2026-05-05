@@ -1,3 +1,3 @@
-## 2024-05-04 - Unnecessary Array Copy/Reversal inside useMemo
-**Learning:** Found a common anti-pattern in `useMemo` blocks where `.slice().reverse().find()` was used on large state arrays (`capturedText`). This forced a full O(N) array copy and reverse operation every single time the memo ran, causing unneeded garbage collection overhead in a hot path that updates on every new chat/event.
-**Action:** Replace `.slice().reverse().find()` with a backwards `for` loop, especially inside `useMemo` or frequently called selectors. Also split out unrelated calculations (`contentItems` filtering) into separate `useMemo` blocks to avoid redundant work when unrelated dependencies (`capturedText`, `runtime`) change.
+## 2024-03-24 - [Avoid unnecessary map/filter recalculations for array-derived state during frequent rendering]
+**Learning:** Found that `CaptureStudio.tsx` recalculates `successfulEvents`, `averageConfidence`, and `averageLatency` by re-mapping and reducing the `captureEvents` array on every single render. Given how often UI interactions happen during live capture and stream configuration, this scales poorly with the event array size.
+**Action:** Used `useMemo` to cache arrays derived from other array state (like filtering active/successful elements) and wrapped `CaptureStudio` component with `React.memo` to improve rendering performance.
