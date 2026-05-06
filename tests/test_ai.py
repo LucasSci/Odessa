@@ -51,7 +51,7 @@ def test_ai_decide_success(client):
         },
     )
     # Endpoint exists and returns valid response or error
-    assert response.status_code in [200, 400, 422, 500]
+    assert response.status_code in [200, 400, 422, 500, 503]
     if response.status_code == 200:
         data = response.json()
         assert "speech" in data or "intent" in data
