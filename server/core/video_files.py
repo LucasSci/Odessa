@@ -61,7 +61,18 @@ def get_video_path(video_id: str) -> Optional[Path]:
     if not video_dir:
         return None
 
-    video_file = video_dir / f"video_{video_id}.mp4"
+    # Sanitize video_id to prevent path traversal
+    video_file = (video_dir / f"video_{video_id}.mp4").resolve()
+
+    try:
+        # Ensure the resolved path is within the video_dir
+        if not video_file.is_relative_to(video_dir.resolve()):
+            return None
+    except AttributeError:
+        # Fallback for Python versions before 3.9
+        if video_dir.resolve() not in video_file.parents:
+            return None
+
     if video_file.exists():
         return video_file
 

@@ -94,7 +94,8 @@ async def upload_video(file: UploadFile = File(...)):
     
     try:
         video_dir.mkdir(parents=True, exist_ok=True)
-        file_path = video_dir / file.filename
+        secure_filename = os.path.basename(file.filename)
+        file_path = video_dir / secure_filename
         
         logger.info(f"Saving uploaded file to: {file_path}")
         
@@ -107,11 +108,11 @@ async def upload_video(file: UploadFile = File(...)):
         
         # If it doesn't follow the pattern, we'll use the filename as ID (sanitized)
         video_id = None
-        if file.filename.startswith("video_") and file.filename.endswith(".mp4"):
-            video_id = file.filename.replace("video_", "").replace(".mp4", "")
+        if secure_filename.startswith("video_") and secure_filename.endswith(".mp4"):
+            video_id = secure_filename.replace("video_", "").replace(".mp4", "")
         else:
             # Use filename without extension as ID, but prefix with video_ for consistency on disk
-            clean_name = "".join(c for c in file.filename.split('.')[0] if c.isalnum() or c in ('_', '-'))
+            clean_name = "".join(c for c in secure_filename.split('.')[0] if c.isalnum() or c in ('_', '-'))
             video_id = clean_name
             # If we renamed it on disk to follow our pattern:
             new_filename = f"video_{video_id}.mp4"
@@ -121,7 +122,7 @@ async def upload_video(file: UploadFile = File(...)):
                     os.remove(new_path)
                 os.rename(file_path, new_path)
                 file_path = new_path
-                logger.info(f"Renamed {file.filename} to {new_filename} for system compatibility")
+                logger.info(f"Renamed {secure_filename} to {new_filename} for system compatibility")
 
         # 3. Auto-register in config if not present
         config = load_persona_config()
@@ -131,7 +132,7 @@ async def upload_video(file: UploadFile = File(...)):
                 "id": video_id,
                 "label": video_id.replace("_", " ").title(),
                 "group": "base_idle",
-                "description": f"Uploaded video: {file.filename}"
+                "description": f"Uploaded video: {secure_filename}"
             }
             video_entries.append(new_entry)
             config["videos"] = video_entries
@@ -140,10 +141,10 @@ async def upload_video(file: UploadFile = File(...)):
             video_service.refresh_config()
             logger.info(f"Auto-registered new video {video_id} in config")
 
-        logger.info(f"Upload successful: {file.filename} (Final ID: {video_id})")
+        logger.info(f"Upload successful: {secure_filename} (Final ID: {video_id})")
         return {
             "status": "success",
-            "filename": file.filename,
+            "filename": secure_filename,
             "id": video_id,
             "path": str(file_path)
         }
