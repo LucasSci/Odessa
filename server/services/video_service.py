@@ -76,8 +76,8 @@ class VideoService:
                             self.last_state_update += 1
                             logger.info(f"Gift '{gift_name}' mapped to video {next_id} (exact).")
                             return f"video_{next_id}.mp4"
-                            # 2) regex/pattern matches — keys can be /pattern/flags or re:... / regex:...
-                            for k, vids in gift_map.items():
+                    # 2) regex/pattern matches — keys can be /pattern/flags or re:... / regex:...
+                    for k, vids in gift_map.items():
                                 if not k:
                                     continue
                                 # JS-style /pattern/flags
@@ -119,8 +119,8 @@ class VideoService:
                                         self.last_state_update += 1
                                         logger.info(f"Gift '{gift_name}' mapped to video {next_id} (regex '{k}').")
                                         return f"video_{next_id}.mp4"
-                            # 3) substring/heuristic match
-                            for k, vids in gift_map.items():
+                    # 3) substring/heuristic match
+                    for k, vids in gift_map.items():
                                 if not k:
                                     continue
                                 kl = k.strip().lower()
