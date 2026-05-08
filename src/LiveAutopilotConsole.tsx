@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -274,8 +274,12 @@ export default function LiveAutopilotConsole({ capturedText, runtime }: LiveAuto
     tools,
     voiceEnabled,
   } = runtime;
-  const activeTools = tools.filter((tool) => tool.enabled).length;
-  const activeRules = rules.filter((rule) => rule.enabled).length;
+  // ⚡ Bolt: Memoize array filtering to prevent recalculation on every render
+  const activeTools = useMemo(() => tools.filter((tool) => tool.enabled).length, [tools]);
+  const activeRules = useMemo(() => rules.filter((rule) => rule.enabled).length, [rules]);
+
+  // ⚡ Bolt: Memoize slicing and reversing of the high-frequency event array
+  const recentEvents = useMemo(() => capturedText.slice(-10).reverse(), [capturedText]);
   const n8nStatus = health?.n8n?.online
     ? 'online'
     : health?.n8n?.configured
@@ -1053,13 +1057,10 @@ export default function LiveAutopilotConsole({ capturedText, runtime }: LiveAuto
               </p>
             </div>
             <div className="max-h-[300px] space-y-2 overflow-y-auto p-4">
-              {capturedText.length === 0 ? (
+              {recentEvents.length === 0 ? (
                 <p className="py-8 text-center text-sm text-slate-600">Sem eventos ainda.</p>
               ) : (
-                capturedText
-                  .slice(-10)
-                  .reverse()
-                  .map((event) => (
+                recentEvents.map((event) => (
                     <div
                       key={event.id}
                       className="rounded-md border border-slate-800 bg-slate-950/60 p-3"
