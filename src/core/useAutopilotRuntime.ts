@@ -227,8 +227,19 @@ export function useAutopilotRuntime({
   const latestCycle = cycles[cycles.length - 1];
   const latestDecision = latestCycle?.decision;
   const latestAction = actionQueue[actionQueue.length - 1];
-  const completedCycles = cycles.filter((cycle) => cycle.stage === 'concluido').length;
-  const failedCycles = cycles.filter((cycle) => cycle.stage === 'erro').length;
+
+  // ⚡ Bolt: Memoize and combine completed/failed cycles calculation into a single pass
+  const { completedCycles, failedCycles } = useMemo(() => {
+    return cycles.reduce(
+      (acc, cycle) => {
+        if (cycle.stage === 'concluido') acc.completedCycles++;
+        else if (cycle.stage === 'erro') acc.failedCycles++;
+        return acc;
+      },
+      { completedCycles: 0, failedCycles: 0 }
+    );
+  }, [cycles]);
+
   const averageConfidence = useMemo(() => {
     const decisions = cycles.map((cycle) => cycle.decision).filter(Boolean);
     if (!decisions.length) return 0;
