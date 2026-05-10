@@ -21,12 +21,12 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-asyncio pytest-cov
+        pip install -r server/requirements.txt
+        pip install pytest pytest-asyncio pytest-cov python-multipart
         
     - name: Run Backend Tests
       run: |
-        pytest --cov=server tests/
+        PYTHONPATH=. pytest --cov=server server/tests/
 
   frontend-tests:
     runs-on: ubuntu-latest
@@ -43,4 +43,4 @@ jobs:
       run: npm ci
       
     - name: Run Frontend Tests
-      run: npm run test:run
+      run: npx vitest run

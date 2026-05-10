@@ -53,11 +53,6 @@ class VideoService:
 
         # 2. Handle Action Trigger (Interruptions)
         if trigger:
-            # Check if trigger is a scenario
-            if trigger in SCENARIO_SEQUENCES:
-                if self.set_scenario(trigger):
-                    return self.get_next_video() # Recursive call to get first item from queue
-
             # If this is a gift trigger and we have a gift_name + gift_map, try to resolve locally
             if trigger == "gift" and gift_name:
                 gift_map = self._config.get("gift_map", {})
@@ -76,62 +71,62 @@ class VideoService:
                             self.last_state_update += 1
                             logger.info(f"Gift '{gift_name}' mapped to video {next_id} (exact).")
                             return f"video_{next_id}.mp4"
-                            # 2) regex/pattern matches — keys can be /pattern/flags or re:... / regex:...
-                            for k, vids in gift_map.items():
-                                if not k:
-                                    continue
-                                # JS-style /pattern/flags
-                                if k.startswith('/') and k.rfind('/') > 0:
-                                    last = k.rfind('/')
-                                    pattern = k[1:last]
-                                    flags_str = k[last+1:]
-                                    flags = 0
-                                    if 'i' in flags_str.lower():
-                                        flags |= re.IGNORECASE
-                                    if 'm' in flags_str.lower():
-                                        flags |= re.MULTILINE
-                                    if 's' in flags_str.lower():
-                                        flags |= re.DOTALL
-                                    try:
-                                        cre = re.compile(pattern, flags)
-                                    except re.error:
-                                        continue
-                                    if cre.search(gift_name):
-                                        next_id = random.choice(vids)
-                                        self.current_video_id = next_id
-                                        self.current_video_start_ts = time.time()
-                                        self.state = "ACTION"
-                                        self.last_state_update += 1
-                                        logger.info(f"Gift '{gift_name}' mapped to video {next_id} (regex '{k}').")
-                                        return f"video_{next_id}.mp4"
-                                # re: or regex: prefix
-                                if k.lower().startswith('re:') or k.lower().startswith('regex:'):
-                                    try:
-                                        pattern = k.split(':', 1)[1]
-                                        cre = re.compile(pattern)
-                                    except Exception:
-                                        continue
-                                    if cre.search(gift_name):
-                                        next_id = random.choice(vids)
-                                        self.current_video_id = next_id
-                                        self.current_video_start_ts = time.time()
-                                        self.state = "ACTION"
-                                        self.last_state_update += 1
-                                        logger.info(f"Gift '{gift_name}' mapped to video {next_id} (regex '{k}').")
-                                        return f"video_{next_id}.mp4"
-                            # 3) substring/heuristic match
-                            for k, vids in gift_map.items():
-                                if not k:
-                                    continue
-                                kl = k.strip().lower()
-                                if kl and (kl in gn or gn in kl) and vids:
-                                    next_id = random.choice(vids)
-                                    self.current_video_id = next_id
-                                    self.current_video_start_ts = time.time()
-                                    self.state = "ACTION"
-                                    self.last_state_update += 1
-                                    logger.info(f"Gift '{gift_name}' mapped to video {next_id} (heuristic '{k}').")
-                                    return f"video_{next_id}.mp4"
+                    # 2) regex/pattern matches — keys can be /pattern/flags or re:... / regex:...
+                    for k, vids in gift_map.items():
+                        if not k:
+                            continue
+                        # JS-style /pattern/flags
+                        if k.startswith('/') and k.rfind('/') > 0:
+                            last = k.rfind('/')
+                            pattern = k[1:last]
+                            flags_str = k[last+1:]
+                            flags = 0
+                            if 'i' in flags_str.lower():
+                                flags |= re.IGNORECASE
+                            if 'm' in flags_str.lower():
+                                flags |= re.MULTILINE
+                            if 's' in flags_str.lower():
+                                flags |= re.DOTALL
+                            try:
+                                cre = re.compile(pattern, flags)
+                            except re.error:
+                                continue
+                            if cre.search(gift_name):
+                                next_id = random.choice(vids)
+                                self.current_video_id = next_id
+                                self.current_video_start_ts = time.time()
+                                self.state = "ACTION"
+                                self.last_state_update += 1
+                                logger.info(f"Gift '{gift_name}' mapped to video {next_id} (regex '{k}').")
+                                return f"video_{next_id}.mp4"
+                        # re: or regex: prefix
+                        if k.lower().startswith('re:') or k.lower().startswith('regex:'):
+                            try:
+                                pattern = k.split(':', 1)[1]
+                                cre = re.compile(pattern)
+                            except Exception:
+                                continue
+                            if cre.search(gift_name):
+                                next_id = random.choice(vids)
+                                self.current_video_id = next_id
+                                self.current_video_start_ts = time.time()
+                                self.state = "ACTION"
+                                self.last_state_update += 1
+                                logger.info(f"Gift '{gift_name}' mapped to video {next_id} (regex '{k}').")
+                                return f"video_{next_id}.mp4"
+                    # 3) substring/heuristic match
+                    for k, vids in gift_map.items():
+                        if not k:
+                            continue
+                        kl = k.strip().lower()
+                        if kl and (kl in gn or gn in kl) and vids:
+                            next_id = random.choice(vids)
+                            self.current_video_id = next_id
+                            self.current_video_start_ts = time.time()
+                            self.state = "ACTION"
+                            self.last_state_update += 1
+                            logger.info(f"Gift '{gift_name}' mapped to video {next_id} (heuristic '{k}').")
+                            return f"video_{next_id}.mp4"
                     # 3) wildcard / default
                     if "*" in gift_map and gift_map.get("*"):
                         next_id = random.choice(gift_map.get("*"))
@@ -149,6 +144,11 @@ class VideoService:
                         self.last_state_update += 1
                         logger.info(f"Gift '{gift_name}' mapped to video {next_id} (default).")
                         return f"video_{next_id}.mp4"
+
+            # Check if trigger is a scenario (after gift checks, as fallback or for other triggers)
+            if trigger in SCENARIO_SEQUENCES:
+                if self.set_scenario(trigger):
+                    return self.get_next_video() # Recursive call to get first item from queue
 
             # Fallback to simple action_map lookup (gift/message/idle)
             action_map = self._config.get("action_map", {})

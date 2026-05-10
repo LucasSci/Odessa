@@ -32,6 +32,28 @@ interface PersonaConfig {
     gift_keywords: string[];
     message_keywords: string[];
   };
+  gift_map?: Record<string, string[]>;
+}
+
+interface PersonaMediaLibraryProps {
+  onClose: () => void;
+  onConfigChange?: () => void;
+}
+
+export default function PersonaMediaLibrary({ onClose, onConfigChange }: PersonaMediaLibraryProps) {
+  const [config, setConfig] = useState<PersonaConfig | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<'videos' | 'actions' | 'triggers' | 'upload'>('videos');
+  const [uploadStatus, setUploadStatus] = useState<{ type: 'success' | 'error' | 'none', message: string }>({ type: 'none', message: '' });
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [isUploading, setIsUploading] = useState(false);
+  const [previewVideoId, setPreviewVideoId] = useState<string | null>(null);
+  const [newGiftName, setNewGiftName] = useState('');
+  const [newGiftSelected, setNewGiftSelected] = useState<string[]>([]);
+  const [editingGiftKey, setEditingGiftKey] = useState<string | null>(null);
+  const [editingGiftSelected, setEditingGiftSelected] = useState<string[]>([]);
 
   const addGiftMapping = () => {
     if (!config) return;
@@ -73,27 +95,6 @@ interface PersonaConfig {
   const toggleVideoSelectionForEdit = (id: string) => {
     setEditingGiftSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
-}
-
-interface PersonaMediaLibraryProps {
-  onClose: () => void;
-  onConfigChange?: () => void;
-}
-
-export default function PersonaMediaLibrary({ onClose, onConfigChange }: PersonaMediaLibraryProps) {
-  const [config, setConfig] = useState<PersonaConfig | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'videos' | 'actions' | 'triggers' | 'upload'>('videos');
-  const [uploadStatus, setUploadStatus] = useState<{ type: 'success' | 'error' | 'none', message: string }>({ type: 'none', message: '' });
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [uploadProgress, setUploadProgress] = useState<number>(0);
-  const [isUploading, setIsUploading] = useState(false);
-  const [previewVideoId, setPreviewVideoId] = useState<string | null>(null);
-  const [newGiftName, setNewGiftName] = useState('');
-  const [newGiftSelected, setNewGiftSelected] = useState<string[]>([]);
-  const [editingGiftKey, setEditingGiftKey] = useState<string | null>(null);
-  const [editingGiftSelected, setEditingGiftSelected] = useState<string[]>([]);
 
   const fetchConfig = useCallback(async () => {
     try {
