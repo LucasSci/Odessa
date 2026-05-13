@@ -2,6 +2,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from server.config import CORS_ALLOWED_ORIGINS
 from server.api.v1.api import api_router
 
 # Logging configuration
@@ -20,7 +21,7 @@ app = FastAPI(
 # CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Expand for development, restrict in production
+    allow_origins=CORS_ALLOWED_ORIGINS, # Expand for development, restrict in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
