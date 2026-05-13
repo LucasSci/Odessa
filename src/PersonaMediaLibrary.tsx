@@ -32,7 +32,47 @@ interface PersonaConfig {
     gift_keywords: string[];
     message_keywords: string[];
   };
-  gift_map?: Record<string, string[]>;
+
+  const addGiftMapping = () => {
+    if (!config) return;
+    const key = newGiftName.trim();
+    if (!key) return;
+    const gm = { ...(config.gift_map || {}) } as Record<string, string[]>;
+    gm[key] = Array.from(newGiftSelected);
+    setConfig({ ...config, gift_map: gm });
+    setNewGiftName('');
+    setNewGiftSelected([]);
+  };
+
+  const startEditGift = (key: string) => {
+    if (!config || !config.gift_map) return;
+    setEditingGiftKey(key);
+    setEditingGiftSelected(Array.from(config.gift_map[key] || []));
+  };
+
+  const saveEditedGift = () => {
+    if (!config || !editingGiftKey) return;
+    const gm = { ...(config.gift_map || {}) } as Record<string, string[]>;
+    gm[editingGiftKey] = Array.from(editingGiftSelected);
+    setConfig({ ...config, gift_map: gm });
+    setEditingGiftKey(null);
+    setEditingGiftSelected([]);
+  };
+
+  const deleteGiftMapping = (key: string) => {
+    if (!config || !config.gift_map) return;
+    const gm = { ...(config.gift_map || {}) } as Record<string, string[]>;
+    delete gm[key];
+    setConfig({ ...config, gift_map: gm });
+  };
+
+  const toggleVideoSelectionForNew = (id: string) => {
+    setNewGiftSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const toggleVideoSelectionForEdit = (id: string) => {
+    setEditingGiftSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
 }
 
 interface PersonaMediaLibraryProps {
@@ -51,9 +91,9 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
   const [isUploading, setIsUploading] = useState(false);
   const [previewVideoId, setPreviewVideoId] = useState<string | null>(null);
   const [newGiftName, setNewGiftName] = useState('');
-
+  const [newGiftSelected, setNewGiftSelected] = useState<string[]>([]);
   const [editingGiftKey, setEditingGiftKey] = useState<string | null>(null);
-
+  const [editingGiftSelected, setEditingGiftSelected] = useState<string[]>([]);
 
   const fetchConfig = useCallback(async () => {
     try {
