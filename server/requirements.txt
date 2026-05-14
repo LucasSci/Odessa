@@ -10,6 +10,7 @@ Pillow
 pydantic
 pyautogui
 pytest>=9.0.3
+python-multipart
 pytest-asyncio>=0.21.0
 python-dotenv
 soundfile
