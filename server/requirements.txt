@@ -12,5 +12,6 @@ pyautogui
 pytest>=9.0.3
 pytest-asyncio>=0.21.0
 python-dotenv
+python-multipart
 soundfile
 uvicorn[standard]
