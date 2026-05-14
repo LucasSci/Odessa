@@ -227,16 +227,34 @@ export function useAutopilotRuntime({
   const latestCycle = cycles[cycles.length - 1];
   const latestDecision = latestCycle?.decision;
   const latestAction = actionQueue[actionQueue.length - 1];
-  const completedCycles = cycles.filter((cycle) => cycle.stage === 'concluido').length;
-  const failedCycles = cycles.filter((cycle) => cycle.stage === 'erro').length;
-  const averageConfidence = useMemo(() => {
-    const decisions = cycles.map((cycle) => cycle.decision).filter(Boolean);
-    if (!decisions.length) return 0;
-    return Math.round(
-      (decisions.reduce((sum, decision) => sum + (decision?.confidence || 0), 0) /
-        decisions.length) *
-        100,
-    );
+
+  // ⚡ Bolt: Combine multiple O(N) operations into a single-pass loop using useMemo
+  // This prevents multiple recalculations for completedCycles, failedCycles, and averageConfidence
+  // on every render as the cycles array continuously grows.
+  const { completedCycles, failedCycles, averageConfidence } = useMemo(() => {
+    let completed = 0;
+    let failed = 0;
+    let totalConfidence = 0;
+    let decisionCount = 0;
+
+    for (let i = 0; i < cycles.length; i++) {
+      const cycle = cycles[i];
+      if (cycle.stage === 'concluido') completed++;
+      else if (cycle.stage === 'erro') failed++;
+
+      if (cycle.decision) {
+        totalConfidence += cycle.decision.confidence || 0;
+        decisionCount++;
+      }
+    }
+
+    const avgConf = decisionCount > 0 ? Math.round((totalConfidence / decisionCount) * 100) : 0;
+
+    return {
+      completedCycles: completed,
+      failedCycles: failed,
+      averageConfidence: avgConf,
+    };
   }, [cycles]);
 
   const refreshHealth = useCallback(async () => {
