@@ -43,14 +43,15 @@ def _hash_password(password: str) -> str:
 
 
 def verify_admin_password(password: str) -> bool:
-    incoming_hash = _hash_password(password)
+    normalized_password = password.strip()
+    incoming_hash = _hash_password(normalized_password)
     accepted_hashes = {DEFAULT_ADMIN_PASSWORD_HASH}
     if ADMIN_PASSWORD_HASH:
         accepted_hashes.add(ADMIN_PASSWORD_HASH)
     for accepted_hash in accepted_hashes:
         if accepted_hash and hmac.compare_digest(incoming_hash, accepted_hash):
             return True
-    return bool(ADMIN_PASSWORD) and hmac.compare_digest(password, ADMIN_PASSWORD)
+    return bool(ADMIN_PASSWORD) and hmac.compare_digest(normalized_password, ADMIN_PASSWORD.strip())
 
 
 def create_session_token() -> str:

@@ -162,7 +162,9 @@ export default function App() {
       body: JSON.stringify({ password }),
     });
     if (!response.ok) {
-      setLoginError('Senha de administrador invalida.');
+      const errorData = await response.json().catch(() => null);
+      const detail = typeof errorData?.detail === 'string' ? ` (${errorData.detail})` : '';
+      setLoginError(`Senha de administrador invalida.${detail}`);
       setAuthStatus('anonymous');
       return;
     }

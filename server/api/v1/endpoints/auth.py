@@ -2,6 +2,10 @@ from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, Request, Response, status
 
 from server.core.auth import (
+    ADMIN_PASSWORD,
+    ADMIN_PASSWORD_HASH,
+    DEFAULT_ADMIN_PASSWORD_HASH,
+    SESSION_SECRET,
     clear_session_cookie,
     create_session_token,
     get_current_admin,
@@ -11,6 +15,7 @@ from server.core.auth import (
 
 
 router = APIRouter(tags=["auth"])
+AUTH_BUILD = "auth-2026-05-16-default-password-v2"
 
 
 class LoginRequest(BaseModel):
@@ -20,10 +25,21 @@ class LoginRequest(BaseModel):
 @router.post("/login")
 async def login(request: LoginRequest, response: Response):
     if not verify_admin_password(request.password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid password ({AUTH_BUILD})")
     session_token = create_session_token()
     set_session_cookie(response, session_token)
-    return {"authenticated": True, "role": "admin", "sessionToken": session_token}
+    return {"authenticated": True, "role": "admin", "sessionToken": session_token, "authBuild": AUTH_BUILD}
+
+
+@router.get("/debug")
+async def debug():
+    return {
+        "authBuild": AUTH_BUILD,
+        "defaultPasswordHashEnabled": ADMIN_PASSWORD_HASH == DEFAULT_ADMIN_PASSWORD_HASH or bool(DEFAULT_ADMIN_PASSWORD_HASH),
+        "envPasswordConfigured": bool(ADMIN_PASSWORD),
+        "envPasswordHashConfigured": bool(ADMIN_PASSWORD_HASH and ADMIN_PASSWORD_HASH != DEFAULT_ADMIN_PASSWORD_HASH),
+        "sessionSecretConfigured": bool(SESSION_SECRET),
+    }
 
 
 @router.post("/logout")

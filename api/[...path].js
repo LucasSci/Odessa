@@ -4,6 +4,7 @@ import { list as listBlobs } from '@vercel/blob';
 
 const SESSION_COOKIE_NAME = 'odessa_admin_session';
 const PERSONA_CONFIG_KEY = 'persona_config';
+const AUTH_BUILD = 'auth-2026-05-16-default-password-v2';
 const SESSION_TTL_SECONDS = Number(process.env.ODESSA_SESSION_TTL_SECONDS || 12 * 60 * 60);
 const DEFAULT_ADMIN_PASSWORD_HASH = '1e4aa0a4ba1e13522ed0a39479c06849cebe9e26e0e284a132510e040af0b0dc';
 const DEFAULT_SESSION_SECRET = 'odessa-hostinger-session-secret-v1-change-in-env';
@@ -77,13 +78,14 @@ function safeEqual(a, b) {
 }
 
 function verifyPassword(password) {
-  const incomingHash = hashPassword(password);
+  const normalizedPassword = String(password).trim();
+  const incomingHash = hashPassword(normalizedPassword);
   const acceptedHashes = new Set([DEFAULT_ADMIN_PASSWORD_HASH]);
   if (ADMIN_PASSWORD_HASH) acceptedHashes.add(ADMIN_PASSWORD_HASH);
   for (const acceptedHash of acceptedHashes) {
     if (acceptedHash && safeEqual(incomingHash, acceptedHash)) return true;
   }
-  return Boolean(ADMIN_PASSWORD) && safeEqual(password, ADMIN_PASSWORD);
+  return Boolean(ADMIN_PASSWORD) && safeEqual(normalizedPassword, ADMIN_PASSWORD.trim());
 }
 
 function createSessionToken() {
@@ -1079,11 +1081,21 @@ export default async function handler(req, res) {
   if (path === '/auth/login' && req.method === 'POST') {
     const body = await readBody(req);
     if (!verifyPassword(String(body.password || ''))) {
-      return json(res, 401, { detail: 'Invalid password' });
+      return json(res, 401, { detail: `Invalid password (${AUTH_BUILD})` });
     }
     const sessionToken = createSessionToken();
     setSessionCookie(res, sessionToken);
-    return json(res, 200, { authenticated: true, role: 'admin', sessionToken });
+    return json(res, 200, { authenticated: true, role: 'admin', sessionToken, authBuild: AUTH_BUILD });
+  }
+
+  if (path === '/auth/debug' && req.method === 'GET') {
+    return json(res, 200, {
+      authBuild: AUTH_BUILD,
+      defaultPasswordHashEnabled: true,
+      envPasswordConfigured: Boolean(ADMIN_PASSWORD),
+      envPasswordHashConfigured: Boolean(process.env.ODESSA_ADMIN_PASSWORD_HASH),
+      sessionSecretConfigured: Boolean(process.env.ODESSA_SESSION_SECRET),
+    });
   }
 
   if (path === '/auth/logout') {
