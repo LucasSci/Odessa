@@ -109,6 +109,25 @@ const server = http.createServer(async (req, res) => {
       await apiHandler(req, res);
       return;
     }
+    if (url.pathname.startsWith('/uploads/')) {
+      const uploadsDir = process.env.ODESSA_UPLOADS_DIR || path.join(__dirname, 'uploads');
+      const filePath = path.normalize(path.join(uploadsDir, url.pathname.replace(/^\/uploads\//, '')));
+      if (!filePath.startsWith(uploadsDir)) {
+        send(res, 403, 'Forbidden', { 'Content-Type': 'text/plain' });
+        return;
+      }
+      try {
+        const stat = await fs.stat(filePath);
+        if (!stat.isFile()) throw new Error('not a file');
+        const ext = path.extname(filePath).toLowerCase();
+        const mime = { '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.m4v': 'video/mp4' };
+        const raw = await fs.readFile(filePath);
+        send(res, 200, raw, { 'Content-Type': mime[ext] || 'application/octet-stream', 'Cache-Control': 'public, max-age=3600' });
+      } catch {
+        send(res, 404, 'Not found', { 'Content-Type': 'text/plain' });
+      }
+      return;
+    }
     await serveStatic(req, res, url.pathname);
   } catch (error) {
     console.error('[hostinger-server]', error);

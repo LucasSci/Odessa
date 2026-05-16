@@ -11,8 +11,6 @@
     "start": "node hostinger-server.mjs",
     "hostinger:build": "npm run build",
     "hostinger:start": "node hostinger-server.mjs",
-    "cloud:sync-config": "node scripts/sync-cloud-config.mjs",
-    "cloud:sync-videos": "node scripts/sync-cloud-videos.mjs",
     "build": "vite build",
     "generate:branding": "venv\\Scripts\\python.exe scripts\\generate-branding-assets.py",
     "preview": "vite preview",
@@ -24,9 +22,8 @@
     "test:backend": "venv\\Scripts\\python.exe -m pytest"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.1.0",
-    "@vercel/blob": "^2.3.3",
     "@xyflow/react": "^12.10.2",
+    "better-sqlite3": "^11.10.0",
     "clsx": "^2.1.1",
     "lucide-react": "^1.14.0",
     "react": "^19.0.0",
