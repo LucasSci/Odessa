@@ -31,8 +31,9 @@ const compressibleExts = new Set(['.css', '.html', '.js', '.json', '.svg', '.txt
 
 function compress(buf, encoding) {
   return new Promise((resolve, reject) => {
-    if (encoding === 'br') zlib.brotliCompress(buf, resolve);
-    else zlib.gzip(buf, (err, result) => (err ? reject(err) : resolve(result)));
+    const cb = (err, result) => (err ? reject(err) : resolve(result));
+    if (encoding === 'br') zlib.brotliCompress(buf, cb);
+    else zlib.gzip(buf, cb);
   });
 }
 
