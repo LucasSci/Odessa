@@ -50,7 +50,9 @@ const LIVE_CONFIG_KEY = 'odessa:live-config:v1';
 const LOCAL_AGENT_URL = 'http://127.0.0.1:8766';
 
 function isCloudHosted() {
-  return typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app');
+  if (typeof window === 'undefined') return false;
+  const h = window.location.hostname;
+  return h !== '' && h !== 'localhost' && h !== '127.0.0.1' && h !== '::1';
 }
 
 function getPanelFromHash(): AdvancedPanel {

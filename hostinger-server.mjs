@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import zlib from 'node:zlib';
 import apiHandler from './api/[...path].js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -25,6 +26,23 @@ const contentTypes = {
   '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.webp': 'image/webp',
 };
+
+const compressibleExts = new Set(['.css', '.html', '.js', '.json', '.svg', '.txt', '.webmanifest']);
+
+function compress(buf, encoding) {
+  return new Promise((resolve, reject) => {
+    if (encoding === 'br') zlib.brotliCompress(buf, resolve);
+    else zlib.gzip(buf, (err, result) => (err ? reject(err) : resolve(result)));
+  });
+}
+
+function chooseEncoding(req, ext) {
+  if (!compressibleExts.has(ext)) return null;
+  const accept = req.headers['accept-encoding'] || '';
+  if (accept.includes('br')) return 'br';
+  if (accept.includes('gzip')) return 'gzip';
+  return null;
+}
 
 function send(res, statusCode, body, headers = {}) {
   res.writeHead(statusCode, headers);
@@ -52,15 +70,26 @@ async function serveStatic(req, res, pathname) {
     if (!stat.isFile()) throw new Error('Not a file');
     const ext = path.extname(filePath).toLowerCase();
     const immutable = requestedPath.startsWith('/assets/');
-    send(res, 200, await fs.readFile(filePath), {
+    const cacheControl = immutable ? 'public, max-age=31536000, immutable' : 'public, max-age=0, must-revalidate';
+    const encoding = chooseEncoding(req, ext);
+    const raw = await fs.readFile(filePath);
+    const body = encoding ? await compress(raw, encoding) : raw;
+    send(res, 200, body, {
       'Content-Type': contentTypes[ext] || 'application/octet-stream',
-      'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'public, max-age=0, must-revalidate',
+      'Cache-Control': cacheControl,
+      'Vary': 'Accept-Encoding',
+      ...(encoding ? { 'Content-Encoding': encoding } : {}),
     });
   } catch {
     const indexPath = path.join(distDir, 'index.html');
-    send(res, 200, await fs.readFile(indexPath), {
+    const raw = await fs.readFile(indexPath);
+    const encoding = chooseEncoding(req, '.html');
+    const body = encoding ? await compress(raw, encoding) : raw;
+    send(res, 200, body, {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'public, max-age=0, must-revalidate',
+      'Vary': 'Accept-Encoding',
+      ...(encoding ? { 'Content-Encoding': encoding } : {}),
     });
   }
 }
