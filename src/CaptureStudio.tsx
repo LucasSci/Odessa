@@ -575,6 +575,10 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const activeZone = zones[activeZoneIndex] || zones[0];
 
   const lastEvent = captureEvents[captureEvents.length - 1];
+  const successfulEvents = useMemo(
+    () => captureEvents.filter((event) => event.routeStatus !== 'error'),
+    [captureEvents],
+  );
   const averageConfidence = useMemo(() =>
     successfulEvents.reduce((sum, event) => sum + (event.confidence ?? 0), 0) /
     Math.max(1, successfulEvents.filter((event) => event.confidence !== null).length)

@@ -1,37 +1,30 @@
 from fastapi.testclient import TestClient
 
 from server.main import app
-from server.core.auth import ADMIN_PASSWORD
 
 
-def test_login_with_wrong_password_is_rejected():
+def test_auth_endpoints_are_open_when_login_is_disabled():
     with TestClient(app) as client:
-        response = client.post("/auth/login", json={"password": "wrong"})
-        assert response.status_code == 401
-        assert "odessa_admin_session" not in response.cookies
-
-
-def test_login_me_and_logout():
-    with TestClient(app) as client:
-        login = client.post("/auth/login", json={"password": ADMIN_PASSWORD})
+        login = client.post("/auth/login", json={"password": "wrong"})
         assert login.status_code == 200
         login_data = login.json()
         assert login_data["authenticated"] is True
-        assert login_data["role"] == "admin"
-        assert login_data["sessionToken"]
+        assert login_data["authDisabled"] is True
+        assert login_data["sessionToken"] == ""
 
         me = client.get("/auth/me")
         assert me.status_code == 200
-        assert me.json() == {"authenticated": True, "role": "admin"}
+        assert me.json()["authenticated"] is True
+        assert me.json()["authDisabled"] is True
 
         logout = client.post("/auth/logout")
         assert logout.status_code == 200
-        assert client.get("/auth/me").status_code == 401
+        assert client.get("/auth/me").status_code == 200
 
 
-def test_operational_api_requires_session():
+def test_operational_api_is_available_without_session():
     with TestClient(app) as client:
-        assert client.get("/api/v1/video/config").status_code == 401
+        assert client.get("/api/v1/video/config").status_code == 200
         assert client.get("/health").status_code == 200
 
 
@@ -42,11 +35,7 @@ def test_video_playback_is_public_for_video_elements():
         assert response.status_code != 401
 
 
-def test_bearer_session_token_authenticates_api():
+def test_bearer_token_is_not_required_for_api_access():
     with TestClient(app) as client:
-        login = client.post("/auth/login", json={"password": ADMIN_PASSWORD})
-        token = login.json()["sessionToken"]
-
-        stateless_client = TestClient(app)
-        response = stateless_client.get("/api/v1/video/config", headers={"Authorization": f"Bearer {token}"})
+        response = client.get("/api/v1/video/config", headers={"Authorization": "Bearer invalid"})
         assert response.status_code == 200

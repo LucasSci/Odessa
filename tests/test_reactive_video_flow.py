@@ -4,14 +4,12 @@ from fastapi.testclient import TestClient
 
 from server.main import app
 from server.api.v1.endpoints import automation as automation_routes
-from server.core.auth import ADMIN_PASSWORD
 from server.core.config_manager import _normalize_config, load_persona_config, save_persona_config
 from server.services.automation.parser import event_parser
 from server.services.video_service import video_service
 
 
 client = TestClient(app)
-client.post("/auth/login", json={"password": ADMIN_PASSWORD})
 
 
 def reset_reactive_state():
