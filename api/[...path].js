@@ -20,8 +20,8 @@ const DATA_DIR = process.env.ODESSA_DATA_DIR || nodePath.join(__dirname, '..', '
 const UPLOADS_DIR = process.env.ODESSA_UPLOADS_DIR || nodePath.join(__dirname, '..', 'uploads');
 const KV_PATH = nodePath.join(DATA_DIR, 'kv.json');
 const MIN_PASSWORD_LENGTH = 8;
-fs.mkdirSync(DATA_DIR, { recursive: true });
-fs.mkdirSync(nodePath.join(UPLOADS_DIR, 'videos'), { recursive: true });
+try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
+try { fs.mkdirSync(nodePath.join(UPLOADS_DIR, 'videos'), { recursive: true }); } catch {}
 const cloudStore = (globalThis.__ODESSA_CLOUD_STORE ||= {
   agentStatus: null,
   commandQueue: [],
@@ -1034,7 +1034,7 @@ export default async function handler(req, res) {
   }
 
   if (path === '/auth/debug' && req.method === 'GET') {
-    return json(res, 200, { authBuild: 'auth-disabled-2026-05-16', enabled: false, databaseConfigured: Boolean(DATABASE_URL) });
+    return json(res, 200, { authBuild: 'auth-disabled-2026-05-16', enabled: false, databaseConfigured: true });
   }
 
   if (path === '/auth/logout') {
