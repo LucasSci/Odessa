@@ -4122,6 +4122,14 @@ function VideoLibraryPanel({
         </div>
       ) : null}
 
+      {videos.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <Film className="mb-4 h-12 w-12 text-[var(--t3)]" />
+          <p className="text-sm font-semibold text-[var(--t1)]">Nenhum video na biblioteca</p>
+          <p className="mt-1 text-xs text-[var(--t3)]">Clique em "Adicionar videos" para fazer upload</p>
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {videos.map((video) => (
           <Card key={video.id} className="overflow-hidden bg-[#101114]">
