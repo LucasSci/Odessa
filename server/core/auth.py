@@ -15,8 +15,10 @@ from fastapi import HTTPException, Request, Response, status
 SESSION_COOKIE_NAME = "odessa_admin_session"
 SESSION_TTL_SECONDS = int(os.getenv("ODESSA_SESSION_TTL_SECONDS", str(12 * 60 * 60)))
 DEFAULT_ADMIN_EMAIL = "lucasbatista.c.l@gmail.com"
+DEFAULT_ADMIN_PASSWORD = "12345678"
 DEFAULT_PASSWORD_HASH = "ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f"  # 12345678
 ADMIN_EMAIL = os.getenv("ODESSA_ADMIN_EMAIL", DEFAULT_ADMIN_EMAIL).strip().lower()
+ADMIN_PASSWORD = os.getenv("ODESSA_ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD)
 ADMIN_PASSWORD_HASH = os.getenv("ODESSA_ADMIN_PASSWORD_HASH", "").strip()
 SESSION_SECRET = os.getenv("ODESSA_SESSION_SECRET", "odessa-dev-session-secret-change-me")
 COOKIE_SECURE = os.getenv("ODESSA_COOKIE_SECURE", "false").strip().lower() in {"1", "true", "yes"}
@@ -38,6 +40,8 @@ def _load_stored_hash() -> str:
         pass
     if ADMIN_PASSWORD_HASH:
         return ADMIN_PASSWORD_HASH
+    if ADMIN_PASSWORD:
+        return _hash_password(ADMIN_PASSWORD.strip())
     return DEFAULT_PASSWORD_HASH
 
 

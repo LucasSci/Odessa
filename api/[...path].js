@@ -1023,42 +1023,16 @@ export default async function handler(req, res) {
   }
 
   if (path === '/auth/login' && req.method === 'POST') {
-    const body = await readBody(req);
-    if (!verifyCredentials(body.email, body.password)) {
-      return json(res, 401, { detail: 'Email ou senha invalidos' });
-    }
-    const sessionToken = createSessionToken();
-    setSessionCookie(res, sessionToken);
-    return json(res, 200, { authenticated: true, role: 'admin', sessionToken, authBuild: AUTH_BUILD });
+    clearSessionCookie(res);
+    return json(res, 200, { authenticated: true, role: 'admin', sessionToken: '', authBuild: 'auth-disabled-2026-05-16', authDisabled: true });
   }
 
   if (path === '/auth/change-password' && req.method === 'POST') {
-    const session = getSession(req);
-    if (!session) return json(res, 401, { detail: 'Not authenticated' });
-    const body = await readBody(req);
-    const currentPassword = String(body.currentPassword || '');
-    const newPassword = String(body.newPassword || '').trim();
-    if (newPassword.length < MIN_PASSWORD_LENGTH) {
-      return json(res, 400, { detail: `A nova senha deve ter pelo menos ${MIN_PASSWORD_LENGTH} caracteres` });
-    }
-    const currentHash = hashPassword(String(currentPassword).trim());
-    const storedHash = getStoredPasswordHash();
-    if (!safeEqual(currentHash, storedHash)) {
-      return json(res, 401, { detail: 'Senha atual incorreta' });
-    }
-    storePasswordHash(hashPassword(newPassword));
-    return json(res, 200, { ok: true });
+    return json(res, 200, { ok: true, authDisabled: true, message: 'Login desativado; nao ha senha para alterar.' });
   }
 
   if (path === '/auth/debug' && req.method === 'GET') {
-    return json(res, 200, {
-      authBuild: AUTH_BUILD,
-      adminEmail: ADMIN_EMAIL,
-      envEmailConfigured: Boolean(process.env.ODESSA_ADMIN_EMAIL),
-      envPasswordHashConfigured: Boolean(process.env.ODESSA_ADMIN_PASSWORD_HASH),
-      sessionSecretConfigured: Boolean(process.env.ODESSA_SESSION_SECRET),
-      databaseConfigured: Boolean(DATABASE_URL),
-    });
+    return json(res, 200, { authBuild: 'auth-disabled-2026-05-16', enabled: false, databaseConfigured: Boolean(DATABASE_URL) });
   }
 
   if (path === '/auth/logout') {
@@ -1067,7 +1041,7 @@ export default async function handler(req, res) {
   }
 
   if (path === '/auth/me') {
-    return json(res, 200, { authenticated: true, role: 'admin' });
+    return json(res, 200, { authenticated: true, role: 'admin', authDisabled: true });
   }
 
   const publicVideoRead =

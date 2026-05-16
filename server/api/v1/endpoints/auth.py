@@ -1,71 +1,45 @@
 from pydantic import BaseModel
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Response
 
-from server.core.auth import (
-    ADMIN_EMAIL,
-    ADMIN_PASSWORD_HASH,
-    SESSION_SECRET,
-    clear_session_cookie,
-    create_session_token,
-    get_current_admin,
-    set_session_cookie,
-    verify_admin_credentials,
-    change_admin_password,
-)
+from server.core.auth import clear_session_cookie
 
 
 router = APIRouter(tags=["auth"])
-AUTH_BUILD = "auth-2026-05-16-email-password-v3"
+AUTH_BUILD = "auth-disabled-2026-05-16"
 
 
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: str | None = None
+    password: str | None = None
 
 
 class ChangePasswordRequest(BaseModel):
-    currentPassword: str
-    newPassword: str
+    currentPassword: str | None = None
+    newPassword: str | None = None
 
 
 @router.post("/login")
 async def login(request: LoginRequest, response: Response):
-    if not verify_admin_credentials(request.email, request.password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email ou senha invalidos")
-    session_token = create_session_token()
-    set_session_cookie(response, session_token)
-    return {"authenticated": True, "role": "admin", "sessionToken": session_token, "authBuild": AUTH_BUILD}
+    clear_session_cookie(response)
+    return {"authenticated": True, "role": "admin", "sessionToken": "", "authBuild": AUTH_BUILD, "authDisabled": True}
 
 
 @router.post("/change-password")
-async def change_password(request_data: ChangePasswordRequest, request: Request):
-    get_current_admin(request)
-    try:
-        change_admin_password(request_data.currentPassword, request_data.newPassword)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    except PermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
-    return {"ok": True}
+async def change_password(request_data: ChangePasswordRequest):
+    return {"ok": True, "authDisabled": True, "message": "Login desativado; nao ha senha para alterar."}
 
 
 @router.get("/debug")
 async def debug():
-    return {
-        "authBuild": AUTH_BUILD,
-        "adminEmail": ADMIN_EMAIL,
-        "envEmailConfigured": bool(ADMIN_EMAIL),
-        "envPasswordHashConfigured": bool(ADMIN_PASSWORD_HASH),
-        "sessionSecretConfigured": bool(SESSION_SECRET),
-    }
+    return {"authBuild": AUTH_BUILD, "enabled": False}
 
 
 @router.post("/logout")
 async def logout(response: Response):
     clear_session_cookie(response)
-    return {"authenticated": False}
+    return {"authenticated": True, "authDisabled": True}
 
 
 @router.get("/me")
-async def me(request: Request):
-    return get_current_admin(request)
+async def me():
+    return {"authenticated": True, "role": "admin", "authDisabled": True}

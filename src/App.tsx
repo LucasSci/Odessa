@@ -93,7 +93,6 @@ function loadLiveConfig(): LiveConfig {
 }
 
 export default function App() {
-  const [authStatus] = useState<'checking' | 'authenticated' | 'anonymous'>('authenticated');
   const [requestedPanel, setRequestedPanel] = useState<AdvancedPanel>(() => getPanelFromHash());
   const [capturedText, setCapturedTextState] = useState<CapturedMessage[]>(() => getRecentEvents());
   const [liveConfigOpen, setLiveConfigOpen] = useState(false);
@@ -109,6 +108,7 @@ export default function App() {
   }, []);
 
   const runtime = useAutopilotRuntime({ capturedText, setCapturedText });
+
 
   const refreshAgentStatus = useCallback(async () => {
     try {
@@ -135,16 +135,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (authStatus !== 'authenticated') return undefined;
-    void refreshAgentStatus();
+    const initialRefresh = window.setTimeout(() => void refreshAgentStatus(), 0);
     const interval = window.setInterval(() => void refreshAgentStatus(), 5000);
-    return () => window.clearInterval(interval);
-  }, [authStatus, refreshAgentStatus]);
+    return () => {
+      window.clearTimeout(initialRefresh);
+      window.clearInterval(interval);
+    };
+  }, [refreshAgentStatus]);
 
-  const logout = async () => {
-    await fetch(apiUrl('/auth/logout'), { method: 'POST' }).catch(() => undefined);
-    runtime.pause();
-  };
 
   useEffect(() => {
     try {
@@ -289,6 +287,7 @@ export default function App() {
     return <PersonaOverlay />;
   }
 
+
   return (
     <OdessaLiveCenter
       capturedText={capturedText}
@@ -303,7 +302,6 @@ export default function App() {
       onLiveConfigOpenChange={setLiveConfigOpen}
       onLiveConfigChange={setLiveConfig}
       onStartLive={startLiveWithConfig}
-      onLogout={logout}
     />
   );
 }
