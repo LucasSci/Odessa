@@ -1290,7 +1290,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   }
 
   return (
-    <div className="grid h-full min-h-0 grid-rows-[1fr] gap-4 overflow-hidden p-4 xl:grid-cols-[280px_minmax(640px,1fr)_360px]">
+    <div className="grid flex-1 min-h-0 grid-rows-[1fr] gap-4 overflow-hidden p-4 xl:grid-cols-[280px_minmax(640px,1fr)_360px]">
       <aside className="odessa-panel flex min-h-0 flex-col overflow-hidden p-4">
         <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
           <Video className="h-4 w-4 text-sky-200" />

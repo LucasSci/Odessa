@@ -889,7 +889,7 @@ export default function OdessaLiveCenter({
         ))}
       </div>
 
-      <section className="min-h-0 flex-1 overflow-hidden">
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {activeTab === 'home' && (
           <HomeDashboard
             configError={configError}
@@ -1650,6 +1650,19 @@ function SettingsPanel({
                     {obsReady ? 'pronto' : obsHealth ? 'pendente' : 'nao testado'}
                   </Badge>
                 </div>
+              </div>
+
+              <div className="mb-4 flex items-start gap-3 rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+                <span className="mt-0.5 shrink-0 text-amber-400">⚠</span>
+                <span>
+                  O OBS WebSocket conecta via <strong>Odessa Agent</strong> — um processo local que deve estar rodando
+                  no mesmo computador que o OBS. Sem o Agent ativo, o teste de conexao sempre falha.
+                  {!obsReady && !obsHealth && (
+                    <span className="mt-1 block text-amber-300">
+                      Status atual: Agent/OBS nao detectado. Inicie o Odessa Agent e clique em "Testar conexao" abaixo.
+                    </span>
+                  )}
+                </span>
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
