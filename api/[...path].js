@@ -600,6 +600,7 @@ function emptyWorkflow(status = 'draft') {
     version: 1,
     status,
     idleVideoId: null,
+    videos: [],
     flowNodes: [],
     flowConnections: [],
     triggers: [],
@@ -607,6 +608,7 @@ function emptyWorkflow(status = 'draft') {
     mediaTracks: [],
     transitions: [],
     updatedAt: new Date().toISOString(),
+    cloudStorage: cloudCapabilities(),
     lastValidation: {
       ok: true,
       warnings: ['Nenhum agent local conectado para executar OBS/captura.'],
