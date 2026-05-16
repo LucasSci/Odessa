@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
-import { list as listBlobs } from '@vercel/blob';
+import { list as listBlobs, put as putBlob } from '@vercel/blob';
 
 const SESSION_COOKIE_NAME = 'odessa_admin_session';
 const PERSONA_CONFIG_KEY = 'persona_config';
@@ -58,6 +58,46 @@ function readBody(req) {
     });
     req.on('error', reject);
   });
+}
+
+function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+function extractFileFromMultipart(buffer, contentType) {
+  const match = contentType.match(/boundary=([^\s;]+)/);
+  if (!match) return null;
+  const boundary = match[1].replace(/^["']|["']$/g, '');
+  const startDelim = Buffer.from(`--${boundary}`);
+  const partDelim = Buffer.from(`\r\n--${boundary}`);
+
+  let pos = buffer.indexOf(startDelim);
+  if (pos === -1) return null;
+  pos += startDelim.length;
+
+  while (pos < buffer.length) {
+    if (buffer[pos] === 0x0d && buffer[pos + 1] === 0x0a) pos += 2;
+    if (buffer.slice(pos, pos + 2).toString() === '--') break;
+    const headersEnd = buffer.indexOf(Buffer.from('\r\n\r\n'), pos);
+    if (headersEnd === -1) break;
+    const headers = buffer.slice(pos, headersEnd).toString();
+    const bodyStart = headersEnd + 4;
+    const nextBoundary = buffer.indexOf(partDelim, bodyStart);
+    if (nextBoundary === -1) break;
+    const body = buffer.slice(bodyStart, nextBoundary);
+    const nameMatch = headers.match(/name="([^"]+)"/);
+    const filenameMatch = headers.match(/filename="([^"]+)"/i);
+    if (nameMatch?.[1] === 'file' && filenameMatch) {
+      return { filename: filenameMatch[1], data: body };
+    }
+    pos = nextBoundary + partDelim.length;
+  }
+  return null;
 }
 
 function base64url(input) {
@@ -797,6 +837,40 @@ async function protectedResponse(req, res, path) {
       });
     }
     return json(res, 405, { detail: 'Method not allowed' });
+  }
+
+  if (path.includes('/video/upload') && req.method === 'POST') {
+    if (!BLOB_READ_WRITE_TOKEN) {
+      return json(res, 503, { detail: 'Blob storage nao configurado. Defina BLOB_READ_WRITE_TOKEN.' });
+    }
+    const ct = req.headers['content-type'] || '';
+    const rawBuffer = await readRawBody(req);
+    const file = extractFileFromMultipart(rawBuffer, ct);
+    if (!file) {
+      return json(res, 400, { detail: 'Nenhum arquivo encontrado na requisicao.' });
+    }
+    const safeName = file.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const fileContentType = /\.webm$/i.test(safeName) ? 'video/webm' : 'video/mp4';
+    const blob = await putBlob(`videos/${safeName}`, file.data, {
+      access: 'public',
+      token: BLOB_READ_WRITE_TOKEN,
+      contentType: fileContentType,
+    });
+    const videoId = videoIdFromPath(blob.pathname);
+    const existingConfig = await loadCloudConfig() || {};
+    const existingVideos = Array.isArray(existingConfig.videos) ? existingConfig.videos : [];
+    if (!existingVideos.find((v) => v.id === videoId)) {
+      existingVideos.push({
+        id: videoId,
+        label: videoLabelFromId(videoId),
+        group: 'cloud',
+        loop: false,
+        src: blob.url,
+        url: blob.url,
+      });
+    }
+    await setCloudValue(PERSONA_CONFIG_KEY, { ...existingConfig, videos: existingVideos });
+    return json(res, 200, { ok: true, videoId, url: blob.url, blobPath: blob.pathname });
   }
 
   if (path.endsWith('/video/config') || path === '/api/v1/video/config' || path === '/video/config') {

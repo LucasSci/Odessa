@@ -1268,6 +1268,19 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   };
 
   if (!config) {
+    if (error) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+          <div className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            {error}
+          </div>
+          <Button variant="secondary" onClick={loadConfig}>
+            <RefreshCw className="h-4 w-4" />
+            Tentar novamente
+          </Button>
+        </div>
+      );
+    }
     return (
       <div className="grid h-full gap-4 p-5 lg:grid-cols-[1fr_320px]">
         <Skeleton className="h-full rounded-[32px]" />
@@ -1463,6 +1476,18 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
                 </Button>
               </div>
             </div>
+          </div>
+        )}
+
+        {nodes.length === 0 && (
+          <div className="pointer-events-none absolute inset-0 top-40 z-10 flex flex-col items-center justify-center gap-3 text-center">
+            <Video className="h-10 w-10 text-white/10" />
+            <p className="text-sm font-semibold text-white/30">Canvas vazio</p>
+            <p className="text-xs text-white/20">
+              {videos.length > 0
+                ? 'Arraste um video da lista lateral para comecar.'
+                : 'Adicione videos na Biblioteca primeiro.'}
+            </p>
           </div>
         )}
 
