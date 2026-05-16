@@ -5,9 +5,11 @@ import { list as listBlobs } from '@vercel/blob';
 const SESSION_COOKIE_NAME = 'odessa_admin_session';
 const PERSONA_CONFIG_KEY = 'persona_config';
 const SESSION_TTL_SECONDS = Number(process.env.ODESSA_SESSION_TTL_SECONDS || 12 * 60 * 60);
+const DEFAULT_ADMIN_PASSWORD_HASH = '1e4aa0a4ba1e13522ed0a39479c06849cebe9e26e0e284a132510e040af0b0dc';
+const DEFAULT_SESSION_SECRET = 'odessa-hostinger-session-secret-v1-change-in-env';
 const ADMIN_PASSWORD = process.env.ODESSA_ADMIN_PASSWORD || '';
-const ADMIN_PASSWORD_HASH = (process.env.ODESSA_ADMIN_PASSWORD_HASH || '').trim();
-const SESSION_SECRET = process.env.ODESSA_SESSION_SECRET || '';
+const ADMIN_PASSWORD_HASH = (process.env.ODESSA_ADMIN_PASSWORD_HASH || DEFAULT_ADMIN_PASSWORD_HASH).trim();
+const SESSION_SECRET = process.env.ODESSA_SESSION_SECRET || DEFAULT_SESSION_SECRET;
 const AGENT_TOKEN = process.env.ODESSA_AGENT_TOKEN || '';
 const AGENT_STALE_MS = Number(process.env.ODESSA_AGENT_STALE_MS || 45_000);
 const DATABASE_URL = process.env.DATABASE_URL || '';
@@ -1071,9 +1073,6 @@ export default async function handler(req, res) {
   }
 
   if (path === '/auth/login' && req.method === 'POST') {
-    if (!SESSION_SECRET) {
-      return json(res, 500, { detail: 'ODESSA_SESSION_SECRET nao configurado na Vercel.' });
-    }
     const body = await readBody(req);
     if (!verifyPassword(String(body.password || ''))) {
       return json(res, 401, { detail: 'Invalid password' });

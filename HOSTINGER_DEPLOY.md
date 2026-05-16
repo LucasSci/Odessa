@@ -24,7 +24,7 @@ Configure no hPanel:
 ```env
 NODE_ENV=production
 ODESSA_PUBLIC_URL=https://SEU-DOMINIO-DA-HOSTINGER
-ODESSA_ADMIN_PASSWORD=Project1m$
+ODESSA_ADMIN_PASSWORD_HASH=1e4aa0a4ba1e13522ed0a39479c06849cebe9e26e0e284a132510e040af0b0dc
 ODESSA_SESSION_SECRET=troque-por-um-segredo-longo
 ODESSA_COOKIE_SECURE=true
 ODESSA_COOKIE_SAMESITE=Lax
@@ -32,6 +32,8 @@ DATABASE_URL=postgresql://...
 BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...
 ODESSA_AGENT_TOKEN=mesmo-token-do-agent-local
 ```
+
+O hash acima corresponde a senha admin combinada para este deploy. Preferir `ODESSA_ADMIN_PASSWORD_HASH` evita problemas com caracteres especiais em paineis ou scripts de deploy.
 
 Se quiser manter Neon e Vercel Blob, use os mesmos valores atuais de `DATABASE_URL` e `BLOB_READ_WRITE_TOKEN`.
 

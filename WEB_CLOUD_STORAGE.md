@@ -12,11 +12,12 @@ Configure no projeto Vercel:
 ```text
 DATABASE_URL=...
 BLOB_READ_WRITE_TOKEN=...
-ODESSA_ADMIN_PASSWORD=Project1m$
+ODESSA_ADMIN_PASSWORD_HASH=1e4aa0a4ba1e13522ed0a39479c06849cebe9e26e0e284a132510e040af0b0dc
 ODESSA_SESSION_SECRET=...
 ```
 
 `DATABASE_URL` deve vir de um banco Neon Postgres conectado pelo Vercel Marketplace. `BLOB_READ_WRITE_TOKEN` deve vir de um store Vercel Blob.
+O hash admin evita expor a senha em texto puro e evita problemas com caracteres especiais no deploy.
 
 ## Sincronizar Config/Workflow
 
@@ -24,7 +25,7 @@ No ambiente local, com a mesma senha admin:
 
 ```powershell
 $env:ODESSA_CLOUD_URL="https://odessa-gules.vercel.app"
-$env:ODESSA_ADMIN_PASSWORD="Project1m$"
+$env:ODESSA_ADMIN_PASSWORD="sua-senha-admin"
 npm run cloud:sync-config
 ```
 
