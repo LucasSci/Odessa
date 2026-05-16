@@ -50,7 +50,9 @@ const LIVE_CONFIG_KEY = 'odessa:live-config:v1';
 const LOCAL_AGENT_URL = 'http://127.0.0.1:8766';
 
 function isCloudHosted() {
-  return typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app');
+  if (typeof window === 'undefined') return false;
+  const h = window.location.hostname;
+  return h !== '' && h !== 'localhost' && h !== '127.0.0.1' && h !== '::1';
 }
 
 function getPanelFromHash(): AdvancedPanel {
@@ -154,17 +156,17 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [authStatus, refreshAgentStatus]);
 
-  const login = async (password: string) => {
+  const login = async (email: string, password: string) => {
     setLoginError(null);
     const response = await fetch(apiUrl('/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ email, password }),
     });
     if (!response.ok) {
       const errorData = await response.json().catch(() => null);
-      const detail = typeof errorData?.detail === 'string' ? ` (${errorData.detail})` : '';
-      setLoginError(`Senha de administrador invalida.${detail}`);
+      const detail = typeof errorData?.detail === 'string' ? errorData.detail : 'Email ou senha invalidos.';
+      setLoginError(detail);
       setAuthStatus('anonymous');
       return;
     }
@@ -176,7 +178,7 @@ export default function App() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'omit',
-          body: JSON.stringify({ password }),
+          body: JSON.stringify({ email, password }),
         });
         const localData = await localResponse.json().catch(() => null);
         if (localResponse.ok) {
@@ -390,10 +392,13 @@ function LoginScreen({
   onSubmit,
 }: {
   error: string | null;
-  onSubmit: (password: string) => Promise<void>;
+  onSubmit: (email: string, password: string) => Promise<void>;
 }) {
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const canSubmit = email.trim().length > 0 && password.trim().length > 0;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#07090d] px-4 text-white">
@@ -401,9 +406,10 @@ function LoginScreen({
         className="w-full max-w-sm rounded-lg border border-white/10 bg-[#0d1118] p-6 shadow-2xl"
         onSubmit={async (event) => {
           event.preventDefault();
+          if (!canSubmit) return;
           setBusy(true);
           try {
-            await onSubmit(password);
+            await onSubmit(email.trim(), password);
           } finally {
             setBusy(false);
           }
@@ -420,19 +426,36 @@ function LoginScreen({
         </div>
 
         <label className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
+          Email
+        </label>
+        <input
+          className="mb-4 w-full rounded-md border border-white/10 bg-black/30 px-3 py-3 text-sm outline-none ring-cyan-400/0 transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-400/20"
+          type="email"
+          autoFocus
+          autoComplete="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+        />
+
+        <label className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
           Senha
         </label>
         <input
           className="mb-4 w-full rounded-md border border-white/10 bg-black/30 px-3 py-3 text-sm outline-none ring-cyan-400/0 transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-400/20"
           type="password"
-          autoFocus
+          autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
         />
-        {error && <div className="mb-4 rounded-md border border-rose-400/30 bg-rose-950/40 px-3 py-2 text-xs text-rose-100">{error}</div>}
+
+        {error && (
+          <div className="mb-4 rounded-md border border-rose-400/30 bg-rose-950/40 px-3 py-2 text-xs text-rose-100">
+            {error}
+          </div>
+        )}
         <button
           className="w-full rounded-md bg-cyan-300 px-4 py-3 text-sm font-black uppercase tracking-[0.16em] text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={busy || !password.trim()}
+          disabled={busy || !canSubmit}
           type="submit"
         >
           {busy ? 'Entrando...' : 'Entrar'}

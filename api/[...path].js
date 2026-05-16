@@ -4,20 +4,18 @@ import { list as listBlobs } from '@vercel/blob';
 
 const SESSION_COOKIE_NAME = 'odessa_admin_session';
 const PERSONA_CONFIG_KEY = 'persona_config';
-const AUTH_BUILD = 'auth-2026-05-16-default-password-v2';
+const AUTH_BUILD = 'auth-2026-05-16-email-password-v3';
 const SESSION_TTL_SECONDS = Number(process.env.ODESSA_SESSION_TTL_SECONDS || 12 * 60 * 60);
-const DEFAULT_ADMIN_PASSWORD_HASHES = [
-  '8b9ddf7394e8055c164f989aac111b17e99fdedff3cc5cb4e34d4b3521f8873d',
-  '1e4aa0a4ba1e13522ed0a39479c06849cebe9e26e0e284a132510e040af0b0dc',
-];
-const DEFAULT_SESSION_SECRET = 'odessa-hostinger-session-secret-v1-change-in-env';
-const ADMIN_PASSWORD = process.env.ODESSA_ADMIN_PASSWORD || '';
+const DEFAULT_ADMIN_EMAIL = 'lucasbatista.c.l@gmail.com';
+const DEFAULT_PASSWORD_HASH = 'ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f'; // 12345678
+const ADMIN_EMAIL = (process.env.ODESSA_ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL).trim().toLowerCase();
 const ADMIN_PASSWORD_HASH = (process.env.ODESSA_ADMIN_PASSWORD_HASH || '').trim();
-const SESSION_SECRET = process.env.ODESSA_SESSION_SECRET || DEFAULT_SESSION_SECRET;
+const SESSION_SECRET = process.env.ODESSA_SESSION_SECRET || 'odessa-hostinger-session-secret-v1-change-in-env';
 const AGENT_TOKEN = process.env.ODESSA_AGENT_TOKEN || '';
 const AGENT_STALE_MS = Number(process.env.ODESSA_AGENT_STALE_MS || 45_000);
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const BLOB_READ_WRITE_TOKEN = process.env.BLOB_READ_WRITE_TOKEN || '';
+const MIN_PASSWORD_LENGTH = 8;
 const cloudStore = (globalThis.__ODESSA_CLOUD_STORE ||= {
   agentStatus: null,
   commandQueue: [],
@@ -80,15 +78,40 @@ function safeEqual(a, b) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
-function verifyPassword(password) {
-  const normalizedPassword = String(password).trim();
+async function getStoredPasswordHash() {
+  try {
+    const sql = getSql();
+    if (sql) {
+      await ensureCloudSchema();
+      const rows = await sql`SELECT value FROM odessa_kv WHERE key = 'admin_password_hash'`;
+      if (rows.length > 0) {
+        const raw = rows[0].value;
+        return typeof raw === 'string' ? raw : String(raw);
+      }
+    }
+  } catch {}
+  if (ADMIN_PASSWORD_HASH) return ADMIN_PASSWORD_HASH;
+  return DEFAULT_PASSWORD_HASH;
+}
+
+async function storePasswordHash(hash) {
+  const sql = getSql();
+  if (!sql) throw Object.assign(new Error('Database nao configurado'), { statusCode: 503 });
+  await ensureCloudSchema();
+  await sql`
+    INSERT INTO odessa_kv (key, value, updated_at)
+    VALUES ('admin_password_hash', ${JSON.stringify(hash)}, now())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+  `;
+}
+
+async function verifyCredentials(email, password) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!safeEqual(normalizedEmail, ADMIN_EMAIL)) return false;
+  const normalizedPassword = String(password || '').trim();
   const incomingHash = hashPassword(normalizedPassword);
-  const acceptedHashes = new Set(DEFAULT_ADMIN_PASSWORD_HASHES);
-  if (ADMIN_PASSWORD_HASH) acceptedHashes.add(ADMIN_PASSWORD_HASH);
-  for (const acceptedHash of acceptedHashes) {
-    if (acceptedHash && safeEqual(incomingHash, acceptedHash)) return true;
-  }
-  return Boolean(ADMIN_PASSWORD) && safeEqual(normalizedPassword, ADMIN_PASSWORD.trim());
+  const storedHash = await getStoredPasswordHash();
+  return safeEqual(incomingHash, storedHash);
 }
 
 function createSessionToken() {
@@ -1083,22 +1106,40 @@ export default async function handler(req, res) {
 
   if (path === '/auth/login' && req.method === 'POST') {
     const body = await readBody(req);
-    if (!verifyPassword(String(body.password || ''))) {
-      return json(res, 401, { detail: `Invalid password (${AUTH_BUILD})` });
+    if (!await verifyCredentials(body.email, body.password)) {
+      return json(res, 401, { detail: 'Email ou senha invalidos' });
     }
     const sessionToken = createSessionToken();
     setSessionCookie(res, sessionToken);
     return json(res, 200, { authenticated: true, role: 'admin', sessionToken, authBuild: AUTH_BUILD });
   }
 
+  if (path === '/auth/change-password' && req.method === 'POST') {
+    const session = getSession(req);
+    if (!session) return json(res, 401, { detail: 'Not authenticated' });
+    const body = await readBody(req);
+    const currentPassword = String(body.currentPassword || '');
+    const newPassword = String(body.newPassword || '').trim();
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+      return json(res, 400, { detail: `A nova senha deve ter pelo menos ${MIN_PASSWORD_LENGTH} caracteres` });
+    }
+    const currentHash = hashPassword(String(currentPassword).trim());
+    const storedHash = await getStoredPasswordHash();
+    if (!safeEqual(currentHash, storedHash)) {
+      return json(res, 401, { detail: 'Senha atual incorreta' });
+    }
+    await storePasswordHash(hashPassword(newPassword));
+    return json(res, 200, { ok: true });
+  }
+
   if (path === '/auth/debug' && req.method === 'GET') {
     return json(res, 200, {
       authBuild: AUTH_BUILD,
-      defaultPasswordHashEnabled: true,
-      defaultPasswordCount: DEFAULT_ADMIN_PASSWORD_HASHES.length,
-      envPasswordConfigured: Boolean(ADMIN_PASSWORD),
+      adminEmail: ADMIN_EMAIL,
+      envEmailConfigured: Boolean(process.env.ODESSA_ADMIN_EMAIL),
       envPasswordHashConfigured: Boolean(process.env.ODESSA_ADMIN_PASSWORD_HASH),
       sessionSecretConfigured: Boolean(process.env.ODESSA_SESSION_SECRET),
+      databaseConfigured: Boolean(DATABASE_URL),
     });
   }
 
