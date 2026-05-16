@@ -1,6 +1,17 @@
 import crypto from 'node:crypto';
-import { neon } from '@neondatabase/serverless';
-import { list as listBlobs, put as putBlob } from '@vercel/blob';
+import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import nodePath from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = nodePath.dirname(fileURLToPath(import.meta.url));
+const _require = createRequire(import.meta.url);
+let Database;
+try {
+  Database = _require('better-sqlite3');
+} catch {
+  Database = null;
+}
 
 const SESSION_COOKIE_NAME = 'odessa_admin_session';
 const PERSONA_CONFIG_KEY = 'persona_config';
@@ -13,18 +24,18 @@ const ADMIN_PASSWORD_HASH = (process.env.ODESSA_ADMIN_PASSWORD_HASH || '').trim(
 const SESSION_SECRET = process.env.ODESSA_SESSION_SECRET || 'odessa-hostinger-session-secret-v1-change-in-env';
 const AGENT_TOKEN = process.env.ODESSA_AGENT_TOKEN || '';
 const AGENT_STALE_MS = Number(process.env.ODESSA_AGENT_STALE_MS || 45_000);
-const DATABASE_URL = process.env.DATABASE_URL || '';
-const BLOB_READ_WRITE_TOKEN = process.env.BLOB_READ_WRITE_TOKEN || '';
+const DATA_DIR = process.env.ODESSA_DATA_DIR || nodePath.join(__dirname, '..', 'data');
+const UPLOADS_DIR = process.env.ODESSA_UPLOADS_DIR || nodePath.join(__dirname, '..', 'uploads');
+const DB_PATH = process.env.ODESSA_DB_FILE || nodePath.join(DATA_DIR, 'odessa.db');
 const MIN_PASSWORD_LENGTH = 8;
+fs.mkdirSync(DATA_DIR, { recursive: true });
+fs.mkdirSync(nodePath.join(UPLOADS_DIR, 'videos'), { recursive: true });
 const cloudStore = (globalThis.__ODESSA_CLOUD_STORE ||= {
   agentStatus: null,
   commandQueue: [],
   events: [],
 });
-const cloudDbState = (globalThis.__ODESSA_CLOUD_DB ||= {
-  sql: null,
-  schemaReady: false,
-});
+const cloudDbState = (globalThis.__ODESSA_CLOUD_DB ||= { db: null });
 
 function json(res, statusCode, body, headers = {}) {
   res.statusCode = statusCode;
@@ -251,8 +262,8 @@ function cloudState() {
 
 function cloudCapabilities() {
   return {
-    databaseConfigured: Boolean(DATABASE_URL),
-    blobConfigured: Boolean(BLOB_READ_WRITE_TOKEN),
+    databaseConfigured: Boolean(Database),
+    blobConfigured: true,
   };
 }
 
@@ -260,7 +271,7 @@ function defaultObsSettings() {
   const publicUrl =
     process.env.ODESSA_PUBLIC_URL ||
     process.env.HOSTINGER_APP_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://odessa-gules.vercel.app');
+    'http://localhost:3000';
   return {
     enabled: true,
     websocketUrl: 'ws://127.0.0.1:4455',
@@ -279,84 +290,70 @@ function defaultObsSettings() {
   };
 }
 
-function getSql() {
-  if (!DATABASE_URL) return null;
-  if (!cloudDbState.sql) {
-    cloudDbState.sql = neon(DATABASE_URL);
+function getDb() {
+  if (!Database) return null;
+  if (!cloudDbState.db) {
+    try {
+      const db = new Database(DB_PATH);
+      db.pragma('journal_mode = WAL');
+      db.pragma('foreign_keys = ON');
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS odessa_kv (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+        CREATE TABLE IF NOT EXISTS odessa_agent_commands (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL,
+          payload TEXT NOT NULL DEFAULT '{}',
+          status TEXT NOT NULL DEFAULT 'queued',
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+          claimed_at TEXT,
+          completed_at TEXT,
+          result TEXT
+        );
+        CREATE TABLE IF NOT EXISTS odessa_agent_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          kind TEXT,
+          command_id TEXT,
+          payload TEXT NOT NULL DEFAULT '{}',
+          received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+      `);
+      cloudDbState.db = db;
+    } catch {
+      return null;
+    }
   }
-  return cloudDbState.sql;
+  return cloudDbState.db;
 }
 
-async function ensureCloudSchema() {
-  const sql = getSql();
-  if (!sql || cloudDbState.schemaReady) return Boolean(sql);
-  await sql`
-    CREATE TABLE IF NOT EXISTS odessa_kv (
-      key text PRIMARY KEY,
-      value jsonb NOT NULL,
-      updated_at timestamptz NOT NULL DEFAULT now()
-    )
-  `;
-  await sql`
-    CREATE TABLE IF NOT EXISTS odessa_agent_commands (
-      id text PRIMARY KEY,
-      type text NOT NULL,
-      payload jsonb NOT NULL DEFAULT '{}'::jsonb,
-      status text NOT NULL DEFAULT 'queued',
-      created_at timestamptz NOT NULL DEFAULT now(),
-      claimed_at timestamptz,
-      completed_at timestamptz,
-      result jsonb
-    )
-  `;
-  await sql`
-    CREATE TABLE IF NOT EXISTS odessa_agent_events (
-      id bigserial PRIMARY KEY,
-      kind text,
-      command_id text,
-      payload jsonb NOT NULL DEFAULT '{}'::jsonb,
-      received_at timestamptz NOT NULL DEFAULT now()
-    )
-  `;
-  cloudDbState.schemaReady = true;
-  return true;
-}
-
-async function getCloudValue(key) {
-  const sql = getSql();
-  if (!sql) return null;
+function getCloudValue(key) {
   try {
-    await ensureCloudSchema();
-    const rows = await sql`SELECT value, updated_at FROM odessa_kv WHERE key = ${key} LIMIT 1`;
-    const row = rows[0];
+    const db = getDb();
+    if (!db) return null;
+    const row = db.prepare('SELECT value, updated_at FROM odessa_kv WHERE key = ? LIMIT 1').get(key);
     if (!row) return null;
-    return {
-      value: row.value,
-      updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
-    };
+    return { value: JSON.parse(row.value), updatedAt: row.updated_at };
   } catch {
     return null;
   }
 }
 
-async function setCloudValue(key, value) {
-  const sql = getSql();
-  if (!sql) {
-    const error = new Error('DATABASE_URL nao configurado na Vercel.');
+function setCloudValue(key, value) {
+  const db = getDb();
+  if (!db) {
+    const error = new Error('Banco de dados nao configurado. Execute: npm install better-sqlite3');
     error.statusCode = 503;
     throw error;
   }
-  await ensureCloudSchema();
-  const rows = await sql`
-    INSERT INTO odessa_kv (key, value, updated_at)
-    VALUES (${key}, ${JSON.stringify(value)}::jsonb, now())
-    ON CONFLICT (key) DO UPDATE
-      SET value = excluded.value,
-          updated_at = now()
-    RETURNING updated_at
-  `;
-  const updatedAt = rows[0]?.updated_at;
-  return updatedAt instanceof Date ? updatedAt.toISOString() : updatedAt;
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO odessa_kv (key, value, updated_at) VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+  `).run(key, JSON.stringify(value), now);
+  return now;
 }
 
 function stateFromAgentStatus(agentStatus) {
@@ -373,22 +370,21 @@ function stateFromAgentStatus(agentStatus) {
   };
 }
 
-async function getAgentStatus() {
-  const stored = await getCloudValue('agent_status');
+function getAgentStatus() {
+  const stored = getCloudValue('agent_status');
   const status = stored?.value || cloudStore.agentStatus || null;
   if (status) cloudStore.agentStatus = status;
   return status;
 }
 
-async function saveAgentStatus(status) {
+function saveAgentStatus(status) {
   cloudStore.agentStatus = status;
-  if (!getSql()) return null;
-  return setCloudValue('agent_status', status);
+  try { setCloudValue('agent_status', status); } catch { /* best-effort */ }
 }
 
-async function loadObsSettings() {
-  const stored = await getCloudValue('obs_settings');
-  const agentStatus = await getAgentStatus();
+function loadObsSettings() {
+  const stored = getCloudValue('obs_settings');
+  const agentStatus = getAgentStatus();
   const agentLayout = agentStatus?.health?.obs?.layout || {};
   const settings = {
     ...defaultObsSettings(),
@@ -401,13 +397,10 @@ async function loadObsSettings() {
   return settings;
 }
 
-async function saveObsSettings(settings) {
-  const current = await loadObsSettings();
-  const next = {
-    ...current,
-    ...(settings || {}),
-  };
-  await setCloudValue('obs_settings', next);
+function saveObsSettings(settings) {
+  const current = loadObsSettings();
+  const next = { ...current, ...(settings || {}) };
+  setCloudValue('obs_settings', next);
   return next;
 }
 
@@ -421,100 +414,73 @@ function commandFromRow(row) {
   };
 }
 
-async function enqueueAgentCommand(command) {
+function enqueueAgentCommand(command) {
   const normalized = {
     id: command.id || crypto.randomUUID(),
     type: command.type || 'noop',
     payload: command.payload || {},
     createdAt: command.createdAt || new Date().toISOString(),
   };
-  const sql = getSql();
-  if (!sql) {
+  const db = getDb();
+  if (!db) {
     cloudStore.commandQueue.push(normalized);
     return { command: normalized, queueSize: cloudStore.commandQueue.length, persisted: false };
   }
-  await ensureCloudSchema();
-  await sql`
-    INSERT INTO odessa_agent_commands (id, type, payload, status)
-    VALUES (${normalized.id}, ${normalized.type}, ${JSON.stringify(normalized.payload)}::jsonb, 'queued')
-    ON CONFLICT (id) DO UPDATE
-      SET type = excluded.type,
-          payload = excluded.payload,
-          status = 'queued',
-          created_at = now(),
-          claimed_at = null,
-          completed_at = null,
-          result = null
-  `;
-  const rows = await sql`SELECT count(*)::int AS count FROM odessa_agent_commands WHERE status = 'queued'`;
-  return { command: normalized, queueSize: Number(rows[0]?.count || 0), persisted: true };
+  db.prepare(`
+    INSERT INTO odessa_agent_commands (id, type, payload, status, created_at)
+    VALUES (?, ?, ?, 'queued', ?)
+    ON CONFLICT(id) DO UPDATE SET type=excluded.type, payload=excluded.payload,
+      status='queued', created_at=excluded.created_at, claimed_at=NULL, completed_at=NULL, result=NULL
+  `).run(normalized.id, normalized.type, JSON.stringify(normalized.payload), normalized.createdAt);
+  const count = db.prepare("SELECT COUNT(*) AS n FROM odessa_agent_commands WHERE status='queued'").get();
+  return { command: normalized, queueSize: Number(count?.n || 0), persisted: true };
 }
 
-async function claimNextAgentCommand() {
-  const sql = getSql();
-  if (!sql) return { command: cloudStore.commandQueue.shift() || null, queueSize: cloudStore.commandQueue.length };
-  await ensureCloudSchema();
-  const rows = await sql`
-    UPDATE odessa_agent_commands
-    SET status = 'claimed',
-        claimed_at = now()
-    WHERE id = (
-      SELECT id
-      FROM odessa_agent_commands
-      WHERE status = 'queued'
-      ORDER BY created_at ASC
-      LIMIT 1
-      FOR UPDATE SKIP LOCKED
-    )
-    RETURNING id, type, payload, created_at
-  `;
-  const countRows = await sql`SELECT count(*)::int AS count FROM odessa_agent_commands WHERE status = 'queued'`;
-  return { command: commandFromRow(rows[0]), queueSize: Number(countRows[0]?.count || 0) };
+function claimNextAgentCommand() {
+  const db = getDb();
+  if (!db) return { command: cloudStore.commandQueue.shift() || null, queueSize: cloudStore.commandQueue.length };
+  const claim = db.transaction(() => {
+    const row = db.prepare("SELECT id,type,payload,created_at FROM odessa_agent_commands WHERE status='queued' ORDER BY created_at ASC LIMIT 1").get();
+    if (!row) return { command: null, queueSize: 0 };
+    const now = new Date().toISOString();
+    db.prepare("UPDATE odessa_agent_commands SET status='claimed', claimed_at=? WHERE id=?").run(now, row.id);
+    const count = db.prepare("SELECT COUNT(*) AS n FROM odessa_agent_commands WHERE status='queued'").get();
+    return { command: commandFromRow({ ...row, payload: JSON.parse(row.payload || '{}') }), queueSize: Number(count?.n || 0) };
+  });
+  return claim();
 }
 
-async function queuedCommandCount() {
-  const sql = getSql();
-  if (!sql) return cloudStore.commandQueue.length;
-  await ensureCloudSchema();
-  const rows = await sql`SELECT count(*)::int AS count FROM odessa_agent_commands WHERE status = 'queued'`;
-  return Number(rows[0]?.count || 0);
+function queuedCommandCount() {
+  const db = getDb();
+  if (!db) return cloudStore.commandQueue.length;
+  const row = db.prepare("SELECT COUNT(*) AS n FROM odessa_agent_commands WHERE status='queued'").get();
+  return Number(row?.n || 0);
 }
 
-async function recordAgentEvent(event) {
+function recordAgentEvent(event) {
   const payload = { ...event, receivedAt: new Date().toISOString() };
   cloudStore.events.push(payload);
   cloudStore.events = cloudStore.events.slice(-100);
-  const sql = getSql();
-  if (!sql) return { persisted: false };
-  await ensureCloudSchema();
+  const db = getDb();
+  if (!db) return { persisted: false };
   const commandId = event?.command?.id || event?.commandId || null;
-  await sql`
-    INSERT INTO odessa_agent_events (kind, command_id, payload)
-    VALUES (${event?.kind || null}, ${commandId}, ${JSON.stringify(payload)}::jsonb)
-  `;
+  const now = new Date().toISOString();
+  db.prepare('INSERT INTO odessa_agent_events (kind, command_id, payload, received_at) VALUES (?,?,?,?)').run(
+    event?.kind || null, commandId, JSON.stringify(payload), now
+  );
   if (commandId && event?.result) {
-    await sql`
-      UPDATE odessa_agent_commands
-      SET status = 'completed',
-          completed_at = now(),
-          result = ${JSON.stringify(event.result)}::jsonb
-      WHERE id = ${commandId}
-    `;
+    db.prepare("UPDATE odessa_agent_commands SET status='completed', completed_at=?, result=? WHERE id=?").run(
+      now, JSON.stringify(event.result), commandId
+    );
   }
   return { persisted: true };
 }
 
-async function recentAgentEvents() {
-  const sql = getSql();
-  if (!sql) return cloudStore.events.slice(-20);
-  await ensureCloudSchema();
-  const rows = await sql`
-    SELECT payload
-    FROM odessa_agent_events
-    ORDER BY received_at DESC
-    LIMIT 20
-  `;
-  return rows.map((row) => row.payload).reverse();
+function recentAgentEvents() {
+  const db = getDb();
+  if (!db) return cloudStore.events.slice(-20);
+  const rows = db.prepare('SELECT payload FROM odessa_agent_events ORDER BY received_at DESC LIMIT 20').all();
+  return rows.map((row) => { try { return JSON.parse(row.payload); } catch { return {}; } }).reverse();
 }
 
 function videoIdFromPath(pathname) {
@@ -534,47 +500,48 @@ function mediaTypeFromPath(pathname) {
   return /\.webm$/i.test(pathname) ? 'video/webm' : 'video/mp4';
 }
 
-async function listCloudVideos() {
-  if (!BLOB_READ_WRITE_TOKEN) return [];
-  const { blobs } = await listBlobs({ prefix: 'videos/', token: BLOB_READ_WRITE_TOKEN });
-  return blobs
-    .filter((blob) => /\.(mp4|webm|mov|m4v)$/i.test(blob.pathname || blob.url || ''))
-    .map((blob) => {
-      const id = videoIdFromPath(blob.pathname || blob.url);
-      return {
-        id,
-        label: videoLabelFromId(id),
-        group: 'cloud',
-        description: `Vercel Blob: ${blob.pathname}`,
-        loop: false,
-        cloud: true,
-        missingFile: false,
-        src: blob.url,
-        url: blob.url,
-        playUrl: blob.url,
-        blobPath: blob.pathname,
-        size: blob.size,
-        size_bytes: blob.size,
-        uploadedAt: blob.uploadedAt,
-        contentType: mediaTypeFromPath(blob.pathname || blob.url),
-        thumbnailStrategy: 'client-filmstrip',
-      };
-    });
+function listLocalVideos() {
+  try {
+    const videoDir = nodePath.join(UPLOADS_DIR, 'videos');
+    fs.mkdirSync(videoDir, { recursive: true });
+    const files = fs.readdirSync(videoDir);
+    return files
+      .filter((f) => /\.(mp4|webm|mov|m4v)$/i.test(f))
+      .map((f) => {
+        const id = videoIdFromPath(f);
+        const stat = fs.statSync(nodePath.join(videoDir, f));
+        return {
+          id,
+          label: videoLabelFromId(id),
+          group: 'local',
+          description: `Local: ${f}`,
+          loop: false,
+          cloud: false,
+          missingFile: false,
+          src: `/uploads/videos/${f}`,
+          url: `/uploads/videos/${f}`,
+          playUrl: `/uploads/videos/${f}`,
+          blobPath: f,
+          size: stat.size,
+          size_bytes: stat.size,
+          uploadedAt: stat.mtime.toISOString(),
+          contentType: mediaTypeFromPath(f),
+          thumbnailStrategy: 'client-filmstrip',
+        };
+      });
+  } catch {
+    return [];
+  }
 }
 
-async function loadCloudConfig() {
-  const stored = await getCloudValue(PERSONA_CONFIG_KEY);
+function loadCloudConfig() {
+  const stored = getCloudValue(PERSONA_CONFIG_KEY);
   return stored?.value && typeof stored.value === 'object' ? stored.value : null;
 }
 
-async function configWithCloudVideos(config) {
+function configWithCloudVideos(config) {
   const safeConfig = config && typeof config === 'object' ? structuredClone(config) : {};
-  let cloudVideos = [];
-  try {
-    cloudVideos = await listCloudVideos();
-  } catch {
-    cloudVideos = [];
-  }
+  const cloudVideos = listLocalVideos();
   const byId = new Map();
   for (const video of Array.isArray(safeConfig.videos) ? safeConfig.videos : []) {
     if (video?.id) byId.set(video.id, { ...video });
@@ -598,9 +565,9 @@ async function configWithCloudVideos(config) {
   return safeConfig;
 }
 
-async function getCloudWorkflow(kind) {
-  const cloudConfig = await loadCloudConfig();
-  const config = await configWithCloudVideos(
+function getCloudWorkflow(kind) {
+  const cloudConfig = loadCloudConfig();
+  const config = configWithCloudVideos(
     cloudConfig || { videos: [], triggers: [], giftMap: {}, gift_map: {}, idleVideoId: null },
   );
   if (!cloudConfig && !config.videos?.length) return emptyWorkflow(kind);
@@ -626,9 +593,9 @@ function clipFromVideoId(videoId, options = {}) {
   };
 }
 
-async function loadCloudVideoState() {
-  const stored = await getCloudValue('video_state');
-  const config = await loadCloudConfig();
+function loadCloudVideoState() {
+  const stored = getCloudValue('video_state');
+  const config = loadCloudConfig();
   const idleVideoId = config?.idleVideoId || config?.publishedWorkflow?.idleVideoId || config?.draftWorkflow?.idleVideoId || null;
   const currentVideoId = stored?.value?.current_video_id || idleVideoId || null;
   const isIdleVideo = Boolean(currentVideoId && idleVideoId && currentVideoId === idleVideoId);
@@ -653,8 +620,8 @@ async function loadCloudVideoState() {
   };
 }
 
-async function saveCloudVideoState(videoId, patch = {}) {
-  const config = await loadCloudConfig();
+function saveCloudVideoState(videoId, patch = {}) {
+  const config = loadCloudConfig();
   const idleVideoId = config?.idleVideoId || config?.publishedWorkflow?.idleVideoId || config?.draftWorkflow?.idleVideoId || null;
   const isIdleVideo = Boolean(videoId && idleVideoId && videoId === idleVideoId);
   const currentClip = videoId
@@ -676,7 +643,7 @@ async function saveCloudVideoState(videoId, patch = {}) {
     activeConnectionId: patch.activeConnectionId || null,
     executionMode: 'cloud',
   };
-  await setCloudValue('video_state', state);
+  setCloudValue('video_state', state);
   return state;
 }
 
@@ -786,7 +753,7 @@ async function protectedResponse(req, res, path) {
       dbError = error.message;
     }
     try {
-      cloudVideoCount = (await listCloudVideos()).length;
+      cloudVideoCount = (await listLocalVideos()).length;
     } catch (error) {
       blobError = error.message;
     }
@@ -849,37 +816,22 @@ async function protectedResponse(req, res, path) {
   }
 
   if (path.includes('/video/upload') && req.method === 'POST') {
-    if (!BLOB_READ_WRITE_TOKEN) {
-      return json(res, 503, { detail: 'Blob storage nao configurado. Defina BLOB_READ_WRITE_TOKEN.' });
-    }
     const ct = req.headers['content-type'] || '';
     const rawBuffer = await readRawBody(req);
     const file = extractFileFromMultipart(rawBuffer, ct);
     if (!file) {
       return json(res, 400, { detail: 'Nenhum arquivo encontrado na requisicao.' });
     }
-    const safeName = file.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const fileContentType = /\.webm$/i.test(safeName) ? 'video/webm' : 'video/mp4';
-    const blob = await putBlob(`videos/${safeName}`, file.data, {
-      access: 'public',
-      token: BLOB_READ_WRITE_TOKEN,
-      contentType: fileContentType,
-    });
-    const videoId = videoIdFromPath(blob.pathname);
-    const existingConfig = await loadCloudConfig() || {};
-    const existingVideos = Array.isArray(existingConfig.videos) ? existingConfig.videos : [];
-    if (!existingVideos.find((v) => v.id === videoId)) {
-      existingVideos.push({
-        id: videoId,
-        label: videoLabelFromId(videoId),
-        group: 'cloud',
-        loop: false,
-        src: blob.url,
-        url: blob.url,
-      });
+    if (!/\.(mp4|webm|mov|m4v)$/i.test(file.filename)) {
+      return json(res, 400, { detail: 'Formato invalido. Envie MP4, WebM ou MOV.' });
     }
-    await setCloudValue(PERSONA_CONFIG_KEY, { ...existingConfig, videos: existingVideos });
-    return json(res, 200, { ok: true, videoId, url: blob.url, blobPath: blob.pathname });
+    const safeName = file.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const videoDir = nodePath.join(UPLOADS_DIR, 'videos');
+    fs.mkdirSync(videoDir, { recursive: true });
+    fs.writeFileSync(nodePath.join(videoDir, safeName), file.data);
+    const publicUrl = `/uploads/videos/${safeName}`;
+    const videoId = videoIdFromPath(safeName);
+    return json(res, 200, { ok: true, videoId, url: publicUrl, blobPath: safeName });
   }
 
   if (path.endsWith('/video/config') || path === '/api/v1/video/config' || path === '/video/config') {
@@ -948,7 +900,7 @@ async function protectedResponse(req, res, path) {
 
   if (path.includes('/video/play/')) {
     const videoId = decodeURIComponent(path.split('/video/play/').pop() || '');
-    const match = (await listCloudVideos()).find((video) => video.id === videoId);
+    const match = (await listLocalVideos()).find((video) => video.id === videoId);
     if (!match) return json(res, 404, { detail: `Video '${videoId}' nao encontrado no Vercel Blob.` });
     res.statusCode = 302;
     res.setHeader('Location', match.url);

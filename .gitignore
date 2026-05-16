@@ -19,5 +19,13 @@ certs/dev/*.password.txt
 .env*
 !.env.example
 
+# Hostinger runtime data (gerado automaticamente)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+uploads/
+
+# Vercel (nao usado mais)
 .vercel
 .env*.local
+.claude/
