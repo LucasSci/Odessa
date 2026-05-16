@@ -77,9 +77,13 @@ function safeEqual(a, b) {
 }
 
 function verifyPassword(password) {
-  if (!ADMIN_PASSWORD && !ADMIN_PASSWORD_HASH) return false;
-  if (ADMIN_PASSWORD_HASH) return safeEqual(hashPassword(password), ADMIN_PASSWORD_HASH);
-  return safeEqual(password, ADMIN_PASSWORD);
+  const incomingHash = hashPassword(password);
+  const acceptedHashes = new Set([DEFAULT_ADMIN_PASSWORD_HASH]);
+  if (ADMIN_PASSWORD_HASH) acceptedHashes.add(ADMIN_PASSWORD_HASH);
+  for (const acceptedHash of acceptedHashes) {
+    if (acceptedHash && safeEqual(incomingHash, acceptedHash)) return true;
+  }
+  return Boolean(ADMIN_PASSWORD) && safeEqual(password, ADMIN_PASSWORD);
 }
 
 function createSessionToken() {
