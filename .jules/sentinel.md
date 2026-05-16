@@ -1,0 +1,4 @@
+## 2024-05-16 - CORS Allow-All with Credentials Vulnerability
+**Vulnerability:** The FastAPI backend had an overly permissive CORS configuration (`allow_origins=["*"]`) combined with `allow_credentials=True`. This is a critical misconfiguration that can allow cross-origin requests to read sensitive data and make unauthorized actions if an attacker exploits a user's session.
+**Learning:** This likely existed to simplify local development and avoid CORS errors when connecting the frontend to the backend. However, using a wildcard for origins when credentials are allowed is explicitly forbidden by the CORS specification and represents a major security risk.
+**Prevention:** Always restrict `allow_origins` to a specific list of known, trusted domains, even in development. We added `CORS_ALLOWED_ORIGINS` to the configuration, allowing developers to define this safely via environment variables while defaulting to secure local patterns.
