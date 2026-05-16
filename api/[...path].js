@@ -550,8 +550,11 @@ async function configWithCloudVideos(config) {
 }
 
 async function getCloudWorkflow(kind) {
-  const config = await loadCloudConfig();
-  if (!config) return emptyWorkflow(kind);
+  const cloudConfig = await loadCloudConfig();
+  const config = await configWithCloudVideos(
+    cloudConfig || { videos: [], triggers: [], giftMap: {}, gift_map: {}, idleVideoId: null },
+  );
+  if (!cloudConfig && !config.videos?.length) return emptyWorkflow(kind);
   const workflow = config[`${kind}Workflow`] || config[kind] || config;
   return {
     ...emptyWorkflow(kind),

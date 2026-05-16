@@ -1314,6 +1314,13 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
               </button>
             );
           })}
+          {filteredVideos.length === 0 && (
+            <p className="px-2 py-4 text-center text-xs text-[var(--t3)]">
+              {videos.length === 0
+                ? 'Nenhum video. Adicione na Biblioteca.'
+                : 'Nenhum video corresponde a busca.'}
+            </p>
+          )}
         </div>
       </aside>
 
