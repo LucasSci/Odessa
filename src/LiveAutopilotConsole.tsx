@@ -359,7 +359,7 @@ export default function LiveAutopilotConsole({ capturedText, runtime }: LiveAuto
           <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-3">
             <div className="grid grid-cols-2 gap-2">
               <button
-                onClick={runtime.start}
+                onClick={() => runtime.start()}
                 disabled={autopilotEnabled}
                 className="inline-flex items-center justify-center gap-2 rounded-md bg-emerald-500 px-3 py-2 text-xs font-black text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -916,7 +916,7 @@ export default function LiveAutopilotConsole({ capturedText, runtime }: LiveAuto
                     </p>
                   </div>
                   <button
-                    onClick={runtime.refreshObsScenes}
+                    onClick={() => runtime.refreshObsScenes()}
                     className="rounded-md border border-slate-800 px-2 py-1 text-[10px] font-bold text-slate-300 transition hover:border-cyan-400/40 hover:text-cyan-200"
                   >
                     Atualizar

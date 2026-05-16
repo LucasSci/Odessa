@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useMemo } from 'react';
 import type { CapturedMessage } from '../types';
 
 interface PersonaStudioTriggerConfig {
@@ -37,14 +37,18 @@ export function usePersonaTriggers(
   const triggerCooldownRef = useRef<number>(0);
   const COOLDOWN_MS = 2000; // Prevent spam, min 2s between triggers
 
+  const giftKeywordsLower = useMemo(() => giftKeywords.map(k => k.toLowerCase()), [giftKeywords]);
+  const reactionKeywordsLower = useMemo(() => reactionKeywords.map(k => k.toLowerCase()), [reactionKeywords]);
+  const messageKeywordsLower = useMemo(() => messageKeywords.map(k => k.toLowerCase()), [messageKeywords]);
+
   // Detect gift mentions
   const detectGift = useCallback(
     (message: string): boolean => {
       if (!enableGiftTrigger) return false;
       const lower = message.toLowerCase();
-      return giftKeywords.some((keyword) => lower.includes(keyword));
+      return giftKeywordsLower.some((keyword) => lower.includes(keyword));
     },
-    [enableGiftTrigger, giftKeywords],
+    [enableGiftTrigger, giftKeywordsLower],
   );
 
   // Detect reaction messages
@@ -52,9 +56,9 @@ export function usePersonaTriggers(
     (message: string): boolean => {
       if (!enableReactionTrigger) return false;
       const lower = message.toLowerCase();
-      return reactionKeywords.some((keyword) => lower.includes(keyword));
+      return reactionKeywordsLower.some((keyword) => lower.includes(keyword));
     },
-    [enableReactionTrigger, reactionKeywords],
+    [enableReactionTrigger, reactionKeywordsLower],
   );
 
   // Process messages and trigger transitions
@@ -101,13 +105,13 @@ export function usePersonaTriggers(
 
     if (enableMessageTrigger) {
       const lowerText = messageText.toLowerCase();
-      const hasMessageKeyword = messageKeywords.length > 0 && messageKeywords.some((kw) => lowerText.includes(kw.toLowerCase()));
+      const hasMessageKeyword = messageKeywordsLower.length > 0 && messageKeywordsLower.some((kw) => lowerText.includes(kw));
 
       if (hasMessageKeyword || messageText.length > 25) {
         onTrigger?.('message', { text: messageText, event: latestMessage });
       }
     }
-  }, [capturedText, detectGift, detectReaction, enableMessageTrigger, messageKeywords, onTrigger]);
+  }, [capturedText, detectGift, detectReaction, enableMessageTrigger, messageKeywordsLower, onTrigger]);
 
   return {
     triggerVideoTransition: (trigger: 'gift' | 'message' | 'reaction', data?: any) => {

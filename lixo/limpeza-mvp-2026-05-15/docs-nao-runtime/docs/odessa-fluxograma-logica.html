@@ -1,0 +1,863 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Odessa - Fluxograma da Logica do Software</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #090b10;
+        --panel: #111721;
+        --panel-2: #151c28;
+        --panel-3: #0d121a;
+        --line: #293241;
+        --text: #eef5ff;
+        --muted: #92a1b6;
+        --blue: #35b7ff;
+        --cyan: #35e0d0;
+        --green: #37d67a;
+        --gold: #f2b84b;
+        --orange: #ff8a3d;
+        --red: #ff5874;
+        --violet: #a78bfa;
+        --shadow: 0 20px 60px rgba(0, 0, 0, 0.36);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at 12% 4%, rgba(53, 183, 255, 0.16), transparent 32rem),
+          radial-gradient(circle at 85% 8%, rgba(242, 184, 75, 0.11), transparent 30rem),
+          linear-gradient(135deg, #090b10 0%, #0b1018 45%, #0a0b0f 100%);
+        color: var(--text);
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        letter-spacing: 0;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .page {
+        min-height: 100vh;
+        padding: 28px;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 24px;
+        align-items: end;
+        margin: 0 auto 22px;
+        max-width: 1800px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(32px, 5vw, 72px);
+        line-height: 0.96;
+        font-weight: 900;
+        letter-spacing: 0;
+      }
+
+      .subtitle {
+        max-width: 920px;
+        margin: 18px 0 0;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.65;
+      }
+
+      .summary-card {
+        width: 400px;
+        border: 1px solid rgba(146, 161, 182, 0.18);
+        background: rgba(17, 23, 33, 0.82);
+        border-radius: 14px;
+        box-shadow: var(--shadow);
+        padding: 18px;
+      }
+
+      .summary-card h2,
+      .legend h2,
+      .index h2 {
+        margin: 0 0 12px;
+        font-size: 13px;
+        text-transform: uppercase;
+        color: #d8e7ff;
+        letter-spacing: 0.14em;
+      }
+
+      .summary-list {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      .summary-list b {
+        color: var(--text);
+      }
+
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        max-width: 1800px;
+        margin: 0 auto 18px;
+      }
+
+      .flow-button {
+        border: 1px solid rgba(146, 161, 182, 0.18);
+        background: rgba(21, 28, 40, 0.9);
+        color: var(--text);
+        border-radius: 999px;
+        padding: 10px 14px;
+        font-size: 13px;
+        font-weight: 800;
+        cursor: pointer;
+        transition:
+          border-color 160ms ease,
+          background 160ms ease,
+          transform 160ms ease;
+      }
+
+      .flow-button:hover,
+      .flow-button.active {
+        border-color: rgba(53, 224, 208, 0.7);
+        background: rgba(53, 224, 208, 0.12);
+        transform: translateY(-1px);
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(940px, 1fr) 360px;
+        gap: 18px;
+        max-width: 1800px;
+        margin: 0 auto;
+        align-items: start;
+      }
+
+      .canvas-shell {
+        overflow: auto;
+        border: 1px solid rgba(146, 161, 182, 0.18);
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+          rgba(9, 11, 16, 0.78);
+        background-size: 56px 56px;
+        border-radius: 18px;
+        box-shadow: var(--shadow);
+      }
+
+      .canvas {
+        position: relative;
+        width: 1720px;
+        height: 1280px;
+        padding: 28px;
+      }
+
+      .lane {
+        position: absolute;
+        left: 24px;
+        right: 24px;
+        height: 132px;
+        border: 1px solid rgba(146, 161, 182, 0.12);
+        background: rgba(13, 18, 26, 0.56);
+        border-radius: 16px;
+      }
+
+      .lane strong {
+        position: absolute;
+        left: 18px;
+        top: 14px;
+        color: #b7c7dd;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+      }
+
+      .lane-inputs {
+        top: 28px;
+      }
+
+      .lane-ui {
+        top: 176px;
+      }
+
+      .lane-capture {
+        top: 324px;
+      }
+
+      .lane-backend {
+        top: 472px;
+      }
+
+      .lane-automation {
+        top: 620px;
+      }
+
+      .lane-output {
+        top: 768px;
+      }
+
+      .lane-observe {
+        top: 916px;
+        height: 308px;
+      }
+
+      svg.links {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .link-main {
+        stroke: rgba(53, 224, 208, 0.92);
+        stroke-width: 4;
+        fill: none;
+        filter: drop-shadow(0 0 10px rgba(53, 224, 208, 0.2));
+      }
+
+      .link-secondary {
+        stroke: rgba(167, 139, 250, 0.8);
+        stroke-width: 3;
+        stroke-dasharray: 10 10;
+        fill: none;
+      }
+
+      .link-config {
+        stroke: rgba(242, 184, 75, 0.88);
+        stroke-width: 3;
+        stroke-dasharray: 4 9;
+        fill: none;
+      }
+
+      .link-risk {
+        stroke: rgba(255, 138, 61, 0.86);
+        stroke-width: 3;
+        stroke-dasharray: 2 8;
+        fill: none;
+      }
+
+      .node {
+        position: absolute;
+        width: 218px;
+        min-height: 104px;
+        border: 1px solid rgba(146, 161, 182, 0.18);
+        border-radius: 14px;
+        background: linear-gradient(180deg, rgba(21, 28, 40, 0.98), rgba(13, 18, 26, 0.96));
+        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
+        padding: 14px;
+        transition:
+          opacity 160ms ease,
+          transform 160ms ease,
+          border-color 160ms ease,
+          box-shadow 160ms ease;
+      }
+
+      .node:hover {
+        transform: translateY(-2px);
+        border-color: rgba(53, 224, 208, 0.68);
+        box-shadow: 0 24px 50px rgba(0, 0, 0, 0.44);
+      }
+
+      .node h3 {
+        margin: 0 0 8px;
+        font-size: 15px;
+        line-height: 1.16;
+      }
+
+      .node p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .node code {
+        display: inline-block;
+        margin-top: 8px;
+        color: #dbeafe;
+        background: rgba(53, 183, 255, 0.11);
+        border: 1px solid rgba(53, 183, 255, 0.18);
+        border-radius: 6px;
+        padding: 4px 6px;
+        font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+        font-size: 10.5px;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 10px;
+        border-radius: 999px;
+        padding: 4px 8px;
+        color: #061016;
+        font-size: 10px;
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .tag::before {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+        content: "";
+      }
+
+      .tag-main {
+        background: rgba(53, 224, 208, 0.95);
+      }
+
+      .tag-ui {
+        background: rgba(53, 183, 255, 0.94);
+      }
+
+      .tag-back {
+        background: rgba(55, 214, 122, 0.94);
+      }
+
+      .tag-auto {
+        background: rgba(167, 139, 250, 0.94);
+      }
+
+      .tag-out {
+        background: rgba(242, 184, 75, 0.96);
+      }
+
+      .tag-risk {
+        background: rgba(255, 138, 61, 0.96);
+      }
+
+      .tag-bug {
+        background: rgba(255, 88, 116, 0.96);
+      }
+
+      .hotspot {
+        border-color: rgba(255, 138, 61, 0.55);
+      }
+
+      .bug {
+        border-color: rgba(255, 88, 116, 0.62);
+      }
+
+      .muted-flow .node {
+        opacity: 0.25;
+      }
+
+      .muted-flow .node.visible,
+      .muted-flow .node.pin {
+        opacity: 1;
+      }
+
+      .muted-flow .links path {
+        opacity: 0.16;
+      }
+
+      .muted-flow .links path.visible {
+        opacity: 1;
+      }
+
+      .note {
+        position: absolute;
+        width: 320px;
+        border: 1px solid rgba(242, 184, 75, 0.28);
+        background: rgba(242, 184, 75, 0.08);
+        border-radius: 14px;
+        padding: 14px;
+        color: #ffe4ac;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .note strong {
+        color: #fff6db;
+      }
+
+      .legend,
+      .index {
+        border: 1px solid rgba(146, 161, 182, 0.18);
+        background: rgba(17, 23, 33, 0.84);
+        border-radius: 18px;
+        padding: 18px;
+        box-shadow: var(--shadow);
+      }
+
+      .side {
+        display: grid;
+        gap: 18px;
+        position: sticky;
+        top: 18px;
+      }
+
+      .legend-row,
+      .route-row,
+      .adjust-row {
+        display: grid;
+        grid-template-columns: 14px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+        margin: 12px 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .dot {
+        width: 12px;
+        height: 12px;
+        margin-top: 3px;
+        border-radius: 50%;
+      }
+
+      .dot-main {
+        background: var(--cyan);
+      }
+
+      .dot-secondary {
+        background: var(--violet);
+      }
+
+      .dot-config {
+        background: var(--gold);
+      }
+
+      .dot-risk {
+        background: var(--orange);
+      }
+
+      .dot-bug {
+        background: var(--red);
+      }
+
+      .index ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .index li {
+        margin: 0 0 12px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid rgba(146, 161, 182, 0.12);
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .index li:last-child {
+        margin-bottom: 0;
+        padding-bottom: 0;
+        border-bottom: 0;
+      }
+
+      .index b {
+        display: block;
+        color: var(--text);
+        margin-bottom: 3px;
+      }
+
+      .foot {
+        max-width: 1800px;
+        margin: 18px auto 0;
+        color: #6f7f96;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      @media (max-width: 1180px) {
+        .hero,
+        .layout {
+          grid-template-columns: 1fr;
+        }
+
+        .summary-card {
+          width: auto;
+        }
+
+        .side {
+          position: static;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <div>
+          <h1>Fluxograma da lógica do Odessa</h1>
+          <p class="subtitle">
+            Mapa visual do que é executado quando a live gera texto ou eventos: da tela de captura,
+            passando pelo OCR e pela ingestão, até gatilhos, fila, vídeos, OBS, TTS, webhooks e logs.
+          </p>
+        </div>
+        <aside class="summary-card">
+          <h2>Leitura rápida</h2>
+          <ul class="summary-list">
+            <li><b>Rota principal:</b> janela/OBS -> OCR -> ingestão -> parser -> gatilho -> executor.</li>
+            <li><b>Rota paralela:</b> Event Bus local alimenta Autopilot/Persona Runtime.</li>
+            <li><b>Ajuste crítico:</b> qualidade OCR + classificação por zona + gatilhos salvos.</li>
+            <li><b>Risco atual:</b> TTS desabilitado e teste de cena com payload divergente.</li>
+          </ul>
+        </aside>
+      </section>
+
+      <nav class="toolbar" aria-label="Filtros do fluxograma">
+        <button class="flow-button active" data-filter="all" type="button">Tudo</button>
+        <button class="flow-button" data-filter="main" type="button">Captura real</button>
+        <button class="flow-button" data-filter="manual" type="button">Teste manual</button>
+        <button class="flow-button" data-filter="autopilot" type="button">Autopilot</button>
+        <button class="flow-button" data-filter="config" type="button">Configuração</button>
+        <button class="flow-button" data-filter="risk" type="button">Pontos de ajuste</button>
+      </nav>
+
+      <div class="layout">
+        <section class="canvas-shell" aria-label="Canvas do fluxograma">
+          <div class="canvas" id="logicCanvas">
+            <div class="lane lane-inputs"><strong>Entradas</strong></div>
+            <div class="lane lane-ui"><strong>Frontend e telas</strong></div>
+            <div class="lane lane-capture"><strong>Captura e OCR</strong></div>
+            <div class="lane lane-backend"><strong>Backend e normalização</strong></div>
+            <div class="lane lane-automation"><strong>Automação e decisão</strong></div>
+            <div class="lane lane-output"><strong>Saídas executadas</strong></div>
+            <div class="lane lane-observe"><strong>Observabilidade e ajustes</strong></div>
+
+            <svg class="links" viewBox="0 0 1720 1280" aria-hidden="true">
+              <defs>
+                <marker id="arrow-main" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                  <path d="M2,2 L10,6 L2,10 Z" fill="#35e0d0"></path>
+                </marker>
+                <marker id="arrow-secondary" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                  <path d="M2,2 L10,6 L2,10 Z" fill="#a78bfa"></path>
+                </marker>
+                <marker id="arrow-config" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                  <path d="M2,2 L10,6 L2,10 Z" fill="#f2b84b"></path>
+                </marker>
+                <marker id="arrow-risk" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                  <path d="M2,2 L10,6 L2,10 Z" fill="#ff8a3d"></path>
+                </marker>
+              </defs>
+
+              <path class="link-main flow-main" d="M160 132 C160 168 172 184 172 210" marker-end="url(#arrow-main)"></path>
+              <path class="link-main flow-main" d="M282 232 C342 232 350 232 410 232" marker-end="url(#arrow-main)"></path>
+              <path class="link-main flow-main" d="M632 232 C708 232 720 232 790 232" marker-end="url(#arrow-main)"></path>
+              <path class="link-main flow-main" d="M902 284 C902 320 902 330 902 360" marker-end="url(#arrow-main)"></path>
+              <path class="link-main flow-main" d="M1011 412 C1048 434 1070 448 1112 504" marker-end="url(#arrow-main)"></path>
+              <path class="link-main flow-main" d="M1230 560 C1230 594 1230 602 1230 638" marker-end="url(#arrow-main)"></path>
+              <path class="link-main flow-main" d="M1325 692 C1366 710 1388 728 1420 790" marker-end="url(#arrow-main)"></path>
+
+              <path class="link-main flow-main" d="M606 412 C640 435 666 450 706 504" marker-end="url(#arrow-main)"></path>
+              <path class="link-main flow-main" d="M815 560 C850 588 875 604 912 638" marker-end="url(#arrow-main)"></path>
+              <path class="link-main flow-main" d="M1030 692 C1078 718 1116 736 1190 792" marker-end="url(#arrow-main)"></path>
+
+              <path class="link-secondary flow-manual" d="M1454 132 C1454 300 1454 402 1324 500" marker-end="url(#arrow-secondary)"></path>
+              <path class="link-secondary flow-manual" d="M1340 556 C1340 590 1340 604 1340 638" marker-end="url(#arrow-secondary)"></path>
+
+              <path class="link-secondary flow-autopilot" d="M562 560 C480 600 430 642 420 790" marker-end="url(#arrow-secondary)"></path>
+              <path class="link-secondary flow-autopilot" d="M530 838 C640 864 760 870 900 838" marker-end="url(#arrow-secondary)"></path>
+              <path class="link-secondary flow-autopilot" d="M1015 838 C1090 838 1122 838 1190 838" marker-end="url(#arrow-secondary)"></path>
+
+              <path class="link-config flow-config" d="M220 1052 C260 978 280 914 310 838" marker-end="url(#arrow-config)"></path>
+              <path class="link-config flow-config" d="M440 1052 C520 982 590 918 682 842" marker-end="url(#arrow-config)"></path>
+              <path class="link-config flow-config" d="M648 1052 C742 960 850 880 1024 696" marker-end="url(#arrow-config)"></path>
+              <path class="link-config flow-config" d="M860 1052 C974 974 1090 888 1260 696" marker-end="url(#arrow-config)"></path>
+
+              <path class="link-risk flow-risk" d="M606 1052 C650 914 678 766 725 560" marker-end="url(#arrow-risk)"></path>
+              <path class="link-risk flow-risk" d="M816 1052 C900 924 980 780 1120 560" marker-end="url(#arrow-risk)"></path>
+              <path class="link-risk flow-risk" d="M1024 1052 C1110 930 1216 808 1430 844" marker-end="url(#arrow-risk)"></path>
+              <path class="link-risk flow-risk" d="M1234 1052 C1300 970 1368 916 1502 844" marker-end="url(#arrow-risk)"></path>
+            </svg>
+
+            <article class="node pin" data-flow="main" style="left: 52px; top: 70px">
+              <span class="tag tag-main">Entrada</span>
+              <h3>Live / TikTok / OBS</h3>
+              <p>Fonte visual com chat, presentes, alertas ou janela compartilhada.</p>
+            </article>
+
+            <article class="node pin" data-flow="manual" style="left: 1330px; top: 70px">
+              <span class="tag tag-auto">Entrada</span>
+              <h3>Teste manual</h3>
+              <p>Botões de simulação e laboratório enviam texto direto ao fluxo reativo.</p>
+              <code>runReactiveFlow()</code>
+            </article>
+
+            <article class="node" data-flow="main" style="left: 52px; top: 202px">
+              <span class="tag tag-ui">Roteamento</span>
+              <h3>App.tsx</h3>
+              <p>Escolhe o painel pela hash e entrega estado global de eventos.</p>
+              <code>#capture -> sources</code>
+            </article>
+
+            <article class="node" data-flow="main config manual" style="left: 410px; top: 202px">
+              <span class="tag tag-ui">Shell</span>
+              <h3>OdessaLiveCenter</h3>
+              <p>Coordena abas, runtime, logs, estado de vídeo, captura e testes.</p>
+            </article>
+
+            <article class="node hotspot" data-flow="main risk" style="left: 790px; top: 202px">
+              <span class="tag tag-risk">Ajuste A1</span>
+              <h3>CaptureStudio</h3>
+              <p>Configura fonte, zonas OCR, contraste, brilho, intervalo e modo tela/OBS.</p>
+              <code>src/CaptureStudio.tsx</code>
+            </article>
+
+            <article class="node" data-flow="config" style="left: 1130px; top: 202px">
+              <span class="tag tag-ui">Config</span>
+              <h3>FlowBoard / TriggerEditor</h3>
+              <p>Edita gatilhos, vídeos, cenas OBS e webhooks salvos no config.</p>
+            </article>
+
+            <article class="node hotspot" data-flow="main risk" style="left: 330px; top: 350px">
+              <span class="tag tag-risk">Ajuste A2</span>
+              <h3>Captura de frame</h3>
+              <p>Usa getDisplayMedia ou screenshot OBS, recorta cada zona em canvas.</p>
+              <code>runScreenOcrCycle()</code>
+            </article>
+
+            <article class="node hotspot" data-flow="main risk" style="left: 704px; top: 350px">
+              <span class="tag tag-risk">Ajuste A3</span>
+              <h3>OCR Service</h3>
+              <p>Recebe imagem por zona, roda EasyOCR e calcula texto novo por diff.</p>
+              <code>POST /ocr/process</code>
+            </article>
+
+            <article class="node" data-flow="main" style="left: 1084px; top: 350px">
+              <span class="tag tag-back">OBS OCR</span>
+              <h3>OBS Cycle</h3>
+              <p>Alternativa: backend captura source OBS e processa várias zonas.</p>
+              <code>POST /ocr/obs-cycle</code>
+            </article>
+
+            <article class="node" data-flow="main manual" style="left: 500px; top: 500px">
+              <span class="tag tag-back">API</span>
+              <h3>Automation ingest</h3>
+              <p>Recebe texto, source, zoneName, kind e metadata. É o portão do fluxo.</p>
+              <code>POST /automation/ingest</code>
+            </article>
+
+            <article class="node hotspot" data-flow="main manual risk" style="left: 892px; top: 500px">
+              <span class="tag tag-risk">Ajuste A4</span>
+              <h3>AutomationService</h3>
+              <p>Passa hints ao parser, registra logs, mede evento e prepara resumo.</p>
+              <code>process_raw_text()</code>
+            </article>
+
+            <article class="node hotspot" data-flow="main manual risk" style="left: 1214px; top: 500px">
+              <span class="tag tag-risk">Ajuste A5</span>
+              <h3>EventParser</h3>
+              <p>Classifica chat, gift, alert, moderation e usa zona quando OCR vem curto.</p>
+              <code>parse_text(event_hint)</code>
+            </article>
+
+            <article class="node hotspot" data-flow="main manual config risk" style="left: 672px; top: 648px">
+              <span class="tag tag-risk">Ajuste A6</span>
+              <h3>TriggerEngine</h3>
+              <p>Compara evento normalizado com triggers: giftKey, keyword, quantidade.</p>
+              <code>persona_config.json</code>
+            </article>
+
+            <article class="node" data-flow="main manual" style="left: 1024px; top: 648px">
+              <span class="tag tag-auto">Fila</span>
+              <h3>ActionQueue</h3>
+              <p>Enfileira ações e bloqueia repetição por cooldown quando necessário.</p>
+            </article>
+
+            <article class="node hotspot" data-flow="main manual autopilot risk" style="left: 1340px; top: 648px">
+              <span class="tag tag-risk">Ajuste A7</span>
+              <h3>ActionExecutor</h3>
+              <p>Executa play_video, switch_scene, webhook, TTS ou bloqueia por segurança.</p>
+              <code>executor.py</code>
+            </article>
+
+            <article class="node" data-flow="autopilot" style="left: 300px; top: 790px">
+              <span class="tag tag-auto">Paralelo</span>
+              <h3>Event Bus local</h3>
+              <p>CaptureStudio também emite evento local para UI e Autopilot.</p>
+              <code>localStorage</code>
+            </article>
+
+            <article class="node" data-flow="autopilot" style="left: 720px; top: 790px">
+              <span class="tag tag-auto">Persona</span>
+              <h3>useAutopilotRuntime</h3>
+              <p>Agrupa eventos, roda contexto/memória e chama decisão de persona.</p>
+              <code>runPersonaRound()</code>
+            </article>
+
+            <article class="node" data-flow="main manual autopilot" style="left: 1120px; top: 790px">
+              <span class="tag tag-out">Vídeo</span>
+              <h3>Video Service</h3>
+              <p>Atualiza estado ACTION/IDLE e entrega mídia para palco/overlay.</p>
+              <code>/video/force, /video/state</code>
+            </article>
+
+            <article class="node" data-flow="main manual" style="left: 1450px; top: 790px">
+              <span class="tag tag-out">Saídas</span>
+              <h3>OBS / TTS / Webhook</h3>
+              <p>Troca cena, sintetiza fala ou chama n8n/webhook configurado.</p>
+            </article>
+
+            <article class="node" data-flow="config" style="left: 70px; top: 1040px">
+              <span class="tag tag-out">Config</span>
+              <h3>Rotas de configuração</h3>
+              <p>Salvar config recarrega gatilhos e muda comportamento sem mexer no OCR.</p>
+              <code>/video/config</code>
+            </article>
+
+            <article class="node" data-flow="config" style="left: 310px; top: 1040px">
+              <span class="tag tag-out">Refresh</span>
+              <h3>Automation refresh</h3>
+              <p>Recarrega TriggerEngine depois de editar gatilhos no canvas de fluxo.</p>
+              <code>/automation/refresh</code>
+            </article>
+
+            <article class="node hotspot" data-flow="risk main" style="left: 552px; top: 1040px">
+              <span class="tag tag-risk">Onde ajustar</span>
+              <h3>Qualidade OCR</h3>
+              <p>Zonas, contraste, brilho, aumento, intervalo, fonte OBS e frame repetido.</p>
+            </article>
+
+            <article class="node hotspot" data-flow="risk main" style="left: 792px; top: 1040px">
+              <span class="tag tag-risk">Onde ajustar</span>
+              <h3>Classificação</h3>
+              <p>Regex, aliases de presentes, hints por zona, quantidade e falsos positivos.</p>
+            </article>
+
+            <article class="node hotspot" data-flow="risk config" style="left: 1032px; top: 1040px">
+              <span class="tag tag-risk">Onde ajustar</span>
+              <h3>Gatilhos</h3>
+              <p>giftKey, keyword, cooldown, ação, vídeo destino, cena OBS e webhook.</p>
+            </article>
+
+            <article class="node bug" data-flow="risk" style="left: 1272px; top: 1040px">
+              <span class="tag tag-bug">Pendência</span>
+              <h3>TTS / cena</h3>
+              <p>Testes indicam TTS desabilitado com path vazio e payload de cena divergente.</p>
+            </article>
+
+            <article class="note" style="left: 70px; top: 1166px">
+              <strong>Contrato essencial:</strong> o frontend deve sempre enviar texto + contexto
+              (<code>source</code>, <code>zoneName</code>, <code>kind</code>, <code>metadata</code>).
+            </article>
+
+            <article class="note" style="left: 420px; top: 1166px">
+              <strong>Melhor lugar para diagnosticar:</strong> compare texto bruto OCR, evento parseado,
+              matchedTriggers, queuedActions, executions e videoState.
+            </article>
+
+            <article class="note" style="left: 770px; top: 1166px">
+              <strong>Rotas montadas:</strong> backend expõe <code>/api/v1/*</code>, <code>/api/*</code>
+              e algumas rotas raiz de compatibilidade para OBS/OCR/Webhooks.
+            </article>
+          </div>
+        </section>
+
+        <aside class="side">
+          <section class="legend">
+            <h2>Legenda</h2>
+            <div class="legend-row">
+              <span class="dot dot-main"></span>
+              <span><b>Captura real:</b> caminho janela/OBS -> OCR -> ingestão -> ação.</span>
+            </div>
+            <div class="legend-row">
+              <span class="dot dot-secondary"></span>
+              <span><b>Paralelo:</b> testes manuais e Event Bus/Autopilot.</span>
+            </div>
+            <div class="legend-row">
+              <span class="dot dot-config"></span>
+              <span><b>Configuração:</b> edição de gatilhos, vídeos e refresh do engine.</span>
+            </div>
+            <div class="legend-row">
+              <span class="dot dot-risk"></span>
+              <span><b>Ajuste:</b> pontos onde vale mexer para aumentar captura efetiva.</span>
+            </div>
+            <div class="legend-row">
+              <span class="dot dot-bug"></span>
+              <span><b>Pendência:</b> falhas vistas em testes completos, fora da captura principal.</span>
+            </div>
+          </section>
+
+          <section class="index">
+            <h2>Rotas-chave</h2>
+            <ul>
+              <li><b><code>/health</code></b>Status geral do backend, OCR, IA e TTS.</li>
+              <li><b><code>/api/v1/ocr/process</code></b>OCR de uma zona já recortada pela tela.</li>
+              <li><b><code>/api/v1/ocr/obs-cycle</code></b>OCR de múltiplas zonas a partir da source OBS.</li>
+              <li><b><code>/api/v1/automation/ingest</code></b>Entrada única para texto OCR/manual virar evento e ação.</li>
+              <li><b><code>/api/v1/automation/logs</code></b>Rastro de parser, trigger, fila e executor.</li>
+              <li><b><code>/api/v1/video/state</code></b>Estado atual que palco/overlay devem refletir.</li>
+              <li><b><code>/obs/switch-scene</code></b>Saída para troca de cena OBS.</li>
+            </ul>
+          </section>
+
+          <section class="index">
+            <h2>Checklist de ajuste</h2>
+            <ul>
+              <li><b>1. A tela detecta frames?</b>Verificar preview, frameHash e aviso de frame repetido.</li>
+              <li><b>2. O OCR vê texto bruto?</b>Conferir painel "Texto bruto" por zona.</li>
+              <li><b>3. O evento foi classificado certo?</b>Conferir summary.events em /automation/logs.</li>
+              <li><b>4. Algum trigger casou?</b>Conferir matchedTriggers e cooldown.</li>
+              <li><b>5. A ação executou?</b>Conferir executions, videoState, OBS, TTS ou webhook.</li>
+            </ul>
+          </section>
+        </aside>
+      </div>
+
+      <p class="foot">
+        Arquivo gerado para orientar depuração do Odessa. Ele é estático: pode ser aberto direto no navegador e atualizado
+        conforme o software evoluir.
+      </p>
+    </main>
+
+    <script>
+      const canvas = document.getElementById('logicCanvas');
+      const buttons = Array.from(document.querySelectorAll('.flow-button'));
+      const nodes = Array.from(document.querySelectorAll('.node'));
+      const paths = Array.from(document.querySelectorAll('.links path'));
+
+      function applyFilter(filter) {
+        buttons.forEach((button) => {
+          button.classList.toggle('active', button.dataset.filter === filter);
+        });
+
+        if (filter === 'all') {
+          canvas.classList.remove('muted-flow');
+          nodes.forEach((node) => node.classList.remove('visible'));
+          paths.forEach((path) => path.classList.remove('visible'));
+          return;
+        }
+
+        canvas.classList.add('muted-flow');
+        nodes.forEach((node) => {
+          const flows = (node.dataset.flow || '').split(/\s+/);
+          node.classList.toggle('visible', flows.includes(filter));
+        });
+        paths.forEach((path) => {
+          path.classList.toggle('visible', path.classList.contains(`flow-${filter}`));
+        });
+      }
+
+      buttons.forEach((button) => {
+        button.addEventListener('click', () => applyFilter(button.dataset.filter));
+      });
+    </script>
+  </body>
+</html>

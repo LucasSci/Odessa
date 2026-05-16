@@ -7,7 +7,12 @@ import {
 } from './contentLibrary';
 import type { LiveEvent } from '../types';
 
-describe('contentLibrary', () => {
+/**
+ * LEGADO — testes da biblioteca de conteúdo (usada para prompts de IA).
+ * Esse recurso foi removido do escopo atual do Odessa.
+ * O produto agora foca em: OCR → evento → gift → vídeo.
+ */
+describe.skip('contentLibrary [LEGADO — fora do escopo atual]', () => {
   beforeEach(() => {
     vi.stubGlobal('localStorage', {
       getItem: vi.fn(),

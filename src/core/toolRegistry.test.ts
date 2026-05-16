@@ -9,7 +9,12 @@ import {
 } from './toolRegistry';
 import type { PersonaTool } from '../types';
 
-describe('toolRegistry', () => {
+/**
+ * LEGADO — testes do registro de ferramentas (TTS, OBS, etc).
+ * Esse recurso foi removido do escopo atual do Odessa.
+ * O produto agora foca em: OCR → evento → gift → vídeo.
+ */
+describe.skip('toolRegistry [LEGADO — fora do escopo atual]', () => {
   beforeEach(() => {
     vi.stubGlobal('localStorage', {
       getItem: vi.fn(),

@@ -173,26 +173,6 @@ function loadInitialActions() {
     .slice(-100);
 }
 
-async function dispatchAuditToN8N(cycle: AutopilotCycle) {
-  try {
-    await fetch(apiUrl('/n8n/dispatch'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        target: 'audit',
-        payload: {
-          product: 'Odessa',
-          kind: 'autopilot_cycle',
-          cycle,
-          createdAt: new Date().toISOString(),
-        },
-      }),
-    });
-  } catch {
-    // n8n is optional; local runtime must keep working without it.
-  }
-}
-
 export function useAutopilotRuntime({
   capturedText,
   setCapturedText,
@@ -266,7 +246,7 @@ export function useAutopilotRuntime({
       };
       if (!response.ok || !data.ok) {
         setObsError(
-          data.error || `OBS/n8n indisponivel${response.ok ? '' : `: HTTP ${response.status}`}`,
+          data.error || `OBS indisponivel${response.ok ? '' : `: HTTP ${response.status}`}`,
         );
         setObsScenes(Array.isArray(data.scenes) ? data.scenes : []);
         setCurrentObsScene(data.currentScene || null);
@@ -346,40 +326,6 @@ export function useAutopilotRuntime({
   }, [autopilotEnabled, isProcessing, enqueueEvent, setCapturedText]);
 
   useEffect(() => {
-    if (!autopilotEnabled) return;
-    let stopped = false;
-
-    const pollN8NEvents = async () => {
-      try {
-        const response = await fetch(apiUrl('/n8n/events?limit=20'));
-        if (!response.ok) return;
-        const data = (await response.json()) as { events?: LiveEvent[] };
-        if (stopped || !Array.isArray(data.events) || data.events.length === 0) return;
-
-        data.events
-          .filter((event) => Boolean(event?.id && event?.text))
-          .forEach((event) => {
-            const emitted = emitEvent({
-              ...event,
-              source: event.source || 'n8n',
-            });
-            enqueueEvent(emitted);
-          });
-        setCapturedText(getRecentEvents());
-      } catch {
-        // n8n ingest is optional and should not interrupt the live runtime.
-      }
-    };
-
-    pollN8NEvents();
-    const interval = window.setInterval(pollN8NEvents, 2500);
-    return () => {
-      stopped = true;
-      window.clearInterval(interval);
-    };
-  }, [autopilotEnabled, enqueueEvent, setCapturedText]);
-
-  useEffect(() => {
     if (!autopilotEnabled || isProcessing || pendingEvents.length === 0 || roundTimerRef.current)
       return;
 
@@ -429,7 +375,6 @@ export function useAutopilotRuntime({
             setAutopilotEnabled(false);
             setLastError(cycle.error || 'Erro ao processar rodada');
           }
-          void dispatchAuditToN8N(cycle);
           refreshHealth();
         })
         .catch((err) => {

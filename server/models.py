@@ -15,16 +15,18 @@ OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1").strip()
 class RegionRequest(BaseModel):
     zone_id: Optional[str] = None
     zone_name: Optional[str] = None
-    x: Optional[int] = None
-    y: Optional[int] = None
-    width: Optional[int] = None
-    height: Optional[int] = None
+    zone_role: Optional[str] = None
+    x: Optional[float] = None
+    y: Optional[float] = None
+    width: Optional[float] = None
+    height: Optional[float] = None
     image: Optional[str] = None
 
 
 class AIRespondRequest(BaseModel):
     persona_prompt: str
     chat_context: str
+    user_prompt: Optional[str] = None
     model: str = "gemini-2.5-flash"
     temperature: float = 0.9
 

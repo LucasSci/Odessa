@@ -2,19 +2,25 @@ import json
 import logging
 from fastapi import APIRouter, HTTPException
 from server.models import AIRespondRequest, AIDecideRequest
-from server.services.ai_service import ai_service
 from server.utils.text_utils import extract_json_object
 
 router = APIRouter(tags=["AI"])
 logger = logging.getLogger("odessa.routes.ai")
 
+
+def get_ai_service():
+    from server.services.ai_service import ai_service
+
+    return ai_service
+
 @router.post("/respond")
 def ai_respond(request: AIRespondRequest):
     try:
-        text, provider = ai_service.generate_ai_text_with_fallback(
+        user_prompt = request.user_prompt or request.chat_context
+        text, provider = get_ai_service().generate_ai_text_with_fallback(
             gemini_model=request.model,
             system_prompt=request.persona_prompt,
-            user_prompt=request.user_prompt,
+            user_prompt=user_prompt,
             temperature=request.temperature,
         )
         return {"response": text, "provider": provider}
@@ -65,7 +71,7 @@ def ai_decide(request: AIDecideRequest):
         ],
         "speech": "O que a streamer vai falar (PASSO FINAL: FALAR)",
     }
-    
+
     user_prompt = (
         "Eventos recentes:\n"
         f"{json.dumps(events_payload, ensure_ascii=False)}\n\n"
@@ -80,7 +86,7 @@ def ai_decide(request: AIDecideRequest):
     )
 
     try:
-        text, provider = ai_service.generate_ai_text_with_fallback(
+        text, provider = get_ai_service().generate_ai_text_with_fallback(
             gemini_model=request.model,
             system_prompt=request.persona_prompt,
             user_prompt=user_prompt,
@@ -95,7 +101,7 @@ def ai_decide(request: AIDecideRequest):
             # Simple fallback if JSON parsing fails twice
             logger.error("[AI DECIDE JSON EXCEPTION] %s", text)
             raise HTTPException(status_code=502, detail="AI returned invalid JSON decision")
-            
+
     except HTTPException:
         raise
     except Exception as exc:

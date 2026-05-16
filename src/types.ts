@@ -31,6 +31,7 @@ export type AutopilotActionType =
   | 'show_overlay'
   | 'play_music'
   | 'play_video'
+  | 'webhook'
   | 'stop_media'
   | 'set_topic'
   | 'suggest_topic'
@@ -40,6 +41,7 @@ export type AutopilotActionType =
 export type ToolCapability =
   | 'tts.speak'
   | 'chat.reply'
+  | 'chat.private_reply'
   | 'gift.acknowledge'
   | 'moderation.message'
   | 'obs.switch_scene'
@@ -47,6 +49,7 @@ export type ToolCapability =
   | 'media.play_video'
   | 'media.play_music'
   | 'media.stop'
+  | 'webhook.call'
   | 'topic.set'
   | 'topic.suggest'
   | 'memory.remember'

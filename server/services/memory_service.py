@@ -77,6 +77,100 @@ class MemoryService:
             logger.warning("Could not read memory stats: %s", exc)
             return {"usersRecognized": 0, "interactions": 0, "gifts": 0}
 
+    def list_profiles(self, query: str = "", limit: int = 50, include_hidden: bool = False) -> Dict[str, Any]:
+        clean_query = f"%{query.strip()}%"
+        where = []
+        params: list[Any] = []
+        if query.strip():
+            where.append("(username LIKE ? OR id LIKE ?)")
+            params.extend([clean_query, clean_query])
+        if not include_hidden:
+            where.append("COALESCE(hidden, 0) = 0")
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        sql = f"""
+            SELECT id, username, first_seen, last_seen, total_messages, total_gifts, sentiment,
+                   COALESCE(hidden, 0) AS hidden, COALESCE(notes, '') AS notes
+            FROM users
+            {clause}
+            ORDER BY last_seen DESC
+            LIMIT ?
+        """
+        params.append(max(1, min(int(limit or 50), 200)))
+        with db.get_connection() as connection:
+            rows = connection.execute(sql, params).fetchall()
+        return {"profiles": [dict(row) for row in rows], "total": len(rows)}
+
+    def get_profile(self, user_id: str, limit: int = 40) -> Dict[str, Any] | None:
+        normalized = self.normalize_user_id(user_id)
+        with db.get_connection() as connection:
+            user = connection.execute(
+                """
+                SELECT id, username, first_seen, last_seen, total_messages, total_gifts, sentiment,
+                       COALESCE(hidden, 0) AS hidden, COALESCE(notes, '') AS notes
+                FROM users WHERE id = ? OR lower(username) = lower(?)
+                """,
+                (normalized, user_id),
+            ).fetchone()
+            if not user:
+                return None
+            interactions = connection.execute(
+                """
+                SELECT id, kind, source, text, metadata_json, sentiment, created_at
+                FROM interaction_logs
+                WHERE user_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (user["id"], max(1, min(int(limit or 40), 200))),
+            ).fetchall()
+        return {"profile": dict(user), "interactions": [dict(row) for row in interactions]}
+
+    def build_user_context(self, user_id: str, limit: int = 12) -> Dict[str, Any]:
+        profile = self.get_profile(user_id, limit)
+        if not profile:
+            return {"found": False, "context": "", "profile": None, "interactions": []}
+        user = profile["profile"]
+        interactions = profile["interactions"]
+        lines = [
+            f"Usuario @{user['username']}: {user['total_messages']} mensagens, {user['total_gifts']} presentes.",
+        ]
+        if user.get("notes"):
+            lines.append(f"Notas: {user['notes']}")
+        if interactions:
+            lines.append("Interacoes recentes:")
+            for item in interactions[:limit]:
+                lines.append(f"- [{item['kind']}] {item['text']}")
+        return {
+            "found": True,
+            "context": "\n".join(lines),
+            "profile": user,
+            "interactions": interactions,
+        }
+
+    def hide_profile(self, user_id: str, hidden: bool = True) -> Dict[str, Any]:
+        normalized = self.normalize_user_id(user_id)
+        with db.get_connection() as connection:
+            connection.execute(
+                "UPDATE users SET hidden = ? WHERE id = ? OR lower(username) = lower(?)",
+                (1 if hidden else 0, normalized, user_id),
+            )
+            connection.commit()
+        return {"status": "hidden" if hidden else "visible", "userId": user_id}
+
+    def clear_profile(self, user_id: str) -> Dict[str, Any]:
+        normalized = self.normalize_user_id(user_id)
+        with db.get_connection() as connection:
+            user = connection.execute(
+                "SELECT id FROM users WHERE id = ? OR lower(username) = lower(?)",
+                (normalized, user_id),
+            ).fetchone()
+            if not user:
+                return {"status": "not_found", "userId": user_id}
+            connection.execute("DELETE FROM interaction_logs WHERE user_id = ?", (user["id"],))
+            connection.execute("DELETE FROM users WHERE id = ?", (user["id"],))
+            connection.commit()
+        return {"status": "cleared", "userId": user_id}
+
     def upsert_round_memory(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:
         recognized_users = []
         now = datetime.now(timezone.utc).isoformat()
@@ -97,10 +191,10 @@ class MemoryService:
                 if user:
                     connection.execute(
                         """
-                        UPDATE users 
-                        SET last_seen = ?, 
-                            total_messages = total_messages + 1, 
-                            total_gifts = total_gifts + ? 
+                        UPDATE users
+                        SET last_seen = ?,
+                            total_messages = total_messages + 1,
+                            total_gifts = total_gifts + ?
                         WHERE id = ?
                         """,
                         (now, gift_count, user_id),
