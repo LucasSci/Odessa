@@ -19,7 +19,7 @@ AUTH_BUILD = "auth-2026-05-16-email-password-v3"
 
 
 class LoginRequest(BaseModel):
-    email: str
+    email: str = ADMIN_EMAIL
     password: str
 
 
