@@ -9,7 +9,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from server.api.v1.api import api_router
 from server.api.v1.endpoints import auth, obs, ocr, webhooks, proxy as proxy_router
 from server.config import GEMINI_API_KEY, OPENAI_API_KEY
-from server.core.auth import get_request_session
 
 # Logging configuration
 logging.basicConfig(
@@ -40,34 +39,8 @@ app.add_middleware(
 )
 
 
-PUBLIC_PATH_PREFIXES = (
-    "/auth",
-    "/health",
-    "/docs",
-    "/redoc",
-    "/openapi.json",
-    "/assets/",
-    "/favicon",
-    "/api/v1/video/play/",
-    "/api/video/play/",
-    "/video/play/",
-)
-
-
 @app.middleware("http")
 async def require_admin_session(request: Request, call_next):
-    path = request.url.path
-    if (
-        path == "/"
-        or path.startswith(PUBLIC_PATH_PREFIXES)
-    ):
-        return await call_next(request)
-
-    session = get_request_session(request)
-    if not session:
-        from fastapi.responses import JSONResponse
-
-        return JSONResponse({"detail": "Not authenticated"}, status_code=401)
     return await call_next(request)
 
 # Include Modular API Routers
