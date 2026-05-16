@@ -1,17 +1,9 @@
 import crypto from 'node:crypto';
-import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import nodePath from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = nodePath.dirname(fileURLToPath(import.meta.url));
-const _require = createRequire(import.meta.url);
-let Database;
-try {
-  Database = _require('better-sqlite3');
-} catch {
-  Database = null;
-}
 
 const SESSION_COOKIE_NAME = 'odessa_admin_session';
 const PERSONA_CONFIG_KEY = 'persona_config';
@@ -26,7 +18,7 @@ const AGENT_TOKEN = process.env.ODESSA_AGENT_TOKEN || '';
 const AGENT_STALE_MS = Number(process.env.ODESSA_AGENT_STALE_MS || 45_000);
 const DATA_DIR = process.env.ODESSA_DATA_DIR || nodePath.join(__dirname, '..', 'data');
 const UPLOADS_DIR = process.env.ODESSA_UPLOADS_DIR || nodePath.join(__dirname, '..', 'uploads');
-const DB_PATH = process.env.ODESSA_DB_FILE || nodePath.join(DATA_DIR, 'odessa.db');
+const KV_PATH = nodePath.join(DATA_DIR, 'kv.json');
 const MIN_PASSWORD_LENGTH = 8;
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(nodePath.join(UPLOADS_DIR, 'videos'), { recursive: true });
@@ -35,7 +27,6 @@ const cloudStore = (globalThis.__ODESSA_CLOUD_STORE ||= {
   commandQueue: [],
   events: [],
 });
-const cloudDbState = (globalThis.__ODESSA_CLOUD_DB ||= { db: null });
 
 function json(res, statusCode, body, headers = {}) {
   res.statusCode = statusCode;
@@ -129,39 +120,25 @@ function safeEqual(a, b) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
-async function getStoredPasswordHash() {
+function getStoredPasswordHash() {
   try {
-    const sql = getSql();
-    if (sql) {
-      await ensureCloudSchema();
-      const rows = await sql`SELECT value FROM odessa_kv WHERE key = 'admin_password_hash'`;
-      if (rows.length > 0) {
-        const raw = rows[0].value;
-        return typeof raw === 'string' ? raw : String(raw);
-      }
-    }
+    const stored = getCloudValue('admin_password_hash');
+    if (stored?.value) return String(stored.value);
   } catch {}
   if (ADMIN_PASSWORD_HASH) return ADMIN_PASSWORD_HASH;
   return DEFAULT_PASSWORD_HASH;
 }
 
-async function storePasswordHash(hash) {
-  const sql = getSql();
-  if (!sql) throw Object.assign(new Error('Database nao configurado'), { statusCode: 503 });
-  await ensureCloudSchema();
-  await sql`
-    INSERT INTO odessa_kv (key, value, updated_at)
-    VALUES ('admin_password_hash', ${JSON.stringify(hash)}, now())
-    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
-  `;
+function storePasswordHash(hash) {
+  setCloudValue('admin_password_hash', hash);
 }
 
-async function verifyCredentials(email, password) {
+function verifyCredentials(email, password) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   if (!safeEqual(normalizedEmail, ADMIN_EMAIL)) return false;
   const normalizedPassword = String(password || '').trim();
   const incomingHash = hashPassword(normalizedPassword);
-  const storedHash = await getStoredPasswordHash();
+  const storedHash = getStoredPasswordHash();
   return safeEqual(incomingHash, storedHash);
 }
 
@@ -262,7 +239,7 @@ function cloudState() {
 
 function cloudCapabilities() {
   return {
-    databaseConfigured: Boolean(Database),
+    databaseConfigured: true,
     blobConfigured: true,
   };
 }
@@ -290,69 +267,29 @@ function defaultObsSettings() {
   };
 }
 
-function getDb() {
-  if (!Database) return null;
-  if (!cloudDbState.db) {
-    try {
-      const db = new Database(DB_PATH);
-      db.pragma('journal_mode = WAL');
-      db.pragma('foreign_keys = ON');
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS odessa_kv (
-          key TEXT PRIMARY KEY,
-          value TEXT NOT NULL,
-          updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-        );
-        CREATE TABLE IF NOT EXISTS odessa_agent_commands (
-          id TEXT PRIMARY KEY,
-          type TEXT NOT NULL,
-          payload TEXT NOT NULL DEFAULT '{}',
-          status TEXT NOT NULL DEFAULT 'queued',
-          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-          claimed_at TEXT,
-          completed_at TEXT,
-          result TEXT
-        );
-        CREATE TABLE IF NOT EXISTS odessa_agent_events (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          kind TEXT,
-          command_id TEXT,
-          payload TEXT NOT NULL DEFAULT '{}',
-          received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-        );
-      `);
-      cloudDbState.db = db;
-    } catch {
-      return null;
-    }
-  }
-  return cloudDbState.db;
+function readKv() {
+  try { return JSON.parse(fs.readFileSync(KV_PATH, 'utf8')); }
+  catch { return {}; }
+}
+
+function writeKv(store) {
+  const tmp = KV_PATH + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(store));
+  fs.renameSync(tmp, KV_PATH);
 }
 
 function getCloudValue(key) {
   try {
-    const db = getDb();
-    if (!db) return null;
-    const row = db.prepare('SELECT value, updated_at FROM odessa_kv WHERE key = ? LIMIT 1').get(key);
-    if (!row) return null;
-    return { value: JSON.parse(row.value), updatedAt: row.updated_at };
-  } catch {
-    return null;
-  }
+    const entry = readKv()[key];
+    return entry ? { value: entry.value, updatedAt: entry.updatedAt } : null;
+  } catch { return null; }
 }
 
 function setCloudValue(key, value) {
-  const db = getDb();
-  if (!db) {
-    const error = new Error('Banco de dados nao configurado. Execute: npm install better-sqlite3');
-    error.statusCode = 503;
-    throw error;
-  }
+  const store = readKv();
   const now = new Date().toISOString();
-  db.prepare(`
-    INSERT INTO odessa_kv (key, value, updated_at) VALUES (?, ?, ?)
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-  `).run(key, JSON.stringify(value), now);
+  store[key] = { value, updatedAt: now };
+  writeKv(store);
   return now;
 }
 
@@ -404,16 +341,6 @@ function saveObsSettings(settings) {
   return next;
 }
 
-function commandFromRow(row) {
-  if (!row) return null;
-  return {
-    id: row.id,
-    type: row.type,
-    payload: row.payload || {},
-    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
-  };
-}
-
 function enqueueAgentCommand(command) {
   const normalized = {
     id: command.id || crypto.randomUUID(),
@@ -421,66 +348,27 @@ function enqueueAgentCommand(command) {
     payload: command.payload || {},
     createdAt: command.createdAt || new Date().toISOString(),
   };
-  const db = getDb();
-  if (!db) {
-    cloudStore.commandQueue.push(normalized);
-    return { command: normalized, queueSize: cloudStore.commandQueue.length, persisted: false };
-  }
-  db.prepare(`
-    INSERT INTO odessa_agent_commands (id, type, payload, status, created_at)
-    VALUES (?, ?, ?, 'queued', ?)
-    ON CONFLICT(id) DO UPDATE SET type=excluded.type, payload=excluded.payload,
-      status='queued', created_at=excluded.created_at, claimed_at=NULL, completed_at=NULL, result=NULL
-  `).run(normalized.id, normalized.type, JSON.stringify(normalized.payload), normalized.createdAt);
-  const count = db.prepare("SELECT COUNT(*) AS n FROM odessa_agent_commands WHERE status='queued'").get();
-  return { command: normalized, queueSize: Number(count?.n || 0), persisted: true };
+  cloudStore.commandQueue.push(normalized);
+  return { command: normalized, queueSize: cloudStore.commandQueue.length, persisted: false };
 }
 
 function claimNextAgentCommand() {
-  const db = getDb();
-  if (!db) return { command: cloudStore.commandQueue.shift() || null, queueSize: cloudStore.commandQueue.length };
-  const claim = db.transaction(() => {
-    const row = db.prepare("SELECT id,type,payload,created_at FROM odessa_agent_commands WHERE status='queued' ORDER BY created_at ASC LIMIT 1").get();
-    if (!row) return { command: null, queueSize: 0 };
-    const now = new Date().toISOString();
-    db.prepare("UPDATE odessa_agent_commands SET status='claimed', claimed_at=? WHERE id=?").run(now, row.id);
-    const count = db.prepare("SELECT COUNT(*) AS n FROM odessa_agent_commands WHERE status='queued'").get();
-    return { command: commandFromRow({ ...row, payload: JSON.parse(row.payload || '{}') }), queueSize: Number(count?.n || 0) };
-  });
-  return claim();
+  return { command: cloudStore.commandQueue.shift() || null, queueSize: cloudStore.commandQueue.length };
 }
 
 function queuedCommandCount() {
-  const db = getDb();
-  if (!db) return cloudStore.commandQueue.length;
-  const row = db.prepare("SELECT COUNT(*) AS n FROM odessa_agent_commands WHERE status='queued'").get();
-  return Number(row?.n || 0);
+  return cloudStore.commandQueue.length;
 }
 
 function recordAgentEvent(event) {
   const payload = { ...event, receivedAt: new Date().toISOString() };
   cloudStore.events.push(payload);
   cloudStore.events = cloudStore.events.slice(-100);
-  const db = getDb();
-  if (!db) return { persisted: false };
-  const commandId = event?.command?.id || event?.commandId || null;
-  const now = new Date().toISOString();
-  db.prepare('INSERT INTO odessa_agent_events (kind, command_id, payload, received_at) VALUES (?,?,?,?)').run(
-    event?.kind || null, commandId, JSON.stringify(payload), now
-  );
-  if (commandId && event?.result) {
-    db.prepare("UPDATE odessa_agent_commands SET status='completed', completed_at=?, result=? WHERE id=?").run(
-      now, JSON.stringify(event.result), commandId
-    );
-  }
-  return { persisted: true };
+  return { persisted: false };
 }
 
 function recentAgentEvents() {
-  const db = getDb();
-  if (!db) return cloudStore.events.slice(-20);
-  const rows = db.prepare('SELECT payload FROM odessa_agent_events ORDER BY received_at DESC LIMIT 20').all();
-  return rows.map((row) => { try { return JSON.parse(row.payload); } catch { return {}; } }).reverse();
+  return cloudStore.events.slice(-20);
 }
 
 function videoIdFromPath(pathname) {
@@ -666,11 +554,11 @@ async function agentResponse(req, res, path) {
   }
 
   if (path === '/agent/status') {
-    const agentStatus = await getAgentStatus();
+    const agentStatus = getAgentStatus();
     return json(res, 200, {
       ok: true,
-      queueSize: await queuedCommandCount(),
-      recentEvents: await recentAgentEvents(),
+      queueSize: queuedCommandCount(),
+      recentEvents: recentAgentEvents(),
       ...stateFromAgentStatus(agentStatus),
     });
   }
@@ -687,18 +575,18 @@ async function agentResponse(req, res, path) {
       health: body.health || {},
       lastSeenAt: new Date().toISOString(),
     };
-    await saveAgentStatus(status);
+    saveAgentStatus(status);
     return json(res, 200, { ok: true, ...stateFromAgentStatus(status) });
   }
 
   if (path === '/agent/commands/next' || path === '/agent/commands-next') {
-    const next = await claimNextAgentCommand();
+    const next = claimNextAgentCommand();
     return json(res, 200, { ok: true, ...next });
   }
 
   if (path === '/agent/events' && req.method === 'POST') {
     const body = await readBody(req);
-    const result = await recordAgentEvent(body);
+    const result = recordAgentEvent(body);
     return json(res, 202, { ok: true, ...result });
   }
 
@@ -744,24 +632,17 @@ async function protectedResponse(req, res, path) {
     path === '/api/v1/cloud/storage/status'
   ) {
     let cloudVideoCount = 0;
-    let dbReady = false;
-    let dbError = null;
     let blobError = null;
     try {
-      dbReady = await ensureCloudSchema();
-    } catch (error) {
-      dbError = error.message;
-    }
-    try {
-      cloudVideoCount = (await listLocalVideos()).length;
+      cloudVideoCount = listLocalVideos().length;
     } catch (error) {
       blobError = error.message;
     }
     return json(res, 200, {
       ok: true,
-      databaseReady: dbReady,
+      databaseReady: true,
       cloudVideoCount,
-      dbError,
+      dbError: null,
       blobError,
       ...cloudCapabilities(),
       ...cloudState(),
@@ -775,7 +656,7 @@ async function protectedResponse(req, res, path) {
     path === '/api/v1/cloud/config'
   ) {
     if (req.method === 'GET') {
-      const stored = await getCloudValue(PERSONA_CONFIG_KEY);
+      const stored = getCloudValue(PERSONA_CONFIG_KEY);
       const config = stored?.value || null;
       return json(res, 200, {
         ok: true,
@@ -798,7 +679,7 @@ async function protectedResponse(req, res, path) {
     if (req.method === 'POST' || req.method === 'PUT') {
       const body = await readBody(req);
       const config = body.config && typeof body.config === 'object' ? body.config : body;
-      const updatedAt = await setCloudValue(PERSONA_CONFIG_KEY, config);
+      const updatedAt = setCloudValue(PERSONA_CONFIG_KEY, config);
       return json(res, 200, {
         ok: true,
         updatedAt,
@@ -838,7 +719,7 @@ async function protectedResponse(req, res, path) {
     if (req.method === 'POST' || req.method === 'PUT') {
       const body = await readBody(req);
       const config = body.config && typeof body.config === 'object' ? body.config : body;
-      const updatedAt = await setCloudValue(PERSONA_CONFIG_KEY, config);
+      const updatedAt = setCloudValue(PERSONA_CONFIG_KEY, config);
       return json(res, 200, {
         status: 'success',
         ok: true,
@@ -855,8 +736,8 @@ async function protectedResponse(req, res, path) {
         ...cloudCapabilities(),
       });
     }
-    const cloudConfig = await loadCloudConfig();
-    const config = await configWithCloudVideos(
+    const cloudConfig = loadCloudConfig();
+    const config = configWithCloudVideos(
       cloudConfig || {
         videos: [],
         triggers: [],
@@ -875,13 +756,13 @@ async function protectedResponse(req, res, path) {
     const body = await readBody(req);
     const videoId = body.videoId || body.video_id || body.id || null;
     if (videoId) {
-      await saveCloudVideoState(videoId, {
+      saveCloudVideoState(videoId, {
         activeNodeId: body.activeNodeId || null,
         activeConnectionId: body.activeConnectionId || null,
         currentClip: body.currentClip || null,
       });
     }
-    const queued = await enqueueAgentCommand({
+    const queued = enqueueAgentCommand({
       type: 'video.force',
       payload: {
         ...body,
@@ -900,7 +781,7 @@ async function protectedResponse(req, res, path) {
 
   if (path.includes('/video/play/')) {
     const videoId = decodeURIComponent(path.split('/video/play/').pop() || '');
-    const match = (await listLocalVideos()).find((video) => video.id === videoId);
+    const match = (listLocalVideos()).find((video) => video.id === videoId);
     if (!match) return json(res, 404, { detail: `Video '${videoId}' nao encontrado no Vercel Blob.` });
     res.statusCode = 302;
     res.setHeader('Location', match.url);
@@ -910,17 +791,17 @@ async function protectedResponse(req, res, path) {
 
   if (path.endsWith('/video/state') || path === '/api/v1/video/state' || path === '/video/state') {
     return json(res, 200, {
-      ...(await loadCloudVideoState()),
+      ...(loadCloudVideoState()),
       ...cloudState(),
     });
   }
 
   if (path.includes('/video/advance') && req.method === 'POST') {
-    const config = await loadCloudConfig();
+    const config = loadCloudConfig();
     const idleVideoId = config?.idleVideoId || config?.publishedWorkflow?.idleVideoId || config?.draftWorkflow?.idleVideoId || null;
     return json(res, 200, {
       ok: true,
-      ...(await saveCloudVideoState(idleVideoId)),
+      ...(saveCloudVideoState(idleVideoId)),
       ...cloudState(),
     });
   }
@@ -929,7 +810,7 @@ async function protectedResponse(req, res, path) {
   if (path.includes('/automation/next-action')) return json(res, 200, { action: null, ...cloudState() });
   if (path.includes('/automation/') && req.method === 'POST') {
     const body = await readBody(req);
-    const queued = await enqueueAgentCommand({
+    const queued = enqueueAgentCommand({
       type: body.type || 'automation.event',
       payload: body,
     });
@@ -937,10 +818,10 @@ async function protectedResponse(req, res, path) {
   }
 
   if (path === '/workflow/draft' || path === '/api/v1/workflow/draft' || path === '/v1/workflow/draft') {
-    return json(res, 200, await getCloudWorkflow('draft'));
+    return json(res, 200, getCloudWorkflow('draft'));
   }
   if (path === '/workflow/published' || path === '/api/v1/workflow/published' || path === '/v1/workflow/published') {
-    return json(res, 200, await getCloudWorkflow('published'));
+    return json(res, 200, getCloudWorkflow('published'));
   }
   if (path.startsWith('/workflow/') || path.startsWith('/api/v1/workflow/')) {
     return json(res, 200, { ok: true, simulated: true, workflow: emptyWorkflow(), ...cloudState() });
@@ -955,7 +836,7 @@ async function protectedResponse(req, res, path) {
     if (req.method === 'GET' && action === 'settings') {
       return json(res, 200, {
         ok: true,
-        settings: await loadObsSettings(),
+        settings: loadObsSettings(),
         cloudMode: true,
         executedBy: 'cloud-agent',
         error: null,
@@ -964,7 +845,7 @@ async function protectedResponse(req, res, path) {
     }
 
     if (req.method === 'GET' && (action === 'health' || action === 'live-health')) {
-      const agentStatus = await getAgentStatus();
+      const agentStatus = getAgentStatus();
       const obs = agentStatus?.health?.obs || {};
       return json(res, 200, {
         ok: Boolean(obs.ok),
@@ -974,7 +855,7 @@ async function protectedResponse(req, res, path) {
         currentScene: obs.currentScene || null,
         availableScenes: obs.availableScenes || obs.chatSourceNames || [],
         allowedScenes: obs.allowedScenes || obs.layout?.allowedScenes || defaultObsSettings().allowedScenes,
-        layout: obs.layout || (await loadObsSettings()),
+        layout: obs.layout || (loadObsSettings()),
         error: obs.error || null,
         cloudMode: true,
         executedBy: 'cloud-agent',
@@ -983,9 +864,9 @@ async function protectedResponse(req, res, path) {
     }
 
     if (req.method === 'GET' && action === 'scenes') {
-      const agentStatus = await getAgentStatus();
+      const agentStatus = getAgentStatus();
       const obs = agentStatus?.health?.obs || {};
-      const settings = await loadObsSettings();
+      const settings = loadObsSettings();
       const scenes = obs.availableScenes || obs.chatSourceNames || [];
       return json(res, 200, {
         ok: Boolean(agentStatus),
@@ -1000,8 +881,8 @@ async function protectedResponse(req, res, path) {
     }
 
     if (req.method === 'GET' && action === 'live-plan') {
-      const settings = await loadObsSettings();
-      const agentStatus = await getAgentStatus();
+      const settings = loadObsSettings();
+      const agentStatus = getAgentStatus();
       return json(res, 200, {
         executionMode: 'cloud-agent',
         settings,
@@ -1021,8 +902,8 @@ async function protectedResponse(req, res, path) {
     if (req.method === 'POST') {
       const body = await readBody(req);
       if (action === 'settings') {
-        const settings = await saveObsSettings(body);
-        const queued = await enqueueAgentCommand({
+        const settings = saveObsSettings(body);
+        const queued = enqueueAgentCommand({
           type: 'obs.configure',
           payload: settings,
         });
@@ -1040,7 +921,7 @@ async function protectedResponse(req, res, path) {
       }
 
       if (actionPath === 'start-live/dry-run') {
-        const agentStatus = await getAgentStatus();
+        const agentStatus = getAgentStatus();
         return json(res, 200, {
           ok: true,
           simulated: true,
@@ -1057,12 +938,12 @@ async function protectedResponse(req, res, path) {
       }
 
       if (actionPath === 'show-start' || actionPath === 'show_start' || actionPath === 'start-live') {
-        const config = await loadCloudConfig();
+        const config = loadCloudConfig();
         const idleVideoId = config?.idleVideoId || config?.publishedWorkflow?.idleVideoId || config?.draftWorkflow?.idleVideoId || null;
-        if (idleVideoId) await saveCloudVideoState(idleVideoId);
+        if (idleVideoId) saveCloudVideoState(idleVideoId);
       }
 
-      const queued = await enqueueAgentCommand({
+      const queued = enqueueAgentCommand({
         type:
           actionPath === 'start-live'
             ? 'live.start'
@@ -1185,7 +1066,7 @@ export default async function handler(req, res) {
     const action = path === '/agent' ? String(req.query.action || '').replace(/_/g, '-') : '';
     if ((path === '/agent/commands' || action === 'commands') && req.method === 'POST') {
       const body = await readBody(req);
-      const queued = await enqueueAgentCommand({
+      const queued = enqueueAgentCommand({
         id: body.id || crypto.randomUUID(),
         type: body.type || 'noop',
         payload: body.payload || {},
