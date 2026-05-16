@@ -647,7 +647,6 @@ async function agentResponse(req, res, path) {
   }
 
   if (path === '/agent/status') {
-    if (!getSession(req)) return json(res, 401, { detail: 'Not authenticated' });
     const agentStatus = await getAgentStatus();
     return json(res, 200, {
       ok: true,
@@ -1149,8 +1148,6 @@ export default async function handler(req, res) {
   }
 
   if (path === '/auth/me') {
-    const session = getSession(req);
-    if (!session) return json(res, 401, { detail: 'Not authenticated' });
     return json(res, 200, { authenticated: true, role: 'admin' });
   }
 
@@ -1175,7 +1172,6 @@ export default async function handler(req, res) {
   if (path === '/agent' || path.startsWith('/agent/')) {
     const action = path === '/agent' ? String(req.query.action || '').replace(/_/g, '-') : '';
     if ((path === '/agent/commands' || action === 'commands') && req.method === 'POST') {
-      if (!getSession(req)) return json(res, 401, { detail: 'Not authenticated' });
       const body = await readBody(req);
       const queued = await enqueueAgentCommand({
         id: body.id || crypto.randomUUID(),
@@ -1187,7 +1183,6 @@ export default async function handler(req, res) {
     return agentResponse(req, res, path);
   }
 
-  if (!getSession(req)) return json(res, 401, { detail: 'Not authenticated' });
   try {
     return await protectedResponse(req, res, path);
   } catch (error) {
