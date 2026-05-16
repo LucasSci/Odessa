@@ -9,6 +9,7 @@ import {
   FastForward,
   Film,
   Home,
+  KeyRound,
   Link2,
   ListVideo,
   Maximize2,
@@ -1132,6 +1133,112 @@ function parseHeadersText(value: string) {
   );
 }
 
+function ChangePasswordCard() {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (newPassword !== confirmPassword) {
+      setMessage({ type: 'error', text: 'As senhas nao coincidem.' });
+      return;
+    }
+    if (newPassword.trim().length < 8) {
+      setMessage({ type: 'error', text: 'A nova senha deve ter pelo menos 8 caracteres.' });
+      return;
+    }
+    setBusy(true);
+    setMessage(null);
+    try {
+      const response = await fetch(apiUrl('/auth/change-password'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword: newPassword.trim() }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        setMessage({ type: 'error', text: data?.detail ?? 'Erro ao alterar senha.' });
+      } else {
+        setMessage({ type: 'success', text: 'Senha alterada com sucesso.' });
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+      }
+    } catch {
+      setMessage({ type: 'error', text: 'Erro de conexao. Tente novamente.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
+      <SectionTitle icon={<KeyRound />} title="Alterar Senha" />
+      <form className="mt-4 space-y-3" onSubmit={(e) => void handleSubmit(e)}>
+        <label className="block">
+          <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
+            Senha atual
+          </span>
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
+            Nova senha
+          </span>
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
+            Confirmar nova senha
+          </span>
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
+          />
+        </label>
+        {message && (
+          <div
+            className={`rounded-2xl border px-3 py-2 text-xs ${
+              message.type === 'success'
+                ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200'
+                : 'border-rose-400/30 bg-rose-950/40 text-rose-100'
+            }`}
+          >
+            {message.text}
+          </div>
+        )}
+        <Button
+          type="submit"
+          variant="primary"
+          loading={busy}
+          disabled={!currentPassword || !newPassword || !confirmPassword}
+        >
+          <KeyRound className="h-4 w-4" />
+          Alterar senha
+        </Button>
+      </form>
+    </div>
+  );
+}
+
 function SettingsPanel({
   health,
   onRefreshHealth,
@@ -2235,6 +2342,8 @@ function SettingsPanel({
                 </div>
               </div>
             </div>
+
+            <ChangePasswordCard />
 
             <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
               <SectionTitle icon={<ListVideo />} title="Diagnostico OBS" />

@@ -14,17 +14,36 @@ from fastapi import HTTPException, Request, Response, status
 
 SESSION_COOKIE_NAME = "odessa_admin_session"
 SESSION_TTL_SECONDS = int(os.getenv("ODESSA_SESSION_TTL_SECONDS", str(12 * 60 * 60)))
-DEFAULT_ADMIN_PASSWORD_HASHES = {
-    "8b9ddf7394e8055c164f989aac111b17e99fdedff3cc5cb4e34d4b3521f8873d",
-    "1e4aa0a4ba1e13522ed0a39479c06849cebe9e26e0e284a132510e040af0b0dc",
-}
-SESSION_SECRET = os.getenv("ODESSA_SESSION_SECRET", "odessa-dev-session-secret-change-me")
-ADMIN_PASSWORD = os.getenv("ODESSA_ADMIN_PASSWORD", "")
+DEFAULT_ADMIN_EMAIL = "lucasbatista.c.l@gmail.com"
+DEFAULT_PASSWORD_HASH = "ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f"  # 12345678
+ADMIN_EMAIL = os.getenv("ODESSA_ADMIN_EMAIL", DEFAULT_ADMIN_EMAIL).strip().lower()
 ADMIN_PASSWORD_HASH = os.getenv("ODESSA_ADMIN_PASSWORD_HASH", "").strip()
+SESSION_SECRET = os.getenv("ODESSA_SESSION_SECRET", "odessa-dev-session-secret-change-me")
 COOKIE_SECURE = os.getenv("ODESSA_COOKIE_SECURE", "false").strip().lower() in {"1", "true", "yes"}
 COOKIE_SAMESITE = os.getenv("ODESSA_COOKIE_SAMESITE", "lax").strip().lower()
+MIN_PASSWORD_LENGTH = 8
 if COOKIE_SAMESITE not in {"lax", "strict", "none"}:
     COOKIE_SAMESITE = "lax"
+
+_PASSWORD_HASH_FILE = os.path.join(os.path.dirname(__file__), "..", "..", ".odessa_password_hash")
+
+
+def _load_stored_hash() -> str:
+    try:
+        with open(_PASSWORD_HASH_FILE) as f:
+            stored = f.read().strip()
+            if stored:
+                return stored
+    except OSError:
+        pass
+    if ADMIN_PASSWORD_HASH:
+        return ADMIN_PASSWORD_HASH
+    return DEFAULT_PASSWORD_HASH
+
+
+def _save_stored_hash(hash_value: str) -> None:
+    with open(_PASSWORD_HASH_FILE, "w") as f:
+        f.write(hash_value)
 
 
 def _b64encode(data: bytes) -> str:
@@ -45,16 +64,23 @@ def _hash_password(password: str) -> str:
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
-def verify_admin_password(password: str) -> bool:
+def verify_admin_credentials(email: str, password: str) -> bool:
+    normalized_email = email.strip().lower()
+    if not hmac.compare_digest(normalized_email, ADMIN_EMAIL):
+        return False
     normalized_password = password.strip()
     incoming_hash = _hash_password(normalized_password)
-    accepted_hashes = set(DEFAULT_ADMIN_PASSWORD_HASHES)
-    if ADMIN_PASSWORD_HASH:
-        accepted_hashes.add(ADMIN_PASSWORD_HASH)
-    for accepted_hash in accepted_hashes:
-        if accepted_hash and hmac.compare_digest(incoming_hash, accepted_hash):
-            return True
-    return bool(ADMIN_PASSWORD) and hmac.compare_digest(normalized_password, ADMIN_PASSWORD.strip())
+    stored_hash = _load_stored_hash()
+    return hmac.compare_digest(incoming_hash, stored_hash)
+
+
+def change_admin_password(current_password: str, new_password: str) -> None:
+    if len(new_password.strip()) < MIN_PASSWORD_LENGTH:
+        raise ValueError(f"A nova senha deve ter pelo menos {MIN_PASSWORD_LENGTH} caracteres")
+    stored_hash = _load_stored_hash()
+    if not hmac.compare_digest(_hash_password(current_password.strip()), stored_hash):
+        raise PermissionError("Senha atual incorreta")
+    _save_stored_hash(_hash_password(new_password.strip()))
 
 
 def create_session_token() -> str:
