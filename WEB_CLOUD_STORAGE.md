@@ -12,7 +12,7 @@ Configure no projeto Vercel:
 ```text
 DATABASE_URL=...
 BLOB_READ_WRITE_TOKEN=...
-ODESSA_ADMIN_PASSWORD_HASH=1e4aa0a4ba1e13522ed0a39479c06849cebe9e26e0e284a132510e040af0b0dc
+ODESSA_ADMIN_PASSWORD_HASH=8b9ddf7394e8055c164f989aac111b17e99fdedff3cc5cb4e34d4b3521f8873d
 ODESSA_SESSION_SECRET=...
 ```
 
@@ -25,7 +25,7 @@ No ambiente local, com a mesma senha admin:
 
 ```powershell
 $env:ODESSA_CLOUD_URL="https://odessa-gules.vercel.app"
-$env:ODESSA_ADMIN_PASSWORD="sua-senha-admin"
+$env:ODESSA_ADMIN_PASSWORD="Odessa2026"
 npm run cloud:sync-config
 ```
 

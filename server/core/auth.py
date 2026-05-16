@@ -14,10 +14,13 @@ from fastapi import HTTPException, Request, Response, status
 
 SESSION_COOKIE_NAME = "odessa_admin_session"
 SESSION_TTL_SECONDS = int(os.getenv("ODESSA_SESSION_TTL_SECONDS", str(12 * 60 * 60)))
-DEFAULT_ADMIN_PASSWORD_HASH = "1e4aa0a4ba1e13522ed0a39479c06849cebe9e26e0e284a132510e040af0b0dc"
+DEFAULT_ADMIN_PASSWORD_HASHES = {
+    "8b9ddf7394e8055c164f989aac111b17e99fdedff3cc5cb4e34d4b3521f8873d",
+    "1e4aa0a4ba1e13522ed0a39479c06849cebe9e26e0e284a132510e040af0b0dc",
+}
 SESSION_SECRET = os.getenv("ODESSA_SESSION_SECRET", "odessa-dev-session-secret-change-me")
 ADMIN_PASSWORD = os.getenv("ODESSA_ADMIN_PASSWORD", "")
-ADMIN_PASSWORD_HASH = os.getenv("ODESSA_ADMIN_PASSWORD_HASH", DEFAULT_ADMIN_PASSWORD_HASH).strip()
+ADMIN_PASSWORD_HASH = os.getenv("ODESSA_ADMIN_PASSWORD_HASH", "").strip()
 COOKIE_SECURE = os.getenv("ODESSA_COOKIE_SECURE", "false").strip().lower() in {"1", "true", "yes"}
 COOKIE_SAMESITE = os.getenv("ODESSA_COOKIE_SAMESITE", "lax").strip().lower()
 if COOKIE_SAMESITE not in {"lax", "strict", "none"}:
@@ -45,7 +48,7 @@ def _hash_password(password: str) -> str:
 def verify_admin_password(password: str) -> bool:
     normalized_password = password.strip()
     incoming_hash = _hash_password(normalized_password)
-    accepted_hashes = {DEFAULT_ADMIN_PASSWORD_HASH}
+    accepted_hashes = set(DEFAULT_ADMIN_PASSWORD_HASHES)
     if ADMIN_PASSWORD_HASH:
         accepted_hashes.add(ADMIN_PASSWORD_HASH)
     for accepted_hash in accepted_hashes:

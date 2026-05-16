@@ -7,11 +7,15 @@ const env = (
 const browserOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000';
 const browserHostname = typeof window !== 'undefined' ? window.location.hostname : '';
 const isLocalHost = ['localhost', '127.0.0.1', '::1', ''].includes(browserHostname);
-const usesSameOriginCloudApi = !isLocalHost && !env?.VITE_API_BASE_URL;
+const forceExternalApi = env?.VITE_FORCE_API_BASE_URL === 'true';
+const usesSameOriginCloudApi = !isLocalHost && !forceExternalApi;
 export const LOCAL_ODESSA_API_ORIGIN = env?.VITE_LOCAL_API_ORIGIN || 'http://127.0.0.1:8000';
 const defaultApiBaseUrl = `${browserOrigin}/api/v1`;
 
-const rawApiBaseUrl = (env?.VITE_API_BASE_URL || defaultApiBaseUrl).replace(/\/$/, '');
+const rawApiBaseUrl = (usesSameOriginCloudApi ? defaultApiBaseUrl : env?.VITE_API_BASE_URL || defaultApiBaseUrl).replace(
+  /\/$/,
+  '',
+);
 const API_ORIGIN = rawApiBaseUrl.replace(/\/api\/v1$/, '').replace(/\/api$/, '');
 
 export const API_BASE_URL = `${API_ORIGIN}/api/v1`;

@@ -6,10 +6,13 @@ const SESSION_COOKIE_NAME = 'odessa_admin_session';
 const PERSONA_CONFIG_KEY = 'persona_config';
 const AUTH_BUILD = 'auth-2026-05-16-default-password-v2';
 const SESSION_TTL_SECONDS = Number(process.env.ODESSA_SESSION_TTL_SECONDS || 12 * 60 * 60);
-const DEFAULT_ADMIN_PASSWORD_HASH = '1e4aa0a4ba1e13522ed0a39479c06849cebe9e26e0e284a132510e040af0b0dc';
+const DEFAULT_ADMIN_PASSWORD_HASHES = [
+  '8b9ddf7394e8055c164f989aac111b17e99fdedff3cc5cb4e34d4b3521f8873d',
+  '1e4aa0a4ba1e13522ed0a39479c06849cebe9e26e0e284a132510e040af0b0dc',
+];
 const DEFAULT_SESSION_SECRET = 'odessa-hostinger-session-secret-v1-change-in-env';
 const ADMIN_PASSWORD = process.env.ODESSA_ADMIN_PASSWORD || '';
-const ADMIN_PASSWORD_HASH = (process.env.ODESSA_ADMIN_PASSWORD_HASH || DEFAULT_ADMIN_PASSWORD_HASH).trim();
+const ADMIN_PASSWORD_HASH = (process.env.ODESSA_ADMIN_PASSWORD_HASH || '').trim();
 const SESSION_SECRET = process.env.ODESSA_SESSION_SECRET || DEFAULT_SESSION_SECRET;
 const AGENT_TOKEN = process.env.ODESSA_AGENT_TOKEN || '';
 const AGENT_STALE_MS = Number(process.env.ODESSA_AGENT_STALE_MS || 45_000);
@@ -80,7 +83,7 @@ function safeEqual(a, b) {
 function verifyPassword(password) {
   const normalizedPassword = String(password).trim();
   const incomingHash = hashPassword(normalizedPassword);
-  const acceptedHashes = new Set([DEFAULT_ADMIN_PASSWORD_HASH]);
+  const acceptedHashes = new Set(DEFAULT_ADMIN_PASSWORD_HASHES);
   if (ADMIN_PASSWORD_HASH) acceptedHashes.add(ADMIN_PASSWORD_HASH);
   for (const acceptedHash of acceptedHashes) {
     if (acceptedHash && safeEqual(incomingHash, acceptedHash)) return true;
@@ -1092,6 +1095,7 @@ export default async function handler(req, res) {
     return json(res, 200, {
       authBuild: AUTH_BUILD,
       defaultPasswordHashEnabled: true,
+      defaultPasswordCount: DEFAULT_ADMIN_PASSWORD_HASHES.length,
       envPasswordConfigured: Boolean(ADMIN_PASSWORD),
       envPasswordHashConfigured: Boolean(process.env.ODESSA_ADMIN_PASSWORD_HASH),
       sessionSecretConfigured: Boolean(process.env.ODESSA_SESSION_SECRET),

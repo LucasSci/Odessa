@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from server.core.auth import (
     ADMIN_PASSWORD,
     ADMIN_PASSWORD_HASH,
-    DEFAULT_ADMIN_PASSWORD_HASH,
+    DEFAULT_ADMIN_PASSWORD_HASHES,
     SESSION_SECRET,
     clear_session_cookie,
     create_session_token,
@@ -35,9 +35,10 @@ async def login(request: LoginRequest, response: Response):
 async def debug():
     return {
         "authBuild": AUTH_BUILD,
-        "defaultPasswordHashEnabled": ADMIN_PASSWORD_HASH == DEFAULT_ADMIN_PASSWORD_HASH or bool(DEFAULT_ADMIN_PASSWORD_HASH),
+        "defaultPasswordHashEnabled": bool(DEFAULT_ADMIN_PASSWORD_HASHES),
+        "defaultPasswordCount": len(DEFAULT_ADMIN_PASSWORD_HASHES),
         "envPasswordConfigured": bool(ADMIN_PASSWORD),
-        "envPasswordHashConfigured": bool(ADMIN_PASSWORD_HASH and ADMIN_PASSWORD_HASH != DEFAULT_ADMIN_PASSWORD_HASH),
+        "envPasswordHashConfigured": bool(ADMIN_PASSWORD_HASH),
         "sessionSecretConfigured": bool(SESSION_SECRET),
     }
 
