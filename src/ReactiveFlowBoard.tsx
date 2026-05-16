@@ -1268,6 +1268,19 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   };
 
   if (!config) {
+    if (error) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+          <div className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            {error}
+          </div>
+          <Button variant="secondary" onClick={loadConfig}>
+            <RefreshCw className="h-4 w-4" />
+            Tentar novamente
+          </Button>
+        </div>
+      );
+    }
     return (
       <div className="grid h-full gap-4 p-5 lg:grid-cols-[1fr_320px]">
         <Skeleton className="h-full rounded-[32px]" />
@@ -1277,7 +1290,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   }
 
   return (
-    <div className="grid h-full min-h-0 gap-4 overflow-hidden p-4 xl:grid-cols-[280px_minmax(640px,1fr)_360px]">
+    <div className="grid flex-1 min-h-0 grid-rows-[1fr] gap-4 overflow-hidden p-4 xl:grid-cols-[280px_minmax(640px,1fr)_360px]">
       <aside className="odessa-panel flex min-h-0 flex-col overflow-hidden p-4">
         <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
           <Video className="h-4 w-4 text-sky-200" />
@@ -1324,7 +1337,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
         </div>
       </aside>
 
-      <section className="signal-lane-surface relative min-h-0 overflow-hidden rounded-[34px] border border-white/10 bg-[#07080a]">
+      <section className="signal-lane-surface relative flex min-h-0 flex-col overflow-hidden rounded-[34px] border border-white/10 bg-[#07080a]">
         <div className="absolute inset-x-5 top-5 z-20 flex items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-sky-200/70">
@@ -1466,9 +1479,21 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
           </div>
         )}
 
+        {nodes.length === 0 && (
+          <div className="pointer-events-none absolute inset-0 top-40 z-10 flex flex-col items-center justify-center gap-3 text-center">
+            <Video className="h-10 w-10 text-[var(--t3)]" />
+            <p className="text-sm font-semibold text-[var(--t2)]">Canvas vazio</p>
+            <p className="text-xs text-[var(--t3)]">
+              {videos.length > 0
+                ? 'Arraste um video da lista lateral para comecar.'
+                : 'Adicione videos na Biblioteca primeiro.'}
+            </p>
+          </div>
+        )}
+
         <div
           ref={wrapperRef}
-          className="h-full pt-24"
+          className="flex-1 pt-24"
           onDrop={onDrop}
           onDragOver={(event) => event.preventDefault()}
         >
