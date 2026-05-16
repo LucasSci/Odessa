@@ -574,8 +574,6 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const zones = useMemo(() => activePreset?.zones || [], [activePreset?.zones]);
   const activeZone = zones[activeZoneIndex] || zones[0];
 
-  // ⚡ Bolt: Memoize expensive array operations to prevent recalculation on every render
-  const successfulEvents = useMemo(() => captureEvents.filter((event) => event.routeStatus === 'sent'), [captureEvents]);
   const lastEvent = captureEvents[captureEvents.length - 1];
   const averageConfidence = useMemo(() =>
     successfulEvents.reduce((sum, event) => sum + (event.confidence ?? 0), 0) /

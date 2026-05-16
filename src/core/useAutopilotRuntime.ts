@@ -207,16 +207,28 @@ export function useAutopilotRuntime({
   const latestCycle = cycles[cycles.length - 1];
   const latestDecision = latestCycle?.decision;
   const latestAction = actionQueue[actionQueue.length - 1];
-  const completedCycles = cycles.filter((cycle) => cycle.stage === 'concluido').length;
-  const failedCycles = cycles.filter((cycle) => cycle.stage === 'erro').length;
-  const averageConfidence = useMemo(() => {
-    const decisions = cycles.map((cycle) => cycle.decision).filter(Boolean);
-    if (!decisions.length) return 0;
-    return Math.round(
-      (decisions.reduce((sum, decision) => sum + (decision?.confidence || 0), 0) /
-        decisions.length) *
-        100,
-    );
+  // ⚡ Bolt: Single-pass iteration to calculate multiple stats
+  const { completedCycles, failedCycles, averageConfidence } = useMemo(() => {
+    let completed = 0;
+    let failed = 0;
+    let confidenceSum = 0;
+    let decisionCount = 0;
+
+    for (const cycle of cycles) {
+      if (cycle.stage === 'concluido') completed++;
+      else if (cycle.stage === 'erro') failed++;
+
+      if (cycle.decision) {
+        confidenceSum += cycle.decision.confidence || 0;
+        decisionCount++;
+      }
+    }
+
+    return {
+      completedCycles: completed,
+      failedCycles: failed,
+      averageConfidence: decisionCount === 0 ? 0 : Math.round((confidenceSum / decisionCount) * 100)
+    };
   }, [cycles]);
 
   const refreshHealth = useCallback(async () => {
