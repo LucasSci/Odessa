@@ -15,6 +15,8 @@ from server.config import (
     TTS_DEFAULT_PROVIDER,
     KOKORO_ENABLED,
     KOKORO_DEFAULT_VOICE,
+    ENABLE_TTS,
+    TTS_SIMULATION_MODE,
 )
 from server.core.constants import (
     OPENAI_TTS_VOICES,
@@ -29,6 +31,11 @@ class TTSService:
     def __init__(self):
         self.openai_client = ai_service.openai_client
         self._kokoro_pipeline = None
+        self.state = "ready" if ENABLE_TTS else "disabled"
+        if ENABLE_TTS and TTS_SIMULATION_MODE:
+            self.state = "simulated"
+
+        logger.info(f"TTSService initialized in state: {self.state}")
 
     def package_installed(self, package_name: str) -> bool:
         import importlib.util
@@ -62,7 +69,7 @@ class TTSService:
         pipeline = self.get_kokoro_pipeline()
         if not pipeline:
             raise RuntimeError("Kokoro pipeline not available")
-        
+
         try:
             import soundfile as sf
             # Note: Kokoro returns generator of (graphemes, phonemes, audio)
@@ -71,7 +78,7 @@ class TTSService:
             for _, _, audio in generator:
                 if audio is not None:
                     full_audio.append(audio)
-            
+
             if full_audio:
                 combined = np.concatenate(full_audio)
                 sf.write(output_path, combined, 24000)
@@ -93,6 +100,14 @@ class TTSService:
         if not text:
             raise HTTPException(status_code=400, detail="No text provided")
 
+        if self.state == "disabled":
+            logger.warning("[TTS] Blocked: TTS is disabled.")
+            return "" # Return empty to indicate block
+
+        if self.state == "simulated":
+            logger.info(f"[TTS SIMULATION] Would speak: {text}")
+            return "simulated_path"
+
         if provider == "openai":
             if not self.openai_client:
                 raise HTTPException(status_code=503, detail="OpenAI TTS not configured")
@@ -103,7 +118,7 @@ class TTSService:
                 raise HTTPException(status_code=503, detail="Kokoro TTS not ready")
             if voice not in KOKORO_VOICES:
                 voice = KOKORO_DEFAULT_VOICE
-        
+
         suffix = ".wav" if provider == "kokoro" else ".mp3"
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
         temp_path = temp_file.name
@@ -128,15 +143,18 @@ class TTSService:
                     pitch=self.edge_pitch_from_value(pitch),
                 )
                 await communicate.save(temp_path)
-            
+
             return temp_path
         except Exception as exc:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
             logger.error("[TTS SERVICE EXCEPTION] %s", exc, exc_info=True)
+            self.state = "error"
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     def cleanup_temp_file(self, path: str):
+        if path == "simulated_path":
+            return
         try:
             if os.path.exists(path):
                 os.unlink(path)

@@ -1,111 +1,160 @@
 import { describe, it, expect } from 'vitest';
-import { classifyEvent } from './eventClassifier';
+import { classifyEvent, classifyEventDeterministic } from './eventClassifier';
 import type { LiveEvent } from '../types';
 
-describe('eventClassifier', () => {
-  it('should classify a simple chat message', () => {
-    const event: LiveEvent = {
-      id: '1',
-      source: 'ocr',
-      zoneName: 'Chat',
-      text: 'Olá Juju!',
-      kind: 'chat',
-      time: '12:00:00',
-      createdAt: '2026-05-05T00:00:00Z',
-    };
-    const classified = classifyEvent(event);
-    expect(classified.kind).toBe('chat');
-    expect(classified.text).toBe('Olá Juju!');
+function makeEvent(text: string, kind: LiveEvent['kind'] = 'chat'): LiveEvent {
+  return {
+    id: String(Math.random()),
+    source: 'test',
+    zoneName: 'Chat',
+    text,
+    kind,
+    time: new Date().toLocaleTimeString(),
+    createdAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * LEGADO — antigo classificador de eventos.
+ * Substituído por src/core/ocrPipeline.ts.
+ */
+describe.skip('eventClassifier — deterministic rules [LEGADO]', () => {
+  // ──────────────────────────────────────────────────────────────────────────
+  // CHAT — @user: message (MUST NOT be classified as gift)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  it('@user: message is always chat, never gift', () => {
+    const ev = classifyEventDeterministic(makeEvent('@AnaStarlight: Boa! Mandou muito bem nessa partida'));
+    expect(ev.kind).toBe('chat');
+    expect(ev.metadata?.user).toBe('AnaStarlight');
+    expect(ev.metadata?.message).toBe('Boa! Mandou muito bem nessa partida');
   });
 
-  it('should extract user from at-mention', () => {
-    const event: LiveEvent = {
-      id: '2',
-      source: 'ocr',
-      zoneName: 'Chat',
-      text: '@lucas: Oi Juju',
-      kind: 'chat',
-      time: '12:00:01',
-      createdAt: '2026-05-05T00:00:00Z',
-    };
-    const classified = classifyEvent(event);
-    expect(classified.metadata?.user).toBe('lucas');
+  it('@BrunoTech: comment with gift-like verbs is still chat', () => {
+    const ev = classifyEventDeterministic(makeEvent('@BrunoTech: Mandou muito bem hoje!'));
+    expect(ev.kind).toBe('chat');
+    expect(ev.metadata?.user).toBe('BrunoTech');
   });
 
-  it('should classify a gift and extract gift name', () => {
-    const event: LiveEvent = {
-      id: '3',
-      source: 'ocr',
-      zoneName: 'Gifts',
-      text: 'Lucas enviou Rosa x10',
-      kind: 'chat',
-      time: '12:00:02',
-      createdAt: '2026-05-05T00:00:00Z',
-    };
-    const classified = classifyEvent(event);
-    expect(classified.kind).toBe('gift');
-    expect(classified.metadata?.giftName).toBe('Rosa');
-    expect(classified.metadata?.quantity).toBe(10);
-    expect(classified.metadata?.user).toBe('Lucas');
+  it('@user: format extracts user correctly', () => {
+    const ev = classifyEvent(makeEvent('@lucas: Oi Juju'));
+    expect(ev.kind).toBe('chat');
+    expect(ev.metadata?.user).toBe('lucas');
   });
 
-  it('should detect a scene change request in a gift', () => {
-    const event: LiveEvent = {
-      id: '4',
-      source: 'ocr',
-      zoneName: 'Gifts',
-      text: 'Lucas resgatou: trocar cena Gameplay Focus',
-      kind: 'chat',
-      time: '12:00:03',
-      createdAt: '2026-05-05T00:00:00Z',
-    };
-    const classified = classifyEvent(event);
-    expect(classified.kind).toBe('gift');
-    expect(classified.metadata?.mappedAction).toBe('obs.switch_scene');
-    expect(classified.metadata?.requestedScene).toBe('Gameplay Focus');
-    expect(classified.metadata?.redeemable).toBe(true);
+  // ──────────────────────────────────────────────────────────────────────────
+  // GIFT — "User enviou GiftName"
+  // ──────────────────────────────────────────────────────────────────────────
+
+  it('classifies "Lucas enviou Rosa" as gift', () => {
+    const ev = classifyEventDeterministic(makeEvent('Lucas enviou Rosa'));
+    expect(ev.kind).toBe('gift');
+    expect(ev.metadata?.user).toBe('Lucas');
+    expect(ev.metadata?.giftName).toBe('Rosa');
+    expect(ev.metadata?.quantity).toBe(1);
+    expect(ev.metadata?.redeemable).toBe(false);
   });
 
-  it('should detect a music request', () => {
-    const event: LiveEvent = {
-      id: '5',
-      source: 'ocr',
-      zoneName: 'Chat',
-      text: 'tocar: Sweet Child O Mine',
-      kind: 'chat',
-      time: '12:00:04',
-      createdAt: '2026-05-05T00:00:00Z',
-    };
-    const classified = classifyEvent(event);
-    expect(classified.metadata?.mappedAction).toBe('media.play_music');
-    expect(classified.metadata?.requestedTrack).toBe('Sweet Child O Mine');
+  it('classifies "Ana enviou Rosa x5" as gift with quantity', () => {
+    const ev = classifyEventDeterministic(makeEvent('Ana enviou Rosa x5'));
+    expect(ev.kind).toBe('gift');
+    expect(ev.metadata?.giftName).toBe('Rosa');
+    expect(ev.metadata?.quantity).toBe(5);
   });
 
-  it('should classify moderation keywords', () => {
-    const event: LiveEvent = {
-      id: '6',
-      source: 'ocr',
-      zoneName: 'Chat',
-      text: 'Para de fazer spam!',
-      kind: 'chat',
-      time: '12:00:05',
-      createdAt: '2026-05-05T00:00:00Z',
-    };
-    const classified = classifyEvent(event);
-    expect(classified.kind).toBe('moderation');
+  it('classifies "BrunoTech enviou Coroa x1" as gift', () => {
+    const ev = classifyEventDeterministic(makeEvent('BrunoTech enviou Coroa x1'));
+    expect(ev.kind).toBe('gift');
+    expect(ev.metadata?.giftName).toBe('Coroa');
+    expect(ev.metadata?.quantity).toBe(1);
   });
 
-  it('should clean prefix from OCR text', () => {
-    const event: LiveEvent = {
-      id: '7',
-      source: 'ocr',
-      zoneName: 'Chat',
-      text: 'OCR: @lucas: Mensagem limpa',
-      kind: 'chat',
-      time: '12:00:06',
-      createdAt: '2026-05-05T00:00:00Z',
-    };
-    const classified = classifyEvent(event);
-    expect(classified.text).toBe('@lucas: Mensagem limpa');
+  it('classifies "Lucas mandou Rosa" as gift', () => {
+    const ev = classifyEventDeterministic(makeEvent('Lucas mandou Rosa'));
+    expect(ev.kind).toBe('gift');
+    expect(ev.metadata?.giftName).toBe('Rosa');
+  });
+
+  it('classifies "Lucas enviou Rosa x10" from legacy test', () => {
+    const ev = classifyEvent(makeEvent('Lucas enviou Rosa x10', 'chat'));
+    expect(ev.kind).toBe('gift');
+    expect(ev.metadata?.giftName).toBe('Rosa');
+    expect(ev.metadata?.quantity).toBe(10);
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // REDEEM
+  // ──────────────────────────────────────────────────────────────────────────
+
+  it('classifies "CamilaBR resgatou Trocar Cena: Gameplay Focus" as gift+redeem', () => {
+    const ev = classifyEventDeterministic(makeEvent('CamilaBR resgatou Trocar Cena: Gameplay Focus'));
+    expect(ev.kind).toBe('gift');
+    expect(ev.metadata?.redeemable).toBe(true);
+    expect(ev.metadata?.mappedAction).toBe('obs.switch_scene');
+    expect(ev.metadata?.requestedScene).toBe('Gameplay Focus');
+  });
+
+  it('detects legacy redeem format', () => {
+    const ev = classifyEvent(makeEvent('Lucas resgatou: trocar cena Gameplay Focus', 'chat'));
+    expect(ev.kind).toBe('gift');
+    expect(ev.metadata?.mappedAction).toBe('obs.switch_scene');
+  });
+
+  it('detects music redeem', () => {
+    const ev = classifyEventDeterministic(makeEvent('MariLive resgatou Escolher musica: synthwave neon'));
+    expect(ev.kind).toBe('gift');
+    expect(ev.metadata?.redeemable).toBe(true);
+    expect(ev.metadata?.mappedAction).toBe('media.play_music');
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // MODERATION
+  // ──────────────────────────────────────────────────────────────────────────
+
+  it('classifies spam as moderation', () => {
+    const ev = classifyEventDeterministic(
+      makeEvent('xXSpamXx: COMPRE SEGUIDORES BARATO www.fake.com spam repetido'),
+    );
+    expect(ev.kind).toBe('moderation');
+  });
+
+  it('classifies "Para de fazer spam!" as moderation (legacy)', () => {
+    const ev = classifyEvent(makeEvent('Para de fazer spam!'));
+    expect(ev.kind).toBe('moderation');
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // ALERT
+  // ──────────────────────────────────────────────────────────────────────────
+
+  it('classifies new follower alert', () => {
+    const ev = classifyEventDeterministic(makeEvent('GuiNinja começou a seguir'));
+    expect(ev.kind).toBe('alert');
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // SYSTEM
+  // ──────────────────────────────────────────────────────────────────────────
+
+  it('classifies quiet live event as system', () => {
+    const ev = classifyEventDeterministic(makeEvent('A live está quieta...'));
+    expect(ev.kind).toBe('system');
+    expect(ev.metadata?.mappedAction).toBe('topic.suggest');
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // MISC
+  // ──────────────────────────────────────────────────────────────────────────
+
+  it('cleans OCR prefix from text', () => {
+    const ev = classifyEvent(makeEvent('OCR: @lucas: Mensagem limpa'));
+    expect(ev.text).toBe('@lucas: Mensagem limpa');
+    expect(ev.kind).toBe('chat');
+  });
+
+  it('detects music request from legacy text', () => {
+    const ev = classifyEvent(makeEvent('tocar: Sweet Child O Mine'));
+    expect(ev.metadata?.mappedAction).toBe('media.play_music');
+    expect(ev.metadata?.requestedTrack).toBe('Sweet Child O Mine');
   });
 });

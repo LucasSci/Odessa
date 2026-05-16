@@ -1,0 +1,39 @@
+<!doctype html><html><head><base href="https://www.tango.me/">
+
+    <script>
+    (function() {
+        const proxyBase = "http://localhost:8000/proxy/asset?url=";
+        function rewriteUrl(url) {
+            try {
+                const parsed = new URL(url, document.baseURI);
+                if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && !parsed.href.includes('/proxy/asset')) {
+                    return proxyBase + encodeURIComponent(parsed.href);
+                }
+            } catch(e) {}
+            return url;
+        }
+        const originalFetch = window.fetch;
+        window.fetch = async function(resource, init) {
+            try {
+                if (resource instanceof Request) {
+                    const newUrl = rewriteUrl(resource.url);
+                    resource = new Request(newUrl, init || resource);
+                } else {
+                    resource = rewriteUrl(resource);
+                }
+            } catch(e) {}
+            return originalFetch.call(this, resource, init);
+        };
+        const originalOpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+            try { url = rewriteUrl(url); } catch(e) {}
+            return originalOpen.call(this, method, url, ...rest);
+        };
+    })();
+    </script>
+
+    <!-- Entry Core Preloads -->
+    <link rel="preload" href="http://localhost:8000/proxy/asset?url=https%3A%2F%2Fwww.tango.me%2Fcached-main-8fb36073d1594d9414bd.css" as="style" fetchpriority="low">
+    <link rel="preload" href="http://localhost:8000/proxy/asset?url=https%3A%2F%2Fwww.tango.me%2Fcached-main-2d6927ba9b6d439b443e.js" as="script" fetchpriority="high">
+    <link rel="preload" href="http://localhost:8000/proxy/asset?url=https%3A%2F%2Fwww.tango.me%2Fcached-vendors-99f5b17432f47e36efaa.js" as="script" fetchpriority="high">
+<script>!function(){try{var o=window.location.hostname;if("tango.me"!==o&&"goodwayto.net"!==o&&"hilmtg.com"!==o&&"habbatg.com"!==o&&"zayttg.com"!==o&&"noortg.com"!==o&&"tgbayt.com"!==o&&"tgtango.me"!==o&&"tgsanew.com"!==o&&"tngsaudi.me"!==o&&"layaltg.com"!==o&&"majltg.com"!==o&&"qareeb.me"!==o&&"kalamy.me"!==o&&"wudd.me"!==o&&"tngrenkli.me"!==o&&"ulfah.me"!==o&&"wagltg.com"!==o)return;if(!0===navigator.standalone||!(!window.matchMedia||!window.matchMedia("(display-mode: standalone),(display-mode: minimal-ui),(display-mode: window-controls-overlay)").matches))return;document.cookie="tangoTree=true; Path=/; SameSite=Lax; Domain="+o+"; Max-Age=15552000"+("https:"===window.location.protocol?"; Secure":"");var a=new URL(window.location.href);a.hostname="www."+o,window.location.replace(a.href)}catch(o){}}(),window.__appLoadStart=performance.now()</script><script>!function(){const a={ACCOUNT_ID:"accountId",TOKEN:"token",APPLE_RECOVER_TOKEN:"appleRecoverToken"};try{!function(){const o=new URLSearchParams(window.location.search),e=o.get(a.ACCOUNT_ID),t=o.get(a.TOKEN),n=o.get(a.APPLE_RECOVER_TOKEN);window.autoLoginData={accountId:e,token:t,appleRecoverToken:n}}(),function(){const o=new URL(window.location.href);Object.values(a).forEach((a=>o.searchParams.delete(a)));const e=`${o.pathname}${o.searchParams.toString()?`?${o.searchParams}`:""}${o.hash}`;window.history.replaceState(null,"",e)}()}catch(a){console.error("[Autologin] Failed to set autologinData params",a)}}();</script><link rel="preconnect" href="http://localhost:8000/proxy/asset?url=https%3A%2F%2Fresources.tango.me"/><link rel="preconnect" href="http://localhost:8000/proxy/asset?url=https%3A%2F%2Fgateway.tango.me" crossorigin/><script>window.localPropertiesPromise=fetch("/local.properties",{cache:"no-store"}).then((e=>e.text()))</script><meta charset="utf-8"/><title>Tango Live - Live Stream & Video Chat</title><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=0,viewport-fit=contain,interactive-widget=resizes-content"/><meta name="google-site-verification" content="m8dow27TcQpESxuNHwAQiI6sL_UjwLNeJTiPalhyTzA"/><meta property="og:type" content="website" data-react-helmet="true"/><meta name="twitter:card" content="summary_large_image" data-react-helmet="true"/><meta property="og:image" content="https://resources.tango.me/og/1200x630/1200e630_Main.png" data-react-helmet="true"/><meta property="og:image" content="https://resources.tango.me/og/1024x512/1024x512_Main.png" data-react-helmet="true"/><meta property="og:image" content="https://resources.tango.me/og/800x600/800e600_Main.png" data-react-helmet="true"/><meta property="twitter:url" content="https://www.tango.me/" data-react-helmet="true"/><meta name="twitter:image" content="https://resources.tango.me/og/1200x630/1200e630_Main.png" data-react-helmet="true"/><link rel="alternate" hreflang="en" href="http://localhost:8000/proxy/asset?url=https%3A%2F%2Fwww.tango.me%2F"/><link rel="alternate" hreflang="en-001" href="http://localhost:8000/proxy/asset?url=https%3A%2F%2Fwebgoodeta.com%2F"/><link rel="alternate" hreflang="e

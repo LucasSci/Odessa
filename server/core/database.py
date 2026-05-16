@@ -45,6 +45,14 @@ class Database:
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_interaction_user ON interaction_logs(user_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_interaction_created ON interaction_logs(created_at)")
+            for statement in (
+                "ALTER TABLE users ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN notes TEXT NOT NULL DEFAULT ''",
+            ):
+                try:
+                    conn.execute(statement)
+                except sqlite3.OperationalError:
+                    pass
             conn.commit()
             logger.info("Database initialized at %s", self.db_path)
 

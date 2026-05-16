@@ -65,7 +65,15 @@ export const DEFAULT_TOOLS: PersonaTool[] = [
     capability: 'media.play_video',
     enabled: true,
     requiresApproval: false,
-    simulated: true,
+    simulated: false,
+  },
+  {
+    id: 'tool-webhook-call',
+    label: 'Webhook',
+    capability: 'webhook.call',
+    enabled: true,
+    requiresApproval: false,
+    simulated: false,
   },
   {
     id: 'tool-media-stop',
@@ -118,6 +126,7 @@ export const ACTION_CAPABILITY: Record<AutopilotAction['type'], ToolCapability> 
   show_overlay: 'obs.show_overlay',
   play_music: 'media.play_music',
   play_video: 'media.play_video',
+  webhook: 'webhook.call',
   stop_media: 'media.stop',
   set_topic: 'topic.set',
   suggest_topic: 'topic.suggest',
@@ -149,7 +158,11 @@ export function loadToolRegistry(): PersonaTool[] {
     );
     return DEFAULT_TOOLS.map((tool) => {
       const merged = { ...tool, ...existingByCapability.get(tool.capability) };
-      return merged.capability === 'obs.switch_scene' ? { ...merged, simulated: false } : merged;
+      return merged.capability === 'obs.switch_scene' ||
+        merged.capability === 'media.play_video' ||
+        merged.capability === 'webhook.call'
+        ? { ...merged, simulated: false }
+        : merged;
     });
   } catch {
     return DEFAULT_TOOLS;

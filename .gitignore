@@ -5,12 +5,27 @@ __pycache__/
 build/
 dist/
 dist-electron/
+dist-runtime/
 release/
 coverage/
 .DS_Store
 *.log
+*.jsonl
 *.pyc
 server/runtime/
+server/data/logs/
+certs/dev/*.pfx
+certs/dev/*.password.txt
 .env*
 !.env.example
-.coverage
+
+# Hostinger runtime data (gerado automaticamente)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+uploads/
+
+# Vercel (nao usado mais)
+.vercel
+.env*.local
+.claude/

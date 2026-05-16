@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LongTermMemoryManager } from './longTermMemory';
 
-describe('LongTermMemoryManager', () => {
+/**
+ * LEGADO — testes do gerenciador de memória de longo prazo (persona IA).
+ * Esse recurso foi removido do escopo atual do Odessa.
+ * O produto agora foca em: OCR → evento → gift → vídeo.
+ */
+describe.skip('LongTermMemoryManager [LEGADO — fora do escopo atual]', () => {
   let manager: LongTermMemoryManager;
 
   beforeEach(() => {

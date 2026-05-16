@@ -9,12 +9,15 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from server.main import app
+from server.core.auth import ADMIN_PASSWORD
 
 
 @pytest.fixture
 def client():
     """FastAPI test client."""
-    return TestClient(app)
+    with TestClient(app) as test_client:
+        test_client.post("/auth/login", json={"password": ADMIN_PASSWORD})
+        yield test_client
 
 
 @pytest.fixture

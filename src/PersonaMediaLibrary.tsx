@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  Upload, 
-  Save, 
-  Trash2, 
-  Film, 
+import {
+  Upload,
+  Save,
+  Trash2,
+  Film,
   Link as LinkIcon,
   Play,
   X,
@@ -22,6 +22,8 @@ interface VideoConfig {
   action_trigger?: string;
   loop?: boolean;
   next_video_id?: string;
+  archivedAt?: string;
+  archivedPath?: string | null;
 }
 
 interface PersonaConfig {
@@ -32,6 +34,29 @@ interface PersonaConfig {
     gift_keywords: string[];
     message_keywords: string[];
   };
+  gift_map?: Record<string, string[]>;
+}
+
+interface PersonaMediaLibraryProps {
+  onClose: () => void;
+  onConfigChange?: () => void;
+}
+
+export default function PersonaMediaLibrary({ onClose, onConfigChange }: PersonaMediaLibraryProps) {
+  const [config, setConfig] = useState<PersonaConfig | null>(null);
+  const [trashedVideos, setTrashedVideos] = useState<VideoConfig[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<'videos' | 'actions' | 'triggers' | 'upload' | 'trash'>('videos');
+  const [uploadStatus, setUploadStatus] = useState<{ type: 'success' | 'error' | 'none', message: string }>({ type: 'none', message: '' });
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [isUploading, setIsUploading] = useState(false);
+  const [previewVideoId, setPreviewVideoId] = useState<string | null>(null);
+  const [newGiftName, setNewGiftName] = useState('');
+  const [newGiftSelected, setNewGiftSelected] = useState<string[]>([]);
+  const [editingGiftKey, setEditingGiftKey] = useState<string | null>(null);
+  const [editingGiftSelected, setEditingGiftSelected] = useState<string[]>([]);
 
   const addGiftMapping = () => {
     if (!config) return;
@@ -73,27 +98,6 @@ interface PersonaConfig {
   const toggleVideoSelectionForEdit = (id: string) => {
     setEditingGiftSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
-}
-
-interface PersonaMediaLibraryProps {
-  onClose: () => void;
-  onConfigChange?: () => void;
-}
-
-export default function PersonaMediaLibrary({ onClose, onConfigChange }: PersonaMediaLibraryProps) {
-  const [config, setConfig] = useState<PersonaConfig | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'videos' | 'actions' | 'triggers' | 'upload'>('videos');
-  const [uploadStatus, setUploadStatus] = useState<{ type: 'success' | 'error' | 'none', message: string }>({ type: 'none', message: '' });
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [uploadProgress, setUploadProgress] = useState<number>(0);
-  const [isUploading, setIsUploading] = useState(false);
-  const [previewVideoId, setPreviewVideoId] = useState<string | null>(null);
-  const [newGiftName, setNewGiftName] = useState('');
-  const [newGiftSelected, setNewGiftSelected] = useState<string[]>([]);
-  const [editingGiftKey, setEditingGiftKey] = useState<string | null>(null);
-  const [editingGiftSelected, setEditingGiftSelected] = useState<string[]>([]);
 
   const fetchConfig = useCallback(async () => {
     try {
@@ -107,23 +111,34 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
     }
   }, []);
 
+  const fetchTrash = useCallback(async () => {
+    try {
+      const res = await fetch(apiUrl('/api/video/trash'));
+      const data = await res.json();
+      setTrashedVideos(Array.isArray(data.videos) ? data.videos : []);
+    } catch {
+      setTrashedVideos([]);
+    }
+  }, []);
+
   useEffect(() => {
     const t = setTimeout(() => {
       fetchConfig();
+      fetchTrash();
     }, 0);
     return () => clearTimeout(t);
-  }, [fetchConfig]);
+  }, [fetchConfig, fetchTrash]);
 
   const handleSave = async () => {
     if (!config) return;
-    
+
     // Synchronize action_map with video triggers
     const newActionMap: Record<string, string[]> = {
       gift: [],
       message: [],
       idle: []
     };
-    
+
     config.videos.forEach(v => {
       if (v.action_trigger && v.action_trigger !== 'none' && newActionMap[v.action_trigger]) {
         newActionMap[v.action_trigger].push(v.id);
@@ -156,18 +171,20 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('Tem certeza que deseja excluir este vídeo?')) return;
-    
+
     try {
-      const res = await fetch(apiUrl(`/api/video/${id}`), {
-        method: 'DELETE',
-      });
+      const res = await fetch(apiUrl(`/api/video/${id}/archive`), { method: 'POST' });
       if (res.ok) {
         setUploadStatus({ type: 'success', message: 'Vídeo removido com sucesso!' });
         fetchConfig();
+        fetchTrash();
         onConfigChange?.();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setUploadStatus({ type: 'error', message: err.detail || 'Erro ao excluir vídeo' });
       }
     } catch {
-      setUploadStatus({ type: 'error', message: 'Erro ao excluir vídeo' });
+      setUploadStatus({ type: 'error', message: 'Erro de rede ao excluir vídeo' });
     }
   };
 
@@ -176,18 +193,72 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
     if (!window.confirm(`Tem certeza que deseja excluir ${selectedIds.length} vídeos?`)) return;
 
     setIsSaving(true);
+    let successCount = 0;
     try {
       for (const id of selectedIds) {
-        await fetch(apiUrl(`/api/video/${id}`), { method: 'DELETE' });
+        const res = await fetch(apiUrl(`/api/video/${id}/archive`), { method: 'POST' });
+        if (res.ok) successCount++;
       }
-      setUploadStatus({ type: 'success', message: `${selectedIds.length} vídeos removidos!` });
+      if (successCount === selectedIds.length) {
+        setUploadStatus({ type: 'success', message: `${successCount} vídeos removidos!` });
+      } else {
+        setUploadStatus({ type: 'error', message: `Removidos ${successCount} de ${selectedIds.length} vídeos.` });
+      }
       setSelectedIds([]);
       fetchConfig();
+      fetchTrash();
       onConfigChange?.();
     } catch {
-      setUploadStatus({ type: 'error', message: 'Erro ao excluir alguns vídeos' });
+      setUploadStatus({ type: 'error', message: 'Erro de rede ao excluir vídeos' });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (!window.confirm('CUIDADO: Isso irá EXCLUIR TODOS os vídeos da biblioteca e do disco. Tem certeza?')) return;
+
+    setIsSaving(true);
+    try {
+      const res = await fetch(apiUrl('/api/video/archive/bulk'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoIds: config?.videos.map((video) => video.id) || [] }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (data.status === 'partial_success') {
+          setUploadStatus({ type: 'error', message: data.message });
+        } else {
+          setUploadStatus({ type: 'success', message: 'Biblioteca limpa com sucesso!' });
+        }
+        fetchConfig();
+        fetchTrash();
+        onConfigChange?.();
+      } else {
+        setUploadStatus({ type: 'error', message: data.detail || 'Erro ao limpar biblioteca' });
+      }
+    } catch {
+      setUploadStatus({ type: 'error', message: 'Erro de rede ao limpar biblioteca' });
+    } finally {
+      setIsSaving(true);
+      // Brief pause to allow disk operations
+      setTimeout(() => {
+        setIsSaving(false);
+      }, 1000);
+    }
+  };
+
+  const handleRestore = async (id: string) => {
+    try {
+      const res = await fetch(apiUrl(`/api/video/${id}/restore`), { method: 'POST' });
+      if (!res.ok) throw new Error('restore_failed');
+      setUploadStatus({ type: 'success', message: 'Vídeo restaurado com sucesso!' });
+      fetchConfig();
+      fetchTrash();
+      onConfigChange?.();
+    } catch {
+      setUploadStatus({ type: 'error', message: 'Erro ao restaurar vídeo' });
     }
   };
 
@@ -200,7 +271,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
     setUploadStatus({ type: 'none', message: `Preparando upload de ${files.length} arquivo(s)...` });
 
     let successCount = 0;
-    
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const formData = new FormData();
@@ -210,7 +281,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
         await new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
           xhr.open('POST', apiUrl('/api/video/upload'));
-          
+
           xhr.upload.onprogress = (event) => {
             if (event.lengthComputable) {
               const fileProgress = (event.loaded / event.total) * 100;
@@ -227,7 +298,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
               reject(new Error('Upload failed'));
             }
           };
-          
+
           xhr.onerror = () => reject(new Error('Network error'));
           xhr.send(formData);
         });
@@ -238,11 +309,11 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
 
     setIsUploading(false);
     setUploadProgress(100);
-    setUploadStatus({ 
-      type: successCount === files.length ? 'success' : 'error', 
-      message: `Upload concluído: ${successCount}/${files.length} arquivos enviados.` 
+    setUploadStatus({
+      type: successCount === files.length ? 'success' : 'error',
+      message: `Upload concluído: ${successCount}/${files.length} arquivos enviados.`
     });
-    
+
     fetchConfig();
     onConfigChange?.();
     e.target.value = '';
@@ -276,7 +347,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
   }
 
   return (
-    <div 
+    <div
       onClick={(e) => e.stopPropagation()}
       className="flex flex-col h-full bg-slate-900 text-white rounded-2xl border border-slate-800 shadow-2xl overflow-hidden"
     >
@@ -287,7 +358,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
           <h2 className="text-lg font-bold">Biblioteca de Persona</h2>
         </div>
         <div className="flex items-center gap-2">
-          <button 
+          <button
             onClick={handleSave}
             disabled={isSaving}
             className="flex items-center gap-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-bold transition disabled:opacity-50"
@@ -295,7 +366,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
             {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
             Salvar
           </button>
-          <button 
+          <button
             onClick={onClose}
             className="p-1.5 hover:bg-slate-800 rounded-lg transition"
           >
@@ -306,7 +377,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
 
       {/* Tabs */}
       <div className="flex p-1 bg-slate-950/50 border-b border-slate-800">
-        <button 
+        <button
           onClick={() => setActiveTab('videos')}
           className={cn(
             "flex-1 py-2 text-xs font-bold rounded-md transition",
@@ -315,7 +386,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
         >
           Vídeos
         </button>
-        <button 
+        <button
           onClick={() => setActiveTab('actions')}
           className={cn(
             "flex-1 py-2 text-xs font-bold rounded-md transition",
@@ -324,7 +395,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
         >
           Ações
         </button>
-        <button 
+        <button
           onClick={() => setActiveTab('triggers')}
           className={cn(
             "flex-1 py-2 text-xs font-bold rounded-md transition",
@@ -333,7 +404,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
         >
           Gatilhos
         </button>
-        <button 
+        <button
           onClick={() => setActiveTab('upload')}
           className={cn(
             "flex-1 py-2 text-xs font-bold rounded-md transition",
@@ -341,6 +412,15 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
           )}
         >
           Upload
+        </button>
+        <button
+          onClick={() => setActiveTab('trash')}
+          className={cn(
+            "flex-1 py-2 text-xs font-bold rounded-md transition",
+            activeTab === 'trash' ? "bg-slate-800 text-blue-400" : "text-slate-500 hover:text-slate-300"
+          )}
+        >
+          Lixeira
         </button>
       </div>
 
@@ -361,7 +441,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
             <div className="flex items-center justify-between px-1">
               <div className="flex items-center gap-4">
                 <label className="flex items-center gap-2 text-[10px] text-slate-500 cursor-pointer hover:text-slate-300 transition">
-                  <input 
+                  <input
                     type="checkbox"
                     checked={(config?.videos?.length ?? 0) > 0 && selectedIds.length === (config?.videos?.length || 0)}
                     onChange={(e) => {
@@ -379,21 +459,31 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                   <span className="text-[10px] text-blue-400 font-bold">{selectedIds.length} selecionados</span>
                 )}
               </div>
-              {selectedIds.length > 0 && (
-                <button 
-                  onClick={handleBulkDelete}
-                  className="flex items-center gap-1.5 px-2 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 rounded text-[10px] font-bold transition"
-                >
-                  <Trash2 className="w-3 h-3" />
-                  Excluir Selecionados
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {selectedIds.length > 0 ? (
+                  <button
+                    onClick={handleBulkDelete}
+                    className="flex items-center gap-1.5 px-2 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 rounded text-[10px] font-bold transition"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Excluir Selecionados
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleClearAll}
+                    className="flex items-center gap-1.5 px-2 py-1 bg-rose-500/5 hover:bg-rose-500/10 text-rose-600/60 hover:text-rose-600 rounded text-[10px] font-bold transition border border-rose-500/10"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Limpar Biblioteca
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-4">
               {config?.videos.map((video) => (
-                <div 
-                  key={video.id} 
+                <div
+                  key={video.id}
                   className={cn(
                     "group p-4 bg-slate-800/40 rounded-xl border transition",
                     selectedIds.includes(video.id) ? "border-blue-500/50 bg-blue-500/5 shadow-[0_0_15px_rgba(59,130,246,0.1)]" : "border-slate-700/50 hover:border-slate-600"
@@ -401,7 +491,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                 >
                   <div className="flex gap-4">
                     <div className="relative shrink-0">
-                      <input 
+                      <input
                         type="checkbox"
                         checked={selectedIds.includes(video.id)}
                         onChange={(e) => {
@@ -413,11 +503,11 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                         }}
                         className="absolute -top-1 -left-1 z-10 w-4 h-4 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-0 opacity-0 group-hover:opacity-100 checked:opacity-100 transition"
                       />
-                      <div 
+                      <div
                         className="w-32 h-20 rounded-lg bg-black overflow-hidden relative border border-slate-700 cursor-zoom-in group/thumb"
                         onClick={() => setPreviewVideoId(video.id)}
                       >
-                        <video 
+                        <video
                           src={apiUrl(`/api/video/play/${video.id}`)}
                           className="w-full h-full object-cover opacity-60 group-hover/thumb:opacity-100 transition"
                           muted
@@ -432,10 +522,10 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                         </div>
                       </div>
                     </div>
-                  
+
                     <div className="flex-1 space-y-2">
                       <div className="flex items-center justify-between gap-2">
-                        <input 
+                        <input
                           type="text"
                           value={video.label}
                           onChange={(e) => updateVideo(video.id, { label: e.target.value })}
@@ -443,14 +533,14 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                           className="flex-1 bg-transparent border-none p-0 text-sm font-bold focus:ring-0 placeholder:text-slate-600"
                         />
                         <div className="flex items-center gap-1">
-                          <button 
+                          <button
                             onClick={() => setPreviewVideoId(video.id)}
                             className="p-1.5 text-slate-600 hover:text-blue-400 hover:bg-blue-400/10 rounded-lg transition"
                             title="Ver prévia"
                           >
                             <Play className="w-3.5 h-3.5" />
                           </button>
-                          <button 
+                          <button
                             onClick={() => handleDelete(video.id)}
                             className="p-1.5 text-slate-600 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition"
                             title="Remover vídeo"
@@ -460,7 +550,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <select 
+                        <select
                           value={video.group}
                           onChange={(e) => updateVideo(video.id, { group: e.target.value })}
                           className="bg-slate-900 border-slate-700 text-[10px] rounded px-2 py-1 outline-none focus:border-blue-500/50 transition"
@@ -472,7 +562,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                           <option value="read_screen">Leitura</option>
                         </select>
 
-                        <select 
+                        <select
                           value={video.action_trigger || 'none'}
                           onChange={(e) => updateVideo(video.id, { action_trigger: e.target.value })}
                           className="bg-slate-900 border-slate-700 text-[10px] rounded px-2 py-1 outline-none text-blue-400 focus:border-blue-500/50 transition"
@@ -484,7 +574,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                         </select>
 
                         <div className="flex items-center gap-1 ml-2">
-                          <input 
+                          <input
                             type="checkbox"
                             checked={video.loop || false}
                             onChange={(e) => updateVideo(video.id, { loop: e.target.checked })}
@@ -507,7 +597,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                               type="button"
                               onClick={() => {
                                 const currentSafe = config.transitions?.[video.id]?.safe_next || [];
-                                const newSafe = currentSafe.includes(v.id) 
+                                const newSafe = currentSafe.includes(v.id)
                                   ? currentSafe.filter(sid => sid !== v.id)
                                   : [...currentSafe, v.id];
                                 updateTransitions(video.id, newSafe);
@@ -574,7 +664,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                     {config?.triggers?.gift_keywords.map((kw, idx) => (
                       <div key={idx} className="flex items-center gap-1.5 px-2 py-1 bg-rose-500/10 text-rose-400 rounded border border-rose-500/20 text-[10px] font-bold">
                         {kw}
-                        <button 
+                        <button
                           onClick={() => {
                             if (!config) return;
                             const newKws = [...(config.triggers?.gift_keywords || [])];
@@ -589,7 +679,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                     ))}
                   </div>
                   <div className="flex gap-2">
-                    <input 
+                    <input
                       type="text"
                       placeholder="Adicionar palavra (ex: presente)..."
                       className="flex-1 bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-xs outline-none focus:border-rose-500/50"
@@ -616,7 +706,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                     {config?.triggers?.message_keywords.map((kw, idx) => (
                       <div key={idx} className="flex items-center gap-1.5 px-2 py-1 bg-blue-500/10 text-blue-400 rounded border border-blue-500/20 text-[10px] font-bold">
                         {kw}
-                        <button 
+                        <button
                           onClick={() => {
                             if (!config) return;
                             const newKws = [...(config.triggers?.message_keywords || [])];
@@ -631,7 +721,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                     ))}
                   </div>
                   <div className="flex gap-2">
-                    <input 
+                    <input
                       type="text"
                       placeholder="Adicionar palavra (ex: oi, linda)..."
                       className="flex-1 bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-xs outline-none focus:border-blue-500/50"
@@ -728,8 +818,8 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                 </div>
                 <div className="space-y-2">
                   <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-blue-500 transition-all duration-300" 
+                    <div
+                      className="h-full bg-blue-500 transition-all duration-300"
                       style={{ width: `${uploadProgress}%` }}
                     />
                   </div>
@@ -741,7 +831,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                 <Upload className="w-12 h-12 text-slate-700 mb-4" />
                 <p className="text-sm font-medium text-slate-400 mb-1">Arraste ou clique para upload</p>
                 <p className="text-[10px] text-slate-600 mb-6">Formatos aceitos: MP4 (múltiplos permitidos)</p>
-                <input 
+                <input
                   type="file"
                   accept="video/mp4"
                   multiple
@@ -749,13 +839,38 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                   className="hidden"
                   id="video-upload"
                 />
-                <label 
+                <label
                   htmlFor="video-upload"
                   className="px-6 py-2 bg-blue-600 hover:bg-blue-500 rounded-full text-xs font-bold transition cursor-pointer"
                 >
                   Selecionar Arquivos
                 </label>
               </>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'trash' && (
+          <div className="space-y-3">
+            {trashedVideos.length === 0 ? (
+              <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-4 text-xs text-slate-500">
+                Nenhum vídeo arquivado.
+              </div>
+            ) : (
+              trashedVideos.map((video) => (
+                <div key={video.id} className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-bold text-white">{video.label || video.id}</div>
+                    <div className="truncate text-[10px] text-slate-500">{video.archivedAt || 'arquivado'}</div>
+                  </div>
+                  <button
+                    onClick={() => handleRestore(video.id)}
+                    className="rounded bg-emerald-600/20 px-3 py-1.5 text-xs font-bold text-emerald-300 transition hover:bg-emerald-600/30"
+                  >
+                    Restaurar
+                  </button>
+                </div>
+              ))
             )}
           </div>
         )}
@@ -775,15 +890,15 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
 
       {/* Preview Modal */}
       {previewVideoId && (
-        <div 
+        <div
           className="fixed inset-0 z-[100] flex items-center justify-center p-8 bg-black/90 backdrop-blur-sm animate-in fade-in duration-200"
           onClick={() => setPreviewVideoId(null)}
         >
-          <div 
+          <div
             className="relative w-full max-w-4xl aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/10"
             onClick={e => e.stopPropagation()}
           >
-            <video 
+            <video
               src={apiUrl(`/api/video/play/${previewVideoId}`)}
               className="w-full h-full object-contain"
               controls
@@ -793,7 +908,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
               <Film className="w-4 h-4 text-blue-400" />
               <span className="text-xs font-bold">{config?.videos.find(v => v.id === previewVideoId)?.label} ({previewVideoId})</span>
             </div>
-            <button 
+            <button
               onClick={() => setPreviewVideoId(null)}
               className="absolute top-4 right-4 p-2 bg-black/60 hover:bg-black/80 rounded-full backdrop-blur-md border border-white/10 transition"
             >

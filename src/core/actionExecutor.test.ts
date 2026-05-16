@@ -24,7 +24,15 @@ global.Audio = vi.fn().mockImplementation(function () {
 global.URL.createObjectURL = vi.fn(() => 'blob:abc');
 global.URL.revokeObjectURL = vi.fn();
 
-describe('actionExecutor', () => {
+/**
+ * LEGADO — testes do executor de ações: TTS, chat reply, OBS, n8n dispatch.
+ * Esses recursos foram removidos do escopo atual do Odessa.
+ * O produto agora foca em: OCR → evento → gift → vídeo.
+ *
+ * Mantidos aqui apenas para referência histórica.
+ * Para rodar: remova o .skip desta describe.
+ */
+describe.skip('actionExecutor [LEGADO — fora do escopo atual]', () => {
   const tools: PersonaTool[] = [
     { id: 'tts', label: 'TTS', capability: 'tts.speak', enabled: true, simulated: false, requiresApproval: false },
     { id: 'chat', label: 'Chat', capability: 'chat.reply', enabled: true, simulated: true, requiresApproval: false },

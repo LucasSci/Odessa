@@ -1,0 +1,143 @@
+
+> odessa-mvp@0.0.0 lint
+> eslint . --quiet
+
+
+C:\Users\Lucas\Desktop\Odessa\src\PersonaMediaLibrary.tsx
+   67:5   error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\Lucas\Desktop\Odessa\src\PersonaMediaLibrary.tsx:67:5
+  65 |
+  66 |   useEffect(() => {
+> 67 |     fetchConfig(true);
+     |     ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  68 |   }, [fetchConfig]);
+  69 |
+  70 |   const handleSave = async () => {  react-hooks/set-state-in-effect
+  103:14  error  'err' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           @typescript-eslint/no-unused-vars
+  122:14  error  'err' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           @typescript-eslint/no-unused-vars
+  140:14  error  'err' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           @typescript-eslint/no-unused-vars
+
+C:\Users\Lucas\Desktop\Odessa\src\PersonaOverlay.tsx
+  24:11  error  Error: Cannot access variable before it is declared
+
+`transitionToVideo` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+C:\Users\Lucas\Desktop\Odessa\src\PersonaOverlay.tsx:24:11
+  22 |
+  23 |         if (state.current_video_id && state.current_video_id !== currentVideoId && !isTransitioning) {
+> 24 |           transitionToVideo(state.current_video_id);
+     |           ^^^^^^^^^^^^^^^^^ `transitionToVideo` accessed before it is declared
+  25 |         }
+  26 |       } catch (e) {}
+  27 |     }, 500); // Polling mais r├ípido (0.5s)
+
+C:\Users\Lucas\Desktop\Odessa\src\PersonaOverlay.tsx:31:3
+  29 |   }, [currentVideoId, isTransitioning, activePlayer]);
+  30 |
+> 31 |   const transitionToVideo = useCallback(async (targetVideoId: string) => {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 32 |     if (isTransitioning || !targetVideoId) return;
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 33 |
+     ÔÇª
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 69 |     }
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 70 |   }, [activePlayer, isTransitioning, videoPath]);
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `transitionToVideo` is declared here
+  71 |
+  72 |   // Initial load: Sync with current backend state
+  73 |   useEffect(() => {  react-hooks/immutability
+  26:16  error  'e' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         @typescript-eslint/no-unused-vars
+  26:19  error  Empty block statement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 no-empty
+  81:16  error  'e' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         @typescript-eslint/no-unused-vars
+  81:19  error  Empty block statement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 no-empty
+
+C:\Users\Lucas\Desktop\Odessa\src\PersonaStudio.tsx
+   77:54  error  Error: Cannot call impure function during render
+
+`Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+C:\Users\Lucas\Desktop\Odessa\src\PersonaStudio.tsx:77:54
+  75 |   const [showControls, setShowControls] = useState(false);
+  76 |   const [isTransitioning, setIsTransitioning] = useState(false);
+> 77 |   const [lastEventTime, setLastEventTime] = useState(Date.now());
+     |                                                      ^^^^^^^^^^ Cannot call impure function
+  78 |   const [showMediaLibrary, setShowMediaLibrary] = useState(false);
+  79 |   const [videoCatalog, setVideoCatalog] = useState<Record<string, VideoState>>(DEFAULT_CATALOG);
+  80 |   const [preloadedId, setPreloadedId] = useState<string | null>(null);                                                                                                                                                                                                                                                                                                                                                                                                                               react-hooks/purity
+   97:13  error  Error: Cannot access variable before it is declared
+
+`handleVideoEnd` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+C:\Users\Lucas\Desktop\Odessa\src\PersonaStudio.tsx:97:13
+   95 |           const v = activeRef.current;
+   96 |           if (v.duration > 0 && v.currentTime > v.duration - 0.45) {
+>  97 |             handleVideoEnd();
+      |             ^^^^^^^^^^^^^^ `handleVideoEnd` accessed before it is declared
+   98 |           }
+   99 |         }
+  100 |       }
+
+C:\Users\Lucas\Desktop\Odessa\src\PersonaStudio.tsx:278:3
+  276 |
+  277 |   // Handle automatic transition when video ends
+> 278 |   const handleVideoEnd = useCallback(async () => {
+      |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 279 |     if (!autoPlayNext) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 280 |     const nextId = await fetchNextVideoId();
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 281 |     transitionToVideo(nextId, { type: 'natural', label: 'Natural Flow' });
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 282 |   }, [autoPlayNext, fetchNextVideoId, transitionToVideo]);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `handleVideoEnd` is declared here
+  283 |
+  284 |   // Watchdog: ensures video is always playing and alternating
+  285 |   useEffect(() => {  react-hooks/immutability
+  278:38  error  Compilation Skipped: Existing memoization could not be preserved
+
+React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. This value was memoized in source but not in compilation output.
+
+C:\Users\Lucas\Desktop\Odessa\src\PersonaStudio.tsx:278:38
+  276 |
+  277 |   // Handle automatic transition when video ends
+> 278 |   const handleVideoEnd = useCallback(async () => {
+      |                                      ^^^^^^^^^^^^^
+> 279 |     if (!autoPlayNext) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 280 |     const nextId = await fetchNextVideoId();
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 281 |     transitionToVideo(nextId, { type: 'natural', label: 'Natural Flow' });
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 282 |   }, [autoPlayNext, fetchNextVideoId, transitionToVideo]);
+      | ^^^^ Could not preserve existing memoization
+  283 |
+  284 |   // Watchdog: ensures video is always playing and alternating
+  285 |   useEffect(() => {                                                                                                                                                                                                                                                                                                                                                            react-hooks/preserve-manual-memoization
+  309:5   error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\Lucas\Desktop\Odessa\src\PersonaStudio.tsx:309:5
+  307 |   // Initial load / Sync
+  308 |   useEffect(() => {
+> 309 |     fetchConfig();
+      |     ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  310 |     if (currentVideoId && videoRefA.current && !videoRefA.current.src) {
+  311 |       console.log("[STUDIO] Setting initial src:", currentVideoId);
+  312 |       videoRefA.current.src = apiUrl(`${videoPath}${currentVideoId}`);                                                                                                                                                                                                                  react-hooks/set-state-in-effect
+
+Ô£û 13 problems (13 errors, 0 warnings)
+

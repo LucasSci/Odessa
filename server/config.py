@@ -67,3 +67,35 @@ MAX_VISUAL_IMAGES_PER_RUN = int(os.getenv("ODESSA_MAX_VISUAL_IMAGES_PER_RUN", "3
 GEMINI_IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image").strip()
 GEMINI_IMAGE_ASPECT_RATIO = os.getenv("GEMINI_IMAGE_ASPECT_RATIO", "9:16").strip()
 GEMINI_IMAGE_SIZE = os.getenv("GEMINI_IMAGE_SIZE", "").strip()
+
+# Automation & Service Config
+AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini").strip().lower()
+ENABLE_LOCAL_FALLBACK = os.getenv("ENABLE_LOCAL_FALLBACK", "true").lower() == "true"
+
+ENABLE_TTS = os.getenv("ENABLE_TTS", "false").lower() == "true"
+TTS_SIMULATION_MODE = os.getenv("TTS_SIMULATION_MODE", "true").lower() == "true"
+
+OBS_ENABLED = os.getenv("OBS_ENABLED", "false").lower() == "true"
+OBS_WEBSOCKET_URL = os.getenv("OBS_WEBSOCKET_URL", "ws://localhost:4455").strip()
+OBS_WEBSOCKET_PASSWORD = os.getenv("OBS_WEBSOCKET_PASSWORD", "").strip()
+OBS_OCR_SOURCE_NAME = os.getenv("OBS_OCR_SOURCE_NAME", "Odessa Chat OCR").strip() or "Odessa Chat OCR"
+OBS_SCENE_WHITELIST = os.getenv("OBS_SCENE_WHITELIST", "Gameplay Focus,Cena Just Chatting,Tela de reacts").split(",")
+OBS_STAGE_SOURCE_NAME = os.getenv("OBS_STAGE_SOURCE_NAME", "Odessa Stage Overlay").strip() or "Odessa Stage Overlay"
+OBS_STAGE_URL = os.getenv("OBS_STAGE_URL", "http://localhost:3000/#overlay").strip() or "http://localhost:3000/#overlay"
+OBS_STARTUP_SCENE_NAME = os.getenv("OBS_STARTUP_SCENE_NAME", "Odessa START").strip() or "Odessa START"
+OBS_LIVE_SCENE_NAME = os.getenv("OBS_LIVE_SCENE_NAME", "Odessa LIVE").strip() or "Odessa LIVE"
+OBS_TRANSMISSION_MODE = os.getenv("OBS_TRANSMISSION_MODE", "stream").strip().lower() or "stream"
+OBS_STAGE_CANVAS_WIDTH = int(os.getenv("OBS_STAGE_CANVAS_WIDTH", "1080"))
+OBS_STAGE_CANVAS_HEIGHT = int(os.getenv("OBS_STAGE_CANVAS_HEIGHT", "1920"))
+
+SIMULATION_MODE = os.getenv("SIMULATION_MODE", "true").lower() == "true"
+
+MAX_EVENTS_PER_TICK = int(os.getenv("MAX_EVENTS_PER_TICK", "10"))
+GIFT_DEBOUNCE_MS = int(os.getenv("GIFT_DEBOUNCE_MS", "1500"))
+GIFT_BATCH_WINDOW_MS = int(os.getenv("GIFT_BATCH_WINDOW_MS", "2500"))
+EVENT_PROCESSING_TIMEOUT_MS = int(os.getenv("EVENT_PROCESSING_TIMEOUT_MS", "10000"))
+
+TOPIC_SUGGEST_COOLDOWN_MS = int(os.getenv("TOPIC_SUGGEST_COOLDOWN_MS", "60000"))
+VIDEO_TRIGGER_COOLDOWN_MS = int(os.getenv("VIDEO_TRIGGER_COOLDOWN_MS", "15000"))
+
+DEFAULT_RECEIVER = os.getenv("DEFAULT_RECEIVER", "Odessa").strip()

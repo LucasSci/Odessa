@@ -4,21 +4,102 @@ import OdessaLiveCenter, { type AdvancedPanel } from './OdessaLiveCenter';
 import PersonaOverlay from './PersonaOverlay';
 import { getRecentEvents, replaceEvents } from './core/eventBus';
 import { useAutopilotRuntime } from './core/useAutopilotRuntime';
-import { cn } from './lib/utils';
+import { apiUrl } from './lib/api';
 import type { CapturedMessage } from './types';
+
+type LiveConfig = {
+  voiceEnabled?: boolean;
+  enableChat?: boolean;
+  prepareObs?: boolean;
+  showStage?: boolean;
+  startAutomation?: boolean;
+  startCapture?: boolean;
+  startTransmission?: boolean;
+  actionMode?: 'simulated' | 'approval_required' | 'real';
+};
+
+type ObsHealth = {
+  ok?: boolean;
+  connected?: boolean;
+  sourceReady?: boolean;
+  screenshotReady?: boolean;
+  sourceName?: string;
+  error?: string | null;
+};
+
+type AgentStatus = {
+  ok?: boolean;
+  agentConnected?: boolean;
+  queueSize?: number;
+  message?: string;
+  agent?: {
+    agentId?: string;
+    host?: string;
+    version?: string;
+    lastSeenAt?: string;
+    capabilities?: string[];
+    health?: {
+      obsConnected?: boolean;
+      obs?: { error?: string | null; ok?: boolean; connected?: boolean };
+    };
+  } | null;
+};
+
+const LIVE_CONFIG_KEY = 'odessa:live-config:v1';
+const LOCAL_AGENT_URL = 'http://127.0.0.1:8766';
+
+function isCloudHosted() {
+  if (typeof window === 'undefined') return false;
+  const h = window.location.hostname;
+  return h !== '' && h !== 'localhost' && h !== '127.0.0.1' && h !== '::1';
+}
 
 function getPanelFromHash(): AdvancedPanel {
   if (window.location.hash === '#capture') return 'capture';
-  if (window.location.hash === '#persona') return 'persona';
+  if (window.location.hash === '#persona') return 'overview';
   if (window.location.hash === '#content') return 'content';
   if (window.location.hash === '#runtime') return 'runtime';
-  if (window.location.hash === '#overlay') return 'overlay' as any;
+  if (window.location.hash === '#settings') return 'settings';
+  if (window.location.hash === '#overlay') return 'overlay' as AdvancedPanel;
   return 'overview';
 }
 
+function loadLiveConfig(): LiveConfig {
+  try {
+    const raw = window.localStorage.getItem(LIVE_CONFIG_KEY);
+    return {
+      prepareObs: true,
+      showStage: true,
+      startAutomation: true,
+      startCapture: false,
+      startTransmission: false,
+      actionMode: 'simulated',
+      voiceEnabled: false,
+      enableChat: false,
+      ...(raw ? JSON.parse(raw) : {}),
+    };
+  } catch {
+    return {
+      prepareObs: true,
+      showStage: true,
+      startAutomation: true,
+      startCapture: false,
+      startTransmission: false,
+      actionMode: 'simulated',
+      voiceEnabled: false,
+      enableChat: false,
+    };
+  }
+}
+
 export default function App() {
+  const [authStatus] = useState<'checking' | 'authenticated' | 'anonymous'>('authenticated');
   const [requestedPanel, setRequestedPanel] = useState<AdvancedPanel>(() => getPanelFromHash());
   const [capturedText, setCapturedTextState] = useState<CapturedMessage[]>(() => getRecentEvents());
+  const [liveConfigOpen, setLiveConfigOpen] = useState(false);
+  const [liveConfig, setLiveConfig] = useState<LiveConfig>(() => loadLiveConfig());
+  const [liveStartError, setLiveStartError] = useState<string | null>(null);
+  const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
 
   const setCapturedText = useCallback<Dispatch<SetStateAction<CapturedMessage[]>>>((value) => {
     setCapturedTextState((current) => {
@@ -29,45 +110,49 @@ export default function App() {
 
   const runtime = useAutopilotRuntime({ capturedText, setCapturedText });
 
-  const LIVE_CONFIG_KEY = 'odessa:live-config:v1';
-  type LiveConfig = {
-    voiceEnabled?: boolean;
-    enableChat?: boolean;
-  };
-  const [liveConfigOpen, setLiveConfigOpen] = useState(false);
-  const [liveConfig, setLiveConfig] = useState<LiveConfig>(() => {
+  const refreshAgentStatus = useCallback(async () => {
     try {
-      const raw = window.localStorage.getItem(LIVE_CONFIG_KEY);
-      return raw ? JSON.parse(raw) : { voiceEnabled: false, enableChat: false };
+      if (isCloudHosted()) {
+        try {
+          const localResponse = await fetch(`${LOCAL_AGENT_URL}/status`, { credentials: 'omit' });
+          if (localResponse.ok) {
+            setAgentStatus((await localResponse.json()) as AgentStatus);
+            return;
+          }
+        } catch {
+          // Fall back to the cloud heartbeat status below.
+        }
+      }
+      const response = await fetch(apiUrl('/agent?action=status'));
+      if (!response.ok) {
+        setAgentStatus(null);
+        return;
+      }
+      setAgentStatus((await response.json()) as AgentStatus);
     } catch {
-      return { voiceEnabled: false, enableChat: false };
+      setAgentStatus(null);
     }
-  });
+  }, []);
+
+  useEffect(() => {
+    if (authStatus !== 'authenticated') return undefined;
+    void refreshAgentStatus();
+    const interval = window.setInterval(() => void refreshAgentStatus(), 5000);
+    return () => window.clearInterval(interval);
+  }, [authStatus, refreshAgentStatus]);
+
+  const logout = async () => {
+    await fetch(apiUrl('/auth/logout'), { method: 'POST' }).catch(() => undefined);
+    runtime.pause();
+  };
 
   useEffect(() => {
     try {
       window.localStorage.setItem(LIVE_CONFIG_KEY, JSON.stringify(liveConfig));
     } catch {
-      // ignore
+      // Keep the app usable when storage is unavailable.
     }
   }, [liveConfig]);
-
-  const startLiveWithConfig = () => {
-    const toolPatches = [
-      { capability: 'tts.speak', patch: { enabled: liveConfig.voiceEnabled ?? runtime.voiceEnabled } },
-      { capability: 'chat.reply', patch: { enabled: !!liveConfig.enableChat } },
-    ];
-    // Trigger capture start (user gesture) before starting runtime
-    try {
-      window.dispatchEvent(
-        new CustomEvent('odessa:start-live', { detail: { prefer: 'monitor' } }),
-      );
-    } catch {
-      // ignore
-    }
-
-    runtime.start({ voiceEnabled: liveConfig.voiceEnabled, toolPatches });
-  };
 
   useEffect(() => {
     const handleHashChange = () => setRequestedPanel(getPanelFromHash());
@@ -75,237 +160,151 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  const pendingCount = runtime.currentRoundEvents.length || runtime.pendingEvents.length;
-  const health = runtime.health;
+  const startLiveWithConfig = async () => {
+    setLiveStartError(null);
+    const hostedOnVercel = isCloudHosted();
+    if ((liveConfig.actionMode || 'simulated') !== 'real') {
+      try {
+        await fetch(apiUrl('/obs/start-live/dry-run'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(liveConfig),
+        });
+      } catch {
+        // Dry-run visibility is helpful, but it should not block a local simulated start.
+      }
+      setLiveStartError('Iniciar Live esta em modo seguro/simulado. Altere para "Real ao clicar" em Configuracoes para executar OBS/transmissao.');
+      return;
+    }
 
-  if (requestedPanel === ('overlay' as any)) {
+    if (hostedOnVercel) {
+      try {
+        const localResponse = await fetch(`${LOCAL_AGENT_URL}/command`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'omit',
+          body: JSON.stringify({
+            type: 'live.start',
+            payload: liveConfig,
+          }),
+        });
+        const localResult = (await localResponse.json().catch(() => ({}))) as {
+          ok?: boolean;
+          result?: { error?: string | null };
+        };
+        if (localResponse.ok && localResult.ok) {
+          await refreshAgentStatus();
+          setLiveStartError('Comando executado pelo Odessa Agent local.');
+          return;
+        }
+        const response = await fetch(apiUrl('/agent?action=commands'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'live.start',
+            payload: liveConfig,
+          }),
+        });
+        const result = (await response.json().catch(() => ({}))) as { ok?: boolean; queueSize?: number; detail?: string };
+        if (!response.ok || !result.ok) {
+          setLiveStartError(
+            localResult.result?.error ||
+              result.detail ||
+              'Nao foi possivel acionar o Odessa Agent local. Verifique se npm run dev:agent esta rodando.',
+          );
+          return;
+        }
+        await refreshAgentStatus();
+        setLiveStartError(`Comando enviado para o Odessa Agent. Fila atual: ${result.queueSize ?? 1}.`);
+      } catch (err) {
+        setLiveStartError(err instanceof Error ? err.message : 'Falha ao acionar o Odessa Agent.');
+      }
+      return;
+    }
+
+    if (liveConfig.prepareObs !== false) {
+      try {
+        const response = await fetch(apiUrl('/obs/live-health'));
+        const obsHealth = (await response.json().catch(() => ({}))) as ObsHealth;
+        let obsReady = response.ok && obsHealth.ok;
+
+        if (!obsReady) {
+          const setupResponse = await fetch(apiUrl('/obs/setup-live-scene'), { method: 'POST' });
+          const setup = (await setupResponse.json().catch(() => ({}))) as { ok?: boolean; error?: string | null };
+          obsReady = setupResponse.ok && !!setup.ok;
+          if (!obsReady) {
+            setLiveStartError(
+              setup.error ||
+                obsHealth.error ||
+                'Nao foi possivel preparar a Mesa OBS. Verifique se o OBS esta aberto e se o WebSocket esta ativo.',
+            );
+            return;
+          }
+        }
+
+        if (liveConfig.showStage !== false) {
+          const stageResponse = await fetch(apiUrl('/obs/show-stage'), { method: 'POST' });
+          const stage = (await stageResponse.json().catch(() => ({}))) as { ok?: boolean; error?: string | null };
+          if (!stageResponse.ok || !stage.ok) {
+            setLiveStartError(stage.error || 'Nao foi possivel colocar o palco ao vivo no OBS.');
+            return;
+          }
+        }
+      } catch (err) {
+        setLiveStartError(
+          err instanceof Error
+            ? `Nao foi possivel preparar a Mesa OBS: ${err.message}`
+            : 'Nao foi possivel iniciar a live assistida: OBS WebSocket indisponivel.',
+        );
+        return;
+      }
+    }
+
+    const toolPatches = [
+      {
+        capability: 'tts.speak',
+        patch: { enabled: liveConfig.voiceEnabled ?? runtime.voiceEnabled },
+      },
+      { capability: 'chat.reply', patch: { enabled: !!liveConfig.enableChat } },
+    ];
+
+    if (liveConfig.startCapture) {
+      try {
+        window.dispatchEvent(new CustomEvent('odessa:start-live', { detail: { prefer: 'monitor' } }));
+      } catch {
+        // Capture can still be started manually.
+      }
+    }
+
+    if (liveConfig.startAutomation !== false) {
+      runtime.start({ voiceEnabled: liveConfig.voiceEnabled, toolPatches });
+    }
+
+  if (liveConfig.startTransmission) {
+      fetch(apiUrl('/obs/transmission/start'), { method: 'POST' }).catch(() => undefined);
+    }
+  };
+
+  if (requestedPanel === ('overlay' as AdvancedPanel)) {
     return <PersonaOverlay />;
   }
 
   return (
-    <div className="app flex h-screen w-screen overflow-hidden bg-[var(--bg)] text-[var(--t1)]">
-      {/* ── SIDEBAR ── */}
-      <aside className="sidebar flex w-[220px] flex-col border-r border-[var(--border)] bg-[var(--bg1)]">
-        <div className="sidebar-top border-b border-[var(--border)] p-5 pb-4">
-          <div className="logo-wrap mb-5 flex items-center gap-2.5">
-            <div className="logo flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#7c6ff7] to-[#f472b6] text-sm font-semibold text-white shadow-[0_0_20px_rgba(124,111,247,0.4)]">
-              O
-            </div>
-            <div className="logo-text flex flex-col">
-              <span className="logo-name text-sm font-semibold tracking-tight text-[var(--t1)]">
-                Odessa
-              </span>
-              <span className="logo-sub text-[10px] text-[var(--t3)]">Live Studio</span>
-            </div>
-          </div>
-
-          <div className="live-status rounded-xl border border-[var(--border2)] bg-[var(--bg3)] p-3 px-3.5">
-            <div className="live-status-head mb-2 flex items-center justify-between">
-              <span className="live-label text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-                Persona ativa
-              </span>
-              <span className="live-indicator flex items-center gap-1.5 text-xs font-medium text-[var(--green)]">
-                <span className="live-dot h-1.5 w-1.5 rounded-full bg-[var(--green)] animate-[pulse-green_2s_ease-in-out_infinite]"></span>
-                Pronta
-              </span>
-            </div>
-            <div className="live-name text-sm font-semibold text-[var(--t1)]">Juju</div>
-            <div className="live-meta text-[11px] text-[var(--t3)]">Edge · pt-BR · 1.0×</div>
-          </div>
-        </div>
-
-        <nav className="nav flex-1 overflow-y-auto p-2.5 px-2">
-          <div className="nav-section-label mb-1 mt-3 px-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-            Principal
-          </div>
-          <NavItem
-            active={requestedPanel === 'overview'}
-            icon="⚡"
-            label="Studio"
-            onClick={() => (window.location.hash = '')}
-          />
-          <NavItem icon="📡" label="Sinais" onClick={() => (window.location.hash = 'capture')} />
-          <NavItem
-            icon="🎭"
-            label="Persona"
-            badge={3}
-            onClick={() => (window.location.hash = 'persona')}
-          />
-
-          <div className="nav-section-label mb-1 mt-3 px-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-            Conteúdo
-          </div>
-          <NavItem icon="📋" label="Roteiro" onClick={() => (window.location.hash = 'content')} />
-          <NavItem
-            icon="🔊"
-            label="Voz & Chat"
-            onClick={() => (window.location.hash = 'persona')}
-          />
-          <NavItem icon="🎬" label="Ações" onClick={() => (window.location.hash = 'runtime')} />
-
-          <div className="nav-section-label mb-1 mt-3 px-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-            Operação
-          </div>
-          <NavItem
-            icon="📷"
-            label="Captura OCR"
-            onClick={() => (window.location.hash = 'capture')}
-          />
-          <NavItem icon="🤖" label="Runtime" onClick={() => (window.location.hash = 'runtime')} />
-          <NavItem icon="📊" label="Auditoria" onClick={() => (window.location.hash = 'runtime')} />
-        </nav>
-
-        <div className="health-strip border-t border-[var(--border)] p-4 pb-5">
-          <div className="health-strip-label mb-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-            Saúde do sistema
-          </div>
-          <div className="health-items flex flex-col gap-1.5">
-            <HealthRow name="Backend" status={health?.status === 'ok' ? 'ok' : 'err'} />
-            <HealthRow name="OCR" status={health?.ocr === 'ready' ? 'ok' : 'warn'} />
-            <HealthRow name="IA · Gemini" status={health?.gemini_configured ? 'ok' : 'err'} />
-            <HealthRow name="TTS · Edge" status="ok" />
-            <HealthRow name="N8N Bridge" status={health?.n8n?.online ? 'ok' : 'warn'} />
-          </div>
-        </div>
-      </aside>
-
-      {/* ── MAIN ── */}
-      <main className="main flex flex-1 flex-col overflow-hidden">
-        {/* TOPBAR */}
-        <header className="topbar flex h-[52px] shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--bg1)] px-6">
-          <div className="topbar-left flex items-center gap-1.5">
-            <span className="page-title text-sm font-semibold text-[var(--t1)]">Studio</span>
-            <span className="page-sep text-[var(--t3)]">/</span>
-            <span className="page-sub text-xs text-[var(--t2)]">Visão geral da live</span>
-          </div>
-          <div className="topbar-right flex items-center gap-2">
-            <div className="pill inline-flex items-center gap-1 rounded-full border border-[var(--border2)] bg-[var(--bg3)] px-2.5 py-1 text-[11px] text-[var(--t2)]">
-              <span className="pdot h-1 w-1 rounded-full bg-[var(--t3)]"></span>
-              {capturedText.length} eventos
-            </div>
-            <div className="pill inline-flex items-center gap-1 rounded-full border border-[var(--border2)] bg-[var(--bg3)] px-2.5 py-1 text-[11px] text-[var(--t2)]">
-              <span className="pdot h-1 w-1 rounded-full bg-[var(--t3)]"></span>
-              {pendingCount} na rodada
-            </div>
-            <div className="pill inline-flex items-center gap-1 rounded-full border border-[var(--border2)] bg-[var(--bg3)] px-2.5 py-1 text-[11px] text-[var(--t2)]">
-              <span
-                className={cn(
-                  'pdot h-1 w-1 rounded-full',
-                  runtime.autopilotEnabled ? 'bg-[var(--green)]' : 'bg-[var(--amber)]',
-                )}
-              ></span>
-              {runtime.autopilotEnabled ? 'ativa' : 'pausada'}
-            </div>
-            <button className="btn btn-sm btn-ghost ml-1">Modo teste</button>
-            <div className="ml-2 flex items-center gap-2">
-              <button
-                className="btn btn-sm btn-ghost"
-                onClick={() => setLiveConfigOpen((v) => !v)}
-                title="Configurar opções da Live"
-              >
-                ⚙
-              </button>
-              <button
-                onClick={runtime.autopilotEnabled ? runtime.pause : startLiveWithConfig}
-                className="btn btn-accent btn-sm"
-              >
-                {runtime.autopilotEnabled ? '⏸ Pausar Live' : '▶ Iniciar Live'}
-              </button>
-            </div>
-            {liveConfigOpen && (
-              <div className="absolute right-6 top-14 z-50 w-64 rounded-md border border-[var(--border)] bg-[var(--bg1)] p-3 shadow-lg">
-                <div className="flex flex-col gap-2">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={!!liveConfig.voiceEnabled}
-                      onChange={(e) => setLiveConfig((c) => ({ ...c, voiceEnabled: e.target.checked }))}
-                    />
-                    <span>Vozes IA (TTS)</span>
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={!!liveConfig.enableChat}
-                      onChange={(e) => setLiveConfig((c) => ({ ...c, enableChat: e.target.checked }))}
-                    />
-                    <span>Interação com chat</span>
-                  </label>
-                  <div className="mt-2 flex justify-end">
-                    <button
-                      className="btn btn-sm btn-ghost"
-                      onClick={() => setLiveConfigOpen(false)}
-                    >
-                      Fechar
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </header>
-
-        <div className="flex-1 overflow-hidden">
-          <OdessaLiveCenter
-            key={requestedPanel}
-            capturedText={capturedText}
-            setCapturedText={setCapturedText}
-            runtime={runtime}
-            requestedPanel={requestedPanel}
-          />
-        </div>
-      </main>
-    </div>
+    <OdessaLiveCenter
+      capturedText={capturedText}
+      setCapturedText={setCapturedText}
+      runtime={runtime}
+      requestedPanel={requestedPanel}
+      liveConfig={liveConfig}
+      liveConfigOpen={liveConfigOpen}
+      liveStartError={liveStartError}
+      agentStatus={agentStatus}
+      onRefreshAgentStatus={refreshAgentStatus}
+      onLiveConfigOpenChange={setLiveConfigOpen}
+      onLiveConfigChange={setLiveConfig}
+      onStartLive={startLiveWithConfig}
+      onLogout={logout}
+    />
   );
 }
 
-function NavItem({
-  icon,
-  label,
-  active,
-  badge,
-  onClick,
-}: {
-  icon: string;
-  label: string;
-  active?: boolean;
-  badge?: number;
-  onClick: () => void;
-}) {
-  return (
-    <div
-      onClick={onClick}
-      className={cn(
-        'nav-item mb-px flex cursor-pointer items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-2 text-xs font-medium transition-all duration-150',
-        active
-          ? 'active bg-[var(--bg3)] text-[var(--t1)] border-[var(--border2)]'
-          : 'text-[var(--t2)] hover:bg-[var(--bg3)] hover:text-[var(--t1)]',
-      )}
-    >
-      <span className={cn('nav-icon w-4.5 text-center text-sm', active && 'text-[var(--accent)]')}>
-        {icon}
-      </span>
-      <span>{label}</span>
-      {badge && (
-        <span className="nav-badge ml-auto rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[10px] text-white">
-          {badge}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function HealthRow({ name, status }: { name: string; status: 'ok' | 'warn' | 'err' }) {
-  const colorClass = {
-    ok: 'text-[var(--green)]',
-    warn: 'text-[var(--amber)]',
-    err: 'text-[var(--red)]',
-  }[status];
-
-  return (
-    <div className="health-row flex items-center justify-between">
-      <span className="health-name text-[11px] text-[var(--t2)]">{name}</span>
-      <span className={cn('health-val text-[11px] font-medium', colorClass)}>{status}</span>
-    </div>
-  );
-}

@@ -41,6 +41,7 @@ const ACTION_LABELS: Record<AutopilotActionType, string> = {
   show_overlay: 'Exibir overlay',
   play_music: 'Tocar musica',
   play_video: 'Tocar video',
+  webhook: 'Chamar webhook',
   stop_media: 'Parar midia',
   set_topic: 'Definir topico',
   suggest_topic: 'Sugerir topico',
@@ -315,7 +316,7 @@ function buildLocalDecision(
         type: 'switch_scene',
         label: 'Trocar cena OBS',
         capability: 'obs.switch_scene',
-        payload: { scene: requestedScene },
+        payload: { sceneName: requestedScene },
         simulated: true,
       }),
     );

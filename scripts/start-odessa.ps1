@@ -1,7 +1,7 @@
-# Script para iniciar Odessa (Frontend + Backend)
+# Script para iniciar Odessa Web (Frontend + Backend)
 param([switch]$Backend)
 
-$OdessaPath = "C:\Users\Lucas\Desktop\Odessa"
+$OdessaPath = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $OdessaPath
 
 # Ative o virtual environment
@@ -15,10 +15,10 @@ if ($Backend) {
     # Modo: frontend + backend
     Write-Host "Iniciando servidor Python em background..." -ForegroundColor Green
     $backendProcess = Start-Process powershell -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-Command", "cd '$OdessaPath'; & 'venv\Scripts\Activate.ps1'; npm run dev:api" -PassThru
-    
+
     Write-Host "Aguardando servidor iniciar..." -ForegroundColor Green
     Start-Sleep -Seconds 4
-    
-    Write-Host "Iniciando frontend..." -ForegroundColor Green
+
+    Write-Host "Iniciando frontend web..." -ForegroundColor Green
     npm run dev
 }

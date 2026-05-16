@@ -16,7 +16,7 @@ class AIService:
     def __init__(self):
         self.openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
         self.gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
-        
+
         if not self.openai_client and not self.gemini_client:
             logger.warning("No AI providers (OpenAI or Gemini) are configured!")
 
@@ -54,51 +54,66 @@ class AIService:
         temperature: float,
         json_mode: bool = False,
     ) -> Tuple[str, str]:
+        """
+        AI Provider Router: Tries configured providers in order,
+        then falls back to local simulation or neutral response.
+        """
+        from server.config import AI_PROVIDER, ENABLE_LOCAL_FALLBACK
+
+        # Priority 1: Configured Provider
+        providers_to_try = []
+        if AI_PROVIDER == "gemini":
+            providers_to_try = ["gemini", "openai"]
+        elif AI_PROVIDER == "openai":
+            providers_to_try = ["openai", "gemini"]
+        else:
+            providers_to_try = ["gemini", "openai"]
+
         errors: List[str] = []
 
-        if self.gemini_client:
-            try:
-                config: dict[str, Any] = {
-                    "system_instruction": system_prompt,
-                    "temperature": temperature,
-                }
-                if json_mode:
-                    config["response_mime_type"] = "application/json"
+        for provider in providers_to_try:
+            if provider == "gemini" and self.gemini_client:
+                try:
+                    config: dict[str, Any] = {
+                        "system_instruction": system_prompt,
+                        "temperature": temperature,
+                    }
+                    if json_mode:
+                        config["response_mime_type"] = "application/json"
 
-                result = self.gemini_client.models.generate_content(
-                    model=gemini_model,
-                    contents=user_prompt,
-                    config=config,
-                )
-                text = result.text or ""
-                if not text.strip():
-                    raise RuntimeError("Gemini returned an empty response")
-                return text, "gemini"
-            except Exception as exc:
-                logger.warning("[GEMINI FALLBACK] %s", exc, exc_info=True)
-                errors.append(f"Gemini: {exc}")
-        else:
-            errors.append("Gemini: GEMINI_API_KEY is not configured")
+                    result = self.gemini_client.models.generate_content(
+                        model=gemini_model,
+                        contents=user_prompt,
+                        config=config,
+                    )
+                    text = result.text or ""
+                    if text.strip():
+                        return text, "gemini"
+                except Exception as exc:
+                    logger.warning("[AI ROUTER] Gemini failed: %s", exc)
+                    errors.append(f"Gemini: {exc}")
 
-        if self.openai_client:
-            try:
-                text = self.generate_openai_text(
-                    system_prompt,
-                    user_prompt,
-                    temperature,
-                    json_mode=json_mode,
-                )
-                if not text.strip():
-                    raise RuntimeError("OpenAI returned an empty response")
-                return text, "openai"
-            except Exception as exc:
-                logger.error("[OPENAI FALLBACK EXCEPTION] %s", exc, exc_info=True)
-                errors.append(f"OpenAI: {exc}")
-        else:
-            errors.append("OpenAI: OPENAI_API_KEY is not configured")
+            if provider == "openai" and self.openai_client:
+                try:
+                    text = self.generate_openai_text(
+                        system_prompt,
+                        user_prompt,
+                        temperature,
+                        json_mode=json_mode,
+                    )
+                    if text.strip():
+                        return text, "openai"
+                except Exception as exc:
+                    logger.warning("[AI ROUTER] OpenAI failed: %s", exc)
+                    errors.append(f"OpenAI: {exc}")
 
-        status_code = 503 if not (self.gemini_client or self.openai_client) else 502
-        raise HTTPException(status_code=status_code, detail="; ".join(errors))
+        # Priority 2: Local Fallback / Simulated AI
+        if ENABLE_LOCAL_FALLBACK:
+            logger.info("[AI ROUTER] Falling back to local fallback.")
+            return "Gente, adorei essa energia. Já já eu respondo melhor, continua comigo.", "local_fallback"
+
+        # Final Fallback: Neutral Response
+        return "Gente, adorei essa energia. Já já eu respondo melhor, continua comigo.", "neutral_last_resort"
 
 # Singleton instance
 ai_service = AIService()

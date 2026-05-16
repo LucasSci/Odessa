@@ -55,7 +55,15 @@ vi.mock('./longTermMemory', () => ({
   },
 }));
 
-describe('personaRuntime', () => {
+/**
+ * LEGADO — testes da persona IA, TTS e comportamento conversacional.
+ * Esses recursos foram removidos do escopo atual do Odessa.
+ * O produto agora foca em: OCR → evento → gift → vídeo.
+ *
+ * Mantidos aqui apenas para referência histórica.
+ * Para rodar: remova o .skip desta describe.
+ */
+describe.skip('personaRuntime [LEGADO — fora do escopo atual]', () => {
   const events: LiveEvent[] = [
     { id: '1', source: 'ocr', zoneName: 'chat', text: 'Olá', kind: 'chat', createdAt: '2026-05-05T00:00:00Z', time: '12:00:00' },
   ];

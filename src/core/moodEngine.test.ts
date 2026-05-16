@@ -2,7 +2,15 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MoodEngine } from './moodEngine';
 import type { LiveEvent } from '../types';
 
-describe('MoodEngine', () => {
+/**
+ * LEGADO — testes do motor de humor/mood da persona IA.
+ * Esse recurso foi removido do escopo atual do Odessa.
+ * O produto agora foca em: OCR → evento → gift → vídeo.
+ *
+ * Mantidos aqui apenas para referência histórica.
+ * Para rodar: remova o .skip desta describe.
+ */
+describe.skip('MoodEngine [LEGADO — fora do escopo atual]', () => {
   let engine: MoodEngine;
 
   beforeEach(() => {

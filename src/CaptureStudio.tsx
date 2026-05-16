@@ -8,11 +8,11 @@ import {
   Clock3,
   Crosshair,
   Download,
-  Eye,
   FileText,
   Gauge,
   Layers,
-  Monitor,
+  Link2,
+  MousePointer2,
   Pause,
   Play,
   Plus,
@@ -25,7 +25,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { emitEvent } from './core/eventBus';
-import { apiUrl } from './lib/api';
+import { apiUrl, API_BASE_URL } from './lib/api';
 import { cn } from './lib/utils';
 import type { CapturedMessage, LiveEventKind } from './types';
 
@@ -67,6 +67,90 @@ interface CaptureSettings {
   debugMode: boolean;
 }
 
+type CaptureSourceMode = 'screen' | 'obs' | 'direct';
+type DirectPageMode = 'interact' | 'crop';
+type DirectRenderer = 'none' | 'iframe' | 'proxy-preview' | 'electron-webview' | 'electron-webcontentsview';
+type DirectPageState = 'none' | 'loading' | 'dom-ready' | 'rendered' | 'failed' | 'blocked' | 'empty';
+type DirectCaptureState = 'unavailable' | 'available' | 'tested' | 'failed';
+
+interface ElectronImage {
+  toDataURL: () => string;
+}
+
+interface ElectronWebviewElement extends HTMLElement {
+  src: string;
+  capturePage?: () => Promise<ElectronImage>;
+  loadURL?: (url: string) => void;
+  reload?: () => void;
+  goBack?: () => void;
+  goForward?: () => void;
+}
+
+interface OdessaDesktopBridge {
+  isElectron?: boolean;
+  canUseDirectWebCapture?: boolean;
+  canUseDesktopSources?: boolean;
+  apiOrigin?: string;
+  platform?: string;
+  version?: string;
+  renderer?: string;
+  webviewTagEnabled?: boolean;
+  getRuntimeStatus?: () => Promise<unknown>;
+  listCaptureSources?: () => Promise<unknown>;
+  openLogs?: () => Promise<unknown>;
+}
+
+interface ElectronRuntimeWindow extends Window {
+  electronAPI?: {
+    isElectron?: boolean;
+    platform?: string;
+  };
+  odessaDesktop?: OdessaDesktopBridge;
+}
+
+type WebviewProps = React.HTMLAttributes<ElectronWebviewElement> & {
+  src?: string;
+  partition?: string;
+  allowpopups?: string;
+  webpreferences?: string;
+};
+
+const WebviewTag = React.forwardRef<ElectronWebviewElement, WebviewProps>((props, ref) =>
+  React.createElement('webview', { ...props, ref }),
+);
+WebviewTag.displayName = 'WebviewTag';
+
+interface ObsHealth {
+  ok?: boolean;
+  connected?: boolean;
+  sourceReady?: boolean;
+  sourceName?: string;
+  currentScene?: string | null;
+  screenshotReady?: boolean;
+  imageWidth?: number | null;
+  imageHeight?: number | null;
+  sourceActive?: boolean | null;
+  sourceShowing?: boolean | null;
+  frameHash?: string | null;
+  capturedAt?: string | null;
+  error?: string | null;
+}
+
+interface ObsCycleResponse {
+  ok?: boolean;
+  sourceName?: string;
+  image?: string | null;
+  width?: number | null;
+  height?: number | null;
+  sourceActive?: boolean | null;
+  sourceShowing?: boolean | null;
+  frameHash?: string | null;
+  capturedAt?: string | null;
+  results?: OcrResponse[];
+  latency_ms?: number | null;
+  error?: string | null;
+}
+
 interface BackendHealth {
   status: string;
   ocr: string;
@@ -87,6 +171,10 @@ interface CaptureEvent {
   confidence: number | null;
   latencyMs: number | null;
   error?: string;
+  deduped?: boolean;
+  duplicateReason?: string | null;
+  captureMode?: string;
+  sourceHealth?: Record<string, unknown>;
 }
 
 interface OcrResponse {
@@ -98,6 +186,12 @@ interface OcrResponse {
   confidence?: number | null;
   latency_ms?: number | null;
   created_at?: string;
+  deduped?: boolean;
+  duplicateReason?: string | null;
+  lineHash?: string | null;
+  captureMode?: string;
+  sourceHealth?: Record<string, unknown>;
+  zone_role?: string | null;
 }
 
 enum CaptureStatus {
@@ -112,12 +206,13 @@ const LEGACY_STORAGE_KEY = 'dojobua:capture-studio:v1';
 const MAX_ZONES = 6;
 const MAX_EVENTS = 120;
 const MAX_PERSONA_MESSAGES = 100;
+const DEFAULT_OBS_SOURCE_NAME = 'Odessa Chat OCR';
 
 const DEFAULT_SETTINGS: CaptureSettings = {
   magnification: 2,
   contrast: 1.4,
   brightness: 1.05,
-  intervalTime: 1000,
+  intervalTime: 250,
   debugMode: false,
 };
 
@@ -223,6 +318,9 @@ function getStoredState(): {
   activePresetId?: string;
   presets?: CapturePreset[];
   settings?: CaptureSettings;
+  sourceName?: string;
+  captureMode?: CaptureSourceMode;
+  directUrl?: string;
 } | null {
   try {
     const raw =
@@ -250,6 +348,29 @@ function kindFromZoneRole(role: CaptureZone['role']): LiveEventKind {
   if (role === 'gifts') return 'gift';
   if (role === 'alerts') return 'alert';
   return 'chat';
+}
+
+function normalizeDirectUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error('Informe o link da live antes de abrir.');
+  }
+
+  const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  const parsed = new URL(withProtocol);
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('Use um link http ou https valido.');
+  }
+  return parsed.toString();
+}
+
+function loadImageElement(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Nao foi possivel preparar o frame da pagina.'));
+    image.src = src;
+  });
 }
 
 function TypewriterText({ text }: { text: string }) {
@@ -378,7 +499,23 @@ const CaptureStudio = React.memo(function CaptureStudio({
 }: CaptureStudioProps) {
   const storedState = useMemo(() => getStoredState(), []);
   const [status, setStatus] = useState<CaptureStatus>(CaptureStatus.IDLE);
-  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [captureMode, setCaptureMode] = useState<CaptureSourceMode>(
+    storedState?.captureMode === 'direct' ? 'direct' : 'screen',
+  );
+  const [sourceName, setSourceName] = useState(storedState?.sourceName || DEFAULT_OBS_SOURCE_NAME);
+  const [directUrl, setDirectUrl] = useState(storedState?.directUrl || '');
+  const [isOpeningDirectLink, setIsOpeningDirectLink] = useState(false);
+  const [directLinkStatus, setDirectLinkStatus] = useState<string | null>(null);
+  const [directPageUrl, setDirectPageUrl] = useState(storedState?.directUrl || '');
+  const [directPageReady, setDirectPageReady] = useState(false);
+  const [directPageMode, setDirectPageMode] = useState<DirectPageMode>('interact');
+  const [directPageState, setDirectPageState] = useState<DirectPageState>(
+    storedState?.directUrl ? 'loading' : 'none',
+  );
+  const [directCaptureState, setDirectCaptureState] = useState<DirectCaptureState>('unavailable');
+  const [directCapturePreview, setDirectCapturePreview] = useState<string | null>(null);
+  const [directCaptureSize, setDirectCaptureSize] = useState<{ width: number; height: number } | null>(null);
+  const [directCaptureError, setDirectCaptureError] = useState<string | null>(null);
   const [presets, setPresets] = useState<CapturePreset[]>(
     storedState?.presets?.length ? storedState.presets : clonePresets(DEFAULT_PRESETS),
   );
@@ -389,8 +526,13 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const [settings, setSettings] = useState<CaptureSettings>({
     ...DEFAULT_SETTINGS,
     ...(storedState?.settings || {}),
+    intervalTime: Math.max(
+      250,
+      Number(storedState?.settings?.intervalTime || DEFAULT_SETTINGS.intervalTime),
+    ),
   });
   const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null);
+  const [obsHealth, setObsHealth] = useState<ObsHealth | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
   const [healthCheckedAt, setHealthCheckedAt] = useState('Nunca');
   const [captureEvents, setCaptureEvents] = useState<CaptureEvent[]>([]);
@@ -398,7 +540,10 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const [isProcessing, setIsProcessing] = useState(false);
   const [lastCaptureTime, setLastCaptureTime] = useState('Nunca');
   const [currentRawText, setCurrentRawText] = useState('');
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [previewSize, setPreviewSize] = useState<{ width: number; height: number } | null>(null);
+  const [frameWarning, setFrameWarning] = useState<string | null>(null);
   const [isSelectingRegion, setIsSelectingRegion] = useState(false);
   const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null);
   const [currentSelection, setCurrentSelection] = useState<SelectionRect | null>(null);
@@ -406,13 +551,21 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null);
   const [resizingZoneIndex, setResizingZoneIndex] = useState<number | null>(null);
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const livePreviewRef = useRef<HTMLVideoElement | null>(null);
+  const previewImageRef = useRef<HTMLImageElement | null>(null);
+  const directWebviewRef = useRef<ElectronWebviewElement | null>(null);
+  const directIframeRef = useRef<HTMLIFrameElement | null>(null);
   const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventsScrollRef = useRef<HTMLDivElement | null>(null);
   const isBusyRef = useRef(false);
   const zonesRef = useRef<CaptureZone[]>([]);
   const settingsRef = useRef(settings);
+  const screenStreamRef = useRef<MediaStream | null>(null);
+  const lastFrameHashRef = useRef<string | null>(null);
+  const repeatedFrameCountRef = useRef(0);
+  const lastOpenedDirectUrlRef = useRef<string | null>(storedState?.directUrl || null);
+  const runCaptureCycleRef = useRef<(() => Promise<void>) | null>(null);
 
   const activePreset = useMemo(
     () => presets.find((preset) => preset.id === activePresetId) || presets[0],
@@ -422,36 +575,88 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const activeZone = zones[activeZoneIndex] || zones[0];
 
   const lastEvent = captureEvents[captureEvents.length - 1];
-  // ⚡ Bolt: Combine expensive array operations to prevent multiple iterations and recalculation on every render
-  const { successfulEvents, averageConfidence, averageLatency } = useMemo(() => {
-    const success: LiveEvent[] = [];
-    let confSum = 0;
-    let confCount = 0;
-    let latSum = 0;
-    let latCount = 0;
+  const averageConfidence = useMemo(() =>
+    successfulEvents.reduce((sum, event) => sum + (event.confidence ?? 0), 0) /
+    Math.max(1, successfulEvents.filter((event) => event.confidence !== null).length)
+  , [successfulEvents]);
+  const averageLatency = useMemo(() =>
+    successfulEvents.reduce((sum, event) => sum + (event.latencyMs ?? 0), 0) /
+    Math.max(1, successfulEvents.filter((event) => event.latencyMs !== null).length)
+  , [successfulEvents]);
+  const desktopRuntime = (window as ElectronRuntimeWindow).odessaDesktop;
+  const isElectronRuntime = Boolean(desktopRuntime?.isElectron);
+  const canUseDirectWebCapture = Boolean(desktopRuntime?.canUseDirectWebCapture);
+  const runtimeRenderer = isElectronRuntime ? 'electron' : 'browser';
 
-    for (const event of captureEvents) {
-      if (event.routeStatus === 'sent') {
-        success.push(event);
-
-        if (event.confidence !== null) {
-          confSum += event.confidence;
-          confCount++;
-        }
-        if (event.latencyMs !== null) {
-          latSum += event.latencyMs;
-          latCount++;
-        }
-      }
+  // ----- Webview diagnostic log state (visible in the console visual) -----
+  const [webviewLogs, setWebviewLogs] = useState<string[]>([]);
+  const addDirectLog = useCallback((msg: string) => {
+    const line = `[${formatClock()}] ${msg}`;
+    setWebviewLogs((prev) => [...prev.slice(-80), line]);
+    if (settingsRef.current.debugMode) {
+      // eslint-disable-next-line no-console
+      console.log(line);
     }
-
-    return {
-      successfulEvents: success,
-      averageConfidence: confCount === 0 ? 0 : confSum / confCount,
-      averageLatency: latCount === 0 ? 0 : latSum / latCount
-    };
-  }, [captureEvents]);
+  }, []);
   const backendOnline = backendHealth?.status === 'ok' && !healthError;
+
+  // When running in browser mode (not Electron), route the iframe through
+  // the backend proxy to strip X-Frame-Options / CSP headers.
+  const directRenderer: DirectRenderer = useMemo(() => {
+    if (!directPageUrl) return 'none';
+    if (isElectronRuntime) return 'electron-webview';
+    return backendOnline ? 'proxy-preview' : 'iframe';
+  }, [backendOnline, directPageUrl, isElectronRuntime]);
+  const proxyIframeUrl = useMemo(() => {
+    if (!directPageUrl) return '';
+    if (isElectronRuntime) return directPageUrl; // webview doesn't need proxy
+    // Derive the server origin from API_BASE_URL (e.g. http://localhost:8000)
+    const apiOrigin = API_BASE_URL.replace(/\/api.*$/, '');
+    return `${apiOrigin}/proxy?url=${encodeURIComponent(directPageUrl)}`;
+  }, [directPageUrl, isElectronRuntime]);
+  const obsReady = Boolean(
+    obsHealth?.ok && obsHealth.connected && obsHealth.sourceReady && obsHealth.screenshotReady,
+  );
+  const screenReady = Boolean(screenStream?.active);
+  const directReady = Boolean(
+    directPageUrl &&
+      isElectronRuntime &&
+      directRenderer === 'electron-webview' &&
+      directPageReady &&
+      directPageState === 'rendered',
+  );
+  const directCaptureTested = directCaptureState === 'tested' && Boolean(directCapturePreview);
+  const sourceReady =
+    captureMode === 'screen' ? screenReady : captureMode === 'direct' ? directReady : obsReady;
+  const hasDirectUrl = directUrl.trim().length > 0;
+  const canStartCapture =
+    backendOnline &&
+    status !== CaptureStatus.CAPTURING &&
+    (captureMode === 'screen' ||
+      (captureMode === 'direct' ? directReady && directCaptureTested : sourceReady));
+  const hasPreview =
+    captureMode === 'screen'
+      ? screenReady
+      : captureMode === 'direct'
+        ? Boolean(directPageUrl)
+        : Boolean(previewImage);
+  const canEditZones = captureMode !== 'direct' || directPageMode === 'crop' || isSelectingRegion;
+
+  useEffect(() => {
+    if (captureMode !== 'direct') return;
+    addDirectLog(`[Runtime] Electron detectado: ${isElectronRuntime}`);
+    addDirectLog(`[Runtime] isElectron=${isElectronRuntime}`);
+    addDirectLog(`[Runtime] canUseDirectWebCapture=${canUseDirectWebCapture}`);
+    addDirectLog(`[Runtime] renderer=${runtimeRenderer}`);
+    addDirectLog(`[LinkDireto] webviewTag habilitado: ${Boolean(desktopRuntime?.webviewTagEnabled)}`);
+  }, [
+    addDirectLog,
+    canUseDirectWebCapture,
+    captureMode,
+    desktopRuntime?.webviewTagEnabled,
+    isElectronRuntime,
+    runtimeRenderer,
+  ]);
 
   const updateActivePresetZones = useCallback(
     (updater: CaptureZone[] | ((current: CaptureZone[]) => CaptureZone[])) => {
@@ -470,7 +675,11 @@ const CaptureStudio = React.memo(function CaptureStudio({
     key: Key,
     value: CaptureSettings[Key],
   ) => {
-    setSettings((current) => ({ ...current, [key]: value }));
+    const nextValue =
+      key === 'intervalTime'
+        ? (Math.max(250, Number(value) || DEFAULT_SETTINGS.intervalTime) as CaptureSettings[Key])
+        : value;
+    setSettings((current) => ({ ...current, [key]: nextValue }));
   };
 
   const refreshHealth = useCallback(async () => {
@@ -490,6 +699,145 @@ const CaptureStudio = React.memo(function CaptureStudio({
     }
   }, []);
 
+  const refreshObsHealth = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({ sourceName });
+      const response = await fetch(apiUrl(`/obs/health?${params.toString()}`));
+      const data = (await response.json().catch(() => ({}))) as ObsHealth;
+      setObsHealth(data);
+      if (!response.ok || !data.ok) {
+        setError(data.error || `OBS indisponivel: HTTP ${response.status}`);
+      } else {
+        setError((current) => (current?.startsWith('OBS') ? null : current));
+      }
+      return data;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'OBS WebSocket indisponivel';
+      const data: ObsHealth = {
+        ok: false,
+        connected: false,
+        sourceReady: false,
+        sourceName,
+        currentScene: null,
+        screenshotReady: false,
+        error: message,
+      };
+      setObsHealth(data);
+      setError(message);
+      return data;
+    }
+  }, [sourceName]);
+
+  const noteFrameMetadata = useCallback((frameHash?: string | null, capturedAt?: string | null) => {
+    if (!frameHash) return;
+    if (lastFrameHashRef.current === frameHash) {
+      repeatedFrameCountRef.current += 1;
+    } else {
+      lastFrameHashRef.current = frameHash;
+      repeatedFrameCountRef.current = 0;
+      setFrameWarning(null);
+      return;
+    }
+
+    if (repeatedFrameCountRef.current >= 3) {
+      const when = capturedAt ? ` Capturado em ${new Date(capturedAt).toLocaleTimeString()}.` : '';
+      setFrameWarning(
+        `OBS retornou o mesmo frame ${repeatedFrameCountRef.current + 1} vezes.${when} Atualize a Browser Source se o chat estiver parado.`,
+      );
+    }
+  }, []);
+
+  const refreshObsPreview = useCallback(async () => {
+    try {
+      const response = await fetch(apiUrl('/obs/screenshot'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceName, format: 'png' }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        image?: string | null;
+        width?: number | null;
+        height?: number | null;
+        frameHash?: string | null;
+        capturedAt?: string | null;
+        error?: string | null;
+      };
+      if (!response.ok || !data.ok || !data.image) {
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+      setPreviewImage(data.image);
+      if (data.width && data.height) setPreviewSize({ width: data.width, height: data.height });
+      noteFrameMetadata(data.frameHash, data.capturedAt);
+      setStatus((current) => (current === CaptureStatus.CAPTURING ? current : CaptureStatus.SELECTING));
+      setError(null);
+      return data;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao capturar preview OBS');
+      setStatus(CaptureStatus.ERROR);
+      return null;
+    }
+  }, [noteFrameMetadata, sourceName]);
+
+  const clearCaptureTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const handleScreenShareEnded = useCallback(() => {
+    clearCaptureTimer();
+    screenStreamRef.current = null;
+    setScreenStream(null);
+    setStatus(CaptureStatus.IDLE);
+    setIsProcessing(false);
+    isBusyRef.current = false;
+    setError('Compartilhamento da janela encerrado.');
+  }, [clearCaptureTimer]);
+
+  const stopScreenStream = useCallback(() => {
+    const stream = screenStreamRef.current;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+    screenStreamRef.current = null;
+    setScreenStream(null);
+    if (livePreviewRef.current) {
+      livePreviewRef.current.srcObject = null;
+    }
+  }, []);
+
+  const requestScreenStream = useCallback(async () => {
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      throw new Error('Captura de janela/tela nao esta disponivel neste navegador.');
+    }
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: false,
+    });
+    stream.getVideoTracks().forEach((track) => {
+      track.addEventListener('ended', handleScreenShareEnded, { once: true });
+    });
+    screenStreamRef.current = stream;
+    setScreenStream(stream);
+    setPreviewImage(null);
+    setFrameWarning(null);
+    setError(null);
+    return stream;
+  }, [handleScreenShareEnded]);
+
+  const updateDirectPageSize = useCallback(() => {
+    const element = directWebviewRef.current || directIframeRef.current;
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    const width = Math.max(1, Math.round(rect.width || element.clientWidth || 1));
+    const height = Math.max(1, Math.round(rect.height || element.clientHeight || 1));
+    const nextSize = { width, height };
+    setPreviewSize(nextSize);
+    return nextSize;
+  }, []);
+
   useEffect(() => {
     zonesRef.current = zones;
   }, [zones]);
@@ -499,21 +847,169 @@ const CaptureStudio = React.memo(function CaptureStudio({
   }, [settings]);
 
   useEffect(() => {
+    screenStreamRef.current = screenStream;
+    const video = livePreviewRef.current;
+    if (!video) return;
+    if (!screenStream) {
+      video.srcObject = null;
+      return;
+    }
+    video.srcObject = screenStream;
+    void video.play().catch(() => undefined);
+  }, [screenStream]);
+
+  useEffect(() => {
+    return () => {
+      screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  useEffect(() => {
+    if (captureMode !== 'obs') return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const response = await fetch(apiUrl('/obs/settings'));
+          const data = (await response.json().catch(() => ({}))) as {
+            ok?: boolean;
+            settings?: { ocrSourceName?: unknown };
+          };
+          const nextSource = data.settings?.ocrSourceName;
+          if (!cancelled && data.ok && typeof nextSource === 'string' && nextSource.trim()) {
+            setSourceName(nextSource.trim());
+          }
+        } catch {
+          // The local CaptureStudio state remains usable when settings are offline.
+        }
+      })();
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [captureMode]);
+
+  useEffect(() => {
     window.localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
         activePresetId,
+        captureMode: captureMode === 'direct' ? 'direct' : 'screen',
+        directUrl,
         presets,
         settings,
+        sourceName,
       }),
     );
-  }, [activePresetId, presets, settings]);
+  }, [activePresetId, captureMode, directUrl, presets, settings, sourceName]);
 
+  // ----- Webview diagnostic listeners (tasks 2 & 3) -----
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
-    }
-  }, [stream]);
+    if (captureMode !== 'direct' || !directPageUrl) return;
+    const webview = directWebviewRef.current;
+    if (!webview) return;
+
+    const addLog = (msg: string) => {
+      const ts = formatClock();
+      const line = `[${ts}] [LinkDireto] ${msg}`;
+      setWebviewLogs((prev) => [...prev.slice(-80), line]);
+      if (settings.debugMode) {
+        // eslint-disable-next-line no-console
+        console.log(line);
+      }
+    };
+
+    addLog(`webview attached – src=${directPageUrl}`);
+
+    addLog('Renderer escolhido: webview');
+    addLog('webview anexado ao DOM');
+
+    const onStartLoading = () => {
+      addLog('did-start-loading');
+      setDirectPageState('loading');
+      setDirectCaptureState('available');
+      setDirectCaptureError(null);
+    };
+    const onStopLoading = () => {
+      addLog('did-stop-loading');
+      updateDirectPageSize();
+    };
+    const onDomReady = () => {
+      addLog('dom-ready');
+      setDirectPageState('dom-ready');
+      setDirectPageReady(false);
+      setIsOpeningDirectLink(false);
+      setDirectLinkStatus(`DOM pronto as ${formatClock()}`);
+      updateDirectPageSize();
+      setError(null);
+      // Check capturePage availability
+      const hasCapture = typeof webview.capturePage === 'function';
+      addLog(`capturePage disponivel: ${hasCapture}`);
+      setDirectCaptureState(hasCapture ? 'available' : 'unavailable');
+    };
+    const onFinishLoad = () => {
+      addLog('did-finish-load');
+      setDirectPageState('rendered');
+      setDirectPageReady(true);
+      setIsOpeningDirectLink(false);
+      setDirectLinkStatus(`Renderizada as ${formatClock()}; teste a captura antes de iniciar OCR.`);
+      updateDirectPageSize();
+      setError(null);
+    };
+    const onFailLoad = (event: Event) => {
+      const details = event as Event & {
+        errorCode?: number;
+        errorDescription?: string;
+        validatedURL?: string;
+        isMainFrame?: boolean;
+      };
+      if (details.isMainFrame === false) return;
+      addLog(
+        `did-fail-load: errorCode=${details.errorCode ?? '?'}, ` +
+        `errorDescription=${details.errorDescription ?? '?'}, ` +
+        `validatedURL=${details.validatedURL ?? '?'}`,
+      );
+      setDirectPageState('failed');
+      setDirectPageReady(false);
+      setDirectCaptureState('unavailable');
+      setIsOpeningDirectLink(false);
+      setDirectLinkStatus(null);
+      setError(details.errorDescription || 'Nao foi possivel carregar a pagina direta.');
+    };
+    const onConsoleMessage = (event: Event) => {
+      const msg = (event as Event & { message?: string }).message;
+      if (msg) addLog(`console-message da pagina: ${msg.slice(0, 200)}`);
+    };
+    const onCrashed = () => {
+      addLog('CRASHED / render-process-gone');
+      setDirectPageState('failed');
+      setDirectPageReady(false);
+      setDirectCaptureState('unavailable');
+    };
+
+    webview.addEventListener('did-start-loading', onStartLoading);
+    webview.addEventListener('did-stop-loading', onStopLoading);
+    webview.addEventListener('dom-ready', onDomReady);
+    webview.addEventListener('did-finish-load', onFinishLoad);
+    webview.addEventListener('did-fail-load', onFailLoad);
+    webview.addEventListener('console-message', onConsoleMessage);
+    webview.addEventListener('crashed', onCrashed);
+    webview.addEventListener('render-process-gone', onCrashed);
+
+    window.requestAnimationFrame(() => updateDirectPageSize());
+
+    return () => {
+      webview.removeEventListener('did-start-loading', onStartLoading);
+      webview.removeEventListener('did-stop-loading', onStopLoading);
+      webview.removeEventListener('dom-ready', onDomReady);
+      webview.removeEventListener('did-finish-load', onFinishLoad);
+      webview.removeEventListener('did-fail-load', onFailLoad);
+      webview.removeEventListener('console-message', onConsoleMessage);
+      webview.removeEventListener('crashed', onCrashed);
+      webview.removeEventListener('render-process-gone', onCrashed);
+    };
+  }, [captureMode, directPageUrl, settings.debugMode, updateDirectPageSize]);
 
   useEffect(() => {
     if (!captureEvents.length || !eventsScrollRef.current) return;
@@ -522,84 +1018,58 @@ const CaptureStudio = React.memo(function CaptureStudio({
 
   useEffect(() => {
     const firstRun = window.setTimeout(refreshHealth, 0);
+    const obsFirstRun =
+      captureMode === 'obs'
+        ? window.setTimeout(() => {
+            void refreshObsHealth();
+            void refreshObsPreview();
+          }, 250)
+        : null;
     const interval = window.setInterval(refreshHealth, 15000);
+    const obsInterval =
+      captureMode === 'obs' ? window.setInterval(refreshObsHealth, 15000) : null;
     return () => {
       window.clearTimeout(firstRun);
+      if (obsFirstRun) window.clearTimeout(obsFirstRun);
       window.clearInterval(interval);
+      if (obsInterval) window.clearInterval(obsInterval);
     };
-  }, [refreshHealth]);
+  }, [captureMode, refreshHealth, refreshObsHealth, refreshObsPreview]);
 
-  // Listen for start-live events to initiate capture when user clicks "Iniciar Live"
-  useEffect(() => {
-    const handler = (ev: Event) => {
-      const custom = ev as CustomEvent<{ prefer?: 'monitor' | 'window' }>;
-      const prefer = custom?.detail?.prefer || 'monitor';
-      if (status === CaptureStatus.CAPTURING) return;
-
-      // If we already have a stream, just start capturing
-      if (stream) {
-        startCapture();
-        return;
-      }
-
-      // Otherwise try to obtain a display media and start
-      selectScreen(prefer as 'monitor' | 'window')
-        .then(() => startCapture())
-        .catch((err) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          setError(`Falha ao iniciar captura: ${msg}`);
-        });
-    };
-
-    window.addEventListener('odessa:start-live', handler as EventListener);
-    return () => window.removeEventListener('odessa:start-live', handler as EventListener);
-  }, [selectScreen, startCapture, stream, status]);
 
   const pauseCapture = useCallback(() => {
     setStatus(CaptureStatus.IDLE);
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  }, []);
+    clearCaptureTimer();
+  }, [clearCaptureTimer]);
 
-  const stopCapture = useCallback(() => {
-    pauseCapture();
-    setStream((currentStream) => {
-      currentStream?.getTracks().forEach((track) => track.stop());
-      return null;
-    });
-  }, [pauseCapture]);
+  const changeCaptureMode = useCallback(
+    (mode: CaptureSourceMode) => {
+      if (mode === captureMode) return;
+      clearCaptureTimer();
+      setStatus(CaptureStatus.IDLE);
+      setIsSelectingRegion(false);
+      setCaptureMode(mode);
+      setError(null);
+      setFrameWarning(null);
+      if (mode !== 'screen') {
+        stopScreenStream();
+        if (mode === 'direct') {
+          setPreviewImage(null);
+          setDirectPageMode('interact');
+        }
+      } else {
+        setPreviewImage(null);
+      }
+      setDirectLinkStatus(null);
+    },
+    [captureMode, clearCaptureTimer, stopScreenStream],
+  );
 
   useEffect(() => {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
-      stream?.getTracks().forEach((track) => track.stop());
     };
-  }, [stream]);
-
-  const selectScreen = async (surfaceType: 'monitor' | 'window' = 'monitor') => {
-    try {
-      const streamData = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          cursor: 'always',
-          displaySurface: surfaceType,
-        } as MediaTrackConstraints,
-        audio: false,
-      });
-      setStream(streamData);
-      setStatus(CaptureStatus.SELECTING);
-      setError(null);
-      streamData.getVideoTracks()[0].onended = () => {
-        stopCapture();
-      };
-    } catch (err) {
-      setError(
-        `Erro ao selecionar fonte: ${err instanceof Error ? err.message : 'permissao negada'}`,
-      );
-      setStatus(CaptureStatus.ERROR);
-    }
-  };
+  }, []);
 
   const addZone = () => {
     if (zones.length >= MAX_ZONES) return;
@@ -647,65 +1117,79 @@ const CaptureStudio = React.memo(function CaptureStudio({
     URL.revokeObjectURL(url);
   };
 
-  const getMouseVideoCoords = (clientX: number, clientY: number) => {
-    if (!videoRef.current) return null;
-    const video = videoRef.current;
-    const rect = video.getBoundingClientRect();
-    const videoWidth = video.videoWidth;
-    const videoHeight = video.videoHeight;
-    if (!videoWidth || !videoHeight) return null;
+  const getPreviewDimensions = () => {
+    const liveVideo = livePreviewRef.current;
+    const image = previewImageRef.current;
+    const directElement = directWebviewRef.current || directIframeRef.current;
+    const element =
+      captureMode === 'screen' && liveVideo?.srcObject
+        ? liveVideo
+        : captureMode === 'direct'
+          ? directElement
+          : image;
+    const width =
+      captureMode === 'screen'
+        ? liveVideo?.videoWidth || previewSize?.width || 0
+        : captureMode === 'direct'
+          ? previewSize?.width || directElement?.clientWidth || 0
+          : image?.naturalWidth || previewSize?.width || 0;
+    const height =
+      captureMode === 'screen'
+        ? liveVideo?.videoHeight || previewSize?.height || 0
+        : captureMode === 'direct'
+          ? previewSize?.height || directElement?.clientHeight || 0
+          : image?.naturalHeight || previewSize?.height || 0;
+    return { element, width, height };
+  };
 
-    const scale = Math.min(rect.width / videoWidth, rect.height / videoHeight);
-    const displayedWidth = videoWidth * scale;
-    const displayedHeight = videoHeight * scale;
+  const getMousePreviewCoords = (clientX: number, clientY: number) => {
+    const { element, width, height } = getPreviewDimensions();
+    if (!element || !width || !height) return null;
+    const rect = element.getBoundingClientRect();
+
+    const scale = Math.min(rect.width / width, rect.height / height);
+    const displayedWidth = width * scale;
+    const displayedHeight = height * scale;
     const offsetX = (rect.width - displayedWidth) / 2;
     const offsetY = (rect.height - displayedHeight) / 2;
-    const videoLeft = rect.left + offsetX;
-    const videoTop = rect.top + offsetY;
-    const mouseX = clientX - videoLeft;
-    const mouseY = clientY - videoTop;
+    const imageLeft = rect.left + offsetX;
+    const imageTop = rect.top + offsetY;
+    const mouseX = clientX - imageLeft;
+    const mouseY = clientY - imageTop;
 
     return {
-      x: Math.max(0, Math.min(videoWidth, mouseX / scale)),
-      y: Math.max(0, Math.min(videoHeight, mouseY / scale)),
+      x: Math.max(0, Math.min(width, mouseX / scale)),
+      y: Math.max(0, Math.min(height, mouseY / scale)),
     };
   };
 
   const getZoneOverlayStyle = (zone: CaptureZone) => {
-    const video = videoRef.current;
-    if (!video || !video.videoWidth || !video.videoHeight) return {};
-
-    const scale = Math.min(
-      video.offsetWidth / video.videoWidth,
-      video.offsetHeight / video.videoHeight,
-    );
-    const displayedWidth = video.videoWidth * scale;
-    const displayedHeight = video.videoHeight * scale;
-    const offsetX = (video.offsetWidth - displayedWidth) / 2;
-    const offsetY = (video.offsetHeight - displayedHeight) / 2;
+    if (!previewSize?.width || !previewSize.height) return {};
 
     return {
-      left: offsetX + zone.x * scale,
-      top: offsetY + zone.y * scale,
-      width: zone.width * scale,
-      height: zone.height * scale,
+      left: `${(zone.x / previewSize.width) * 100}%`,
+      top: `${(zone.y / previewSize.height) * 100}%`,
+      width: `${(zone.width / previewSize.width) * 100}%`,
+      height: `${(zone.height / previewSize.height) * 100}%`,
     };
   };
 
   const handlePointerDown = (event: React.PointerEvent) => {
+    if (!canEditZones) return;
     if (!isSelectingRegion) return;
     event.preventDefault();
-    const coords = getMouseVideoCoords(event.clientX, event.clientY);
+    const coords = getMousePreviewCoords(event.clientX, event.clientY);
     if (!coords) return;
     setSelectionStart(coords);
     setCurrentSelection({ x: coords.x, y: coords.y, width: 0, height: 0 });
   };
 
   const startDraggingZone = (event: React.PointerEvent, idx: number) => {
+    if (!canEditZones) return;
     if (isSelectingRegion) return;
     event.preventDefault();
     event.stopPropagation();
-    const coords = getMouseVideoCoords(event.clientX, event.clientY);
+    const coords = getMousePreviewCoords(event.clientX, event.clientY);
     if (!coords) return;
     setDraggingZoneIndex(idx);
     setDragOffset({
@@ -716,6 +1200,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
   };
 
   const startResizingZone = (event: React.PointerEvent, idx: number) => {
+    if (!canEditZones) return;
     if (isSelectingRegion) return;
     event.preventDefault();
     event.stopPropagation();
@@ -724,8 +1209,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
   };
 
   const handlePointerMove = (event: React.PointerEvent) => {
+    if (!canEditZones) return;
     event.preventDefault();
-    const coords = getMouseVideoCoords(event.clientX, event.clientY);
+    const coords = getMousePreviewCoords(event.clientX, event.clientY);
     if (!coords) return;
 
     if (isSelectingRegion && selectionStart) {
@@ -738,14 +1224,14 @@ const CaptureStudio = React.memo(function CaptureStudio({
     }
 
     if (draggingZoneIndex !== null && dragOffset) {
-      const video = videoRef.current;
-      const videoWidth = video?.videoWidth || 10000;
-      const videoHeight = video?.videoHeight || 10000;
+      const dimensions = getPreviewDimensions();
+      const imageWidth = dimensions.width || 10000;
+      const imageHeight = dimensions.height || 10000;
       updateActivePresetZones((currentZones) => {
         const nextZones = [...currentZones];
         const zone = nextZones[draggingZoneIndex];
-        const nextX = Math.max(0, Math.min(coords.x - dragOffset.x, videoWidth - zone.width));
-        const nextY = Math.max(0, Math.min(coords.y - dragOffset.y, videoHeight - zone.height));
+        const nextX = Math.max(0, Math.min(coords.x - dragOffset.x, imageWidth - zone.width));
+        const nextY = Math.max(0, Math.min(coords.y - dragOffset.y, imageHeight - zone.height));
         nextZones[draggingZoneIndex] = { ...zone, x: nextX, y: nextY };
         return nextZones;
       });
@@ -767,6 +1253,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
   };
 
   const handlePointerUp = (event: React.PointerEvent) => {
+    if (!canEditZones) return;
     event.preventDefault();
 
     if (draggingZoneIndex !== null || resizingZoneIndex !== null) {
@@ -798,81 +1285,410 @@ const CaptureStudio = React.memo(function CaptureStudio({
     setCaptureEvents((current) => [...current, event].slice(-MAX_EVENTS));
   };
 
+  const captureZoneFromLiveVideo = useCallback((zone: CaptureZone) => {
+    const video = livePreviewRef.current;
+    const sourceWidth = video?.videoWidth || 0;
+    const sourceHeight = video?.videoHeight || 0;
+    if (!video || !sourceWidth || !sourceHeight || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      return null;
+    }
+
+    const settingsSnapshot = settingsRef.current;
+    const magnification = Math.max(1, Math.round(settingsSnapshot.magnification || 1));
+    const left = Math.max(0, Math.min(sourceWidth - 1, Math.round(zone.x)));
+    const top = Math.max(0, Math.min(sourceHeight - 1, Math.round(zone.y)));
+    const width = Math.max(1, Math.min(sourceWidth - left, Math.round(zone.width)));
+    const height = Math.max(1, Math.min(sourceHeight - top, Math.round(zone.height)));
+    const canvas = captureCanvasRef.current || document.createElement('canvas');
+    captureCanvasRef.current = canvas;
+    canvas.width = width * magnification;
+    canvas.height = height * magnification;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('Canvas OCR indisponivel neste navegador.');
+    }
+
+    context.imageSmoothingEnabled = false;
+    context.filter = [
+      'grayscale(1)',
+      `contrast(${settingsSnapshot.contrast || 1})`,
+      `brightness(${settingsSnapshot.brightness || 1})`,
+    ].join(' ');
+    context.drawImage(video, left, top, width, height, 0, 0, canvas.width, canvas.height);
+    context.filter = 'none';
+    return canvas.toDataURL('image/png');
+  }, []);
+
+  const captureZoneFromImage = useCallback(
+    (
+      image: HTMLImageElement,
+      displaySize: { width: number; height: number },
+      zone: CaptureZone,
+    ) => {
+      const sourceWidth = image.naturalWidth || image.width;
+      const sourceHeight = image.naturalHeight || image.height;
+      if (!sourceWidth || !sourceHeight || !displaySize.width || !displaySize.height) {
+        return null;
+      }
+
+      const scaleX = sourceWidth / displaySize.width;
+      const scaleY = sourceHeight / displaySize.height;
+      const settingsSnapshot = settingsRef.current;
+      const magnification = Math.max(1, Math.round(settingsSnapshot.magnification || 1));
+      const left = Math.max(0, Math.min(sourceWidth - 1, Math.round(zone.x * scaleX)));
+      const top = Math.max(0, Math.min(sourceHeight - 1, Math.round(zone.y * scaleY)));
+      const width = Math.max(1, Math.min(sourceWidth - left, Math.round(zone.width * scaleX)));
+      const height = Math.max(1, Math.min(sourceHeight - top, Math.round(zone.height * scaleY)));
+      const canvas = document.createElement('canvas');
+      canvas.width = width * magnification;
+      canvas.height = height * magnification;
+      const context = canvas.getContext('2d');
+      if (!context) {
+        throw new Error('Canvas OCR indisponivel neste navegador.');
+      }
+
+      context.imageSmoothingEnabled = false;
+      context.filter = [
+        'grayscale(1)',
+        `contrast(${settingsSnapshot.contrast || 1})`,
+        `brightness(${settingsSnapshot.brightness || 1})`,
+      ].join(' ');
+      context.drawImage(image, left, top, width, height, 0, 0, canvas.width, canvas.height);
+      context.filter = 'none';
+      return canvas.toDataURL('image/png');
+    },
+    [],
+  );
+
+  const testDirectCapture = useCallback(async () => {
+    const webview = directWebviewRef.current;
+    if (!isElectronRuntime || directRenderer !== 'electron-webview') {
+      const msg = 'Captura direta de pagina externa indisponivel no modo web. Use captura de tela do navegador, OBS ou proxy/iframe de preview.';
+      setDirectCaptureState('unavailable');
+      setDirectCaptureError(msg);
+      addDirectLog(`[LinkDireto] capturePage disponivel: false`);
+      return false;
+    }
+    if (!webview || typeof webview.capturePage !== 'function') {
+      const msg = 'capturePage nao esta disponivel na superficie Electron.';
+      setDirectCaptureState('failed');
+      setDirectCaptureError(msg);
+      addDirectLog(`[LinkDireto] capturePage disponivel: false`);
+      return false;
+    }
+
+    addDirectLog(`[LinkDireto] capturePage disponivel: true`);
+    let dataUrl = '';
+    try {
+      const captured = await webview.capturePage();
+      dataUrl = captured.toDataURL();
+    } catch (err) {
+      const msg = `capturePage falhou: ${err instanceof Error ? err.message : 'erro desconhecido'}`;
+      setDirectCaptureState('failed');
+      setDirectCaptureError(msg);
+      addDirectLog(`[LinkDireto] ${msg}`);
+      return false;
+    }
+
+    try {
+      const frame = await loadImageElement(dataUrl);
+      const width = frame.naturalWidth || frame.width;
+      const height = frame.naturalHeight || frame.height;
+      addDirectLog(`[LinkDireto] screenshot capturado: ${width} x ${height}`);
+      const zone = activeZone;
+      const zoneInside = Boolean(
+        zone &&
+          width > 0 &&
+          height > 0 &&
+          zone.x >= 0 &&
+          zone.y >= 0 &&
+          zone.width > 0 &&
+          zone.height > 0 &&
+          zone.x + zone.width <= width &&
+          zone.y + zone.height <= height,
+      );
+      addDirectLog(
+        `[LinkDireto] zona ativa: ${Math.round(zone?.x || 0)}, ${Math.round(zone?.y || 0)}, ${Math.round(
+          zone?.width || 0,
+        )}, ${Math.round(zone?.height || 0)}`,
+      );
+
+      if (!width || !height || dataUrl.length < 64) {
+        const msg =
+          'Pagina carregada, mas captura retornou imagem vazia. Verifique se a superficie Electron esta ativa e visivel.';
+        setDirectPageState('empty');
+        setDirectCaptureState('failed');
+        setDirectCaptureError(msg);
+        addDirectLog(`[LinkDireto] ${msg}`);
+        return false;
+      }
+      if (!zoneInside) {
+        const msg = 'Zona ativa fora dos limites da imagem capturada.';
+        setDirectCaptureState('failed');
+        setDirectCaptureError(msg);
+        addDirectLog(`[LinkDireto] ${msg}`);
+        return false;
+      }
+
+      setDirectCapturePreview(dataUrl);
+      setDirectCaptureSize({ width, height });
+      setDirectCaptureState('tested');
+      setDirectCaptureError(null);
+      setDirectPageState('rendered');
+      setDirectPageReady(true);
+      setDirectLinkStatus(`Captura testada com sucesso: ${width}x${height}`);
+      return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Nao foi possivel validar a captura.';
+      setDirectCaptureState('failed');
+      setDirectCaptureError(msg);
+      addDirectLog(`[LinkDireto] ${msg}`);
+      return false;
+    }
+  }, [activeZone, addDirectLog, directRenderer, isElectronRuntime]);
+
+  const runScreenOcrCycle = useCallback(async () => {
+    const video = livePreviewRef.current;
+    if (!video?.videoWidth || !video.videoHeight || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      setCurrentRawText('Aguardando frames da janela...');
+      return { waiting: true, width: 0, height: 0, results: [] as OcrResponse[] };
+    }
+
+    setPreviewSize({ width: video.videoWidth, height: video.videoHeight });
+    const results: OcrResponse[] = [];
+    for (const zone of zonesRef.current) {
+      const image = captureZoneFromLiveVideo(zone);
+      if (!image) continue;
+      const response = await fetch(apiUrl('/ocr/process'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          zone_id: zone.id,
+          zone_name: zone.name,
+          x: zone.x,
+          y: zone.y,
+          width: zone.width,
+          height: zone.height,
+          image,
+        }),
+      });
+      const result = (await response.json().catch(() => ({}))) as OcrResponse;
+      results.push({
+        ...result,
+        error: response.ok ? result.error : result.error || `HTTP ${response.status}`,
+        zone_id: result.zone_id || zone.id,
+        zone_name: result.zone_name || zone.name,
+      });
+    }
+
+    return {
+      waiting: false,
+      width: video.videoWidth,
+      height: video.videoHeight,
+      results,
+    };
+  }, [captureZoneFromLiveVideo]);
+
+  const runDirectPageOcrCycle = useCallback(async () => {
+    // --- Task 6: Validate Electron + webview before OCR ---
+    if (!isElectronRuntime) {
+      setCurrentRawText('No modo web, use captura de tela do navegador, OBS ou proxy/iframe para OCR.');
+      return { waiting: true, width: 0, height: 0, results: [] as OcrResponse[] };
+    }
+    const webview = directWebviewRef.current;
+    if (!webview) {
+      setCurrentRawText('Webview nao encontrado. Recarregue a pagina.');
+      return { waiting: true, width: 0, height: 0, results: [] as OcrResponse[] };
+    }
+    if (typeof webview.capturePage !== 'function') {
+      const msg = 'capturePage nao esta disponivel neste webview. Verifique a versao do Electron.';
+      setCurrentRawText(msg);
+      setWebviewLogs((prev) => [...prev.slice(-60), `[${formatClock()}] [LinkDireto] ERRO: ${msg}`]);
+      return { waiting: true, width: 0, height: 0, results: [] as OcrResponse[] };
+    }
+    if (!directPageReady) {
+      setCurrentRawText('Aguardando carregamento da pagina direta...');
+      return { waiting: true, width: 0, height: 0, results: [] as OcrResponse[] };
+    }
+    if (directCaptureState !== 'tested') {
+      setCurrentRawText('Teste a captura da pagina antes de iniciar o OCR automatico.');
+      return { waiting: true, width: 0, height: 0, results: [] as OcrResponse[] };
+    }
+
+    const size = updateDirectPageSize();
+    if (!size) {
+      setCurrentRawText('Aguardando area da pagina direta...');
+      return { waiting: true, width: 0, height: 0, results: [] as OcrResponse[] };
+    }
+
+    let captured: ElectronImage;
+    try {
+      captured = await webview.capturePage();
+    } catch (err) {
+      const msg = `capturePage falhou: ${err instanceof Error ? err.message : 'erro desconhecido'}`;
+      setCurrentRawText(msg);
+      setWebviewLogs((prev) => [...prev.slice(-60), `[${formatClock()}] [LinkDireto] ERRO: ${msg}`]);
+      return { waiting: true, width: 0, height: 0, results: [] as OcrResponse[] };
+    }
+    const frameDataUrl = captured.toDataURL();
+    const frame = await loadImageElement(frameDataUrl);
+    const frameWidth = frame.naturalWidth || frame.width;
+    const frameHeight = frame.naturalHeight || frame.height;
+    addDirectLog(`[LinkDireto] screenshot capturado: ${frameWidth} x ${frameHeight}`);
+    if (!frameWidth || !frameHeight || frameDataUrl.length < 64) {
+      const msg =
+        'Pagina carregada, mas captura retornou imagem vazia. Verifique se a superficie Electron esta ativa e visivel.';
+      setDirectPageState('empty');
+      setDirectCaptureState('failed');
+      setDirectCaptureError(msg);
+      addDirectLog(`[LinkDireto] ${msg}`);
+      return { waiting: true, width: 0, height: 0, results: [] as OcrResponse[] };
+    }
+    const results: OcrResponse[] = [];
+
+    for (const zone of zonesRef.current) {
+      addDirectLog(
+        `[LinkDireto] zona ativa: ${Math.round(zone.x)}, ${Math.round(zone.y)}, ${Math.round(zone.width)}, ${Math.round(
+          zone.height,
+        )}`,
+      );
+      const image = captureZoneFromImage(frame, size, zone);
+      if (!image) continue;
+      addDirectLog('[LinkDireto] OCR enviado para /ocr/process');
+      const response = await fetch(apiUrl('/ocr/process'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          zone_id: zone.id,
+          zone_name: zone.name,
+          x: zone.x,
+          y: zone.y,
+          width: zone.width,
+          height: zone.height,
+          image,
+        }),
+      });
+      const result = (await response.json().catch(() => ({}))) as OcrResponse;
+      addDirectLog(
+        result.text?.trim() || result.full_text?.trim()
+          ? '[LinkDireto] OCR retornou texto encontrado'
+          : '[LinkDireto] OCR retornou texto vazio',
+      );
+      results.push({
+        ...result,
+        error: response.ok ? result.error : result.error || `HTTP ${response.status}`,
+        zone_id: result.zone_id || zone.id,
+        zone_name: result.zone_name || zone.name,
+      });
+    }
+
+    return {
+      waiting: false,
+      width: size.width,
+      height: size.height,
+      results,
+    };
+  }, [
+    captureZoneFromImage,
+    addDirectLog,
+    directCaptureState,
+    directPageReady,
+    isElectronRuntime,
+    updateDirectPageSize,
+  ]);
+
+  const scheduleNextCaptureCycle = useCallback(() => {
+    timerRef.current = setTimeout(() => {
+      void runCaptureCycleRef.current?.();
+    }, settingsRef.current.intervalTime);
+  }, []);
+
   const runCaptureCycle = useCallback(async () => {
-    if (
-      status !== CaptureStatus.CAPTURING ||
-      !videoRef.current ||
-      !captureCanvasRef.current ||
-      isBusyRef.current
-    ) {
+    if (status !== CaptureStatus.CAPTURING) {
+      return;
+    }
+    if (isBusyRef.current) {
+      scheduleNextCaptureCycle();
       return;
     }
 
     try {
       isBusyRef.current = true;
       setIsProcessing(true);
-      const video = videoRef.current;
-      const canvas = captureCanvasRef.current;
-      const context = canvas.getContext('2d', { willReadFrequently: true });
-      if (!context) {
-        throw new Error('Canvas indisponivel');
+      if (!zonesRef.current.length) {
+        throw new Error('Nenhuma zona OCR configurada');
       }
 
-      for (const [index, zone] of zonesRef.current.entries()) {
-        const currentSettings = settingsRef.current;
-        canvas.width = Math.max(1, Math.round(zone.width * currentSettings.magnification));
-        canvas.height = Math.max(1, Math.round(zone.height * currentSettings.magnification));
-        context.imageSmoothingEnabled = false;
-        context.filter = `grayscale(1) contrast(${currentSettings.contrast}) brightness(${currentSettings.brightness}) saturate(0)`;
-        context.drawImage(
-          video,
-          zone.x,
-          zone.y,
-          zone.width,
-          zone.height,
-          0,
-          0,
-          canvas.width,
-          canvas.height,
-        );
+      const requestStartedAt = performance.now();
+      let data: ObsCycleResponse;
+      if (captureMode === 'screen') {
+        const screenData = await runScreenOcrCycle();
+        if (screenData.waiting) return;
+        data = {
+          ok: true,
+          sourceName: 'Janela/tela',
+          width: screenData.width,
+          height: screenData.height,
+          results: screenData.results,
+          latency_ms: Math.round(performance.now() - requestStartedAt),
+          error: null,
+        };
+      } else if (captureMode === 'direct') {
+        const directData = await runDirectPageOcrCycle();
+        if (directData.waiting) return;
+        data = {
+          ok: true,
+          sourceName: 'Pagina direta',
+          width: directData.width,
+          height: directData.height,
+          results: directData.results,
+          latency_ms: Math.round(performance.now() - requestStartedAt),
+          error: null,
+        };
+      } else {
+        const response = await fetch(apiUrl('/ocr/obs-cycle'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sourceName,
+            zones: zonesRef.current,
+            settings: settingsRef.current,
+          }),
+        });
 
-        const imageDataUrl = canvas.toDataURL('image/jpeg', 0.86);
-        if (index === activeZoneIndex) {
-          setPreviewImage(imageDataUrl);
+        data = (await response.json().catch(() => ({}))) as ObsCycleResponse;
+        if (!response.ok || !data.ok) {
+          throw new Error(data.error || `HTTP ${response.status}`);
         }
 
+        if (data.image) setPreviewImage(data.image);
+        if (data.width && data.height) setPreviewSize({ width: data.width, height: data.height });
+        noteFrameMetadata(data.frameHash, data.capturedAt);
+      }
+
+      const results = Array.isArray(data.results) ? data.results : [];
+      for (const [index, result] of results.entries()) {
+        const zone =
+          zonesRef.current.find((candidate) => candidate.id === result.zone_id) ||
+          zonesRef.current[index] ||
+          zonesRef.current[0];
+        if (!zone) continue;
+
         try {
-          const requestStartedAt = performance.now();
-          const response = await fetch(apiUrl('/ocr'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              zone_id: zone.id,
-              zone_name: zone.name,
-              x: Math.round(zone.x),
-              y: Math.round(zone.y),
-              width: Math.round(zone.width),
-              height: Math.round(zone.height),
-              image: imageDataUrl,
-            }),
-          });
-
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-          }
-
-          const data = (await response.json()) as OcrResponse;
-          const fullText = data.full_text?.trim() || '';
-          const newText = data.text?.trim() || '';
-          const latencyMs = data.latency_ms ?? Math.round(performance.now() - requestStartedAt);
+          const fullText = result.full_text?.trim() || '';
+          const newText = result.text?.trim() || '';
+          const latencyMs =
+            result.latency_ms ??
+            data.latency_ms ??
+            Math.round(performance.now() - requestStartedAt);
           const time = formatClock();
 
-          if (index === activeZoneIndex) {
+          if (zone.id === zonesRef.current[activeZoneIndex]?.id) {
             setCurrentRawText(fullText || '(nenhum texto detectado)');
             setLastCaptureTime(time);
           }
 
-          if (data.error) {
+          if (result.error) {
             addCaptureEvent({
               id: makeEventId(),
               zoneId: zone.id,
@@ -881,25 +1697,81 @@ const CaptureStudio = React.memo(function CaptureStudio({
               rawText: fullText,
               time,
               routeStatus: 'error',
-              confidence: data.confidence ?? null,
+              confidence: result.confidence ?? null,
               latencyMs,
-              error: data.error,
+              error: result.error,
+              deduped: result.deduped,
+              duplicateReason: result.duplicateReason,
+              captureMode: result.captureMode,
+              sourceHealth: result.sourceHealth,
             });
-            setError(`OCR ${zone.name}: ${data.error}`);
+            setError(`OCR ${zone.name}: ${result.error}`);
             continue;
           }
 
           if (newText.length > 0) {
+            const ingestText = `${result.zone_name || zone.name}: ${newText}`;
+            let ingestResult: Record<string, unknown> | null = null;
+            try {
+              const ingestResponse = await fetch(apiUrl('/automation/ingest'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  text: ingestText,
+                  source: 'ocr',
+                  zoneName: result.zone_name || zone.name,
+                  kind: kindFromZoneRole(zone.role),
+                  execute: true,
+                  maxActions: 6,
+                  metadata: {
+                    zoneId: result.zone_id || zone.id,
+                    zoneRole: zone.role,
+                    rawText: fullText,
+                    confidence: result.confidence ?? null,
+                    latencyMs,
+                  },
+                }),
+              });
+              ingestResult = (await ingestResponse.json().catch(() => ({}))) as Record<string, unknown>;
+              if (!ingestResponse.ok || ingestResult?.error) {
+                throw new Error(String(ingestResult?.error || `HTTP ${ingestResponse.status}`));
+              }
+            } catch (err) {
+              const message = err instanceof Error ? err.message : 'Falha ao ingerir evento';
+              addCaptureEvent({
+                id: makeEventId(),
+                zoneId: result.zone_id || zone.id,
+                zoneName: result.zone_name || zone.name,
+                text: newText,
+                rawText: fullText,
+                time,
+                routeStatus: 'error',
+                confidence: result.confidence ?? null,
+                latencyMs,
+                error: `Automation ingest: ${message}`,
+                deduped: result.deduped,
+                duplicateReason: result.duplicateReason,
+                captureMode: result.captureMode,
+                sourceHealth: result.sourceHealth,
+              });
+              setError(`Automation ingest: ${message}`);
+              continue;
+            }
+
             const captureEvent: CaptureEvent = {
               id: makeEventId(),
-              zoneId: data.zone_id || zone.id,
-              zoneName: data.zone_name || zone.name,
+              zoneId: result.zone_id || zone.id,
+              zoneName: result.zone_name || zone.name,
               text: newText,
               rawText: fullText,
               time,
               routeStatus: 'sent',
-              confidence: data.confidence ?? null,
+              confidence: result.confidence ?? null,
               latencyMs,
+              deduped: result.deduped,
+              duplicateReason: result.duplicateReason,
+              captureMode: result.captureMode,
+              sourceHealth: result.sourceHealth,
             };
             addCaptureEvent(captureEvent);
             const liveEvent = emitEvent({
@@ -916,6 +1788,8 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 rawText: captureEvent.rawText,
                 confidence: captureEvent.confidence,
                 latencyMs: captureEvent.latencyMs,
+                backendIngested: true,
+                automation: ingestResult,
               },
             });
             setCapturedText((current) =>
@@ -939,6 +1813,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
             confidence: null,
             latencyMs: null,
             error: message,
+            captureMode,
           });
           if (index === activeZoneIndex) {
             setError(`Erro OCR: ${message}`);
@@ -951,34 +1826,252 @@ const CaptureStudio = React.memo(function CaptureStudio({
       setIsProcessing(false);
       isBusyRef.current = false;
       if (status === CaptureStatus.CAPTURING) {
-        timerRef.current = setTimeout(runCaptureCycle, settingsRef.current.intervalTime);
+        scheduleNextCaptureCycle();
       }
     }
-  }, [activeZoneIndex, setCapturedText, status]);
+  }, [
+    activeZoneIndex,
+    captureMode,
+    noteFrameMetadata,
+    runDirectPageOcrCycle,
+    runScreenOcrCycle,
+    scheduleNextCaptureCycle,
+    setCapturedText,
+    sourceName,
+    status,
+  ]);
 
-  const startCapture = () => {
-    if (!stream) {
-      setError('Selecione uma tela ou janela primeiro');
+  useEffect(() => {
+    runCaptureCycleRef.current = runCaptureCycle;
+  }, [runCaptureCycle]);
+
+  const openDirectLink = useCallback(async () => {
+    let normalizedUrl: string;
+    try {
+      normalizedUrl = normalizeDirectUrl(directUrl);
+    } catch (err) {
+      setStatus(CaptureStatus.ERROR);
+      setError(err instanceof Error ? err.message : 'Link da live invalido.');
+      return false;
+    }
+
+    setIsOpeningDirectLink(true);
+    setDirectLinkStatus('Carregando pagina...');
+    setDirectPageReady(false);
+    setDirectPageState('loading');
+    setDirectCaptureState(isElectronRuntime && canUseDirectWebCapture ? 'available' : 'unavailable');
+    setDirectCapturePreview(null);
+    setDirectCaptureSize(null);
+    setDirectCaptureError(null);
+    setDirectPageUrl(normalizedUrl);
+    setDirectUrl(normalizedUrl);
+    setDirectPageMode('interact');
+    setPreviewImage(null);
+    setFrameWarning(
+      isElectronRuntime
+        ? null
+        : backendOnline
+          ? null // proxy will handle it — no warning needed
+          : 'Proxy do backend offline. A pagina pode ser bloqueada pelo site. Inicie o servidor backend para desbloquear.',
+    );
+    if (!isElectronRuntime) {
+      setFrameWarning(
+        'Modo web ativo: use captura de tela do navegador, OBS ou proxy/iframe para preview. OCR direto de pagina externa nao usa mais Electron.',
+      );
+    }
+    addDirectLog(`[LinkDireto] URL solicitada: ${normalizedUrl}`);
+    addDirectLog(
+      `[LinkDireto] Renderer escolhido: ${
+        isElectronRuntime ? 'webview' : backendOnline ? 'proxy preview' : 'iframe'
+      }`,
+    );
+    lastOpenedDirectUrlRef.current = normalizedUrl;
+    window.setTimeout(() => {
+      updateDirectPageSize();
+      setIsOpeningDirectLink(false);
+    }, 0);
+    setStatus((current) => (current === CaptureStatus.CAPTURING ? current : CaptureStatus.SELECTING));
+    setError(
+      isElectronRuntime
+        ? null
+        : 'Modo web ativo: para OCR use captura de tela do navegador, OBS ou uma zona de captura configurada.',
+    );
+    return true;
+  }, [addDirectLog, backendOnline, canUseDirectWebCapture, directUrl, isElectronRuntime, updateDirectPageSize]);
+
+  const startCapture = useCallback(async () => {
+    lastFrameHashRef.current = null;
+    repeatedFrameCountRef.current = 0;
+    setFrameWarning(null);
+
+    if (captureMode === 'screen') {
+      try {
+        if (!screenStreamRef.current?.active) {
+          await requestScreenStream();
+        }
+        onStartAutopilot?.();
+        setStatus(CaptureStatus.CAPTURING);
+        setError(null);
+      } catch (err) {
+        setStatus(CaptureStatus.ERROR);
+        setError(err instanceof Error ? err.message : 'Nao foi possivel iniciar a captura da janela.');
+      }
       return;
     }
+
+    if (captureMode === 'direct') {
+      let normalizedUrl: string | null;
+      try {
+        normalizedUrl = hasDirectUrl ? normalizeDirectUrl(directUrl) : null;
+      } catch (err) {
+        setStatus(CaptureStatus.ERROR);
+        setError(err instanceof Error ? err.message : 'Link da live invalido.');
+        return;
+      }
+
+      if (normalizedUrl && (normalizedUrl !== lastOpenedDirectUrlRef.current || !sourceReady)) {
+        const opened = await openDirectLink();
+        if (!opened) return;
+      }
+      if (!isElectronRuntime) {
+        setStatus(CaptureStatus.ERROR);
+        setError('Modo web ativo: use captura de tela do navegador, OBS ou proxy/iframe para OCR.');
+        addDirectLog('[LinkDireto] OCR bloqueado: runtime browser limitado');
+        return;
+      }
+      if (!directReady || !directCaptureTested) {
+        setStatus(CaptureStatus.ERROR);
+        setError('Teste a captura da pagina antes de iniciar o OCR automatico.');
+        addDirectLog('[LinkDireto] OCR bloqueado: captura ainda nao foi testada com sucesso');
+        return;
+      }
+      onStartAutopilot?.();
+      setStatus(CaptureStatus.CAPTURING);
+      setError(null);
+      return;
+    }
+
+    let health = await refreshObsHealth();
+    const sourceNotRendering = health.sourceActive === false || health.sourceShowing === false;
+    if (!health.ok || !health.connected || !health.sourceReady || !health.screenshotReady || sourceNotRendering) {
+      try {
+        setError(`Preparando a source "${sourceName}" no OBS...`);
+        const repairResponse = await fetch(apiUrl('/obs/prepare-capture'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sourceName }),
+        });
+        const repair = (await repairResponse.json().catch(() => ({}))) as {
+          ok?: boolean;
+          health?: ObsHealth;
+          error?: string | null;
+        };
+        if (!repairResponse.ok || !repair.ok) {
+          throw new Error(repair.error || `HTTP ${repairResponse.status}`);
+        }
+        health = repair.health || (await refreshObsHealth());
+        setObsHealth(health);
+      } catch (err) {
+        setStatus(CaptureStatus.ERROR);
+        setError(
+          err instanceof Error
+            ? err.message
+            : `Nao foi possivel preparar a source "${sourceName}" no OBS.`,
+        );
+        return;
+      }
+    }
+
+    if (!health.ok || !health.connected || !health.sourceReady || !health.screenshotReady) {
+      setStatus(CaptureStatus.ERROR);
+      setError(
+        health.error ||
+          `Nao foi possivel iniciar a live assistida: a source "${sourceName}" nao esta pronta no OBS.`,
+      );
+      return;
+    }
+    if (health.sourceActive === false || health.sourceShowing === false) {
+      setFrameWarning('A source OBS ainda nao reportou renderizacao ativa; o OCR vai tentar usar o frame disponivel.');
+    }
+    const preview = await refreshObsPreview();
+    if (!preview) return;
     onStartAutopilot?.();
     setStatus(CaptureStatus.CAPTURING);
     setError(null);
-  };
+  }, [
+    captureMode,
+    directUrl,
+    hasDirectUrl,
+    directCaptureTested,
+    directReady,
+    addDirectLog,
+    isElectronRuntime,
+    onStartAutopilot,
+    openDirectLink,
+    refreshObsHealth,
+    refreshObsPreview,
+    requestScreenStream,
+    sourceName,
+    sourceReady,
+  ]);
+
+  // Listen for start-live events to initiate capture when user clicks "Iniciar Live"
+  useEffect(() => {
+    const handler = () => {
+      if (status === CaptureStatus.CAPTURING) return;
+      void startCapture();
+    };
+
+    window.addEventListener('odessa:start-live', handler as EventListener);
+    return () => window.removeEventListener('odessa:start-live', handler as EventListener);
+  }, [startCapture, status]);
 
   useEffect(() => {
     if (status === CaptureStatus.CAPTURING) {
-      runCaptureCycle();
+      timerRef.current = setTimeout(() => {
+        void runCaptureCycleRef.current?.();
+      }, 0);
     }
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
     };
-  }, [status, runCaptureCycle]);
+  }, [status]);
 
   const pipeline = [
-    { label: stream ? 'Fonte ativa' : 'Fonte pendente', icon: Monitor, active: Boolean(stream) },
+    {
+      label:
+        captureMode === 'screen'
+          ? screenReady
+            ? 'Janela ao vivo'
+            : 'Selecionar janela'
+          : captureMode === 'direct'
+            ? directReady
+              ? 'Pagina renderizada'
+              : directPageUrl
+                ? `Pagina: ${directPageState}`
+                : 'Abrir link direto'
+            : obsReady
+              ? 'OBS Source pronta'
+              : 'OBS Source pendente',
+      icon: captureMode === 'screen' ? Camera : captureMode === 'direct' ? Link2 : Wifi,
+      active: sourceReady,
+    },
     { label: `${zones.length} zonas`, icon: Layers, active: zones.length > 0 },
-    { label: backendOnline ? 'OCR pronto' : 'OCR offline', icon: ScanText, active: backendOnline },
+    {
+      label:
+        captureMode === 'direct'
+          ? directCaptureTested
+            ? 'Captura testada'
+            : 'Captura pendente'
+          : backendOnline
+            ? 'OCR backend online'
+            : 'OCR backend offline',
+      icon: ScanText,
+      active: captureMode === 'direct' ? directCaptureTested : backendOnline,
+    },
     {
       label: autopilotEnabled ? 'Autopilot ativo' : 'Autopilot liga ao iniciar',
       icon: Bot,
@@ -998,6 +2091,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
 
   return (
     <main className="flex-1 overflow-y-auto bg-[var(--odessa-bg)] text-slate-100 xl:overflow-hidden">
+      <canvas ref={captureCanvasRef} className="hidden" aria-hidden="true" />
       <div className="grid min-h-full grid-cols-1 xl:h-full xl:grid-cols-[304px_minmax(0,1fr)_372px]">
         <aside className="border-b border-[var(--odessa-border)] bg-[var(--odessa-surface)] p-4 xl:overflow-y-auto xl:border-b-0 xl:border-r">
           <div className="mb-5 flex items-center justify-between">
@@ -1018,35 +2112,225 @@ const CaptureStudio = React.memo(function CaptureStudio({
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">Fonte</h3>
               <button
-                onClick={refreshHealth}
+                onClick={() => {
+                  void refreshHealth();
+                  if (captureMode === 'obs') {
+                    void refreshObsHealth();
+                    void refreshObsPreview();
+                  } else if (captureMode === 'direct') {
+                    directWebviewRef.current?.reload?.();
+                    updateDirectPageSize();
+                  }
+                }}
                 className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-white"
-                title="Atualizar backend"
+                title="Atualizar fonte"
               >
                 <RefreshCcw className="h-3.5 w-3.5" />
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => selectScreen('monitor')}
-                disabled={stream !== null}
-                className="inline-flex items-center justify-center gap-2 rounded-md bg-sky-500 px-3 py-2 text-xs font-black text-slate-950 transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Monitor className="h-4 w-4" />
-                Tela
-              </button>
-              <button
-                onClick={() => selectScreen('window')}
-                disabled={stream !== null}
-                className="inline-flex items-center justify-center gap-2 rounded-md bg-indigo-500 px-3 py-2 text-xs font-black text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Eye className="h-4 w-4" />
-                Janela
-              </button>
+            <div className="space-y-2">
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => changeCaptureMode('screen')}
+                  className={cn(
+                    'rounded-md border px-3 py-2 text-xs font-black transition',
+                    captureMode === 'screen'
+                      ? 'border-emerald-400/50 bg-emerald-500/15 text-emerald-100'
+                      : 'border-slate-800 bg-slate-950/50 text-slate-400 hover:border-slate-600',
+                  )}
+                >
+                  Janela/tela
+                </button>
+                <button
+                  type="button"
+                  onClick={() => changeCaptureMode('obs')}
+                  className={cn(
+                    'rounded-md border px-3 py-2 text-xs font-black transition',
+                    captureMode === 'obs'
+                      ? 'border-sky-400/50 bg-sky-500/15 text-sky-100'
+                      : 'border-slate-800 bg-slate-950/50 text-slate-400 hover:border-slate-600',
+                  )}
+                >
+                  OBS
+                </button>
+                <button
+                  type="button"
+                  onClick={() => changeCaptureMode('direct')}
+                  className={cn(
+                    'rounded-md border px-2 py-2 text-xs font-black transition',
+                    captureMode === 'direct'
+                      ? 'border-violet-400/50 bg-violet-500/15 text-violet-100'
+                      : 'border-slate-800 bg-slate-950/50 text-slate-400 hover:border-slate-600',
+                  )}
+                >
+                  Link direto
+                </button>
+              </div>
+              {captureMode === 'screen' ? (
+                <div className="rounded-md border border-slate-800 bg-slate-950/50 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                    Captura em tempo real
+                  </p>
+                  <p className="mt-2 text-xs leading-5 text-slate-400">
+                    Selecione a janela do TikTok/Live Studio para recortar o chat direto do video ao vivo.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void requestScreenStream()}
+                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md bg-slate-800 px-3 py-2 text-xs font-black text-slate-100 transition hover:bg-slate-700"
+                  >
+                    <Camera className="h-4 w-4" />
+                    {screenReady ? 'Trocar janela' : 'Selecionar janela'}
+                  </button>
+                </div>
+              ) : captureMode === 'obs' ? (
+                <>
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                    Source OCR
+                  </label>
+                  <input
+                    aria-label="Source OCR"
+                    value={sourceName}
+                    onChange={(event) => setSourceName(event.target.value)}
+                    className="w-full rounded-md border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs font-bold text-slate-100 outline-none transition focus:border-sky-400"
+                  />
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                    Link da live
+                  </label>
+                  <input
+                    aria-label="Link da live"
+                    value={directUrl}
+                    onChange={(event) => {
+                      setDirectUrl(event.target.value);
+                      setDirectLinkStatus(null);
+                    }}
+                    placeholder="https://..."
+                    className="w-full rounded-md border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs font-bold text-slate-100 outline-none transition focus:border-violet-400"
+                  />
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void openDirectLink()}
+                      disabled={!hasDirectUrl || isOpeningDirectLink}
+                      className="inline-flex items-center justify-center gap-2 rounded-md bg-violet-500 px-3 py-2 text-xs font-black text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Link2 className="h-4 w-4" />
+                      {isOpeningDirectLink ? 'Abrindo' : 'Abrir nesta tela'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        directWebviewRef.current?.reload?.();
+                        setDirectPageReady(false);
+                        setDirectPageState(directPageUrl ? 'loading' : 'none');
+                        setDirectCaptureState('available');
+                        setDirectCapturePreview(null);
+                        setDirectCaptureSize(null);
+                        setDirectCaptureError(null);
+                        setDirectLinkStatus('Recarregando pagina...');
+                        window.requestAnimationFrame(() => updateDirectPageSize());
+                      }}
+                      disabled={!directPageUrl}
+                      className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-800 px-3 py-2 text-xs font-black text-slate-100 transition hover:bg-slate-700"
+                    >
+                      <RefreshCcw className="h-4 w-4" />
+                      Recarregar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void testDirectCapture()}
+                      disabled={!isElectronRuntime || !directPageUrl || directPageState !== 'rendered'}
+                      className="inline-flex items-center justify-center gap-2 rounded-md bg-sky-500 px-3 py-2 text-xs font-black text-slate-950 transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <ScanText className="h-4 w-4" />
+                      Testar captura
+                    </button>
+                  </div>
+                  {directLinkStatus && (
+                    <p className="truncate text-xs font-semibold text-emerald-300">
+                      {directLinkStatus}
+                    </p>
+                  )}
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2 text-[10px] font-bold uppercase tracking-wide">
+                <div className="rounded-md border border-slate-800 bg-slate-950/50 p-2 text-slate-400">
+                  <p>
+                    {captureMode === 'screen' ? 'Janela' : captureMode === 'direct' ? 'Link' : 'OBS'}
+                  </p>
+                  <p
+                    className={cn(
+                      'mt-1',
+                      captureMode === 'screen'
+                        ? screenReady
+                          ? 'text-emerald-300'
+                          : 'text-amber-300'
+                        : captureMode === 'direct'
+                          ? directPageUrl
+                            ? directReady
+                              ? 'text-emerald-300'
+                              : 'text-amber-300'
+                            : 'text-slate-500'
+                        : sourceReady
+                          ? 'text-emerald-300'
+                          : obsHealth?.connected
+                            ? 'text-amber-300'
+                            : 'text-rose-300',
+                    )}
+                  >
+                    {captureMode === 'screen'
+                      ? screenReady
+                        ? 'ao vivo'
+                        : 'pendente'
+                      : captureMode === 'direct'
+                        ? directPageUrl
+                          ? directReady
+                            ? 'aberto'
+                            : 'carregando'
+                          : 'pendente'
+                      : sourceReady
+                        ? 'pronto'
+                        : obsHealth?.connected
+                          ? 'conectado'
+                          : 'offline'}
+                  </p>
+                </div>
+                <div className="rounded-md border border-slate-800 bg-slate-950/50 p-2 text-slate-400">
+                  <p>{captureMode === 'direct' ? 'Captura' : 'OCR'}</p>
+                  <p
+                    className={cn(
+                      'mt-1',
+                      captureMode === 'direct'
+                        ? directCaptureTested
+                          ? 'text-emerald-300'
+                          : 'text-amber-300'
+                        : backendOnline
+                          ? 'text-emerald-300'
+                          : 'text-amber-300',
+                    )}
+                  >
+                    {captureMode === 'direct'
+                      ? directCaptureTested
+                        ? 'testada'
+                        : 'indisponivel'
+                      : backendOnline
+                        ? 'backend online'
+                        : 'pendente'}
+                  </p>
+                </div>
+              </div>
+              {captureMode === 'obs' && obsHealth?.currentScene && (
+                <p className="truncate text-xs text-slate-500">Cena atual: {obsHealth.currentScene}</p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button
-                onClick={startCapture}
-                disabled={!stream || status === CaptureStatus.CAPTURING}
+                onClick={() => void startCapture()}
+                disabled={!canStartCapture}
                 className="inline-flex items-center justify-center gap-2 rounded-md bg-emerald-500 px-3 py-2 text-xs font-black text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Play className="h-4 w-4 fill-current" />
@@ -1061,13 +2345,8 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 Pausar
               </button>
             </div>
-            {stream && (
-              <button
-                onClick={stopCapture}
-                className="w-full rounded-md border border-rose-400/30 px-3 py-2 text-xs font-bold text-rose-200 transition hover:bg-rose-500/10"
-              >
-                Encerrar fonte
-              </button>
+            {captureMode === 'obs' && obsHealth?.error && (
+              <p className="text-xs leading-5 text-amber-300">{obsHealth.error}</p>
             )}
           </section>
 
@@ -1229,9 +2508,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
             <SliderControl
               label="Intervalo"
               value={settings.intervalTime}
-              min={500}
+              min={250}
               max={5000}
-              step={100}
+              step={50}
               suffix="ms"
               onChange={(value) => updateSettings('intervalTime', value)}
             />
@@ -1275,24 +2554,130 @@ const CaptureStudio = React.memo(function CaptureStudio({
           </div>
 
           <div className="flex min-h-[420px] flex-1 flex-col border-b border-slate-800 bg-black">
-            {stream && (
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-[#111722] px-4 py-2">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-400">
-                  <Crosshair className="h-4 w-4 text-sky-300" />
-                  Zona ativa: <span className="text-white">{activeZone?.name || 'Zona'}</span>
+            {/* Task 1: Runtime mode status indicator */}
+            {captureMode === 'direct' && (
+              <div
+                className={cn(
+                  'flex items-center gap-2 border-b px-4 py-1.5 text-[11px] font-bold uppercase tracking-wide',
+                  isElectronRuntime
+                    ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-200'
+                    : backendOnline
+                      ? 'border-sky-400/20 bg-sky-500/10 text-sky-200'
+                      : 'border-amber-400/20 bg-amber-500/10 text-amber-200',
+                )}
+              >
+                {isElectronRuntime ? (
+                  <>
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    MODO LEGADO: ELECTRON WEBVIEW
+                  </>
+                ) : false ? (
+                  <>
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Preview proxy experimental indisponivel para OCR
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    MODO WEB: use captura de tela, OBS ou proxy/iframe para fontes externas.
+                  </>
+                )}
+              </div>
+            )}
+            {captureMode === 'direct' && (
+              <div className="grid gap-px border-b border-slate-800 bg-slate-800 text-[10px] font-bold uppercase tracking-wide sm:grid-cols-4">
+                <div className="bg-[#0B1018] px-3 py-2 text-slate-400">
+                  Runtime
+                  <span className="mt-1 block text-xs text-slate-100">
+                    {isElectronRuntime ? 'Electron legado' : 'Web'}
+                  </span>
                 </div>
-                <button
-                  onClick={() => setIsSelectingRegion((current) => !current)}
-                  className={cn(
-                    'inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-black transition',
-                    isSelectingRegion
-                      ? 'bg-rose-500 text-white'
-                      : 'bg-slate-800 text-slate-100 hover:bg-slate-700',
+                <div className="bg-[#0B1018] px-3 py-2 text-slate-400">
+                  Renderer da pagina
+                  <span className="mt-1 block text-xs text-slate-100">
+                    {directRenderer === 'electron-webview'
+                      ? 'Electron WebView legado'
+                      : directRenderer === 'proxy-preview'
+                          ? 'Proxy preview'
+                          : directRenderer === 'iframe'
+                            ? 'Iframe'
+                            : 'Nenhum'}
+                  </span>
+                </div>
+                <div className="bg-[#0B1018] px-3 py-2 text-slate-400">
+                  Pagina
+                  <span className="mt-1 block text-xs text-slate-100">{directPageState}</span>
+                </div>
+                <div className="bg-[#0B1018] px-3 py-2 text-slate-400">
+                  Captura
+                  <span className="mt-1 block text-xs text-slate-100">{directCaptureState}</span>
+                </div>
+              </div>
+            )}
+            {frameWarning && (
+              <div className="flex items-center gap-2 border-b border-amber-400/30 bg-amber-500/10 px-4 py-2 text-xs font-bold text-amber-100">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{frameWarning}</span>
+              </div>
+            )}
+            {hasPreview && (
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-[#111722] px-4 py-2">
+                <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-slate-400">
+                  <Crosshair className="h-4 w-4 text-sky-300" />
+                  <span>Zona ativa</span>
+                  <select
+                    value={activeZoneIndex}
+                    onChange={(event) => setActiveZoneIndex(Number(event.target.value))}
+                    className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs font-black text-white outline-none focus:border-sky-400"
+                  >
+                    {zones.map((zone, index) => (
+                      <option key={zone.id} value={index}>
+                        {zone.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {captureMode === 'direct' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDirectPageMode((current) => (current === 'interact' ? 'crop' : 'interact'));
+                        setIsSelectingRegion(false);
+                        setCurrentSelection(null);
+                      }}
+                      className={cn(
+                        'inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-black transition',
+                        directPageMode === 'interact'
+                          ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-300'
+                          : 'bg-sky-500 text-slate-950 hover:bg-sky-300',
+                      )}
+                    >
+                      {directPageMode === 'interact' ? (
+                        <MousePointer2 className="h-3.5 w-3.5" />
+                      ) : (
+                        <Crosshair className="h-3.5 w-3.5" />
+                      )}
+                      {directPageMode === 'interact' ? 'Interagir' : 'Editar recorte'}
+                    </button>
                   )}
-                >
-                  <Crosshair className="h-3.5 w-3.5" />
-                  {isSelectingRegion ? 'Cancelar recorte' : 'Desenhar recorte'}
-                </button>
+                  <button
+                    onClick={() => {
+                      if (captureMode === 'direct') setDirectPageMode('crop');
+                      setIsSelectingRegion((current) => !current);
+                    }}
+                    disabled={!canEditZones && captureMode !== 'direct'}
+                    className={cn(
+                      'inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-black transition',
+                      isSelectingRegion
+                        ? 'bg-rose-500 text-white'
+                        : 'bg-slate-800 text-slate-100 hover:bg-slate-700',
+                    )}
+                  >
+                    <Crosshair className="h-3.5 w-3.5" />
+                    {isSelectingRegion ? 'Cancelar recorte' : 'Desenhar recorte'}
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1306,71 +2691,194 @@ const CaptureStudio = React.memo(function CaptureStudio({
               onPointerUp={handlePointerUp}
               onPointerLeave={handlePointerUp}
             >
-              {stream ? (
+              {hasPreview ? (
                 <>
-                  <video
-                    ref={videoRef}
-                    className="h-full w-full object-contain"
-                    autoPlay
-                    playsInline
-                    muted
-                  />
-                  {isSelectingRegion && (
-                    <div className="pointer-events-none absolute inset-0 bg-black/45">
-                      <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm font-black uppercase tracking-[0.22em] text-white/55">
-                        Arraste para redefinir {activeZone?.name || 'a zona'}
-                      </div>
-                    </div>
-                  )}
-                  <div className="pointer-events-none absolute inset-0">
-                    {zones.map((zone, index) => (
-                      <div
-                        key={zone.id}
-                        onPointerDown={(event) => startDraggingZone(event, index)}
-                        className={cn(
-                          'pointer-events-auto absolute border-2 transition-colors',
-                          isSelectingRegion ? 'cursor-default' : 'cursor-move',
-                          activeZoneIndex === index
-                            ? 'shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]'
-                            : 'opacity-80',
-                          isSelectingRegion && activeZoneIndex === index ? 'hidden' : '',
-                        )}
-                        style={{
-                          ...getZoneOverlayStyle(zone),
-                          borderColor: zone.color,
+                  <div
+                    className={cn(
+                      'relative max-h-full max-w-full',
+                      captureMode === 'direct' ? 'h-full w-full' : 'inline-flex',
+                    )}
+                  >
+                    {captureMode === 'screen' ? (
+                      <video
+                        ref={livePreviewRef}
+                        autoPlay
+                        muted
+                        playsInline
+                        className="block max-h-full max-w-full object-contain"
+                        onLoadedMetadata={(event) => {
+                          const video = event.currentTarget;
+                          if (video.videoWidth && video.videoHeight) {
+                            setPreviewSize({ width: video.videoWidth, height: video.videoHeight });
+                          }
+                          void video.play().catch(() => undefined);
                         }}
-                      >
-                        <span
-                          className="absolute -top-7 left-0 rounded-t px-2 py-1 text-[10px] font-black uppercase tracking-wide text-slate-950"
-                          style={{ backgroundColor: zone.color }}
-                        >
-                          {zone.name}
-                        </span>
-                        <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-white">
-                          {Math.round(zone.width)}x{Math.round(zone.height)}
-                        </span>
-                        {!isSelectingRegion && (
-                          <div
-                            onPointerDown={(event) => startResizingZone(event, index)}
-                            className="absolute bottom-0 right-0 h-4 w-4 cursor-se-resize rounded-tl"
-                            style={{ backgroundColor: zone.color }}
+                      />
+                    ) : captureMode === 'direct' ? (
+                      isElectronRuntime ? (
+                        <webview
+                          ref={directWebviewRef as unknown as React.RefObject<HTMLWebViewElement>}
+                          src={directPageUrl}
+                          partition="persist:odessa-capture"
+                          allowpopups
+                          useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                          webpreferences="contextIsolation=yes,nodeIntegration=no,javascript=yes"
+                          onError={() => {
+                            addDirectLog('[LinkDireto] did-fail-load: code=?, description=webview error, url=?');
+                            setDirectPageState('failed');
+                            setDirectPageReady(false);
+                            setDirectCaptureState('unavailable');
+                            setError('A superficie Electron falhou ao carregar a pagina.');
+                          }}
+                          style={{
+                            position: 'absolute' as const,
+                            inset: 0,
+                            width: '100%',
+                            height: '100%',
+                            minWidth: '100%',
+                            minHeight: '100%',
+                            display: 'flex',
+                            background: '#fff',
+                            zIndex: 0,
+                            pointerEvents: directPageMode === 'crop' ? 'none' : 'auto',
+                          }}
+                        />
+                      ) : (
+                        /* Browser fallback: proxy strips X-Frame-Options/CSP so the page loads */
+                        <div className="flex h-full w-full flex-col">
+                          {!backendOnline && (
+                            <div className="flex items-center gap-2 border-b border-amber-400/30 bg-amber-500/10 px-4 py-2.5 text-xs font-bold text-amber-100">
+                              <AlertCircle className="h-4 w-4 shrink-0" />
+                              <span>
+                                Backend offline — o proxy nao esta disponivel. Inicie o servidor para carregar a pagina ou use captura de tela/OBS.
+                              </span>
+                            </div>
+                          )}
+                          <iframe
+                            ref={directIframeRef}
+                            title="Pagina direta para captura"
+                            src={proxyIframeUrl}
+                            className="block flex-1 border-0 bg-white"
+                            onLoad={() => {
+                              setDirectPageReady(false);
+                              setDirectPageState('dom-ready');
+                              setDirectCaptureState('unavailable');
+                              setDirectLinkStatus('Preview limitado carregado; OCR direto indisponivel no navegador comum.');
+                              addDirectLog('[LinkDireto] iframe/proxy preview carregado');
+                              updateDirectPageSize();
+                            }}
+                            onError={() => {
+                              setDirectPageReady(false);
+                              setDirectPageState('failed');
+                              setDirectCaptureState('unavailable');
+                              addDirectLog('[LinkDireto] did-fail-load: iframe/proxy preview falhou');
+                              setError(
+                                backendOnline
+                                  ? 'O proxy nao conseguiu carregar a pagina. Tente o app desktop.'
+                                  : 'Backend offline. Inicie o servidor e tente novamente.',
+                              );
+                            }}
                           />
-                        )}
-                      </div>
-                    ))}
-
-                    {isSelectingRegion && currentSelection && videoRef.current && (
-                      <div
-                        className="absolute border-2 border-white bg-white/10 shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]"
-                        style={getZoneOverlayStyle({
-                          ...currentSelection,
-                          id: 'selection',
-                          name: 'Selecao',
-                          role: 'custom',
-                          color: '#FFFFFF',
-                        })}
+                          <div className="flex items-center gap-3 border-t border-slate-800 bg-[#111722] px-4 py-2">
+                            <button
+                              type="button"
+                              onClick={() => window.open(directPageUrl, '_blank', 'noopener')}
+                              className="inline-flex items-center gap-2 rounded-md bg-slate-800 px-3 py-1.5 text-xs font-black text-slate-100 transition hover:bg-slate-700"
+                            >
+                              <Link2 className="h-3.5 w-3.5" />
+                              Abrir no navegador externo
+                            </button>
+                            <span className="text-[10px] text-slate-500">
+                              {backendOnline
+                                ? 'Preview experimental via proxy; OCR direto somente no app desktop'
+                                : 'Backend offline; use Abrir no navegador externo'}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    ) : (
+                      <img
+                        ref={previewImageRef}
+                        src={previewImage || undefined}
+                        alt="Preview da source OCR do OBS"
+                        className="block max-h-full max-w-full object-contain"
+                        onLoad={(event) => {
+                          const image = event.currentTarget;
+                          if (image.naturalWidth && image.naturalHeight) {
+                            setPreviewSize({ width: image.naturalWidth, height: image.naturalHeight });
+                          }
+                        }}
                       />
                     )}
+                    {isSelectingRegion && canEditZones && (
+                      <div className="pointer-events-none absolute inset-0 z-10 bg-black/45">
+                        <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm font-black uppercase tracking-[0.22em] text-white/55">
+                          Arraste para redefinir {activeZone?.name || 'a zona'}
+                        </div>
+                      </div>
+                    )}
+                    {/* Task 5: Zone overlay — pointer-events depend on mode */}
+                    <div
+                      className="absolute inset-0 z-20"
+                      style={{
+                        pointerEvents:
+                          captureMode === 'direct' && directPageMode === 'interact'
+                            ? 'none'
+                            : canEditZones
+                              ? 'auto'
+                              : 'none',
+                      }}
+                    >
+                      {zones.map((zone, index) => (
+                        <div
+                          key={zone.id}
+                          onPointerDown={(event) => startDraggingZone(event, index)}
+                          className={cn(
+                            'absolute border-2 transition-colors',
+                            canEditZones ? 'pointer-events-auto' : 'pointer-events-none',
+                            isSelectingRegion ? 'cursor-default' : 'cursor-move',
+                            activeZoneIndex === index
+                              ? 'shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]'
+                              : 'opacity-80',
+                            isSelectingRegion && activeZoneIndex === index ? 'hidden' : '',
+                          )}
+                          style={{
+                            ...getZoneOverlayStyle(zone),
+                            borderColor: zone.color,
+                          }}
+                        >
+                          <span
+                            className="absolute -top-7 left-0 rounded-t px-2 py-1 text-[10px] font-black uppercase tracking-wide text-slate-950"
+                            style={{ backgroundColor: zone.color }}
+                          >
+                            {zone.name}
+                          </span>
+                          <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-white">
+                            {Math.round(zone.width)}x{Math.round(zone.height)}
+                          </span>
+                          {!isSelectingRegion && canEditZones && (
+                            <div
+                              onPointerDown={(event) => startResizingZone(event, index)}
+                              className="absolute bottom-0 right-0 h-4 w-4 cursor-se-resize rounded-tl"
+                              style={{ backgroundColor: zone.color }}
+                            />
+                          )}
+                        </div>
+                      ))}
+
+                      {isSelectingRegion && currentSelection && previewSize && (
+                        <div
+                          className="absolute border-2 border-white bg-white/10 shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]"
+                          style={getZoneOverlayStyle({
+                            ...currentSelection,
+                            id: 'selection',
+                            name: 'Selecao',
+                            role: 'custom',
+                            color: '#FFFFFF',
+                          })}
+                        />
+                      )}
+                    </div>
                   </div>
                 </>
               ) : (
@@ -1379,10 +2887,19 @@ const CaptureStudio = React.memo(function CaptureStudio({
                     <Camera className="h-11 w-11 text-slate-600" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-black text-white">Conecte uma fonte visual</h3>
+                    <h3 className="text-lg font-black text-white">
+                      {captureMode === 'screen'
+                        ? 'Selecione a janela do chat'
+                        : captureMode === 'direct'
+                          ? 'Abra o link da live'
+                          : 'Conecte a source do OBS'}
+                    </h3>
                     <p className="mt-2 text-sm leading-6 text-slate-500">
-                      Escolha tela ou janela, ajuste as zonas e inicie a leitura para alimentar a
-                      Persona em tempo real.
+                      {captureMode === 'screen'
+                        ? 'Use a captura de janela/tela para ver o chat se movendo em tempo real, ajustar as zonas e iniciar os gatilhos.'
+                        : captureMode === 'direct'
+                          ? 'Cole o link, abra a pagina aqui, interaja normalmente e alterne para editar o recorte quando precisar.'
+                          : 'Atualize o preview da source dedicada, ajuste as zonas e inicie a leitura para alimentar a Persona em tempo real.'}
                     </p>
                   </div>
                 </div>
@@ -1547,6 +3064,8 @@ const CaptureStudio = React.memo(function CaptureStudio({
                           <span>{Math.round(event.confidence * 100)}% conf.</span>
                         )}
                         {event.latencyMs !== null && <span>{Math.round(event.latencyMs)}ms</span>}
+                        {event.deduped && <span>dedup: {event.duplicateReason || 'repetido'}</span>}
+                        {event.captureMode && <span>{event.captureMode}</span>}
                       </div>
                     </div>
                   ))
@@ -1570,6 +3089,23 @@ const CaptureStudio = React.memo(function CaptureStudio({
                     style={{ imageRendering: 'pixelated' }}
                   />
                 )}
+                {captureMode === 'direct' && directCapturePreview && (
+                  <div className="space-y-2">
+                    <img
+                      src={directCapturePreview}
+                      alt="Preview da captura Link Direto"
+                      className="h-28 w-full rounded-md border border-slate-800 bg-black object-contain"
+                    />
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-300">
+                      Captura testada: {directCaptureSize?.width || 0}x{directCaptureSize?.height || 0}
+                    </p>
+                  </div>
+                )}
+                {captureMode === 'direct' && directCaptureError && (
+                  <p className="rounded-md border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+                    {directCaptureError}
+                  </p>
+                )}
                 <pre className="max-h-36 overflow-y-auto whitespace-pre-wrap rounded-md border border-slate-800 bg-slate-950/70 p-3 text-xs leading-5 text-slate-300">
                   {currentRawText || '(aguardando captura)'}
                 </pre>
@@ -1581,11 +3117,33 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 )}
               </div>
             </section>
+
+            {/* Task 3: Webview diagnostic logs (console visual) */}
+            {captureMode === 'direct' && webviewLogs.length > 0 && (
+              <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)]">
+                <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+                  <h3 className="text-sm font-black text-white">Console WebView</h3>
+                  <button
+                    type="button"
+                    onClick={() => setWebviewLogs([])}
+                    className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-white"
+                    title="Limpar logs"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <div className="max-h-[200px] overflow-y-auto p-3">
+                  {webviewLogs.map((log, idx) => (
+                    <p key={idx} className="font-mono text-[10px] leading-4 text-slate-400">
+                      {log}
+                    </p>
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
         </aside>
       </div>
-
-      <canvas ref={captureCanvasRef} className="hidden" />
     </main>
   );
 });

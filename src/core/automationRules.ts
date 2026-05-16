@@ -43,7 +43,7 @@ export const DEFAULT_AUTOMATION_RULES: AutomationRule[] = [
         type: 'switch_scene',
         label: 'Trocar cena OBS',
         capability: 'obs.switch_scene',
-        payload: { scene: '{requestedScene}' },
+        payload: { scene: '{requestedScene}', sceneName: '{requestedScene}' },
         source: 'rule',
         ruleId: 'rule-redeem-scene',
       },

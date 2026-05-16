@@ -3,23 +3,27 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "main": "dist-electron/main.mjs",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
-    "dev:desktop": "cross-env ELECTRON=true vite --port=3000 --host=0.0.0.0",
     "dev:api": "venv\\Scripts\\python.exe -m uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload",
+    "dev:agent": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-agent.ps1",
     "dev:n8n": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-n8n.ps1",
+    "start": "node hostinger-server.mjs",
+    "hostinger:build": "npm run build",
+    "hostinger:start": "node hostinger-server.mjs",
     "build": "vite build",
-    "build:desktop": "cross-env ELECTRON=true vite build && electron-builder",
+    "generate:branding": "venv\\Scripts\\python.exe scripts\\generate-branding-assets.py",
     "preview": "vite preview",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "test": "vitest",
-    "test:backend": "venv\\Scripts\\pytest.exe"
+    "test:backend": "venv\\Scripts\\python.exe -m pytest"
   },
   "dependencies": {
+    "@xyflow/react": "^12.10.2",
+    "better-sqlite3": "^11.10.0",
     "clsx": "^2.1.1",
     "lucide-react": "^1.14.0",
     "react": "^19.0.0",
@@ -36,10 +40,6 @@
     "@vitejs/plugin-react": "^6.0.1",
     "@vitest/coverage-v8": "^4.1.5",
     "autoprefixer": "^10.4.21",
-    "cross-env": "^10.1.0",
-    "electron": "^41.5.0",
-    "electron-builder": "^26.8.1",
-    "esbuild": "^0.28.0",
     "eslint": "^10.3.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
@@ -52,8 +52,6 @@
     "typescript": "~5.8.2",
     "typescript-eslint": "^8.59.2",
     "vite": "^8.0.10",
-    "vite-plugin-electron": "^0.29.1",
-    "vite-plugin-electron-renderer": "^0.14.7",
     "vitest": "^4.1.5"
   }
 }
