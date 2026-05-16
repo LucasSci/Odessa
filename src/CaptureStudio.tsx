@@ -421,17 +421,36 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const zones = useMemo(() => activePreset?.zones || [], [activePreset?.zones]);
   const activeZone = zones[activeZoneIndex] || zones[0];
 
-  // ⚡ Bolt: Memoize expensive array operations to prevent recalculation on every render
-  const successfulEvents = useMemo(() => captureEvents.filter((event) => event.routeStatus === 'sent'), [captureEvents]);
   const lastEvent = captureEvents[captureEvents.length - 1];
-  const averageConfidence = useMemo(() =>
-    successfulEvents.reduce((sum, event) => sum + (event.confidence ?? 0), 0) /
-    Math.max(1, successfulEvents.filter((event) => event.confidence !== null).length)
-  , [successfulEvents]);
-  const averageLatency = useMemo(() =>
-    successfulEvents.reduce((sum, event) => sum + (event.latencyMs ?? 0), 0) /
-    Math.max(1, successfulEvents.filter((event) => event.latencyMs !== null).length)
-  , [successfulEvents]);
+  // ⚡ Bolt: Combine expensive array operations to prevent multiple iterations and recalculation on every render
+  const { successfulEvents, averageConfidence, averageLatency } = useMemo(() => {
+    const success: LiveEvent[] = [];
+    let confSum = 0;
+    let confCount = 0;
+    let latSum = 0;
+    let latCount = 0;
+
+    for (const event of captureEvents) {
+      if (event.routeStatus === 'sent') {
+        success.push(event);
+
+        if (event.confidence !== null) {
+          confSum += event.confidence;
+          confCount++;
+        }
+        if (event.latencyMs !== null) {
+          latSum += event.latencyMs;
+          latCount++;
+        }
+      }
+    }
+
+    return {
+      successfulEvents: success,
+      averageConfidence: confCount === 0 ? 0 : confSum / confCount,
+      averageLatency: latCount === 0 ? 0 : latSum / latCount
+    };
+  }, [captureEvents]);
   const backendOnline = backendHealth?.status === 'ok' && !healthError;
 
   const updateActivePresetZones = useCallback(
