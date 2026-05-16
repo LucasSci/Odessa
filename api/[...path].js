@@ -325,14 +325,18 @@ async function ensureCloudSchema() {
 async function getCloudValue(key) {
   const sql = getSql();
   if (!sql) return null;
-  await ensureCloudSchema();
-  const rows = await sql`SELECT value, updated_at FROM odessa_kv WHERE key = ${key} LIMIT 1`;
-  const row = rows[0];
-  if (!row) return null;
-  return {
-    value: row.value,
-    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
-  };
+  try {
+    await ensureCloudSchema();
+    const rows = await sql`SELECT value, updated_at FROM odessa_kv WHERE key = ${key} LIMIT 1`;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      value: row.value,
+      updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function setCloudValue(key, value) {
@@ -565,7 +569,12 @@ async function loadCloudConfig() {
 
 async function configWithCloudVideos(config) {
   const safeConfig = config && typeof config === 'object' ? structuredClone(config) : {};
-  const cloudVideos = await listCloudVideos();
+  let cloudVideos = [];
+  try {
+    cloudVideos = await listCloudVideos();
+  } catch {
+    cloudVideos = [];
+  }
   const byId = new Map();
   for (const video of Array.isArray(safeConfig.videos) ? safeConfig.videos : []) {
     if (video?.id) byId.set(video.id, { ...video });
