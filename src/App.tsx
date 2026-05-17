@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
+import LoginScreen from './LoginScreen';
 import OdessaLiveCenter, { type AdvancedPanel } from './OdessaLiveCenter';
 import PersonaOverlay from './PersonaOverlay';
 import { getRecentEvents, replaceEvents } from './core/eventBus';
 import { useAutopilotRuntime } from './core/useAutopilotRuntime';
 import { apiUrl } from './lib/api';
+import { installCredentialedFetch } from './lib/fetchCredentials';
 import type { CapturedMessage } from './types';
+
+installCredentialedFetch();
 
 type LiveConfig = {
   voiceEnabled?: boolean;
@@ -93,12 +97,24 @@ function loadLiveConfig(): LiveConfig {
 }
 
 export default function App() {
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [requestedPanel, setRequestedPanel] = useState<AdvancedPanel>(() => getPanelFromHash());
   const [capturedText, setCapturedTextState] = useState<CapturedMessage[]>(() => getRecentEvents());
   const [liveConfigOpen, setLiveConfigOpen] = useState(false);
   const [liveConfig, setLiveConfig] = useState<LiveConfig>(() => loadLiveConfig());
   const [liveStartError, setLiveStartError] = useState<string | null>(null);
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
+
+  useEffect(() => {
+    // Skip auth check for overlay (OBS browser source)
+    if (getPanelFromHash() === ('overlay' as AdvancedPanel)) {
+      setAuthenticated(true);
+      return;
+    }
+    fetch(apiUrl('/auth/me'), { credentials: 'include' })
+      .then((res) => setAuthenticated(res.ok))
+      .catch(() => setAuthenticated(false));
+  }, []);
 
   const setCapturedText = useCallback<Dispatch<SetStateAction<CapturedMessage[]>>>((value) => {
     setCapturedTextState((current) => {
@@ -287,6 +303,17 @@ export default function App() {
     return <PersonaOverlay />;
   }
 
+  if (authenticated === null) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg, #0a0a0f)' }}>
+        <p style={{ color: 'var(--t3, #888)', fontSize: 14 }}>Carregando...</p>
+      </div>
+    );
+  }
+
+  if (!authenticated) {
+    return <LoginScreen onLogin={() => setAuthenticated(true)} />;
+  }
 
   return (
     <OdessaLiveCenter
