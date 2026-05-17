@@ -12,7 +12,8 @@ const SESSION_TTL_SECONDS = Number(process.env.ODESSA_SESSION_TTL_SECONDS || 12 
 const DEFAULT_ADMIN_EMAIL = 'lucasbatista.c.l@gmail.com';
 const DEFAULT_PASSWORD_HASH = 'ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f'; // 12345678
 const ADMIN_EMAIL = (process.env.ODESSA_ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL).trim().toLowerCase();
-const ADMIN_PASSWORD_HASH = (process.env.ODESSA_ADMIN_PASSWORD_HASH || '').trim();
+const _rawAdminHash = (process.env.ODESSA_ADMIN_PASSWORD_HASH || '').trim();
+const ADMIN_PASSWORD_HASH = _rawAdminHash && /^[0-9a-f]{64}$/i.test(_rawAdminHash) ? _rawAdminHash : _rawAdminHash ? crypto.createHash('sha256').update(_rawAdminHash).digest('hex') : '';
 const SESSION_SECRET = process.env.ODESSA_SESSION_SECRET || 'odessa-hostinger-session-secret-v1-change-in-env';
 const AGENT_TOKEN = process.env.ODESSA_AGENT_TOKEN || '+jj4LlhjinNG46KhmJxqgm0g4t4JYizSmiW12g1ZJy8=';
 const AGENT_STALE_MS = Number(process.env.ODESSA_AGENT_STALE_MS || 45_000);
