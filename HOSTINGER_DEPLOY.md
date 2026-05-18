@@ -16,6 +16,8 @@ Este caminho usa a Hostinger como um Node.js Web App gerenciado. A Odessa roda c
 6. Use:
    - Build command: `npm run hostinger:build`
    - Start command: `npm start`
+   - Entry point: `app.js` (ou `hostinger-server.mjs`)
+7. Certifique-se de que o `.htaccess` esta na raiz do projeto — ele garante que requests para `/api/*` sejam encaminhados ao Node.js em vez de retornar 404 pelo LiteSpeed.
 
 ## Variaveis de ambiente
 

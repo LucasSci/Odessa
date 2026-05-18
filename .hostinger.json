@@ -1,0 +1,7 @@
+{
+  "app_type": "custom",
+  "node_version": 22,
+  "entry_file": "hostinger-server.mjs",
+  "build_script": "build",
+  "package_manager": "npm"
+}

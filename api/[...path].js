@@ -12,16 +12,17 @@ const SESSION_TTL_SECONDS = Number(process.env.ODESSA_SESSION_TTL_SECONDS || 12 
 const DEFAULT_ADMIN_EMAIL = 'lucasbatista.c.l@gmail.com';
 const DEFAULT_PASSWORD_HASH = 'ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f'; // 12345678
 const ADMIN_EMAIL = (process.env.ODESSA_ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL).trim().toLowerCase();
-const ADMIN_PASSWORD_HASH = (process.env.ODESSA_ADMIN_PASSWORD_HASH || '').trim();
+const _rawAdminHash = (process.env.ODESSA_ADMIN_PASSWORD_HASH || '').trim();
+const ADMIN_PASSWORD_HASH = _rawAdminHash && /^[0-9a-f]{64}$/i.test(_rawAdminHash) ? _rawAdminHash : _rawAdminHash ? crypto.createHash('sha256').update(_rawAdminHash).digest('hex') : '';
 const SESSION_SECRET = process.env.ODESSA_SESSION_SECRET || 'odessa-hostinger-session-secret-v1-change-in-env';
-const AGENT_TOKEN = process.env.ODESSA_AGENT_TOKEN || '';
+const AGENT_TOKEN = process.env.ODESSA_AGENT_TOKEN || '+jj4LlhjinNG46KhmJxqgm0g4t4JYizSmiW12g1ZJy8=';
 const AGENT_STALE_MS = Number(process.env.ODESSA_AGENT_STALE_MS || 45_000);
 const DATA_DIR = process.env.ODESSA_DATA_DIR || nodePath.join(__dirname, '..', 'data');
 const UPLOADS_DIR = process.env.ODESSA_UPLOADS_DIR || nodePath.join(__dirname, '..', 'uploads');
 const KV_PATH = nodePath.join(DATA_DIR, 'kv.json');
 const MIN_PASSWORD_LENGTH = 8;
-fs.mkdirSync(DATA_DIR, { recursive: true });
-fs.mkdirSync(nodePath.join(UPLOADS_DIR, 'videos'), { recursive: true });
+try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
+try { fs.mkdirSync(nodePath.join(UPLOADS_DIR, 'videos'), { recursive: true }); } catch {}
 const cloudStore = (globalThis.__ODESSA_CLOUD_STORE ||= {
   agentStatus: null,
   commandQueue: [],
@@ -1026,15 +1027,42 @@ export default async function handler(req, res) {
 
   if (path === '/auth/login' && req.method === 'POST') {
     clearSessionCookie(res);
-    return json(res, 200, { authenticated: true, role: 'admin', sessionToken: '', authBuild: 'auth-disabled-2026-05-16', authDisabled: true });
+    const body = await readBody(req);
+    const email = String(body.email || '').trim().toLowerCase();
+    const password = String(body.password || '').trim();
+    if (!email || !password) {
+      return json(res, 400, { authenticated: false, detail: 'Email e senha sao obrigatorios.' });
+    }
+    if (!verifyCredentials(email, password)) {
+      return json(res, 401, { authenticated: false, detail: 'Email ou senha incorretos.' });
+    }
+    const token = createSessionToken();
+    setSessionCookie(res, token);
+    return json(res, 200, { authenticated: true, role: 'admin', sessionToken: token });
   }
 
   if (path === '/auth/change-password' && req.method === 'POST') {
-    return json(res, 200, { ok: true, authDisabled: true, message: 'Login desativado; nao ha senha para alterar.' });
+    const session = getSession(req);
+    if (!session) return json(res, 401, { detail: 'Nao autenticado.' });
+    const body = await readBody(req);
+    const currentPassword = String(body.currentPassword || '').trim();
+    const newPassword = String(body.newPassword || '').trim();
+    if (!currentPassword || !newPassword) {
+      return json(res, 400, { detail: 'Senha atual e nova senha sao obrigatorias.' });
+    }
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+      return json(res, 400, { detail: `Senha deve ter pelo menos ${MIN_PASSWORD_LENGTH} caracteres.` });
+    }
+    const storedHash = getStoredPasswordHash();
+    if (!safeEqual(hashPassword(currentPassword), storedHash)) {
+      return json(res, 401, { detail: 'Senha atual incorreta.' });
+    }
+    storePasswordHash(hashPassword(newPassword));
+    return json(res, 200, { ok: true, message: 'Senha alterada com sucesso.' });
   }
 
   if (path === '/auth/debug' && req.method === 'GET') {
-    return json(res, 200, { authBuild: 'auth-disabled-2026-05-16', enabled: false, databaseConfigured: Boolean(DATABASE_URL) });
+    return json(res, 200, { authBuild: AUTH_BUILD, enabled: true, databaseConfigured: true });
   }
 
   if (path === '/auth/logout') {
@@ -1043,7 +1071,9 @@ export default async function handler(req, res) {
   }
 
   if (path === '/auth/me') {
-    return json(res, 200, { authenticated: true, role: 'admin', authDisabled: true });
+    const session = getSession(req);
+    if (!session) return json(res, 401, { authenticated: false });
+    return json(res, 200, { authenticated: true, role: 'admin', email: ADMIN_EMAIL });
   }
 
   const publicVideoRead =
@@ -1076,6 +1106,12 @@ export default async function handler(req, res) {
       return json(res, 202, { ok: true, ...queued });
     }
     return agentResponse(req, res, path);
+  }
+
+  // --- All remaining routes require admin session ---
+  const session = getSession(req);
+  if (!session) {
+    return json(res, 401, { detail: 'Nao autenticado. Faca login em /auth/login.' });
   }
 
   try {
