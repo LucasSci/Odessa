@@ -102,7 +102,14 @@ function loadLiveConfig(): LiveConfig {
   };
   try {
     const raw = window.localStorage.getItem(LIVE_CONFIG_KEY);
-    return { ...defaults, ...(raw ? JSON.parse(raw) : {}) };
+    if (!raw) return defaults;
+    const stored = JSON.parse(raw) as Partial<LiveConfig>;
+    // Migrate: old configs had these as false — force true so Iniciar Live works
+    if (stored.startAutomation === false) delete stored.startAutomation;
+    if (stored.startTransmission === false) delete stored.startTransmission;
+    // Remove deprecated actionMode
+    delete stored.actionMode;
+    return { ...defaults, ...stored };
   } catch {
     return defaults;
   }
@@ -222,36 +229,10 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  const startLiveWithConfig = async () => {
+  const startLiveWithConfig = () => {
     setLiveStartError(null);
 
-    // OBS preparation — always attempt when enabled
-    if (liveConfig.prepareObs !== false) {
-      try {
-        const health = await routeLiveHealth(obsSettings);
-        let obsReady = health.ok;
-
-        if (!obsReady) {
-          const setup = await routeSetupLiveScene(obsSettings);
-          obsReady = setup.ok;
-          if (!obsReady) {
-            // OBS not available — warn but don't block automation
-            console.warn('[Odessa] OBS nao disponivel:', setup.error || health.error);
-          }
-        }
-
-        if (obsReady && liveConfig.showStage !== false) {
-          const stage = await routeShowStage(obsSettings);
-          if (!stage.ok) {
-            console.warn('[Odessa] Falha ao mostrar palco:', stage.error);
-          }
-        }
-      } catch (err) {
-        // OBS unavailable — log but don't block automation start
-        console.warn('[Odessa] OBS WebSocket indisponivel:', err);
-      }
-    }
-
+    // 1. ALWAYS start automation first — this is the primary action
     const toolPatches = [
       {
         capability: 'tts.speak',
@@ -259,26 +240,35 @@ export default function App() {
       },
       { capability: 'chat.reply', patch: { enabled: !!liveConfig.enableChat } },
     ];
+    runtime.start({ voiceEnabled: liveConfig.voiceEnabled, toolPatches });
 
+    // 2. Start capture if configured
     if (liveConfig.startCapture) {
       try {
         window.dispatchEvent(new CustomEvent('odessa:start-live', { detail: { prefer: 'monitor' } }));
-      } catch {
-        // Capture can still be started manually.
+      } catch { /* Capture can still be started manually. */ }
+    }
+
+    // 3. OBS preparation + transmission — runs in background, never blocks
+    (async () => {
+      try {
+        if (liveConfig.prepareObs !== false) {
+          const health = await routeLiveHealth(obsSettings);
+          if (!health.ok) {
+            await routeSetupLiveScene(obsSettings);
+          }
+          if (liveConfig.showStage !== false) {
+            await routeShowStage(obsSettings);
+          }
+        }
+        // Start transmission
+        if (liveConfig.startTransmission !== false) {
+          await routeStartTransmission(obsSettings);
+        }
+      } catch (err) {
+        console.warn('[Odessa] OBS:', err);
       }
-    }
-
-    // Always start automation
-    if (liveConfig.startAutomation !== false) {
-      runtime.start({ voiceEnabled: liveConfig.voiceEnabled, toolPatches });
-    }
-
-    // Start OBS transmission
-    if (liveConfig.startTransmission !== false) {
-      routeStartTransmission(obsSettings).catch((err) => {
-        console.warn('[Odessa] Falha ao iniciar transmissao:', err);
-      });
-    }
+    })();
   };
 
   if (requestedPanel === ('overlay' as AdvancedPanel)) {
