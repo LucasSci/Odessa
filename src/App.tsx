@@ -234,22 +234,10 @@ export default function App() {
 
   const startLiveWithConfig = async () => {
     setLiveStartError(null);
-    if ((liveConfig.actionMode || 'simulated') !== 'real') {
-      try {
-        await fetch(apiUrl('/obs/start-live/dry-run'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(liveConfig),
-        });
-      } catch {
-        // Dry-run visibility is helpful, but it should not block a local simulated start.
-      }
-      setLiveStartError('Iniciar Live esta em modo seguro/simulado. Altere para "Real ao clicar" em Configuracoes para executar OBS/transmissao.');
-      return;
-    }
+    const isRealMode = (liveConfig.actionMode || 'simulated') === 'real';
 
-    // Unified path: uses direct WebSocket when connected, falls back to agent relay
-    if (liveConfig.prepareObs !== false) {
+    // OBS preparation — only in real mode
+    if (isRealMode && liveConfig.prepareObs !== false) {
       try {
         const health = await routeLiveHealth(obsSettings);
         let obsReady = health.ok;
@@ -282,6 +270,13 @@ export default function App() {
         );
         return;
       }
+    } else if (!isRealMode) {
+      // Log dry-run for visibility, but don't block automation start
+      fetch(apiUrl('/obs/start-live/dry-run'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(liveConfig),
+      }).catch(() => {});
     }
 
     const toolPatches = [
@@ -304,8 +299,12 @@ export default function App() {
       runtime.start({ voiceEnabled: liveConfig.voiceEnabled, toolPatches });
     }
 
-    if (liveConfig.startTransmission) {
+    if (isRealMode && liveConfig.startTransmission) {
       routeStartTransmission(obsSettings).catch(() => undefined);
+    }
+
+    if (!isRealMode) {
+      setLiveStartError('Modo simulado: automacao iniciada, mas OBS/transmissao nao foram acionados. Mude para "Real" nas Configuracoes para controlar o OBS.');
     }
   };
 
