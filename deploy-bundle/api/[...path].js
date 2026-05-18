@@ -1343,21 +1343,6 @@ async function protectedResponse(req, res, rawPath) {
         if (idleVideoId) saveCloudVideoState(idleVideoId);
       }
 
-      const obsSettings = loadObsSettings(req);
-      const enrichedPayload = { ...body };
-      if (!enrichedPayload.transmissionMode && obsSettings.transmissionMode) {
-        enrichedPayload.transmissionMode = obsSettings.transmissionMode;
-      }
-      if (actionPath === 'start-live') {
-        if (!enrichedPayload.stageUrl && obsSettings.stageUrl) enrichedPayload.stageUrl = obsSettings.stageUrl;
-        if (!enrichedPayload.startupSceneName && obsSettings.startupSceneName) enrichedPayload.startupSceneName = obsSettings.startupSceneName;
-        if (!enrichedPayload.liveSceneName && obsSettings.liveSceneName) enrichedPayload.liveSceneName = obsSettings.liveSceneName;
-        if (!enrichedPayload.stageSourceName && obsSettings.stageSourceName) enrichedPayload.stageSourceName = obsSettings.stageSourceName;
-        if (!enrichedPayload.chatSourceName) enrichedPayload.chatSourceName = obsSettings.chatSourceName || obsSettings.ocrSourceName;
-        if (!enrichedPayload.canvasWidth && obsSettings.canvasWidth) enrichedPayload.canvasWidth = obsSettings.canvasWidth;
-        if (!enrichedPayload.canvasHeight && obsSettings.canvasHeight) enrichedPayload.canvasHeight = obsSettings.canvasHeight;
-      }
-
       const queued = enqueueAgentCommand({
         type:
           actionPath === 'start-live'
@@ -1365,7 +1350,7 @@ async function protectedResponse(req, res, rawPath) {
             : actionPath === 'setup-live-scene'
               ? 'obs.setup_live_scene'
               : `obs.${actionPath.replace(/\//g, '.').replace(/-/g, '_')}`,
-        payload: enrichedPayload,
+        payload: body,
       });
       return json(res, 202, {
         ok: true,

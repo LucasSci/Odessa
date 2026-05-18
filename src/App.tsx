@@ -7,8 +7,29 @@ import { getRecentEvents, replaceEvents } from './core/eventBus';
 import { useAutopilotRuntime } from './core/useAutopilotRuntime';
 import { apiUrl } from './lib/api';
 import { installCredentialedFetch } from './lib/fetchCredentials';
-import { connectObs, onObsStatus, type ObsDirectStatus } from './lib/obsWebSocket';
+import { connectObs, disconnectObs, onObsStatus, type ObsDirectStatus } from './lib/obsWebSocket';
+import {
+  routeSetupLiveScene,
+  routeShowStage,
+  routeStartTransmission,
+  routeLiveHealth,
+} from './lib/obsCommandRouter';
 import type { CapturedMessage } from './types';
+
+type ObsSettingsState = {
+  websocketUrl?: string;
+  websocketPassword?: string;
+  startupSceneName?: string;
+  liveSceneName?: string;
+  stageSourceName?: string;
+  chatSourceName?: string;
+  stageUrl?: string;
+  canvasWidth?: number;
+  canvasHeight?: number;
+  transmissionMode?: string;
+  ocrSourceName?: string;
+  enabled?: boolean;
+};
 
 installCredentialedFetch();
 
@@ -107,6 +128,7 @@ export default function App() {
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
 
   const [obsDirectStatus, setObsDirectStatus] = useState<ObsDirectStatus | null>(null);
+  const [obsSettings, setObsSettings] = useState<ObsSettingsState | null>(null);
 
   useEffect(() => {
     // Skip auth check for overlay (OBS browser source)
@@ -119,16 +141,34 @@ export default function App() {
       .catch(() => setAuthenticated(false));
   }, []);
 
-  // Try direct OBS WebSocket connection after auth
+  // Direct OBS WebSocket connection — works both local and cloud.
+  // Fetches OBS settings from API, then connects to ws://localhost:<port>.
   useEffect(() => {
     if (!authenticated) return;
     const unsub = onObsStatus(setObsDirectStatus);
-    // Try localhost first (same machine), then LAN IP from saved settings
-    const savedHost = window.localStorage.getItem('odessa:obs-host') || '';
-    const savedPort = window.localStorage.getItem('odessa:obs-port') || '4455';
-    const savedPass = window.localStorage.getItem('odessa:obs-password') || '';
-    const url = savedHost ? `ws://${savedHost}:${savedPort}` : `ws://localhost:${savedPort}`;
-    connectObs(url, savedPass);
+
+    // Fetch settings from API and connect to OBS directly
+    fetch(apiUrl('/obs/settings'))
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { ok?: boolean; settings?: ObsSettingsState } | null) => {
+        if (!data?.ok || !data?.settings) return;
+        const settings = data.settings;
+        setObsSettings(settings);
+        // Extract port from stored URL (might be ws://192.168.x.x:4455)
+        let port = '4455';
+        try {
+          const parsed = new URL(settings.websocketUrl || 'ws://localhost:4455');
+          port = parsed.port || '4455';
+        } catch { /* use default */ }
+        // Always connect via localhost (browser is on same machine as OBS)
+        const directUrl = `ws://localhost:${port}`;
+        connectObs(directUrl, settings.websocketPassword || '');
+      })
+      .catch(() => {
+        // Fallback: try default OBS WebSocket without settings
+        connectObs('ws://localhost:4455');
+      });
+
     return unsub;
   }, [authenticated]);
 
@@ -144,7 +184,8 @@ export default function App() {
 
   const refreshAgentStatus = useCallback(async () => {
     try {
-      if (isCloudHosted()) {
+      // On localhost, try the local agent HTTP server first for faster response
+      if (!isCloudHosted()) {
         try {
           const localResponse = await fetch(`${LOCAL_AGENT_URL}/status`, { credentials: 'omit' });
           if (localResponse.ok) {
@@ -152,9 +193,10 @@ export default function App() {
             return;
           }
         } catch {
-          // Fall back to the cloud heartbeat status below.
+          // Fall through to cloud API
         }
       }
+      // Cloud or fallback: always use the Hostinger API (agent reports status via heartbeat)
       const response = await fetch(apiUrl('/agent?action=status'));
       if (!response.ok) {
         setAgentStatus(null);
@@ -192,7 +234,6 @@ export default function App() {
 
   const startLiveWithConfig = async () => {
     setLiveStartError(null);
-    const hostedOnVercel = isCloudHosted();
     if ((liveConfig.actionMode || 'simulated') !== 'real') {
       try {
         await fetch(apiUrl('/obs/start-live/dry-run'), {
@@ -207,65 +248,19 @@ export default function App() {
       return;
     }
 
-    if (hostedOnVercel) {
-      try {
-        const localResponse = await fetch(`${LOCAL_AGENT_URL}/command`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'omit',
-          body: JSON.stringify({
-            type: 'live.start',
-            payload: liveConfig,
-          }),
-        });
-        const localResult = (await localResponse.json().catch(() => ({}))) as {
-          ok?: boolean;
-          result?: { error?: string | null };
-        };
-        if (localResponse.ok && localResult.ok) {
-          await refreshAgentStatus();
-          setLiveStartError('Comando executado pelo Odessa Agent local.');
-          return;
-        }
-        const response = await fetch(apiUrl('/agent?action=commands'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'live.start',
-            payload: liveConfig,
-          }),
-        });
-        const result = (await response.json().catch(() => ({}))) as { ok?: boolean; queueSize?: number; detail?: string };
-        if (!response.ok || !result.ok) {
-          setLiveStartError(
-            localResult.result?.error ||
-              result.detail ||
-              'Nao foi possivel acionar o Odessa Agent local. Verifique se npm run dev:agent esta rodando.',
-          );
-          return;
-        }
-        await refreshAgentStatus();
-        setLiveStartError(`Comando enviado para o Odessa Agent. Fila atual: ${result.queueSize ?? 1}.`);
-      } catch (err) {
-        setLiveStartError(err instanceof Error ? err.message : 'Falha ao acionar o Odessa Agent.');
-      }
-      return;
-    }
-
+    // Unified path: uses direct WebSocket when connected, falls back to agent relay
     if (liveConfig.prepareObs !== false) {
       try {
-        const response = await fetch(apiUrl('/obs/live-health'));
-        const obsHealth = (await response.json().catch(() => ({}))) as ObsHealth;
-        let obsReady = response.ok && obsHealth.ok;
+        const health = await routeLiveHealth(obsSettings);
+        let obsReady = health.ok;
 
         if (!obsReady) {
-          const setupResponse = await fetch(apiUrl('/obs/setup-live-scene'), { method: 'POST' });
-          const setup = (await setupResponse.json().catch(() => ({}))) as { ok?: boolean; error?: string | null };
-          obsReady = setupResponse.ok && !!setup.ok;
+          const setup = await routeSetupLiveScene(obsSettings);
+          obsReady = setup.ok;
           if (!obsReady) {
             setLiveStartError(
               setup.error ||
-                obsHealth.error ||
+                (health.error as string) ||
                 'Nao foi possivel preparar a Mesa OBS. Verifique se o OBS esta aberto e se o WebSocket esta ativo.',
             );
             return;
@@ -273,10 +268,9 @@ export default function App() {
         }
 
         if (liveConfig.showStage !== false) {
-          const stageResponse = await fetch(apiUrl('/obs/show-stage'), { method: 'POST' });
-          const stage = (await stageResponse.json().catch(() => ({}))) as { ok?: boolean; error?: string | null };
-          if (!stageResponse.ok || !stage.ok) {
-            setLiveStartError(stage.error || 'Nao foi possivel colocar o palco ao vivo no OBS.');
+          const stage = await routeShowStage(obsSettings);
+          if (!stage.ok) {
+            setLiveStartError((stage.error as string) || 'Nao foi possivel colocar o palco ao vivo no OBS.');
             return;
           }
         }
@@ -310,8 +304,8 @@ export default function App() {
       runtime.start({ voiceEnabled: liveConfig.voiceEnabled, toolPatches });
     }
 
-  if (liveConfig.startTransmission) {
-      fetch(apiUrl('/obs/transmission/start'), { method: 'POST' }).catch(() => undefined);
+    if (liveConfig.startTransmission) {
+      routeStartTransmission(obsSettings).catch(() => undefined);
     }
   };
 
@@ -341,10 +335,22 @@ export default function App() {
       liveConfigOpen={liveConfigOpen}
       liveStartError={liveStartError}
       agentStatus={agentStatus}
+      obsDirectStatus={obsDirectStatus}
+      obsSettingsFromApp={obsSettings}
       onRefreshAgentStatus={refreshAgentStatus}
       onLiveConfigOpenChange={setLiveConfigOpen}
       onLiveConfigChange={setLiveConfig}
       onStartLive={startLiveWithConfig}
+      onObsSettingsChanged={(newSettings) => {
+        setObsSettings(newSettings);
+        let port = '4455';
+        try {
+          const parsed = new URL(newSettings.websocketUrl || 'ws://localhost:4455');
+          port = parsed.port || '4455';
+        } catch {}
+        disconnectObs();
+        connectObs(`ws://localhost:${port}`, newSettings.websocketPassword || '');
+      }}
     />
   );
 }

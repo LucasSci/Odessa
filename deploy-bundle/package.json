@@ -1,0 +1,13 @@
+{
+  "name": "odessa-mvp",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "hostinger-server.mjs",
+  "scripts": {
+    "start": "node hostinger-server.mjs"
+  },
+  "dependencies": {
+    "obs-websocket-js": "^5.0.8"
+  }
+}

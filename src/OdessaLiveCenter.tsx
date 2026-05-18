@@ -33,6 +33,14 @@ import {
 import { emitEvent } from './core/eventBus';
 import { apiUrl } from './lib/api';
 import { cn } from './lib/utils';
+import {
+  routeSetupLiveScene,
+  routeShowStart,
+  routeShowStage,
+  routeStartTransmission,
+  routeStopTransmission,
+  type CommandResult,
+} from './lib/obsCommandRouter';
 import type { AutopilotRuntimeState } from './core/useAutopilotRuntime';
 import type { CapturedMessage } from './types';
 import { Badge, Button, Card, Input, StatusDot } from './components/ui';
@@ -76,7 +84,18 @@ type AgentStatus = {
     capabilities?: string[];
     health?: {
       obsConnected?: boolean;
-      obs?: { ok?: boolean; connected?: boolean; error?: string | null };
+      obs?: {
+        ok?: boolean;
+        connected?: boolean;
+        sourceReady?: boolean;
+        screenshotReady?: boolean;
+        sceneSwitchReady?: boolean;
+        currentScene?: string | null;
+        availableScenes?: string[];
+        streaming?: boolean;
+        recording?: boolean;
+        error?: string | null;
+      };
     };
   } | null;
 };
@@ -90,10 +109,13 @@ interface OdessaLiveCenterProps {
   liveConfigOpen?: boolean;
   liveStartError?: string | null;
   agentStatus?: AgentStatus | null;
+  obsDirectStatus?: import('./lib/obsWebSocket').ObsDirectStatus | null;
+  obsSettingsFromApp?: Record<string, unknown> | null;
   onLiveConfigOpenChange?: Dispatch<SetStateAction<boolean>>;
   onLiveConfigChange?: Dispatch<SetStateAction<LiveConfig>>;
   onStartLive?: () => void | Promise<void>;
   onRefreshAgentStatus?: () => void | Promise<void>;
+  onObsSettingsChanged?: (settings: Record<string, unknown>) => void;
 }
 
 type TabKey = 'home' | 'stage' | 'flow' | 'library' | 'sources' | 'logs' | 'settings';
@@ -365,10 +387,13 @@ export default function OdessaLiveCenter({
   liveConfig = { voiceEnabled: false, enableChat: false },
   liveStartError = null,
   agentStatus = null,
+  obsDirectStatus = null,
+  obsSettingsFromApp = null,
   onLiveConfigOpenChange,
   onLiveConfigChange,
   onStartLive,
   onRefreshAgentStatus,
+  onObsSettingsChanged,
 }: OdessaLiveCenterProps) {
   const [activeTab, setActiveTab] = useState<TabKey>(() => tabFromPanel(requestedPanel));
   const [config, setConfig] = useState<PersonaConfig | null>(null);
@@ -745,21 +770,37 @@ export default function OdessaLiveCenter({
   ]);
 
   return (
-    <main className="odessa-shell flex h-screen w-screen min-h-0 flex-col overflow-hidden text-[var(--t1)]">
-      <header className="relative z-30 flex h-16 shrink-0 items-center justify-between border-b border-[var(--border2)] bg-[#06070a]/96 px-5 backdrop-blur-xl">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-sky-200/25 bg-sky-300/15 text-2xl font-bold text-sky-100 shadow-[0_0_28px_rgba(125,211,252,0.18)]">
-            O
+    <main className="flex min-h-screen w-screen flex-col text-[var(--t1)]" style={{ background: 'var(--grad-shell)' }}>
+      <header className="od-topnav sticky top-0 z-30">
+        <div className="od-brand">
+          <div className="od-brand-mark">
+            <svg width="26" height="26" viewBox="0 0 1024 1024" fill="none">
+              <circle cx="512" cy="512" r="320" stroke="url(#orbit-grad)" strokeWidth="22" fill="none" opacity="0.85" />
+              <circle cx="512" cy="512" r="200" stroke="rgba(125,211,252,0.35)" strokeWidth="1.5" fill="none" />
+              <circle cx="512" cy="512" r="120" fill="url(#core-grad)" opacity="0.22" />
+              <circle cx="770" cy="280" r="36" fill="#67e8f9" />
+              <circle cx="770" cy="280" r="56" stroke="rgba(103,232,249,0.25)" strokeWidth="1.5" fill="none" />
+              <defs>
+                <linearGradient id="orbit-grad" x1="0" y1="0" x2="1024" y2="1024">
+                  <stop offset="0%" stopColor="#f8fafc" />
+                  <stop offset="38%" stopColor="#93c5fd" />
+                  <stop offset="72%" stopColor="#22d3ee" />
+                  <stop offset="100%" stopColor="#38bdf8" />
+                </linearGradient>
+                <radialGradient id="core-grad" cx="0.5" cy="0.5" r="0.5">
+                  <stop offset="0%" stopColor="#7dd3fc" />
+                  <stop offset="100%" stopColor="transparent" />
+                </radialGradient>
+              </defs>
+            </svg>
           </div>
-          <div>
-            <div className="heading-serif text-2xl leading-none">Odessa</div>
-            <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-              Live Direction Desk
-            </div>
+          <div className="od-brand-text">
+            <div className="od-brand-name">Odessa</div>
+            <div className="od-brand-sub">Command Deck</div>
           </div>
         </div>
 
-        <nav className="hidden items-center gap-1 lg:flex">
+        <nav className="od-tabs hidden md:flex" role="tablist">
           <NavButton
             icon={<Home />}
             label="Inicio"
@@ -773,7 +814,7 @@ export default function OdessaLiveCenter({
             onClick={() => setActiveTab('stage')}
           />
           <NavButton
-            icon={<Link2 />}
+            icon={<Route />}
             label="Fluxo Reativo"
             active={activeTab === 'flow'}
             onClick={() => setActiveTab('flow')}
@@ -804,42 +845,38 @@ export default function OdessaLiveCenter({
           />
         </nav>
 
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => void onRefreshAgentStatus?.()}
-            className="hidden items-center gap-2 rounded-full border border-[var(--border2)] bg-[var(--bg2)] px-3 py-1.5 text-left sm:flex"
-            title={agentStatus?.message || 'Status do Odessa Agent'}
-          >
-            <StatusDot status={agentStatus?.agentConnected ? 'online' : 'error'} pulse={!!agentStatus?.agentConnected} />
-            <span className="text-xs font-semibold text-slate-200">
-              Agent {agentStatus?.agentConnected ? 'online' : 'offline'}
-            </span>
-            {typeof agentStatus?.queueSize === 'number' && (
-              <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-bold text-slate-300">
-                {agentStatus.queueSize}
-              </span>
-            )}
-          </button>
-          <div className="hidden items-center gap-2 rounded-full border border-[var(--border2)] bg-[var(--bg2)] px-3 py-1.5 sm:flex">
-            <StatusDot status={runtime.autopilotEnabled ? 'online' : 'idle'} pulse />
-            <span className="text-xs font-semibold text-emerald-300">
-              {runtime.autopilotEnabled ? 'AO VIVO' : 'PRONTA'}
+        <div className="od-topnav-right">
+          <div className="od-topnav-status hidden sm:flex">
+            <span
+              className="od-pill cursor-pointer"
+              data-tone={agentStatus?.agentConnected ? 'online' : 'error'}
+              onClick={() => void onRefreshAgentStatus?.()}
+              title={agentStatus?.message || 'Status do Odessa Agent'}
+            >
+              <span className="od-pill-dot" />
+              <span>Agent{typeof agentStatus?.queueSize === 'number' ? ` · ${agentStatus.queueSize}` : ''}</span>
             </span>
           </div>
-          <Button
-            size="icon"
-            variant="secondary"
+          <div className="od-topnav-divider hidden sm:block" />
+          <span
+            className={cn('od-pill hidden sm:inline-flex', runtime.autopilotEnabled ? '' : '')}
+            data-tone={runtime.autopilotEnabled ? 'live' : 'ready'}
+          >
+            <span className="od-pill-dot" />
+            <span>{runtime.autopilotEnabled ? 'Ao vivo' : 'Pronta'}</span>
+          </span>
+          <button
+            className="od-iconbtn"
             onClick={() => {
               onLiveConfigOpenChange?.(false);
               setActiveTab('settings');
             }}
-            title="Configurar Iniciar live"
+            title="Configuracoes"
           >
             <Settings className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={runtime.autopilotEnabled ? 'secondary' : 'primary'}
+          </button>
+          <button
+            className={cn('od-btn', runtime.autopilotEnabled ? 'od-btn-secondary' : 'od-btn-primary')}
             onClick={() => {
               if (runtime.autopilotEnabled) {
                 runtime.pause();
@@ -854,34 +891,17 @@ export default function OdessaLiveCenter({
           >
             <Play className="h-4 w-4" />
             {runtime.autopilotEnabled ? 'Pausar live' : 'Iniciar live'}
-          </Button>
+          </button>
         </div>
 
         {liveStartError && (
-          <div className="absolute right-5 top-[58px] z-40 max-w-md rounded-lg border border-rose-400/30 bg-rose-950/90 px-4 py-3 text-xs font-semibold leading-5 text-rose-100 shadow-2xl">
+          <div className="absolute right-5 top-[68px] z-40 rounded-[14px] px-4 py-2.5 text-[12.5px] font-semibold" style={{ background: 'rgba(248,113,113,0.14)', border: '1px solid rgba(248,113,133,0.30)', color: '#fda4af', backdropFilter: 'blur(14px)' }}>
             {liveStartError}
           </div>
         )}
       </header>
 
-      <div className="flex gap-2 overflow-x-auto border-b border-[var(--border)] px-3 py-2 lg:hidden">
-        {(['home', 'stage', 'flow', 'library', 'sources', 'logs', 'settings'] as TabKey[]).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={cn(
-              'shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold',
-              activeTab === tab
-                ? 'bg-[var(--gold)] text-[#0a0a0c]'
-                : 'bg-[var(--bg2)] text-[var(--t2)]',
-            )}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-
-      <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <section className="flex-1">
         {activeTab === 'home' && (
           <HomeDashboard
             configError={configError}
@@ -900,6 +920,8 @@ export default function OdessaLiveCenter({
             capturedText={capturedText}
             view={view}
             videoState={videoState}
+            obsDirectStatus={obsDirectStatus}
+            obsSettingsFromApp={obsSettingsFromApp}
             onRefresh={refreshVideoState}
             onPlayVideoById={playVideoById}
             onPatchFlowNodePlayback={patchFlowNodePlayback}
@@ -961,6 +983,8 @@ export default function OdessaLiveCenter({
             onRefreshHealth={runtime.refreshHealth}
             liveConfig={liveConfig}
             onLiveConfigChange={onLiveConfigChange}
+            agentStatus={agentStatus}
+            onObsSettingsChanged={onObsSettingsChanged}
             onSaved={() => {
               void runtime.refreshObsScenes();
             }}
@@ -973,8 +997,8 @@ export default function OdessaLiveCenter({
 
 function PanelLoading({ label }: { label: string }) {
   return (
-    <div className="flex h-full min-h-[320px] items-center justify-center bg-[#07080a] text-sm font-semibold text-slate-400">
-      <RefreshCw className="mr-2 h-4 w-4 animate-spin text-[var(--gold)]" />
+    <div className="flex h-full min-h-[320px] items-center justify-center text-sm font-semibold" style={{ background: 'var(--bg)', color: 'var(--t3)' }}>
+      <RefreshCw className="mr-2 h-4 w-4 animate-spin" style={{ color: 'var(--sky)' }} />
       {label}
     </div>
   );
@@ -992,31 +1016,39 @@ function PageSurface({
   children: ReactNode;
 }) {
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden p-4 lg:p-5">
-      <div className="mb-4 shrink-0 rounded-[34px] border border-white/10 bg-[#101114] p-5">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-sky-200/70">
+    <div className="flex flex-col p-3.5 lg:p-3.5" style={{ gap: 14 }}>
+      <div className="od-panel shrink-0 p-5">
+        <div className="od-eyebrow flex items-center gap-2">
           {icon}
-          Odessa console
+          Odessa · setup
         </div>
-        <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-white">{title}</h1>
-        <p className="mt-1 max-w-3xl text-sm text-slate-400">{description}</p>
+        <h1 className="mt-2 text-[28px] tracking-[-0.01em] text-[var(--t1)]" style={{ fontFamily: 'var(--font-display)', fontStyle: 'italic' }}>{title}</h1>
+        <p className="mt-1 max-w-3xl text-[12.5px] text-[var(--t3)]">{description}</p>
       </div>
-      <div className="min-h-0 flex-1 overflow-hidden rounded-[34px] border border-white/10 bg-[#07080a]">
+      <div className="shrink-0" style={{ borderRadius: 22, border: '1px solid var(--border)', background: 'var(--bg2)' }}>
         {children}
       </div>
     </div>
   );
 }
 
+function isCloudEnv() {
+  if (typeof window === 'undefined') return false;
+  const h = window.location.hostname;
+  return h !== '' && h !== 'localhost' && h !== '127.0.0.1' && h !== '::1';
+}
+
+const CLOUD_ORIGIN = typeof window !== 'undefined' && isCloudEnv() ? window.location.origin : '';
+
 const DEFAULT_OBS_SETTINGS: ObsSettings = {
   enabled: true,
-  websocketUrl: 'ws://localhost:4455',
+  websocketUrl: isCloudEnv() ? 'ws://192.168.0.11:4455' : 'ws://localhost:4455',
   websocketPassword: '',
   passwordConfigured: false,
   ocrSourceName: 'Odessa Chat OCR',
   chatSourceName: 'Odessa Chat OCR',
   stageSourceName: 'Odessa Stage Overlay',
-  stageUrl: 'http://localhost:3000/#overlay',
+  stageUrl: CLOUD_ORIGIN ? `${CLOUD_ORIGIN}/#overlay` : 'http://localhost:3000/#overlay',
   startupSceneName: 'Odessa START',
   liveSceneName: 'Odessa LIVE',
   transmissionMode: 'stream',
@@ -1131,12 +1163,16 @@ function SettingsPanel({
   liveConfig,
   onLiveConfigChange,
   onSaved,
+  agentStatus,
+  onObsSettingsChanged,
 }: {
   health: AutopilotRuntimeState['health'];
   onRefreshHealth: () => Promise<void>;
   liveConfig: LiveConfig;
   onLiveConfigChange?: Dispatch<SetStateAction<LiveConfig>>;
   onSaved: () => void;
+  agentStatus?: AgentStatus | null;
+  onObsSettingsChanged?: (settings: Record<string, unknown>) => void;
 }) {
   const [obsSettings, setObsSettings] = useState<ObsSettings>(DEFAULT_OBS_SETTINGS);
   const [obsConnection, setObsConnection] = useState<ObsConnectionFields>(() =>
@@ -1146,6 +1182,26 @@ function SettingsPanel({
   const [passwordInput, setPasswordInput] = useState('');
   const [obsHealth, setObsHealth] = useState<ObsHealthResult | null>(null);
   const [availableScenes, setAvailableScenes] = useState<string[]>([]);
+
+  // Auto-sync OBS health from Agent status (polled every 5s in App.tsx)
+  useEffect(() => {
+    const agentObs = agentStatus?.agent?.health?.obs;
+    if (!agentObs) return;
+    const connected = Boolean(agentObs.connected);
+    setObsHealth({
+      ok: connected,
+      connected,
+      sourceReady: connected,
+      screenshotReady: connected,
+      sceneSwitchReady: connected,
+      currentScene: agentObs.currentScene || null,
+      availableScenes: agentObs.availableScenes || [],
+      error: agentObs.error || null,
+    } as ObsHealthResult);
+    if (Array.isArray(agentObs.availableScenes) && agentObs.availableScenes.length > 0) {
+      setAvailableScenes(agentObs.availableScenes);
+    }
+  }, [agentStatus]);
   const [selectedSceneTest, setSelectedSceneTest] = useState('');
   const [webhooks, setWebhooks] = useState<WebhookConfig[]>([]);
   const [webhookDraft, setWebhookDraft] = useState<WebhookDraft>(EMPTY_WEBHOOK_DRAFT);
@@ -1330,6 +1386,10 @@ function SettingsPanel({
       setPasswordInput('');
       setMessage('Configuracoes do OBS salvas.');
       onSaved();
+      // Notify App.tsx to reconnect OBS WebSocket with new settings
+      if (onObsSettingsChanged) {
+        onObsSettingsChanged(payload as Record<string, unknown>);
+      }
       void onRefreshHealth();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Falha ao salvar configuracoes');
@@ -1503,9 +1563,11 @@ function SettingsPanel({
     }
   };
 
+  // In cloud mode, OBS is controlled via Agent — connected + sourceReady is enough.
+  // screenshotReady is a bonus, not a requirement for the live to work.
   const obsReady =
-    !!obsHealth?.ok && !!obsHealth.connected && !!obsHealth.sourceReady && !!obsHealth.screenshotReady;
-  const sceneSwitchReady = !!obsHealth?.connected && !!obsHealth.sceneSwitchReady;
+    !!obsHealth?.ok && !!obsHealth.connected && !!obsHealth.sourceReady;
+  const sceneSwitchReady = !!obsHealth?.connected;
   const apiRows = [
     { label: 'Gemini', ok: !!health?.gemini_configured },
     { label: 'OpenAI texto', ok: !!health?.openai_ai_configured },
@@ -1519,14 +1581,14 @@ function SettingsPanel({
       title="Configuracoes"
       description="OBS WebSocket, fontes persistentes, consumo de APIs, automacoes e diagnosticos ficam centralizados aqui."
     >
-      <div className="h-full overflow-y-auto p-4">
+      <div className="p-4">
         <div className="grid gap-4 xl:grid-cols-[minmax(560px,1fr)_360px]">
           <section className="space-y-4">
-            <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
+            <div className="od-panel p-4">
               <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div>
                   <SectionTitle icon={<Settings />} title="OBS WebSocket" />
-                  <p className="mt-2 text-sm text-slate-400">
+                  <p className="mt-2 text-sm text-[var(--t3)]">
                     A live assistida usa uma source dedicada do OBS para OCR, sem depender da aba ativa.
                   </p>
                 </div>
@@ -1552,7 +1614,7 @@ function SettingsPanel({
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
-                <label className="flex h-10 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-3 text-sm text-slate-200">
+                <label className="flex h-10 items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] px-3 text-sm text-[var(--t1)]">
                   <span>Exigir OBS WebSocket na live</span>
                   <input
                     type="checkbox"
@@ -1562,7 +1624,7 @@ function SettingsPanel({
                     }
                   />
                 </label>
-                <label className="flex h-10 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-3 text-sm text-slate-200">
+                <label className="flex h-10 items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] px-3 text-sm text-[var(--t1)]">
                   <span>Habilitar autenticacao</span>
                   <input
                     type="checkbox"
@@ -1674,9 +1736,9 @@ function SettingsPanel({
               </div>
 
               <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto] md:items-center">
-                <div className="rounded-2xl border border-white/10 bg-black/25 px-3 py-2 text-xs text-slate-400">
+                <div className="rounded-2xl border border-[var(--border)] bg-[rgba(0,0,0,0.25)] px-3 py-2 text-xs text-[var(--t3)]">
                   URL gerada:{' '}
-                  <span className="font-mono font-semibold text-slate-200">
+                  <span className="font-mono font-semibold text-[var(--t1)]">
                     {buildObsWebsocketUrl(obsConnection)}
                   </span>
                 </div>
@@ -1698,7 +1760,7 @@ function SettingsPanel({
                         transmissionMode: event.target.value as ObsSettings['transmissionMode'],
                       }))
                     }
-                    className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
+                    className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--sky)]"
                   >
                     <option value="stream">OBS Stream</option>
                     <option value="virtual_camera">Camera virtual</option>
@@ -1755,13 +1817,13 @@ function SettingsPanel({
                 </Button>
               </div>
 
-              <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-3">
+              <div className="mt-4 rounded-2xl border border-[var(--border)] bg-[rgba(0,0,0,0.20)] p-3">
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <div>
                     <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
                       Cenas permitidas para automacoes
                     </div>
-                    <div className="mt-1 text-xs text-slate-400">
+                    <div className="mt-1 text-xs text-[var(--t3)]">
                       Sincronize do OBS e marque apenas as cenas que podem ser acionadas por gatilhos.
                     </div>
                   </div>
@@ -1780,7 +1842,7 @@ function SettingsPanel({
                       return (
                         <label
                           key={scene}
-                          className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-2 text-sm text-slate-200"
+                          className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] px-3 py-2 text-sm text-[var(--t1)]"
                         >
                           <span className="truncate">{scene}</span>
                           <input
@@ -1792,7 +1854,7 @@ function SettingsPanel({
                       );
                     })
                   ) : (
-                    <div className="rounded-2xl border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500 md:col-span-2">
+                    <div className="rounded-2xl border border-dashed border-[var(--border)] px-3 py-4 text-sm text-[var(--t3)] md:col-span-2">
                       Nenhuma cena sincronizada ainda. Use o botao acima com o OBS aberto.
                     </div>
                   )}
@@ -1802,7 +1864,7 @@ function SettingsPanel({
                   <select
                     value={selectedSceneTest}
                     onChange={(event) => setSelectedSceneTest(event.target.value)}
-                    className="h-10 rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
+                    className="h-10 rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--sky)]"
                   >
                     <option value="">Selecionar cena para teste</option>
                     {obsSettings.allowedScenes.map((scene) => (
@@ -1851,11 +1913,11 @@ function SettingsPanel({
               )}
             </div>
 
-            <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
+            <div className="od-panel p-4">
               <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div>
                   <SectionTitle icon={<ClipboardCheck />} title="Configuracao do Iniciar Live" />
-                  <p className="mt-2 text-sm text-slate-400">
+                  <p className="mt-2 text-sm text-[var(--t3)]">
                     O botao do topo executa este plano. Use a simulacao para conferir tudo sem afetar a live.
                   </p>
                 </div>
@@ -1876,7 +1938,7 @@ function SettingsPanel({
                 ].map(([key, label]) => (
                   <label
                     key={key}
-                    className="flex h-10 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-3 text-sm text-slate-200"
+                    className="flex h-10 items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] px-3 text-sm text-[var(--t1)]"
                   >
                     <span>{label}</span>
                     <input
@@ -1907,7 +1969,7 @@ function SettingsPanel({
                         actionMode: event.target.value as LiveConfig['actionMode'],
                       }))
                     }
-                    className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
+                    className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--sky)]"
                   >
                     <option value="simulated">Simulado por padrao</option>
                     <option value="approval_required">Exigir aprovacao</option>
@@ -1917,8 +1979,8 @@ function SettingsPanel({
               </div>
 
               <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
-                <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                <div className="rounded-2xl border border-[var(--border)] bg-[rgba(0,0,0,0.25)] p-3">
+                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--t3)]">
                     Plano ativo
                   </div>
                   <div className="grid gap-2 md:grid-cols-2">
@@ -1931,7 +1993,7 @@ function SettingsPanel({
                             ? step.status === 'blocked'
                               ? 'border-rose-400/25 bg-rose-500/10 text-rose-200'
                               : 'border-emerald-400/20 bg-emerald-500/10 text-emerald-200'
-                            : 'border-white/10 bg-white/[0.035] text-slate-500',
+                            : 'border-[var(--border)] bg-white/[0.035] text-[var(--t3)]',
                         )}
                       >
                         <div className="font-semibold">{step.label}</div>
@@ -1941,7 +2003,7 @@ function SettingsPanel({
                       </div>
                     ))}
                     {!livePlan?.steps?.length && (
-                      <div className="rounded-xl border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500 md:col-span-2">
+                      <div className="rounded-xl border border-dashed border-[var(--border)] px-3 py-4 text-sm text-[var(--t3)] md:col-span-2">
                         Carregue o plano para ver a ordem exata das acoes.
                       </div>
                     )}
@@ -1971,11 +2033,11 @@ function SettingsPanel({
               )}
             </div>
 
-            <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
+            <div className="od-panel p-4">
               <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div>
                   <SectionTitle icon={<Link2 />} title="Webhooks" />
-                  <p className="mt-2 text-sm text-slate-400">
+                  <p className="mt-2 text-sm text-[var(--t3)]">
                     Cadastre endpoints genericos para gatilhos. n8n entra aqui como um webhook comum.
                   </p>
                 </div>
@@ -1990,17 +2052,17 @@ function SettingsPanel({
                     webhooks.map((webhook) => (
                       <div
                         key={webhook.id}
-                        className="rounded-2xl border border-white/10 bg-white/[0.045] p-3"
+                        className="rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] p-3"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <button
                             className="min-w-0 text-left"
                             onClick={() => editWebhook(webhook)}
                           >
-                            <div className="truncate text-sm font-semibold text-white">
+                            <div className="truncate text-sm font-semibold text-[var(--t1)]">
                               {webhook.name}
                             </div>
-                            <div className="mt-1 truncate text-xs text-slate-500">
+                            <div className="mt-1 truncate text-xs text-[var(--t3)]">
                               {webhook.id}
                             </div>
                           </button>
@@ -2029,7 +2091,7 @@ function SettingsPanel({
                       </div>
                     ))
                   ) : (
-                    <div className="rounded-2xl border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">
+                    <div className="rounded-2xl border border-dashed border-[var(--border)] px-3 py-4 text-sm text-[var(--t3)]">
                       Nenhum webhook salvo.
                     </div>
                   )}
@@ -2052,7 +2114,7 @@ function SettingsPanel({
                       onChange={(event) =>
                         setWebhookDraft((current) => ({ ...current, method: event.target.value }))
                       }
-                      className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
+                      className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--sky)]"
                     >
                       <option value="POST">POST</option>
                       <option value="PUT">PUT</option>
@@ -2081,7 +2143,7 @@ function SettingsPanel({
                       }))
                     }
                   />
-                  <label className="flex h-10 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-3 text-sm text-slate-200">
+                  <label className="flex h-10 items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] px-3 text-sm text-[var(--t1)]">
                     <span>Ativo</span>
                     <input
                       type="checkbox"
@@ -2101,7 +2163,7 @@ function SettingsPanel({
                     <textarea
                       value={webhookHeaderText}
                       onChange={(event) => setWebhookHeaderText(event.target.value)}
-                      className="min-h-20 w-full resize-y rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 py-2 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
+                      className="min-h-20 w-full resize-y rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 py-2 text-sm text-[var(--t1)] outline-none focus:border-[var(--sky)]"
                       placeholder="Authorization: Bearer ..."
                     />
                   </label>
@@ -2117,7 +2179,7 @@ function SettingsPanel({
                           bodyTemplate: event.target.value,
                         }))
                       }
-                      className="min-h-28 w-full resize-y rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 py-2 font-mono text-xs text-[var(--t1)] outline-none focus:border-[var(--gold)]"
+                      className="min-h-28 w-full resize-y rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 py-2 font-mono text-xs text-[var(--t1)] outline-none focus:border-[var(--sky)]"
                     />
                   </label>
                   <div className="flex flex-wrap gap-2 md:col-span-2">
@@ -2137,7 +2199,7 @@ function SettingsPanel({
                     </Button>
                   </div>
                   {webhookMessage && (
-                    <div className="rounded-2xl border border-white/10 bg-black/25 px-3 py-2 text-sm text-slate-300 md:col-span-2">
+                    <div className="rounded-2xl border border-[var(--border)] bg-[rgba(0,0,0,0.25)] px-3 py-2 text-sm text-slate-300 md:col-span-2">
                       {webhookMessage}
                     </div>
                   )}
@@ -2146,7 +2208,7 @@ function SettingsPanel({
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
+              <div className="od-panel p-4">
                 <SectionTitle icon={<Database />} title="Consumo de APIs" />
                 <div className="mt-4 grid gap-3">
                   <label className="block">
@@ -2160,7 +2222,7 @@ function SettingsPanel({
                           apiBudgetMode: event.target.value as WorkspaceSettings['apiBudgetMode'],
                         })
                       }
-                      className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
+                      className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--sky)]"
                     >
                       <option value="economico">Economico</option>
                       <option value="normal">Normal</option>
@@ -2171,7 +2233,7 @@ function SettingsPanel({
                     {apiRows.map((row) => (
                       <div
                         key={row.label}
-                        className="flex items-center justify-between gap-2 rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-2 text-sm"
+                        className="flex items-center justify-between gap-2 rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] px-3 py-2 text-sm"
                       >
                         <span className="truncate text-slate-300">{row.label}</span>
                         <StatusDot status={row.ok ? 'online' : 'idle'} />
@@ -2185,7 +2247,7 @@ function SettingsPanel({
                 </div>
               </div>
 
-              <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
+              <div className="od-panel p-4">
                 <SectionTitle icon={<RadioTower />} title="Automacoes" />
                 <div className="mt-4 grid gap-3">
                   <label className="block">
@@ -2199,7 +2261,7 @@ function SettingsPanel({
                           automationMode: event.target.value as WorkspaceSettings['automationMode'],
                         })
                       }
-                      className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
+                      className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--sky)]"
                     >
                       <option value="manual">Manual</option>
                       <option value="assistido">Assistido</option>
@@ -2216,10 +2278,10 @@ function SettingsPanel({
           </section>
 
           <aside className="space-y-4">
-            <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
+            <div className="od-panel p-4">
               <SectionTitle icon={<ShieldAlert />} title="Relatorio de erros" />
               <div className="mt-4 space-y-3">
-                <label className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-3 text-sm text-slate-200">
+                <label className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] px-3 py-3 text-sm text-[var(--t1)]">
                   <span>Salvar diagnosticos locais</span>
                   <input
                     type="checkbox"
@@ -2227,7 +2289,7 @@ function SettingsPanel({
                     onChange={(event) => updateWorkspace({ errorReports: event.target.checked })}
                   />
                 </label>
-                <label className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-3 text-sm text-slate-200">
+                <label className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] px-3 py-3 text-sm text-[var(--t1)]">
                   <span>Telemetria de uso</span>
                   <input
                     type="checkbox"
@@ -2235,7 +2297,7 @@ function SettingsPanel({
                     onChange={(event) => updateWorkspace({ telemetry: event.target.checked })}
                   />
                 </label>
-                <div className="rounded-2xl border border-white/10 bg-black/25 p-3 text-xs leading-5 text-slate-400">
+                <div className="rounded-2xl border border-[var(--border)] bg-[rgba(0,0,0,0.25)] p-3 text-xs leading-5 text-[var(--t3)]">
                   Estas preferencias ficam locais por enquanto. A estrutura ja deixa o painel pronto para
                   plugar provedores de erro, custos de API e novas automacoes.
                 </div>
@@ -2243,7 +2305,7 @@ function SettingsPanel({
             </div>
 
 
-            <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
+            <div className="od-panel p-4">
               <SectionTitle icon={<ListVideo />} title="Diagnostico OBS" />
               <div className="mt-4 space-y-2 text-sm">
                 <FlowDatum label="Conectado" value={obsHealth?.connected ? 'sim' : 'nao'} />
@@ -2311,15 +2373,15 @@ function ReactiveFlowLogLab({
   };
 
   return (
-    <div className="grid h-full min-h-0 gap-4 overflow-hidden p-4 xl:grid-cols-[minmax(520px,1fr)_360px]">
-      <section className="flex min-h-0 flex-col gap-4 overflow-hidden">
-        <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
+    <div className="grid gap-4 p-4 xl:grid-cols-[minmax(520px,1fr)_360px]">
+      <section className="flex flex-col gap-4">
+        <div className="od-panel p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.26em] text-sky-200/70">
+              <div className="text-xs font-semibold uppercase tracking-[0.26em] text-[rgba(186,230,253,0.7)]">
                 Laboratorio do fluxo
               </div>
-              <div className="mt-1 text-sm text-slate-400">
+              <div className="mt-1 text-sm text-[var(--t3)]">
                 O texto entra no backend e drena a fila ate o video mudar.
               </div>
             </div>
@@ -2332,7 +2394,7 @@ function ReactiveFlowLogLab({
           <textarea
             value={text}
             onChange={(event) => setText(event.target.value)}
-            className="min-h-28 w-full resize-none rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-white outline-none focus:border-sky-200/45"
+            className="min-h-28 w-full resize-none rounded-2xl border border-[var(--border)] bg-[rgba(0,0,0,0.3)] p-3 text-sm text-[var(--t1)] outline-none focus:border-[rgba(125,211,252,0.45)]"
           />
           <div className="mt-3 flex flex-wrap gap-2">
             <Button variant="primary" loading={busy} onClick={() => submit()}>
@@ -2360,7 +2422,7 @@ function ReactiveFlowLogLab({
         </div>
 
         <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
-          <div className="min-h-0 overflow-hidden rounded-[28px] border border-white/10 bg-[#101114] p-4">
+          <div className="min-h-0 overflow-hidden od-panel p-4">
             <SectionTitle icon={<RadioTower />} title="Ultimo teste" />
             <div className="mt-4 space-y-3 text-sm">
               <FlowDatum label="Entrada" value={latestRun?.input || 'aguardando teste'} />
@@ -2376,46 +2438,46 @@ function ReactiveFlowLogLab({
             </div>
           </div>
 
-          <div className="min-h-0 overflow-hidden rounded-[28px] border border-white/10 bg-[#101114] p-4">
+          <div className="min-h-0 overflow-hidden od-panel p-4">
             <SectionTitle icon={<ListVideo />} title="Eventos capturados" />
             <div className="mt-4 max-h-full space-y-2 overflow-y-auto pr-1">
               {capturedText.slice(-10).reverse().map((event) => (
-                <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
+                <div key={event.id} className="rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] p-3">
                   <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-[var(--t3)]">
                     <span>{event.kind}</span>
                     <span>{event.time}</span>
                   </div>
-                  <div className="line-clamp-2 text-sm text-slate-200">{event.text}</div>
+                  <div className="line-clamp-2 text-sm text-[var(--t1)]">{event.text}</div>
                 </div>
               ))}
-              {!capturedText.length && <div className="text-sm text-slate-500">Nenhum evento capturado.</div>}
+              {!capturedText.length && <div className="text-sm text-[var(--t3)]">Nenhum evento capturado.</div>}
             </div>
           </div>
         </div>
       </section>
 
-      <aside className="min-h-0 overflow-hidden rounded-[28px] border border-white/10 bg-[#101114] p-4">
+      <aside className="od-panel p-4" style={{ overflow: 'visible' }}>
         <SectionTitle icon={<ListVideo />} title="Timeline backend" />
         <div className="mt-4 h-[calc(100%-36px)] space-y-2 overflow-y-auto pr-1">
           {logs.map((entry, index) => (
-            <div key={`${entry.timestamp}-${index}`} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
+            <div key={`${entry.timestamp}-${index}`} className="rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] p-3">
               <div className="mb-1 flex items-center justify-between gap-2">
                 <Badge variant={entry.stage === 'EXECUTOR' ? 'success' : entry.stage === 'FILTER' ? 'warning' : 'lavender'}>
                   {entry.stage}
                 </Badge>
-                <span className="text-[10px] text-slate-500">
+                <span className="text-[10px] text-[var(--t3)]">
                   {new Date(entry.timestamp).toLocaleTimeString()}
                 </span>
               </div>
-              <div className="text-sm text-slate-200">{entry.message}</div>
+              <div className="text-sm text-[var(--t1)]">{entry.message}</div>
               {entry.data && (
-                <pre className="mt-2 max-h-24 overflow-auto rounded-xl bg-black/35 p-2 text-[10px] text-slate-400">
+                <pre className="mt-2 max-h-24 overflow-auto rounded-xl bg-[rgba(0,0,0,0.35)] p-2 text-[10px] text-[var(--t3)]">
                   {JSON.stringify(entry.data, null, 2)}
                 </pre>
               )}
             </div>
           ))}
-          {!logs.length && <div className="text-sm text-slate-500">Sem logs do backend ainda.</div>}
+          {!logs.length && <div className="text-sm text-[var(--t3)]">Sem logs do backend ainda.</div>}
         </div>
       </aside>
     </div>
@@ -2424,9 +2486,9 @@ function ReactiveFlowLogLab({
 
 function FlowDatum({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
+    <div className="rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] p-3">
       <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">{label}</div>
-      <div className="mt-1 break-words text-sm font-semibold text-white">{value}</div>
+      <div className="mt-1 break-words text-sm font-semibold text-[var(--t1)]">{value}</div>
     </div>
   );
 }
@@ -2446,17 +2508,12 @@ function NavButton({
     <button
       onClick={onClick}
       className={cn(
-        'relative flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold transition',
-        active
-          ? 'bg-[var(--bg3)] text-[var(--t1)]'
-          : 'text-[var(--t2)] hover:bg-[var(--bg3)] hover:text-[var(--t1)]',
+        'od-tab',
+        active && 'is-active',
       )}
     >
-      <span className="h-4 w-4">{icon}</span>
-      {label}
-      {active && (
-        <span className="absolute -bottom-[9px] left-4 right-4 h-0.5 bg-gradient-to-r from-[var(--gold)] to-[var(--lavender)]" />
-      )}
+      <span className="inline-flex" style={{ width: 14, height: 14 }}>{icon}</span>
+      <span>{label}</span>
     </button>
   );
 }
@@ -2510,97 +2567,97 @@ function HomeDashboard({
   ];
 
   return (
-    <div className="h-full overflow-y-auto p-4 lg:p-5">
-      <div className="grid min-h-[calc(100vh-108px)] gap-4 xl:grid-cols-[minmax(620px,1fr)_380px]">
-        <section className="odessa-stage-mesh relative overflow-hidden rounded-[34px] border border-white/10 bg-[#07080a]">
-          <div className="relative z-10 flex h-full min-h-[640px] flex-col p-5 lg:p-6">
-            <div className="flex flex-col gap-4 border-b border-white/10 pb-5 lg:flex-row lg:items-start lg:justify-between">
+    <div style={{ padding: 14 }}>
+      <div className="grid xl:grid-cols-[minmax(620px,1fr)_380px]" style={{ gap: 14 }}>
+        <section className="od-panel od-stage-mesh relative overflow-hidden">
+          <div className="relative z-10 flex h-full min-h-[480px] flex-col p-5 lg:p-6">
+            <div className="flex flex-col gap-4 pb-5 lg:flex-row lg:items-start lg:justify-between" style={{ borderBottom: '1px solid var(--border)' }}>
               <div className="max-w-3xl">
-                <div className="text-xs font-semibold uppercase tracking-[0.34em] text-sky-200/70">
-                  Mesa de direcao
+                <div className="od-eyebrow" style={{ color: '#bae6fd' }}>
+                  Command Deck
                 </div>
-                <h1 className="mt-3 text-4xl font-semibold leading-tight tracking-[-0.04em] text-white lg:text-5xl">
-                  Controle a live pelo caminho do sinal, nao por telas soltas.
+                <h1 className="mt-3 lg:text-[42px] text-[32px] leading-tight" style={{ fontFamily: 'var(--font-display)', fontStyle: 'italic', letterSpacing: '-0.01em', color: 'var(--t1)' }}>
+                  Controle a live pelo caminho do sinal.
                 </h1>
               </div>
-              <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/35 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-slate-200">
-                <StatusDot status={runtime.autopilotEnabled ? 'online' : 'idle'} pulse />
-                {runtime.autopilotEnabled ? 'em execucao' : 'standby'}
-              </div>
+              <span className="od-pill" data-tone={runtime.autopilotEnabled ? 'live' : 'ready'}>
+                <span className="od-pill-dot" />
+                <span>{runtime.autopilotEnabled ? 'Em execucao' : 'Standby'}</span>
+              </span>
             </div>
 
             <div className="mt-5 grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(460px,1fr)_290px]">
               <div className="flex min-h-0 flex-col gap-4">
-                <div className="relative overflow-hidden rounded-[30px] border border-sky-200/18 bg-black/75 p-3 shadow-[0_0_86px_rgba(125,211,252,0.14)]">
+                <div className="relative overflow-hidden rounded-[22px] p-3" style={{ background: 'rgba(0,0,0,0.75)', border: '1px solid rgba(125,211,252,0.18)', boxShadow: 'var(--shadow-live)' }}>
                   <div className="pointer-events-none absolute inset-x-5 top-5 z-10 flex items-center justify-between">
-                    <Badge variant={videoState?.state === 'ACTION' ? 'lavender' : 'gold'}>
-                      {videoState?.state === 'ACTION' ? 'reacao no ar' : 'idle em loop'}
-                    </Badge>
-                    <div className="rounded-full border border-white/10 bg-black/55 px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-slate-300">
-                      {videoState?.queue_len ?? 0} na fila
-                    </div>
+                    <span className="od-pill" data-tone={videoState?.state === 'ACTION' ? 'live' : 'ready'}>
+                      <span className="od-pill-dot" />
+                      <span>{videoState?.state === 'ACTION' ? 'Reacao' : 'Idle'}</span>
+                    </span>
+                    <span className="od-pill" data-tone="info">
+                      <span>{videoState?.queue_len ?? 0} na fila</span>
+                    </span>
                   </div>
                   {videoState?.current_video_id ? (
-                    <video
-                      key={videoState.current_video_id}
-                      autoPlay
-                      muted
-                      loop={
-                        videoState.state !== 'ACTION' &&
-                        (videoState.current_video_id === view.idleVideoId || !!view.currentVideo?.loop)
-                      }
-                      onEnded={async () => {
-                        if (videoState.state !== 'ACTION') return;
-                        await fetch(apiUrl('/api/video/idle'), { method: 'POST' }).catch(() => undefined);
-                        onRefresh();
-                      }}
-                      playsInline
-                      className="aspect-video w-full rounded-[24px] object-contain"
-                      src={apiUrl(`/api/video/play/${videoState.current_video_id}`)}
-                    />
+                    <div className="flex aspect-video w-full items-center justify-center overflow-hidden rounded-[24px] bg-black">
+                      <div className="h-full overflow-hidden" style={{ aspectRatio: '9/16' }}>
+                        <video
+                          key={videoState.current_video_id}
+                          autoPlay
+                          muted
+                          loop={
+                            videoState.state !== 'ACTION' &&
+                            (videoState.current_video_id === view.idleVideoId || !!view.currentVideo?.loop)
+                          }
+                          onEnded={async () => {
+                            if (videoState.state !== 'ACTION') return;
+                            await fetch(apiUrl('/api/video/idle'), { method: 'POST' }).catch(() => undefined);
+                            onRefresh();
+                          }}
+                          playsInline
+                          className="h-[104%] w-full origin-top object-cover"
+                          src={apiUrl(`/api/video/play/${videoState.current_video_id}`)}
+                        />
+                      </div>
+                    </div>
                   ) : (
-                    <div className="flex aspect-video w-full items-center justify-center rounded-[24px] bg-black text-sm text-slate-500">
+                    <div className="flex aspect-video w-full items-center justify-center rounded-[24px] bg-black text-sm text-[var(--t3)]">
                       Player aguardando estado do backend
                     </div>
                   )}
                 </div>
 
-                <div className="rounded-[30px] border border-white/10 bg-[#101114] p-4">
+                <div className="od-panel" style={{ padding: 18 }}>
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <div>
-                      <div className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-200/70">
-                        Pipeline ao vivo
-                      </div>
-                      <div className="mt-1 text-sm text-slate-400">
-                        OCR para agente, regra, video e retorno ao Idle.
+                      <div className="od-eyebrow">Pipeline ao vivo</div>
+                      <div className="mt-1 text-[12.5px]" style={{ color: 'var(--t3)' }}>
+                        OCR → agente → regra → video → retorno ao Idle.
                       </div>
                     </div>
-                    <Button variant="secondary" onClick={() => go('flow')}>
+                    <button className="od-btn od-btn-secondary od-btn-sm" onClick={() => go('flow')}>
                       Editar fluxo
-                    </Button>
+                    </button>
                   </div>
                   <div className="grid gap-3 md:grid-cols-5">
                     {pipeline.map((step, index) => (
                       <div
                         key={step.label}
-                        className="relative rounded-[22px] border border-white/10 bg-white/[0.045] p-3"
+                        className="relative rounded-[14px] p-3"
+                        style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}
                       >
                         {index < pipeline.length - 1 && (
-                          <div className="absolute -right-2 top-1/2 hidden h-px w-4 bg-sky-200/35 md:block" />
+                          <div className="absolute -right-2 top-1/2 hidden h-px w-4 md:block" style={{ background: 'rgba(125,211,252,0.35)' }} />
                         )}
                         <div
-                          className={cn(
-                            'mb-3 h-1.5 w-10 rounded-full',
-                            step.tone === 'sky' && 'bg-sky-300',
-                            step.tone === 'lime' && 'bg-lime-300',
-                            step.tone === 'rose' && 'bg-rose-300',
-                            step.tone === 'slate' && 'bg-slate-500',
-                          )}
+                          className="mb-3 h-[3px] w-10 rounded-full"
+                          style={{
+                            background: step.tone === 'sky' ? 'var(--sky)' : step.tone === 'lime' ? 'var(--lime)' : step.tone === 'rose' ? 'var(--rose)' : 'var(--t3)',
+                            boxShadow: step.tone !== 'slate' ? `0 0 8px ${step.tone === 'sky' ? 'rgba(125,211,252,0.5)' : step.tone === 'lime' ? 'rgba(190,242,100,0.5)' : 'rgba(251,113,133,0.5)'}` : 'none',
+                          }}
                         />
-                        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                          {step.label}
-                        </div>
-                        <div className="mt-2 line-clamp-2 min-h-10 text-sm font-semibold text-white">
+                        <div className="od-eyebrow">{step.label}</div>
+                        <div className="mt-2 line-clamp-2 min-h-10 text-[13px] font-semibold" style={{ color: 'var(--t1)' }}>
                           {step.value}
                         </div>
                       </div>
@@ -2610,75 +2667,123 @@ function HomeDashboard({
               </div>
 
               <div className="flex min-h-0 flex-col gap-4">
-                <div className="rounded-[30px] border border-white/10 bg-[#101114] p-4">
+                <div className="od-panel" style={{ padding: 18 }}>
                   <div className="mb-4 flex items-center justify-between">
-                    <div className="text-sm font-semibold text-white">Trilhas prontas</div>
-                    <Badge>{activeConnections.length}</Badge>
+                    <div className="text-[14px] font-semibold" style={{ color: 'var(--t1)' }}>Trilhas prontas</div>
+                    <span className="od-pill" data-tone="info"><span>{activeConnections.length}</span></span>
                   </div>
                   <div className="space-y-2">
                     {activeConnections.map(({ connection, trigger, video }, index) => (
                       <button
                         key={connection.id}
-                        onClick={() => go('flow')}
-                        className="w-full rounded-[22px] border border-white/10 bg-white/[0.045] p-3 text-left transition hover:border-sky-200/35"
+                        onClick={async () => {
+                          const nodeId = connection.toNodeId;
+                          if (!nodeId) { go('flow'); return; }
+                          try {
+                            await fetch(apiUrl('/api/video/play-node'), {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ nodeId }),
+                            });
+                            onRefresh();
+                          } catch { /* fallback */ go('flow'); }
+                        }}
+                        className="group w-full rounded-[14px] p-3 text-left transition active:scale-[0.97]"
+                        style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(52,211,153,0.45)'; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; }}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-[10px] font-semibold uppercase tracking-widest text-sky-200">
+                          <span className="od-eyebrow group-hover:text-emerald-300" style={{ color: '#bae6fd' }}>
                             sinal {String(index + 1).padStart(2, '0')}
                           </span>
-                          <StatusDot
-                            status={trigger?.enabled ? 'online' : 'warn'}
-                          />
+                          <span className="od-pill" data-tone={trigger?.enabled !== false ? 'online' : 'pending'} style={{ height: 18, fontSize: 9, padding: '0 6px' }}>
+                            <span className="od-pill-dot" style={{ width: 4, height: 4 }} />
+                          </span>
                         </div>
-                        <div className="mt-2 truncate text-sm font-semibold text-white">
+                        <div className="mt-2 truncate text-[13px] font-semibold" style={{ color: 'var(--t1)' }}>
                           {trigger ? eventLabel(trigger) : 'sinal'}
                         </div>
-                        <div className="mt-1 truncate text-xs text-slate-400">
-                          {videoLabel(video)}
+                        <div className="mt-1 flex items-center justify-between gap-1">
+                          <span className="truncate text-xs" style={{ color: 'var(--t3)' }}>{videoLabel(video)}</span>
+                          <span className="shrink-0 text-[9px] font-semibold uppercase tracking-widest text-emerald-400/0 transition group-hover:text-emerald-400">play ▶</span>
                         </div>
                       </button>
                     ))}
                     {activeConnections.length === 0 && (
-                      <p className="rounded-[22px] border border-dashed border-white/15 p-4 text-sm text-slate-500">
+                      <p className="rounded-[14px] p-4 text-[12.5px]" style={{ border: '1px dashed var(--border2)', color: 'var(--t3)' }}>
                         Nenhuma trilha conectada. Abra o fluxo reativo para criar a primeira rota.
                       </p>
                     )}
                   </div>
                 </div>
 
-                <div className="rounded-[30px] border border-white/10 bg-[#101114] p-4">
-                  <div className="text-sm font-semibold text-white">Comandos rapidos</div>
+                <div className="od-panel" style={{ padding: 18 }}>
+                  <div className="text-[14px] font-semibold" style={{ color: 'var(--t1)' }}>Comandos rapidos</div>
                   <div className="mt-4 grid gap-3">
-                    <Button variant="primary" onClick={() => go('stage')}>
+                    <button className="od-btn od-btn-primary" style={{ justifyContent: 'center', width: '100%' }} onClick={() => go('stage')}>
+                      <Play className="h-4 w-4" />
                       Abrir palco
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        // ✔ Passa pelo pipeline completo: texto → parser → gift → vídeo
-                        onSimulateGift();
-                      }}
-                    >
+                    </button>
+                    <button className="od-btn od-btn-secondary" style={{ justifyContent: 'center', width: '100%' }} onClick={() => onSimulateGift()}>
+                      <RadioTower className="h-4 w-4" />
                       Simular presente Rosa
-                    </Button>
+                    </button>
                   </div>
                 </div>
+
+                {(view.flowNodes?.length ?? 0) > 0 && (
+                <div className="od-panel" style={{ padding: 18 }}>
+                  <div className="mb-3 text-[14px] font-semibold" style={{ color: 'var(--t1)' }}>Pular para cena</div>
+                  <div className="grid gap-1.5">
+                    {(view.flowNodes || []).map((node) => {
+                      const vid = view.videos.find((v) => v.id === node.videoId);
+                      const isActive = videoState?.activeNodeId === node.nodeId || videoState?.current_video_id === node.videoId;
+                      const isIdle = node.videoId === view.idleVideoId;
+                      return (
+                        <button
+                          key={node.nodeId}
+                          onClick={async () => {
+                            try {
+                              await fetch(apiUrl('/api/video/play-node'), {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ nodeId: node.nodeId }),
+                              });
+                              onRefresh();
+                            } catch { /* */ }
+                          }}
+                          className={cn(
+                            'flex items-center gap-2 rounded-[10px] px-3 py-2 text-left text-xs transition active:scale-[0.97]',
+                            isActive
+                              ? 'text-emerald-200'
+                              : 'hover:border-[var(--border2)]',
+                          )}
+                          style={isActive ? { background: 'rgba(52,211,153,0.12)', border: '1px solid rgba(52,211,153,0.35)' } : { background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', color: 'var(--t2)' }}
+                        >
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: isActive ? 'var(--green)' : isIdle ? 'var(--amber)' : 'var(--t3)' }} />
+                          <span className="truncate">{vid?.label || node.videoId?.replace(/_/g, ' ') || node.nodeId}</span>
+                          {isIdle && <span className="ml-auto shrink-0 text-[8px] font-bold uppercase tracking-widest" style={{ color: 'rgba(251,191,36,0.7)' }}>idle</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                )}
               </div>
             </div>
           </div>
         </section>
 
-        <aside className="flex min-h-[640px] flex-col gap-4">
+        <aside className="flex flex-col" style={{ gap: 14 }}>
           {configError && (
-            <div className="rounded-[28px] border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-100">
-              Backend/config: {configError}
+            <div className="od-panel p-4" style={{ borderColor: 'rgba(248,113,113,0.30)', background: 'rgba(248,113,113,0.08)' }}>
+              <span className="text-[12.5px]" style={{ color: '#fda4af' }}>Backend/config: {configError}</span>
             </div>
           )}
 
-          <div className="rounded-[32px] border border-white/10 bg-[#101114] p-5">
-            <div className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-200/70">
-              Estado da operacao
-            </div>
+          <div className="od-panel" style={{ padding: 20 }}>
+            <div className="od-eyebrow">Estado da operacao</div>
             <div className="mt-4 grid grid-cols-2 gap-3">
               <Metric label="Videos" value={view.videos.length} />
               <Metric label="Sinais" value={view.activeTriggers.length} />
@@ -2687,28 +2792,27 @@ function HomeDashboard({
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 rounded-[32px] border border-white/10 bg-[#101114] p-5">
+          <div className="od-panel min-h-0 flex-1" style={{ padding: 20 }}>
             <div className="mb-4 flex items-center justify-between">
-              <div className="text-sm font-semibold text-white">Telemetria do OCR</div>
-              <Badge>{latestEvents.length} linhas</Badge>
+              <div className="text-[14px] font-semibold" style={{ color: 'var(--t1)' }}>Telemetria do OCR</div>
+              <span className="od-pill" data-tone="info"><span>{latestEvents.length} linhas</span></span>
             </div>
             <div className="space-y-3">
               {latestEvents.map((event) => (
                 <div
                   key={event.id}
-                  className="rounded-[22px] border border-white/10 bg-white/[0.045] p-3"
+                  className="od-event"
+                  style={{ borderRadius: 14, border: '1px solid var(--border)', padding: 12 }}
                 >
-                  <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-slate-500">
-                    <span>
-                      {event.kind}/{event.source}
-                    </span>
-                    <span>{event.time}</span>
+                  <div className="od-event-time">{event.time}</div>
+                  <div className="od-event-body">
+                    <div className="od-eyebrow">{event.kind}/{event.source}</div>
+                    <div className="mt-1 line-clamp-2 text-[12.5px]" style={{ color: 'var(--t2)' }}>{event.text}</div>
                   </div>
-                  <div className="mt-2 line-clamp-2 text-sm text-slate-200">{event.text}</div>
                 </div>
               ))}
               {latestEvents.length === 0 && (
-                <p className="text-sm text-slate-500">Aguardando captura ou simulacao.</p>
+                <p className="text-[12.5px]" style={{ color: 'var(--t3)' }}>Aguardando captura ou simulacao.</p>
               )}
             </div>
           </div>
@@ -2930,7 +3034,7 @@ export function ContinuityPlayer({
     return (
       <div
         className={cn(
-          'flex h-full min-h-[320px] w-full flex-col items-center justify-center bg-slate-950 text-slate-500',
+          'flex h-full min-h-[320px] w-full flex-col items-center justify-center bg-slate-950 text-[var(--t3)]',
           className,
         )}
       >
@@ -2975,7 +3079,7 @@ export function ContinuityPlayer({
       ))}
       <audio ref={audioRef} />
       {showLabel && (
-        <div className="pointer-events-none absolute bottom-4 left-4 rounded-lg bg-black/60 px-2 py-1 text-[10px] font-mono text-white/45">
+        <div className="pointer-events-none absolute bottom-4 left-4 rounded-lg bg-black/60 px-2 py-1 text-[10px] font-mono text-[var(--t1)]/45">
           {clipDisplayName(clip, videos)} | {formatClipTime(clip.startSec)} {'->'} {formatClipTime(clip.endSec)}
         </div>
       )}
@@ -3074,23 +3178,23 @@ function ClipTimeline({
 
   if (!clips.length) {
     return (
-      <div className="border-t border-white/10 bg-[#101114] px-4 py-4 text-sm text-slate-500">
+      <div className="border-t border-[var(--border)] bg-[var(--bg2)] px-4 py-4 text-sm text-[var(--t3)]">
         Nenhum clipe carregado para a timeline.
       </div>
     );
   }
 
   return (
-    <div className="grid shrink-0 border-t border-white/10 bg-[#101114] lg:grid-cols-[minmax(0,1fr)_340px]">
+    <div className="grid shrink-0 border-t border-[var(--border)] bg-[var(--bg2)] lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-w-0 px-4 pb-4 pt-3">
         <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="inline-flex w-fit rounded-xl border border-white/10 bg-black/25 p-1">
+          <div className="inline-flex w-fit rounded-xl border border-[var(--border)] bg-[rgba(0,0,0,0.25)] p-1">
             <button
               type="button"
               onClick={() => onModeChange('sequence')}
               className={cn(
                 'rounded-lg px-3 py-1.5 text-xs font-semibold',
-                mode === 'sequence' ? 'bg-[var(--gold)] text-black' : 'text-slate-400 hover:text-white',
+                mode === 'sequence' ? 'bg-[var(--gold)] text-black' : 'text-[var(--t3)] hover:text-[var(--t1)]',
               )}
             >
               Sequencia atual
@@ -3100,13 +3204,13 @@ function ClipTimeline({
               onClick={() => onModeChange('workflow')}
               className={cn(
                 'rounded-lg px-3 py-1.5 text-xs font-semibold',
-                mode === 'workflow' ? 'bg-[var(--gold)] text-black' : 'text-slate-400 hover:text-white',
+                mode === 'workflow' ? 'bg-[var(--gold)] text-black' : 'text-[var(--t3)] hover:text-[var(--t1)]',
               )}
             >
               Workflow completo
             </button>
           </div>
-          <div className="flex items-center gap-3 text-[10px] uppercase tracking-[0.2em] text-slate-500">
+          <div className="flex items-center gap-3 text-[10px] uppercase tracking-[0.2em] text-[var(--t3)]">
             <span>{clips.length} clipes</span>
             <span>{view.connections.length} conexoes</span>
             <input
@@ -3121,9 +3225,9 @@ function ClipTimeline({
           </div>
         </div>
 
-        <div className="mb-2 grid h-7 grid-cols-8 border-b border-white/10 text-[10px] text-slate-500">
+        <div className="mb-2 grid h-7 grid-cols-8 border-b border-[var(--border)] text-[10px] text-[var(--t3)]">
           {Array.from({ length: 8 }).map((_, index) => (
-            <div key={index} className="relative border-l border-white/10 pl-1">
+            <div key={index} className="relative border-l border-[var(--border)] pl-1">
               0:{String(index).padStart(2, '0')}
             </div>
           ))}
@@ -3156,14 +3260,14 @@ function ClipTimeline({
                     }}
                     className={cn(
                       'relative h-24 overflow-hidden rounded-md border bg-black text-left',
-                      isSelected ? 'border-[var(--gold)] ring-2 ring-[var(--gold)]/55' : 'border-white/10',
+                      isSelected ? 'border-[var(--sky)] ring-2 ring-[var(--gold)]/55' : 'border-[var(--border)]',
                       isActive && 'shadow-[0_0_0_2px_rgba(56,189,248,0.55)]',
                     )}
                     style={{ width: `${zoom}px` }}
                   >
                     <FilmstripFrames clip={clip} zoom={zoom} />
                     <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/75 to-transparent px-2 pb-2 pt-5">
-                      <div className="truncate text-[11px] font-semibold text-white">
+                      <div className="truncate text-[11px] font-semibold text-[var(--t1)]">
                         {index === 0 && mode === 'sequence' ? 'Agora: ' : ''}
                         {clipDisplayName(clip, view.videos)}
                       </div>
@@ -3171,15 +3275,15 @@ function ClipTimeline({
                         {formatClipTime(clip.startSec)} {'->'} {formatClipTime(clip.endSec)} | {clip.audio?.mode || 'muted'}
                       </div>
                     </div>
-                    <span className="absolute left-0 top-0 h-full w-2 cursor-ew-resize border-r border-[var(--gold)]/70 bg-[var(--gold)]/20" />
-                    <span className="absolute right-0 top-0 h-full w-2 cursor-ew-resize border-l border-[var(--gold)]/70 bg-[var(--gold)]/20" />
+                    <span className="absolute left-0 top-0 h-full w-2 cursor-ew-resize border-r border-[var(--sky)]/70 bg-[var(--gold)]/20" />
+                    <span className="absolute right-0 top-0 h-full w-2 cursor-ew-resize border-l border-[var(--sky)]/70 bg-[var(--gold)]/20" />
                   </button>
                   {connection && (
                     <button
                       type="button"
                       onClick={() => onSelectConnection(connection.id)}
                       className={cn(
-                        'group flex w-14 shrink-0 flex-col items-center justify-center gap-1 text-[9px] uppercase tracking-widest text-slate-500',
+                        'group flex w-14 shrink-0 flex-col items-center justify-center gap-1 text-[9px] uppercase tracking-widest text-[var(--t3)]',
                         connection.id === selectedConnectionId && 'text-[var(--gold)]',
                       )}
                       title={`Conexao ${connectionState || connection.id}`}
@@ -3203,18 +3307,18 @@ function ClipTimeline({
         </div>
       </div>
 
-      <aside className="border-t border-white/10 p-4 lg:border-l lg:border-t-0">
-        <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+      <aside className="border-t border-[var(--border)] p-4 lg:border-l lg:border-t-0">
+        <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--t3)]">
           <SlidersHorizontal className="h-4 w-4 text-[var(--gold)]" />
           Propriedades
         </div>
         {selectedClip?.nodeId ? (
           <div className="space-y-3">
             <div>
-              <div className="truncate text-sm font-semibold text-white">
+              <div className="truncate text-sm font-semibold text-[var(--t1)]">
                 {clipDisplayName(selectedClip, view.videos)}
               </div>
-              <div className="mt-1 text-xs text-slate-500">
+              <div className="mt-1 text-xs text-[var(--t3)]">
                 {selectedClip.nodeId === activeNodeId ? 'Clipe ativo no palco' : 'Clipe selecionado'}
               </div>
             </div>
@@ -3252,18 +3356,18 @@ function ClipTimeline({
             />
           </div>
         ) : (
-          <div className="rounded-2xl border border-dashed border-white/10 p-4 text-sm text-slate-500">
+          <div className="rounded-2xl border border-dashed border-[var(--border)] p-4 text-sm text-[var(--t3)]">
             Selecione um clipe com no no workflow para editar cortes.
           </div>
         )}
 
-        <div className="mt-4 border-t border-white/10 pt-4">
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+        <div className="mt-4 border-t border-[var(--border)] pt-4">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--t3)]">
             Conexao
           </div>
           {selectedConnection ? (
             <div className="space-y-3">
-              <div className="rounded-2xl border border-white/10 bg-black/25 p-3 text-xs text-slate-300">
+              <div className="rounded-2xl border border-[var(--border)] bg-[rgba(0,0,0,0.25)] p-3 text-xs text-slate-300">
                 {selectedConnection.fromVideoId} {'->'} {selectedConnection.toVideoId}
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -3301,7 +3405,7 @@ function ClipTimeline({
                       fadeMode: event.target.value as ConnectionSettings['fadeMode'],
                     })
                   }
-                  className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
+                  className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--sky)]"
                 >
                   <option value="cut">Corte seco</option>
                   <option value="fade">Fade</option>
@@ -3326,7 +3430,7 @@ function ClipTimeline({
               </Button>
             </div>
           ) : (
-            <div className="rounded-2xl border border-dashed border-white/10 p-4 text-sm text-slate-500">
+            <div className="rounded-2xl border border-dashed border-[var(--border)] p-4 text-sm text-[var(--t3)]">
               Selecione uma conexao entre clipes.
             </div>
           )}
@@ -3340,7 +3444,7 @@ function SelectionHandle({ className }: { className: string }) {
   return (
     <span
       className={cn(
-        'pointer-events-none absolute h-2.5 w-2.5 border-2 border-[var(--gold)] bg-[#101114]',
+        'pointer-events-none absolute h-2.5 w-2.5 border-2 border-[var(--sky)] bg-[var(--bg2)]',
         className,
       )}
     />
@@ -3365,7 +3469,7 @@ function EditorIconButton({
       aria-label={title}
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-slate-300 transition hover:border-white/10 hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+      className="od-iconbtn disabled:cursor-not-allowed disabled:opacity-35"
     >
       {children}
     </button>
@@ -3385,6 +3489,8 @@ function StagePanel({
   capturedText,
   view,
   videoState,
+  obsDirectStatus: obsDirectStatusProp,
+  obsSettingsFromApp,
   onRefresh,
   onPlayVideoById,
   onPatchFlowNodePlayback,
@@ -3396,6 +3502,8 @@ function StagePanel({
   capturedText: CapturedMessage[];
   view: HomeViewData;
   videoState: VideoState | null;
+  obsDirectStatus?: import('./lib/obsWebSocket').ObsDirectStatus | null;
+  obsSettingsFromApp?: Record<string, unknown> | null;
   onRefresh: () => void;
   onPlayVideoById: (videoId: string, reason?: string) => Promise<unknown>;
   onPatchFlowNodePlayback: (nodeId: string, patch: Partial<PlaybackSettings>) => Promise<void>;
@@ -3438,6 +3546,23 @@ function StagePanel({
     }
   };
 
+  const runRoutedCommand = async (label: string, fn: () => Promise<CommandResult>) => {
+    setObsBusy(label);
+    setObsMessage(null);
+    try {
+      const result = await fn();
+      if (!result.ok) throw new Error(result.error || 'falha');
+      const detail = (result.currentScene as string) || (result.mode as string) || result.route || 'ok';
+      setObsMessage(`${label}: ${detail}${result.route === 'direct' ? ' (direto)' : ''}`);
+      onRefresh();
+    } catch (err) {
+      setObsMessage(`${label}: ${err instanceof Error ? err.message : 'falha'}`);
+    } finally {
+      setObsBusy('');
+    }
+  };
+
+  // Legacy fallback for non-routed commands
   const runObsCommand = async (label: string, path: string) => {
     setObsBusy(label);
     setObsMessage(null);
@@ -3580,68 +3705,67 @@ function StagePanel({
   }
 
   return (
-    <div ref={stageRef} className="flex h-full min-h-0 flex-col overflow-hidden bg-[#0d0f12]">
-      <section className="relative min-h-0 flex-1 overflow-hidden border-b border-white/10 bg-[#101114]">
+    <div ref={stageRef} className="flex h-[calc(100dvh-64px)] flex-col overflow-hidden" style={{ background: 'var(--bg)' }}>
+      <section className="od-stage-mesh relative min-h-0 flex-1 overflow-hidden" style={{ borderBottom: '1px solid var(--border)' }}>
         <div className="absolute left-5 top-5 z-20 flex items-center gap-3">
-          <Badge variant={videoState?.state === 'ACTION' ? 'lavender' : 'gold'}>
-            {videoState?.state || 'IDLE'}
-          </Badge>
-          <span className="max-w-[42vw] truncate text-xs font-semibold text-slate-400">
+          <span className="od-pill" data-tone={videoState?.state === 'ACTION' ? 'live' : 'ready'}>
+            <span className="od-pill-dot" />
+            <span>{videoState?.state || 'IDLE'}</span>
+          </span>
+          <span className="max-w-[42vw] truncate text-xs font-semibold" style={{ color: 'var(--t2)' }}>
             {activeClipLabel}
           </span>
         </div>
-        <div className="absolute right-5 top-5 z-20 flex items-center gap-3 rounded-lg border border-white/10 bg-black/35 px-3 py-2 text-xs text-slate-300">
-          <StatusDot status={runtime.autopilotEnabled ? 'online' : 'idle'} pulse />
-          <span>{runtime.autopilotEnabled ? 'live assistida ativa' : 'standby'}</span>
-          <span className="text-slate-600">|</span>
-          <span>{videoState?.queue_len ?? 0} na fila</span>
-          <span className="text-slate-600">|</span>
-          <span>{videoState?.executionMode || (runtime.autopilotEnabled ? 'live' : 'edicao')}</span>
+        <div className="absolute right-5 top-5 z-20 flex items-center gap-3 rounded-[14px] px-3 py-2 text-xs" style={{ background: 'rgba(13,15,19,0.78)', border: '1px solid var(--border2)', backdropFilter: 'blur(14px)', color: 'var(--t2)' }}>
+          <span className="od-pill" data-tone={runtime.autopilotEnabled ? 'online' : 'standby'}>
+            <span className="od-pill-dot" />
+            <span>{runtime.autopilotEnabled ? 'Live' : 'Standby'}</span>
+          </span>
+          <span className="od-topnav-divider" />
+          <span className="od-mono" style={{ fontSize: 11 }}>{videoState?.queue_len ?? 0} na fila</span>
+          <span className="od-topnav-divider" />
+          <span className="od-mono" style={{ fontSize: 11 }}>{videoState?.executionMode || (runtime.autopilotEnabled ? 'live' : 'edicao')}</span>
         </div>
 
         <div className="flex h-full min-h-[420px] items-center justify-center px-4 py-6">
-          <div className="relative aspect-[9/16] h-[min(68vh,620px)] max-h-[calc(100vh-280px)] min-h-[360px] bg-black shadow-[0_0_80px_rgba(0,0,0,0.45)]">
+          <div className="relative aspect-[9/16] h-[min(68vh,620px)] max-h-[calc(100vh-280px)] min-h-[360px] overflow-hidden" style={{ borderRadius: 14, background: '#07090f', boxShadow: '0 30px 80px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.08), 0 0 80px rgba(125,211,252,0.18)' }}>
             <ContinuityPlayer
               clip={displayClip}
               videos={view.videos}
               onEnded={advanceVideo}
               className="h-full w-full"
             />
-            <div className="pointer-events-none absolute inset-0 border-2 border-[var(--gold)]" />
-            <SelectionHandle className="-left-1.5 -top-1.5" />
-            <SelectionHandle className="-right-1.5 -top-1.5" />
-            <SelectionHandle className="-bottom-1.5 -left-1.5" />
-            <SelectionHandle className="-bottom-1.5 -right-1.5" />
-            <span className="pointer-events-none absolute left-1/2 top-[-28px] h-7 w-px bg-[var(--gold)]" />
-            <span className="pointer-events-none absolute left-1/2 top-[-31px] h-2 w-2 -translate-x-[3.5px] rounded-full border-2 border-[var(--gold)] bg-[#101114]" />
-            <div className="pointer-events-none absolute bottom-2 left-2 max-w-[calc(100%-16px)] rounded bg-black/65 px-2 py-1 text-[10px] font-mono text-white/45">
-              {connectionPreviewClip ? 'PREVIEW CONEXAO' : 'ID'}: {displayClip?.videoId || view.idleVideoId || 'None'} |{' '}
-              {formatClipTime(displayClip?.startSec)} {'->'} {formatClipTime(displayClip?.endSec)}
+            <div className="pointer-events-none absolute inset-0" style={{ border: '1.5px solid rgba(125,211,252,0.30)', borderRadius: 14 }} />
+            <div className="pointer-events-none absolute bottom-3 left-3 right-3 flex items-center justify-between rounded-[10px] px-2.5 py-1.5" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)' }}>
+              <span className="od-mono text-[10px]" style={{ color: 'var(--t2)' }}>
+                {connectionPreviewClip ? 'PREVIEW' : 'ID'}: {displayClip?.videoId || view.idleVideoId || 'None'}
+              </span>
+              <span className="od-mono text-[10px]" style={{ color: 'var(--t3)' }}>
+                {formatClipTime(displayClip?.startSec)} → {formatClipTime(displayClip?.endSec)}
+              </span>
             </div>
           </div>
         </div>
 
-        <div className="absolute bottom-4 left-4 hidden w-72 rounded-lg border border-white/10 bg-black/45 p-3 xl:block">
+        <div className="absolute bottom-4 left-4 hidden w-72 rounded-[14px] p-3 xl:block" style={{ background: 'rgba(13,15,19,0.86)', border: '1px solid var(--border2)', backdropFilter: 'blur(14px)' }}>
           <div className="mb-2 flex items-center justify-between">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-              Ultimos sinais
-            </span>
-            <Badge>{capturedText.length}</Badge>
+            <span className="od-eyebrow">Ultimos sinais</span>
+            <span className="od-pill" data-tone="info"><span>{capturedText.length}</span></span>
           </div>
           <div className="space-y-1">
             {latestSignals.map((event) => (
-              <div key={event.id} className="truncate text-xs text-slate-300">
+              <div key={event.id} className="truncate text-xs" style={{ color: 'var(--t2)' }}>
                 {event.kind}/{event.source}: {event.text}
               </div>
             ))}
             {!latestSignals.length && (
-              <div className="text-xs text-slate-500">Aguardando OCR ou teste manual.</div>
+              <div className="text-xs" style={{ color: 'var(--t3)' }}>Aguardando OCR ou teste manual.</div>
             )}
           </div>
         </div>
       </section>
 
-      <section className="shrink-0 border-b border-white/10 bg-[#101114] px-4 py-3">
+      <section className="shrink-0 px-4 py-3" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg2)' }}>
         <div className="grid items-center gap-3 md:grid-cols-[1fr_auto_1fr]">
           <div className="flex items-center gap-1">
             <EditorIconButton title="Cortar">
@@ -3660,13 +3784,13 @@ function StagePanel({
             <EditorIconButton title="Remover selecao" disabled>
               <Trash2 className="h-4 w-4" />
             </EditorIconButton>
-            <span className="mx-1 h-6 w-px bg-white/10" />
+            <span className="mx-1 h-6 w-px bg-[var(--bg3)]" />
             <EditorIconButton title="Preview sem audio">
               <VolumeX className="h-4 w-4" />
             </EditorIconButton>
           </div>
 
-          <div className="flex items-center justify-center gap-3 text-xs font-mono text-slate-400">
+          <div className="flex items-center justify-center gap-3 od-mono" style={{ fontSize: 11, color: 'var(--t2)' }}>
             <span>{formatEditorTimestamp(activeClip?.startSec)}</span>
             <EditorIconButton title="Atualizar estado" onClick={onRefresh}>
               <Rewind className="h-4 w-4" />
@@ -3684,11 +3808,12 @@ function StagePanel({
                 }
                 runtime.start();
               }}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-full text-white transition hover:bg-white/[0.06]"
+              className="od-btn od-btn-primary"
+              style={{ height: 44, width: 44, padding: 0, borderRadius: 999 }}
               aria-label={runtime.autopilotEnabled ? 'Pausar live' : 'Iniciar live'}
               title={runtime.autopilotEnabled ? 'Pausar live' : 'Iniciar live'}
             >
-              {runtime.autopilotEnabled ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+              {runtime.autopilotEnabled ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             </button>
             <EditorIconButton title="Proximo clipe" onClick={() => void advanceVideo()}>
               <FastForward className="h-4 w-4" />
@@ -3739,22 +3864,39 @@ function StagePanel({
         onPreviewConnection={previewConnection}
       />
 
-      <div className="flex shrink-0 flex-col gap-3 border-t border-white/10 bg-[#0d0f12] px-4 py-3 md:flex-row md:items-center md:justify-between">
+      <div className="flex shrink-0 flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between" style={{ borderTop: '1px solid var(--border)', background: 'var(--bg)' }}>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={simulateGift}
-            className="inline-flex items-center gap-2 text-xs font-semibold text-slate-400 transition hover:text-white"
+            className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--t3)] transition hover:text-[var(--t1)]"
           >
             <RadioTower className="h-4 w-4" />
             Simular Rosa pelo ingest
           </button>
-          <span className="hidden h-5 w-px bg-white/10 md:inline" />
+          <span className="hidden h-5 w-px bg-[var(--bg3)] md:inline" />
+          {obsDirectStatusProp?.state === 'connected' ? (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400">
+              <span className="h-2 w-2 rounded-full bg-emerald-400" />
+              OBS Direto
+            </span>
+          ) : obsDirectStatusProp?.state === 'connecting' ? (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-400">
+              <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+              Conectando...
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--t3)]">
+              <span className="h-2 w-2 rounded-full bg-[var(--t3)]" />
+              OBS Offline
+            </span>
+          )}
+          <span className="hidden h-5 w-px bg-[var(--bg3)] md:inline" />
           <Button
             size="sm"
             variant="secondary"
             loading={obsBusy === 'Preparar OBS'}
-            onClick={() => void runObsCommand('Preparar OBS', '/obs/setup-live-scene')}
+            onClick={() => void runRoutedCommand('Preparar OBS', () => routeSetupLiveScene(obsSettingsFromApp as Parameters<typeof routeSetupLiveScene>[0]))}
           >
             Preparar OBS
           </Button>
@@ -3762,7 +3904,7 @@ function StagePanel({
             size="sm"
             variant="secondary"
             loading={obsBusy === 'Tela inicial'}
-            onClick={() => void runObsCommand('Tela inicial', '/obs/show-start')}
+            onClick={() => void runRoutedCommand('Tela inicial', () => routeShowStart(obsSettingsFromApp as Parameters<typeof routeShowStart>[0]))}
           >
             Tela inicial
           </Button>
@@ -3770,7 +3912,7 @@ function StagePanel({
             size="sm"
             variant="secondary"
             loading={obsBusy === 'Palco ao vivo'}
-            onClick={() => void runObsCommand('Palco ao vivo', '/obs/show-stage')}
+            onClick={() => void runRoutedCommand('Palco ao vivo', () => routeShowStage(obsSettingsFromApp as Parameters<typeof routeShowStage>[0]))}
           >
             Palco ao vivo
           </Button>
@@ -3778,7 +3920,7 @@ function StagePanel({
             size="sm"
             variant="primary"
             loading={obsBusy === 'Iniciar transmissao'}
-            onClick={() => void runObsCommand('Iniciar transmissao', '/obs/transmission/start')}
+            onClick={() => void runRoutedCommand('Iniciar transmissao', () => routeStartTransmission(obsSettingsFromApp as Parameters<typeof routeStartTransmission>[0]))}
           >
             Iniciar transmissao
           </Button>
@@ -3786,18 +3928,18 @@ function StagePanel({
             size="sm"
             variant="secondary"
             loading={obsBusy === 'Parar transmissao'}
-            onClick={() => void runObsCommand('Parar transmissao', '/obs/transmission/stop')}
+            onClick={() => void runRoutedCommand('Parar transmissao', () => routeStopTransmission(obsSettingsFromApp as Parameters<typeof routeStopTransmission>[0]))}
           >
             Parar transmissao
           </Button>
-          {obsMessage && <span className="truncate text-xs text-slate-500">{obsMessage}</span>}
+          {obsMessage && <span className="truncate text-xs text-[var(--t3)]">{obsMessage}</span>}
           {previewMessage && <span className="truncate text-xs text-emerald-300">{previewMessage}</span>}
         </div>
         <div className="flex min-w-0 items-center gap-2">
           <select
             value={manualVideoId}
             onChange={(event) => setManualVideoId(event.target.value)}
-            className="h-9 min-w-0 flex-1 rounded-lg border border-white/10 bg-[#15161a] px-3 text-sm text-slate-200 outline-none focus:border-[var(--gold)] md:w-72"
+            className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--sky)] md:w-72"
           >
             <option value="">Escolher video...</option>
             {view.videos.map((video) => (
@@ -3852,6 +3994,12 @@ function VideoLibraryPanel({
       body.append('file', file);
       const xhr = new XMLHttpRequest();
       xhr.open('POST', apiUrl('/video/upload'));
+      xhr.withCredentials = true;
+      // Forward session token for auth (mirroring installCredentialedFetch)
+      const sessionToken =
+        window.sessionStorage.getItem('odessa:admin-session-token-origin:' + window.location.origin) ||
+        window.sessionStorage.getItem('odessa:admin-session-token:v1');
+      if (sessionToken) xhr.setRequestHeader('Authorization', `Bearer ${sessionToken}`);
       xhr.upload.onprogress = (event) => {
         if (!event.lengthComputable) return;
         const fileProgress = event.loaded / event.total;
@@ -3942,16 +4090,14 @@ function VideoLibraryPanel({
   };
 
   return (
-    <div className="h-full overflow-y-auto p-5 lg:p-8">
-      <div className="mb-6 flex flex-col gap-4 rounded-[34px] border border-white/10 bg-[#101114] p-5 md:flex-row md:items-end md:justify-between">
+    <div style={{ padding: 14 }}>
+      <div className="od-panel mb-3.5 flex flex-col gap-4 p-5 md:flex-row md:items-end md:justify-between">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.3em] text-sky-200/70">
-            Biblioteca
-          </div>
-          <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-white">
+          <div className="od-eyebrow" style={{ color: '#bae6fd' }}>Biblioteca</div>
+          <h1 className="mt-2 text-[28px]" style={{ fontFamily: 'var(--font-display)', fontStyle: 'italic', letterSpacing: '-0.01em', color: 'var(--t1)' }}>
             Videos da mesa de direcao
           </h1>
-          <p className="mt-1 text-sm text-[var(--t3)]">
+          <p className="mt-1 text-[12.5px]" style={{ color: 'var(--t3)' }}>
             Clipes usados pelo Idle, reacoes, loops e gatilhos OCR.
           </p>
         </div>
@@ -3964,55 +4110,55 @@ function VideoLibraryPanel({
             className="hidden"
             onChange={(event) => upload(event.target.files)}
           />
-          <Button variant="primary" loading={uploading} onClick={() => fileRef.current?.click()}>
+          <button className="od-btn od-btn-primary" disabled={uploading} onClick={() => fileRef.current?.click()}>
             <Upload className="h-4 w-4" />
             Adicionar videos
-          </Button>
+          </button>
         </div>
       </div>
 
       {uploading || uploadBatch.length > 0 ? (
-        <div className="mb-5 rounded-[28px] border border-sky-200/20 bg-sky-300/10 p-4">
+        <div className="od-panel mb-3.5 p-4" style={{ borderColor: 'rgba(125,211,252,0.20)', background: 'rgba(125,211,252,0.06)' }}>
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold text-white">
+              <div className="text-[13px] font-semibold" style={{ color: 'var(--t1)' }}>
                 {uploading ? 'Enviando videos' : 'Upload concluido'}
               </div>
-              <div className="text-xs text-slate-400">
+              <div className="text-xs" style={{ color: 'var(--t3)' }}>
                 {uploadSummary.sent} enviados, {uploadSummary.failed} falharam,{' '}
                 {uploadSummary.pending} pendentes
               </div>
             </div>
-            <Badge variant={uploadSummary.failed > 0 ? 'warning' : 'gold'}>{uploadProgress}%</Badge>
+            <span className="od-pill" data-tone={uploadSummary.failed > 0 ? 'pending' : 'online'}>
+              <span>{uploadProgress}%</span>
+            </span>
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-black/45">
+          <div className="h-2 overflow-hidden rounded-full" style={{ background: 'rgba(0,0,0,0.45)' }}>
             <div
-              className="h-full rounded-full bg-gradient-to-r from-sky-300 to-lime-300 transition-all"
-              style={{ width: `${uploadProgress}%` }}
+              className="h-full rounded-full transition-all"
+              style={{ width: `${uploadProgress}%`, background: 'var(--grad-live)' }}
             />
           </div>
           <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {uploadBatch.map((item) => (
               <div
                 key={item.name}
-                className="rounded-2xl border border-white/10 bg-black/25 px-3 py-2"
+                className="rounded-[10px] px-3 py-2"
+                style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid var(--border)' }}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-xs font-semibold text-white">{item.name}</span>
+                  <span className="truncate text-xs font-semibold" style={{ color: 'var(--t1)' }}>{item.name}</span>
                   <span
-                    className={cn(
-                      'text-[10px] font-semibold uppercase tracking-widest',
-                      item.status === 'done' && 'text-lime-300',
-                      item.status === 'uploading' && 'text-sky-300',
-                      item.status === 'error' && 'text-rose-300',
-                      item.status === 'pending' && 'text-slate-500',
-                    )}
+                    className="od-eyebrow"
+                    style={{
+                      color: item.status === 'done' ? 'var(--green)' : item.status === 'uploading' ? 'var(--sky)' : item.status === 'error' ? 'var(--red)' : 'var(--t3)',
+                    }}
                   >
                     {item.status}
                   </span>
                 </div>
                 {item.error && (
-                  <div className="mt-1 truncate text-[10px] text-rose-300">{item.error}</div>
+                  <div className="mt-1 truncate text-[10px]" style={{ color: 'var(--red)' }}>{item.error}</div>
                 )}
               </div>
             ))}
@@ -4022,49 +4168,48 @@ function VideoLibraryPanel({
 
       {videos.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
-          <Film className="mb-4 h-12 w-12 text-[var(--t3)]" />
-          <p className="text-sm font-semibold text-[var(--t1)]">Nenhum video na biblioteca</p>
-          <p className="mt-1 text-xs text-[var(--t3)]">Clique em "Adicionar videos" para fazer upload</p>
+          <Film className="mb-4 h-12 w-12" style={{ color: 'var(--t3)' }} />
+          <p className="text-[13px] font-semibold" style={{ color: 'var(--t1)' }}>Nenhum video na biblioteca</p>
+          <p className="mt-1 text-xs" style={{ color: 'var(--t3)' }}>Clique em "Adicionar videos" para fazer upload</p>
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {videos.map((video) => (
-          <Card key={video.id} className="overflow-hidden bg-[#101114]">
-            <div className="aspect-video bg-black">
+          <div key={video.id} className="od-clip">
+            <div className="od-clip-thumb od-clip-thumb-wide">
               <video
                 muted
                 playsInline
                 preload="metadata"
-                className="h-full w-full object-contain"
+                className="absolute inset-0 h-full w-full object-contain"
+                style={{ zIndex: 1 }}
                 src={apiUrl(`/api/video/play/${video.id}`)}
               />
+              {video.loop && <span className="od-clip-thumb-kind"><span className="od-kind" data-kind="IDLE">IDLE</span></span>}
             </div>
-            <div className="p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold">{videoLabel(video)}</div>
-                  <div className="truncate text-xs text-[var(--t3)]">{video.group || video.id}</div>
-                </div>
-                {video.loop && <Badge variant="gold">Idle</Badge>}
+            <div className="od-clip-body">
+              <h4 className="od-clip-title">{videoLabel(video)}</h4>
+              <div className="od-clip-meta">
+                <span>{video.group || video.id}</span>
               </div>
-              <div className="mt-3 line-clamp-2 text-xs text-[var(--t3)]">
+              <div className="mt-1 line-clamp-2 text-[11px]" style={{ color: 'var(--t3)' }}>
                 {video.description || 'Video registrado na Odessa.'}
               </div>
-              <div className="mt-4 flex gap-2">
-                <Button size="sm" variant="secondary" onClick={() => forceVideo(video.id)}>
+              <div className="mt-3 flex gap-2">
+                <button className="od-btn od-btn-secondary od-btn-sm" onClick={() => forceVideo(video.id)}>
                   <Play className="h-3.5 w-3.5" />
                   Preview
-                </Button>
-                <Button size="sm" variant="secondary" onClick={() => setIdle(video.id)}>
+                </button>
+                <button className="od-btn od-btn-secondary od-btn-sm" onClick={() => setIdle(video.id)}>
                   Idle
-                </Button>
-                <Button size="sm" variant="danger" onClick={() => archiveVideo(video.id)}>
+                </button>
+                <button className="od-btn od-btn-danger od-btn-sm" onClick={() => archiveVideo(video.id)}>
                   <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                </button>
               </div>
             </div>
-          </Card>
+          </div>
         ))}
       </div>
     </div>
@@ -4073,20 +4218,18 @@ function VideoLibraryPanel({
 
 function SectionTitle({ icon, title }: { icon: ReactNode; title: string }) {
   return (
-    <div className="flex items-center gap-2 text-sm font-semibold text-[var(--t1)]">
-      <span className="h-4 w-4 text-[var(--gold)]">{icon}</span>
-      {title}
+    <div className="od-panel-title">
+      <span className="od-panel-title-icon">{icon}</span>
+      <span>{title}</span>
     </div>
   );
 }
 
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="min-w-0 rounded-2xl border border-[var(--border)] bg-[var(--bg3)] p-3">
-      <div className="truncate text-sm font-semibold text-[var(--t1)]">{value}</div>
-      <div className="mt-1 text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-        {label}
-      </div>
+    <div className="od-stat min-w-0 rounded-[14px] p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}>
+      <span className="od-stat-value" style={{ fontSize: 28 }}>{value}</span>
+      <span className="od-stat-label">{label}</span>
     </div>
   );
 }

@@ -416,7 +416,7 @@ function TypewriterText({ text }: { text: string }) {
       {usernameLen > 0 && (
         <strong className="text-amber-300">{displayed.substring(0, usernameLen)}</strong>
       )}
-      <span className="text-slate-100">{displayed.substring(usernameLen)}</span>
+      <span className="text-[var(--t1)]">{displayed.substring(usernameLen)}</span>
     </span>
   );
 }
@@ -433,7 +433,7 @@ function StatusChip({
   const tones = {
     good: 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200',
     warn: 'border-amber-400/30 bg-amber-500/10 text-amber-200',
-    idle: 'border-slate-600 bg-slate-900/70 text-slate-300',
+    idle: 'border-[var(--border2)] bg-[var(--bg2)]/70 text-[var(--t2)]',
     danger: 'border-rose-400/30 bg-rose-500/10 text-rose-200',
   };
 
@@ -470,8 +470,8 @@ function SliderControl({
   return (
     <label className="block space-y-2">
       <span className="flex items-center justify-between text-xs">
-        <span className="font-semibold text-slate-400">{label}</span>
-        <span className="rounded bg-slate-900 px-2 py-0.5 font-mono text-[11px] text-slate-200">
+        <span className="font-semibold text-[var(--t3)]">{label}</span>
+        <span className="rounded bg-[var(--bg2)] px-2 py-0.5 font-mono text-[11px] text-[var(--t1)]">
           {Number.isInteger(value) ? value : value.toFixed(1)}
           {suffix}
         </span>
@@ -2094,16 +2094,16 @@ const CaptureStudio = React.memo(function CaptureStudio({
   ];
 
   return (
-    <main className="flex-1 overflow-y-auto bg-[var(--odessa-bg)] text-slate-100 xl:overflow-hidden">
+    <main className="flex-1 overflow-y-auto bg-[var(--bg)] text-[var(--t1)] xl:overflow-hidden">
       <canvas ref={captureCanvasRef} className="hidden" aria-hidden="true" />
       <div className="grid min-h-full grid-cols-1 xl:h-full xl:grid-cols-[304px_minmax(0,1fr)_372px]">
         <aside className="border-b border-[var(--odessa-border)] bg-[var(--odessa-surface)] p-4 xl:overflow-y-auto xl:border-b-0 xl:border-r">
           <div className="mb-5 flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500">
+              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--t3)]">
                 Capture Studio
               </p>
-              <h2 className="mt-1 text-lg font-black text-white">Extrator OCR</h2>
+              <h2 className="mt-1 text-lg font-black text-[var(--t1)]">Extrator OCR</h2>
             </div>
             <StatusChip
               label={status === CaptureStatus.CAPTURING ? 'Live' : 'Standby'}
@@ -2114,7 +2114,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
 
           <section className="space-y-3 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">Fonte</h3>
+              <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--t3)]">Fonte</h3>
               <button
                 onClick={() => {
                   void refreshHealth();
@@ -2126,7 +2126,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                     updateDirectPageSize();
                   }
                 }}
-                className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-white"
+                className="rounded-md p-1.5 text-[var(--t3)] transition hover:bg-[var(--bg3)] hover:text-[var(--t1)]"
                 title="Atualizar fonte"
               >
                 <RefreshCcw className="h-3.5 w-3.5" />
@@ -2141,7 +2141,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                     'rounded-md border px-3 py-2 text-xs font-black transition',
                     captureMode === 'screen'
                       ? 'border-emerald-400/50 bg-emerald-500/15 text-emerald-100'
-                      : 'border-slate-800 bg-slate-950/50 text-slate-400 hover:border-slate-600',
+                      : 'border-[var(--border)] bg-[var(--bg1)]/50 text-[var(--t3)] hover:border-[var(--border2)]',
                   )}
                 >
                   Janela/tela
@@ -2153,7 +2153,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                     'rounded-md border px-3 py-2 text-xs font-black transition',
                     captureMode === 'obs'
                       ? 'border-sky-400/50 bg-sky-500/15 text-sky-100'
-                      : 'border-slate-800 bg-slate-950/50 text-slate-400 hover:border-slate-600',
+                      : 'border-[var(--border)] bg-[var(--bg1)]/50 text-[var(--t3)] hover:border-[var(--border2)]',
                   )}
                 >
                   OBS
@@ -2165,24 +2165,24 @@ const CaptureStudio = React.memo(function CaptureStudio({
                     'rounded-md border px-2 py-2 text-xs font-black transition',
                     captureMode === 'direct'
                       ? 'border-violet-400/50 bg-violet-500/15 text-violet-100'
-                      : 'border-slate-800 bg-slate-950/50 text-slate-400 hover:border-slate-600',
+                      : 'border-[var(--border)] bg-[var(--bg1)]/50 text-[var(--t3)] hover:border-[var(--border2)]',
                   )}
                 >
                   Link direto
                 </button>
               </div>
               {captureMode === 'screen' ? (
-                <div className="rounded-md border border-slate-800 bg-slate-950/50 p-3">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                <div className="rounded-md border border-[var(--border)] bg-[var(--bg1)]/50 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--t3)]">
                     Captura em tempo real
                   </p>
-                  <p className="mt-2 text-xs leading-5 text-slate-400">
+                  <p className="mt-2 text-xs leading-5 text-[var(--t3)]">
                     Selecione a janela do TikTok/Live Studio para recortar o chat direto do video ao vivo.
                   </p>
                   <button
                     type="button"
                     onClick={() => void requestScreenStream()}
-                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md bg-slate-800 px-3 py-2 text-xs font-black text-slate-100 transition hover:bg-slate-700"
+                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[var(--bg3)] px-3 py-2 text-xs font-black text-[var(--t1)] transition hover:bg-[var(--bg4)]"
                   >
                     <Camera className="h-4 w-4" />
                     {screenReady ? 'Trocar janela' : 'Selecionar janela'}
@@ -2190,19 +2190,19 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 </div>
               ) : captureMode === 'obs' ? (
                 <>
-                  <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-[var(--t3)]">
                     Source OCR
                   </label>
                   <input
                     aria-label="Source OCR"
                     value={sourceName}
                     onChange={(event) => setSourceName(event.target.value)}
-                    className="w-full rounded-md border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs font-bold text-slate-100 outline-none transition focus:border-sky-400"
+                    className="w-full rounded-md border border-[var(--border)] bg-[var(--bg1)]/70 px-3 py-2 text-xs font-bold text-[var(--t1)] outline-none transition focus:border-sky-400"
                   />
                 </>
               ) : (
                 <div className="space-y-2">
-                  <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-[var(--t3)]">
                     Link da live
                   </label>
                   <input
@@ -2213,14 +2213,14 @@ const CaptureStudio = React.memo(function CaptureStudio({
                       setDirectLinkStatus(null);
                     }}
                     placeholder="https://..."
-                    className="w-full rounded-md border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs font-bold text-slate-100 outline-none transition focus:border-violet-400"
+                    className="w-full rounded-md border border-[var(--border)] bg-[var(--bg1)]/70 px-3 py-2 text-xs font-bold text-[var(--t1)] outline-none transition focus:border-violet-400"
                   />
                   <div className="grid grid-cols-3 gap-2">
                     <button
                       type="button"
                       onClick={() => void openDirectLink()}
                       disabled={!hasDirectUrl || isOpeningDirectLink}
-                      className="inline-flex items-center justify-center gap-2 rounded-md bg-violet-500 px-3 py-2 text-xs font-black text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="inline-flex items-center justify-center gap-2 rounded-md bg-violet-500 px-3 py-2 text-xs font-black text-[var(--t1)] transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <Link2 className="h-4 w-4" />
                       {isOpeningDirectLink ? 'Abrindo' : 'Abrir nesta tela'}
@@ -2239,7 +2239,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                         window.requestAnimationFrame(() => updateDirectPageSize());
                       }}
                       disabled={!directPageUrl}
-                      className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-800 px-3 py-2 text-xs font-black text-slate-100 transition hover:bg-slate-700"
+                      className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--bg3)] px-3 py-2 text-xs font-black text-[var(--t1)] transition hover:bg-[var(--bg4)]"
                     >
                       <RefreshCcw className="h-4 w-4" />
                       Recarregar
@@ -2262,7 +2262,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 </div>
               )}
               <div className="grid grid-cols-2 gap-2 text-[10px] font-bold uppercase tracking-wide">
-                <div className="rounded-md border border-slate-800 bg-slate-950/50 p-2 text-slate-400">
+                <div className="rounded-md border border-[var(--border)] bg-[var(--bg1)]/50 p-2 text-[var(--t3)]">
                   <p>
                     {captureMode === 'screen' ? 'Janela' : captureMode === 'direct' ? 'Link' : 'OBS'}
                   </p>
@@ -2278,7 +2278,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                             ? directReady
                               ? 'text-emerald-300'
                               : 'text-amber-300'
-                            : 'text-slate-500'
+                            : 'text-[var(--t3)]'
                         : sourceReady
                           ? 'text-emerald-300'
                           : obsHealth?.connected
@@ -2303,7 +2303,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                           : 'offline'}
                   </p>
                 </div>
-                <div className="rounded-md border border-slate-800 bg-slate-950/50 p-2 text-slate-400">
+                <div className="rounded-md border border-[var(--border)] bg-[var(--bg1)]/50 p-2 text-[var(--t3)]">
                   <p>{captureMode === 'direct' ? 'Captura' : 'OCR'}</p>
                   <p
                     className={cn(
@@ -2328,7 +2328,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 </div>
               </div>
               {captureMode === 'obs' && obsHealth?.currentScene && (
-                <p className="truncate text-xs text-slate-500">Cena atual: {obsHealth.currentScene}</p>
+                <p className="truncate text-xs text-[var(--t3)]">Cena atual: {obsHealth.currentScene}</p>
               )}
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -2343,7 +2343,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
               <button
                 onClick={pauseCapture}
                 disabled={status !== CaptureStatus.CAPTURING}
-                className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-800 px-3 py-2 text-xs font-black text-slate-100 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--bg3)] px-3 py-2 text-xs font-black text-[var(--t1)] transition hover:bg-[var(--bg4)] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Pause className="h-4 w-4" />
                 Pausar
@@ -2356,12 +2356,12 @@ const CaptureStudio = React.memo(function CaptureStudio({
 
           <section className="mt-4 space-y-3 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">
+              <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--t3)]">
                 Presets
               </h3>
               <button
                 onClick={resetPreset}
-                className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-white"
+                className="rounded-md p-1.5 text-[var(--t3)] transition hover:bg-[var(--bg3)] hover:text-[var(--t1)]"
                 title="Restaurar preset"
               >
                 <RefreshCcw className="h-3.5 w-3.5" />
@@ -2379,16 +2379,16 @@ const CaptureStudio = React.memo(function CaptureStudio({
                     'w-full rounded-md border p-3 text-left transition',
                     activePresetId === preset.id
                       ? 'border-sky-400/60 bg-sky-500/10'
-                      : 'border-slate-800 bg-slate-950/40 hover:border-slate-600',
+                      : 'border-[var(--border)] bg-[var(--bg1)]/40 hover:border-[var(--border2)]',
                   )}
                 >
                   <span className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-black text-white">{preset.name}</span>
-                    <span className="rounded bg-slate-900 px-2 py-0.5 text-[10px] font-bold text-slate-400">
+                    <span className="text-sm font-black text-[var(--t1)]">{preset.name}</span>
+                    <span className="rounded bg-[var(--bg2)] px-2 py-0.5 text-[10px] font-bold text-[var(--t3)]">
                       {preset.zones.length} zonas
                     </span>
                   </span>
-                  <span className="mt-1 block text-xs leading-4 text-slate-500">
+                  <span className="mt-1 block text-xs leading-4 text-[var(--t3)]">
                     {preset.description}
                   </span>
                 </button>
@@ -2398,11 +2398,11 @@ const CaptureStudio = React.memo(function CaptureStudio({
 
           <section className="mt-4 space-y-3 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">Zonas</h3>
+              <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--t3)]">Zonas</h3>
               <button
                 onClick={addZone}
                 disabled={zones.length >= MAX_ZONES}
-                className="inline-flex items-center gap-1 rounded-md bg-slate-800 px-2 py-1 text-xs font-bold text-slate-200 transition hover:bg-slate-700 disabled:opacity-40"
+                className="inline-flex items-center gap-1 rounded-md bg-[var(--bg3)] px-2 py-1 text-xs font-bold text-[var(--t1)] transition hover:bg-[var(--bg4)] disabled:opacity-40"
               >
                 <Plus className="h-3.5 w-3.5" />
                 Nova
@@ -2416,7 +2416,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                     'flex items-stretch rounded-md border transition',
                     activeZoneIndex === index
                       ? 'border-sky-400/60 bg-sky-500/10'
-                      : 'border-slate-800 bg-slate-950/40 hover:border-slate-600',
+                      : 'border-[var(--border)] bg-[var(--bg1)]/40 hover:border-[var(--border2)]',
                   )}
                 >
                   <button
@@ -2428,16 +2428,16 @@ const CaptureStudio = React.memo(function CaptureStudio({
                         className="h-2.5 w-2.5 rounded-full"
                         style={{ backgroundColor: zone.color }}
                       />
-                      <span className="truncate text-sm font-bold text-white">{zone.name}</span>
+                      <span className="truncate text-sm font-bold text-[var(--t1)]">{zone.name}</span>
                     </span>
-                    <span className="mt-1 block font-mono text-[10px] text-slate-500">
+                    <span className="mt-1 block font-mono text-[10px] text-[var(--t3)]">
                       {Math.round(zone.width)}x{Math.round(zone.height)} px
                     </span>
                   </button>
                   {zones.length > 1 && (
                     <button
                       onClick={() => removeZone(index)}
-                      className="border-l border-slate-800 px-2 text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-300"
+                      className="border-l border-[var(--border)] px-2 text-[var(--t3)] transition hover:bg-rose-500/10 hover:text-rose-300"
                       title={`Remover ${zone.name}`}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -2448,16 +2448,16 @@ const CaptureStudio = React.memo(function CaptureStudio({
             </div>
 
             {activeZone && (
-              <div className="space-y-2 rounded-md border border-slate-800 bg-slate-950/50 p-3">
-                <label className="block text-xs font-semibold text-slate-400">
+              <div className="space-y-2 rounded-md border border-[var(--border)] bg-[var(--bg1)]/50 p-3">
+                <label className="block text-xs font-semibold text-[var(--t3)]">
                   Nome da zona
                   <input
                     value={activeZone.name}
                     onChange={(event) => updateZone(activeZoneIndex, { name: event.target.value })}
-                    className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm font-semibold text-white outline-none focus:border-sky-400"
+                    className="mt-1 w-full rounded-md border border-[var(--border2)] bg-[var(--bg1)] px-2 py-1.5 text-sm font-semibold text-[var(--t1)] outline-none focus:border-sky-400"
                   />
                 </label>
-                <label className="block text-xs font-semibold text-slate-400">
+                <label className="block text-xs font-semibold text-[var(--t3)]">
                   Tipo
                   <select
                     value={activeZone.role}
@@ -2466,7 +2466,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                         role: event.target.value as CaptureZone['role'],
                       })
                     }
-                    className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm font-semibold text-white outline-none focus:border-sky-400"
+                    className="mt-1 w-full rounded-md border border-[var(--border2)] bg-[var(--bg1)] px-2 py-1.5 text-sm font-semibold text-[var(--t1)] outline-none focus:border-sky-400"
                   >
                     {Object.entries(ROLE_LABELS).map(([value, label]) => (
                       <option key={value} value={value}>
@@ -2481,8 +2481,8 @@ const CaptureStudio = React.memo(function CaptureStudio({
 
           <section className="mt-4 space-y-4 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-3">
             <div className="flex items-center gap-2">
-              <Settings2 className="h-4 w-4 text-slate-500" />
-              <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">OCR</h3>
+              <Settings2 className="h-4 w-4 text-[var(--t3)]" />
+              <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--t3)]">OCR</h3>
             </div>
             <SliderControl
               label="Contraste"
@@ -2518,7 +2518,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
               suffix="ms"
               onChange={(value) => updateSettings('intervalTime', value)}
             />
-            <label className="flex items-center justify-between rounded-md border border-slate-800 bg-slate-950/40 px-3 py-2 text-xs font-semibold text-slate-300">
+            <label className="flex items-center justify-between rounded-md border border-[var(--border)] bg-[var(--bg1)]/40 px-3 py-2 text-xs font-semibold text-[var(--t2)]">
               Console debug
               <input
                 type="checkbox"
@@ -2530,7 +2530,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
           </section>
         </aside>
 
-        <section className="flex min-h-[720px] flex-col bg-[var(--odessa-bg)] xl:min-h-0">
+        <section className="flex min-h-[720px] flex-col bg-[var(--bg)] xl:min-h-0">
           <div className="border-b border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] px-4 py-3">
             <div className="flex flex-wrap items-center gap-2">
               {pipeline.map((step, index) => {
@@ -2542,7 +2542,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                         'inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs font-black',
                         step.active
                           ? 'border-sky-400/30 bg-sky-500/10 text-sky-100'
-                          : 'border-slate-800 bg-slate-950/50 text-slate-500',
+                          : 'border-[var(--border)] bg-[var(--bg1)]/50 text-[var(--t3)]',
                       )}
                     >
                       <Icon className="h-3.5 w-3.5" />
@@ -2557,7 +2557,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
             </div>
           </div>
 
-          <div className="flex min-h-[420px] flex-1 flex-col border-b border-slate-800 bg-black">
+          <div className="flex min-h-[420px] flex-1 flex-col border-b border-[var(--border)] bg-black">
             {/* Task 1: Runtime mode status indicator */}
             {captureMode === 'direct' && (
               <div
@@ -2589,16 +2589,16 @@ const CaptureStudio = React.memo(function CaptureStudio({
               </div>
             )}
             {captureMode === 'direct' && (
-              <div className="grid gap-px border-b border-slate-800 bg-slate-800 text-[10px] font-bold uppercase tracking-wide sm:grid-cols-4">
-                <div className="bg-[#0B1018] px-3 py-2 text-slate-400">
+              <div className="grid gap-px border-b border-[var(--border)] bg-[var(--bg3)] text-[10px] font-bold uppercase tracking-wide sm:grid-cols-4">
+                <div className="bg-[#0B1018] px-3 py-2 text-[var(--t3)]">
                   Runtime
-                  <span className="mt-1 block text-xs text-slate-100">
+                  <span className="mt-1 block text-xs text-[var(--t1)]">
                     {isElectronRuntime ? 'Electron legado' : 'Web'}
                   </span>
                 </div>
-                <div className="bg-[#0B1018] px-3 py-2 text-slate-400">
+                <div className="bg-[#0B1018] px-3 py-2 text-[var(--t3)]">
                   Renderer da pagina
-                  <span className="mt-1 block text-xs text-slate-100">
+                  <span className="mt-1 block text-xs text-[var(--t1)]">
                     {directRenderer === 'electron-webview'
                       ? 'Electron WebView legado'
                       : directRenderer === 'proxy-preview'
@@ -2608,13 +2608,13 @@ const CaptureStudio = React.memo(function CaptureStudio({
                             : 'Nenhum'}
                   </span>
                 </div>
-                <div className="bg-[#0B1018] px-3 py-2 text-slate-400">
+                <div className="bg-[#0B1018] px-3 py-2 text-[var(--t3)]">
                   Pagina
-                  <span className="mt-1 block text-xs text-slate-100">{directPageState}</span>
+                  <span className="mt-1 block text-xs text-[var(--t1)]">{directPageState}</span>
                 </div>
-                <div className="bg-[#0B1018] px-3 py-2 text-slate-400">
+                <div className="bg-[#0B1018] px-3 py-2 text-[var(--t3)]">
                   Captura
-                  <span className="mt-1 block text-xs text-slate-100">{directCaptureState}</span>
+                  <span className="mt-1 block text-xs text-[var(--t1)]">{directCaptureState}</span>
                 </div>
               </div>
             )}
@@ -2625,14 +2625,14 @@ const CaptureStudio = React.memo(function CaptureStudio({
               </div>
             )}
             {hasPreview && (
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-[#111722] px-4 py-2">
-                <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-slate-400">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] bg-[#111722] px-4 py-2">
+                <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-[var(--t3)]">
                   <Crosshair className="h-4 w-4 text-sky-300" />
                   <span>Zona ativa</span>
                   <select
                     value={activeZoneIndex}
                     onChange={(event) => setActiveZoneIndex(Number(event.target.value))}
-                    className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs font-black text-white outline-none focus:border-sky-400"
+                    className="rounded-md border border-[var(--border2)] bg-[var(--bg1)] px-2 py-1 text-xs font-black text-[var(--t1)] outline-none focus:border-sky-400"
                   >
                     {zones.map((zone, index) => (
                       <option key={zone.id} value={index}>
@@ -2674,8 +2674,8 @@ const CaptureStudio = React.memo(function CaptureStudio({
                     className={cn(
                       'inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-black transition',
                       isSelectingRegion
-                        ? 'bg-rose-500 text-white'
-                        : 'bg-slate-800 text-slate-100 hover:bg-slate-700',
+                        ? 'bg-rose-500 text-[var(--t1)]'
+                        : 'bg-[var(--bg3)] text-[var(--t1)] hover:bg-[var(--bg4)]',
                     )}
                   >
                     <Crosshair className="h-3.5 w-3.5" />
@@ -2783,16 +2783,16 @@ const CaptureStudio = React.memo(function CaptureStudio({
                               );
                             }}
                           />
-                          <div className="flex items-center gap-3 border-t border-slate-800 bg-[#111722] px-4 py-2">
+                          <div className="flex items-center gap-3 border-t border-[var(--border)] bg-[#111722] px-4 py-2">
                             <button
                               type="button"
                               onClick={() => window.open(directPageUrl, '_blank', 'noopener')}
-                              className="inline-flex items-center gap-2 rounded-md bg-slate-800 px-3 py-1.5 text-xs font-black text-slate-100 transition hover:bg-slate-700"
+                              className="inline-flex items-center gap-2 rounded-md bg-[var(--bg3)] px-3 py-1.5 text-xs font-black text-[var(--t1)] transition hover:bg-[var(--bg4)]"
                             >
                               <Link2 className="h-3.5 w-3.5" />
                               Abrir no navegador externo
                             </button>
-                            <span className="text-[10px] text-slate-500">
+                            <span className="text-[10px] text-[var(--t3)]">
                               {backendOnline
                                 ? 'Preview experimental via proxy; OCR direto somente no app desktop'
                                 : 'Backend offline; use Abrir no navegador externo'}
@@ -2816,7 +2816,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                     )}
                     {isSelectingRegion && canEditZones && (
                       <div className="pointer-events-none absolute inset-0 z-10 bg-black/45">
-                        <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm font-black uppercase tracking-[0.22em] text-white/55">
+                        <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm font-black uppercase tracking-[0.22em] text-[var(--t1)]/55">
                           Arraste para redefinir {activeZone?.name || 'a zona'}
                         </div>
                       </div>
@@ -2857,7 +2857,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                           >
                             {zone.name}
                           </span>
-                          <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-white">
+                          <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-[var(--t1)]">
                             {Math.round(zone.width)}x{Math.round(zone.height)}
                           </span>
                           {!isSelectingRegion && canEditZones && (
@@ -2887,18 +2887,18 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 </>
               ) : (
                 <div className="flex max-w-md flex-col items-center gap-4 px-6 text-center">
-                  <div className="rounded-full border border-slate-800 bg-slate-950 p-5">
-                    <Camera className="h-11 w-11 text-slate-600" />
+                  <div className="rounded-full border border-[var(--border)] bg-[var(--bg1)] p-5">
+                    <Camera className="h-11 w-11 text-[var(--t4)]" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-black text-white">
+                    <h3 className="text-lg font-black text-[var(--t1)]">
                       {captureMode === 'screen'
                         ? 'Selecione a janela do chat'
                         : captureMode === 'direct'
                           ? 'Abra o link da live'
                           : 'Conecte a source do OBS'}
                     </h3>
-                    <p className="mt-2 text-sm leading-6 text-slate-500">
+                    <p className="mt-2 text-sm leading-6 text-[var(--t3)]">
                       {captureMode === 'screen'
                         ? 'Use a captura de janela/tela para ver o chat se movendo em tempo real, ajustar as zonas e iniciar os gatilhos.'
                         : captureMode === 'direct'
@@ -2911,38 +2911,38 @@ const CaptureStudio = React.memo(function CaptureStudio({
             </div>
           </div>
 
-          <div className="grid gap-px bg-slate-800 lg:grid-cols-4">
+          <div className="grid gap-px bg-[var(--bg3)] lg:grid-cols-4">
             <div className="bg-[#0B1018] p-4">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[var(--t3)]">
                 <Clock3 className="h-4 w-4" />
                 Ultima captura
               </div>
-              <p className="mt-2 font-mono text-lg font-black text-white">{lastCaptureTime}</p>
+              <p className="mt-2 font-mono text-lg font-black text-[var(--t1)]">{lastCaptureTime}</p>
             </div>
             <div className="bg-[#0B1018] p-4">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[var(--t3)]">
                 <Gauge className="h-4 w-4" />
                 Latencia media
               </div>
-              <p className="mt-2 font-mono text-lg font-black text-white">
+              <p className="mt-2 font-mono text-lg font-black text-[var(--t1)]">
                 {successfulEvents.length ? `${Math.round(averageLatency)}ms` : '0ms'}
               </p>
             </div>
             <div className="bg-[#0B1018] p-4">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[var(--t3)]">
                 <Zap className="h-4 w-4" />
                 Confianca OCR
               </div>
-              <p className="mt-2 font-mono text-lg font-black text-white">
+              <p className="mt-2 font-mono text-lg font-black text-[var(--t1)]">
                 {successfulEvents.length ? `${Math.round(averageConfidence * 100)}%` : '0%'}
               </p>
             </div>
             <div className="bg-[#0B1018] p-4">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[var(--t3)]">
                 <Activity className="h-4 w-4" />
                 Ciclo
               </div>
-              <p className="mt-2 font-mono text-lg font-black text-white">
+              <p className="mt-2 font-mono text-lg font-black text-[var(--t1)]">
                 {isProcessing ? 'Processando' : `${settings.intervalTime}ms`}
               </p>
             </div>
@@ -2954,8 +2954,8 @@ const CaptureStudio = React.memo(function CaptureStudio({
             <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-black text-white">Backend local</h3>
-                  <p className="mt-1 text-xs text-slate-500">Verificado as {healthCheckedAt}</p>
+                  <h3 className="text-sm font-black text-[var(--t1)]">Backend local</h3>
+                  <p className="mt-1 text-xs text-[var(--t3)]">Verificado as {healthCheckedAt}</p>
                 </div>
                 <StatusChip
                   label={backendOnline ? 'online' : 'offline'}
@@ -2970,15 +2970,15 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 />
               </div>
               <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                <div className="rounded-md border border-slate-800 bg-slate-950/50 p-2">
-                  <p className="text-[10px] font-bold uppercase text-slate-500">OCR</p>
-                  <p className="mt-1 text-xs font-black text-slate-100">
+                <div className="rounded-md border border-[var(--border)] bg-[var(--bg1)]/50 p-2">
+                  <p className="text-[10px] font-bold uppercase text-[var(--t3)]">OCR</p>
+                  <p className="mt-1 text-xs font-black text-[var(--t1)]">
                     {backendHealth?.ocr || '-'}
                   </p>
                 </div>
-                <div className="rounded-md border border-slate-800 bg-slate-950/50 p-2">
-                  <p className="text-[10px] font-bold uppercase text-slate-500">IA</p>
-                  <p className="mt-1 text-xs font-black text-slate-100">
+                <div className="rounded-md border border-[var(--border)] bg-[var(--bg1)]/50 p-2">
+                  <p className="text-[10px] font-bold uppercase text-[var(--t3)]">IA</p>
+                  <p className="mt-1 text-xs font-black text-[var(--t1)]">
                     {backendHealth?.gemini_configured
                       ? 'Gemini'
                       : backendHealth?.openai_ai_configured
@@ -2986,9 +2986,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
                         : '-'}
                   </p>
                 </div>
-                <div className="rounded-md border border-slate-800 bg-slate-950/50 p-2">
-                  <p className="text-[10px] font-bold uppercase text-slate-500">TTS</p>
-                  <p className="mt-1 text-xs font-black text-slate-100">
+                <div className="rounded-md border border-[var(--border)] bg-[var(--bg1)]/50 p-2">
+                  <p className="text-[10px] font-bold uppercase text-[var(--t3)]">TTS</p>
+                  <p className="mt-1 text-xs font-black text-[var(--t1)]">
                     {backendHealth?.openai_tts_configured ? 'ok' : '-'}
                   </p>
                 </div>
@@ -3001,17 +3001,17 @@ const CaptureStudio = React.memo(function CaptureStudio({
             </section>
 
             <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)]">
-              <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+              <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
                 <div>
-                  <h3 className="text-sm font-black text-white">Fila para Persona</h3>
-                  <p className="mt-1 text-xs text-slate-500">
+                  <h3 className="text-sm font-black text-[var(--t1)]">Fila para Persona</h3>
+                  <p className="mt-1 text-xs text-[var(--t3)]">
                     {capturedText.length} mensagens roteadas
                   </p>
                 </div>
                 <button
                   onClick={downloadLog}
                   disabled={capturedText.length === 0}
-                  className="rounded-md p-2 text-slate-400 transition hover:bg-slate-800 hover:text-white disabled:opacity-40"
+                  className="rounded-md p-2 text-[var(--t3)] transition hover:bg-[var(--bg3)] hover:text-[var(--t1)] disabled:opacity-40"
                   title="Baixar log"
                 >
                   <Download className="h-4 w-4" />
@@ -3030,7 +3030,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 )}
 
                 {captureEvents.length === 0 ? (
-                  <p className="py-8 text-center text-slate-600">Aguardando eventos OCR...</p>
+                  <p className="py-8 text-center text-[var(--t4)]">Aguardando eventos OCR...</p>
                 ) : (
                   captureEvents.map((event) => (
                     <div
@@ -3039,7 +3039,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                         'rounded-md border p-3',
                         event.routeStatus === 'error'
                           ? 'border-rose-400/30 bg-rose-500/10'
-                          : 'border-slate-800 bg-slate-950/50',
+                          : 'border-[var(--border)] bg-[var(--bg1)]/50',
                       )}
                     >
                       <div className="mb-2 flex items-center justify-between gap-2">
@@ -3049,20 +3049,20 @@ const CaptureStudio = React.memo(function CaptureStudio({
                           ) : (
                             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />
                           )}
-                          <span className="truncate font-sans text-xs font-black text-white">
+                          <span className="truncate font-sans text-xs font-black text-[var(--t1)]">
                             {event.zoneName}
                           </span>
                         </span>
-                        <span className="text-[10px] text-slate-500">{event.time}</span>
+                        <span className="text-[10px] text-[var(--t3)]">{event.time}</span>
                       </div>
                       {event.error ? (
                         <p className="whitespace-pre-wrap text-rose-200">{event.error}</p>
                       ) : (
-                        <p className="break-words leading-5 text-slate-100">
+                        <p className="break-words leading-5 text-[var(--t1)]">
                           <TypewriterText text={event.text} />
                         </p>
                       )}
-                      <div className="mt-3 flex flex-wrap gap-2 font-sans text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                      <div className="mt-3 flex flex-wrap gap-2 font-sans text-[10px] font-bold uppercase tracking-wide text-[var(--t3)]">
                         <span>{event.routeStatus}</span>
                         {event.confidence !== null && (
                           <span>{Math.round(event.confidence * 100)}% conf.</span>
@@ -3078,9 +3078,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
             </section>
 
             <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)]">
-              <div className="border-b border-slate-800 px-4 py-3">
-                <h3 className="text-sm font-black text-white">Texto bruto</h3>
-                <p className="mt-1 text-xs text-slate-500">
+              <div className="border-b border-[var(--border)] px-4 py-3">
+                <h3 className="text-sm font-black text-[var(--t1)]">Texto bruto</h3>
+                <p className="mt-1 text-xs text-[var(--t3)]">
                   Zona ativa: {activeZone?.name || 'nenhuma'}
                 </p>
               </div>
@@ -3089,7 +3089,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                   <img
                     src={previewImage}
                     alt="Preview OCR"
-                    className="h-28 w-full rounded-md border border-slate-800 bg-black object-contain"
+                    className="h-28 w-full rounded-md border border-[var(--border)] bg-black object-contain"
                     style={{ imageRendering: 'pixelated' }}
                   />
                 )}
@@ -3098,7 +3098,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                     <img
                       src={directCapturePreview}
                       alt="Preview da captura Link Direto"
-                      className="h-28 w-full rounded-md border border-slate-800 bg-black object-contain"
+                      className="h-28 w-full rounded-md border border-[var(--border)] bg-black object-contain"
                     />
                     <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-300">
                       Captura testada: {directCaptureSize?.width || 0}x{directCaptureSize?.height || 0}
@@ -3110,12 +3110,12 @@ const CaptureStudio = React.memo(function CaptureStudio({
                     {directCaptureError}
                   </p>
                 )}
-                <pre className="max-h-36 overflow-y-auto whitespace-pre-wrap rounded-md border border-slate-800 bg-slate-950/70 p-3 text-xs leading-5 text-slate-300">
+                <pre className="max-h-36 overflow-y-auto whitespace-pre-wrap rounded-md border border-[var(--border)] bg-[var(--bg1)]/70 p-3 text-xs leading-5 text-[var(--t2)]">
                   {currentRawText || '(aguardando captura)'}
                 </pre>
                 {lastEvent && (
-                  <div className="rounded-md border border-slate-800 bg-slate-950/50 p-3 text-xs text-slate-400">
-                    <span className="font-bold text-slate-200">Ultima rota:</span>{' '}
+                  <div className="rounded-md border border-[var(--border)] bg-[var(--bg1)]/50 p-3 text-xs text-[var(--t3)]">
+                    <span className="font-bold text-[var(--t1)]">Ultima rota:</span>{' '}
                     {lastEvent.routeStatus} / {lastEvent.zoneName}
                   </div>
                 )}
@@ -3125,12 +3125,12 @@ const CaptureStudio = React.memo(function CaptureStudio({
             {/* Task 3: Webview diagnostic logs (console visual) */}
             {captureMode === 'direct' && webviewLogs.length > 0 && (
               <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)]">
-                <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-                  <h3 className="text-sm font-black text-white">Console WebView</h3>
+                <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
+                  <h3 className="text-sm font-black text-[var(--t1)]">Console WebView</h3>
                   <button
                     type="button"
                     onClick={() => setWebviewLogs([])}
-                    className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-white"
+                    className="rounded-md p-1.5 text-[var(--t3)] transition hover:bg-[var(--bg3)] hover:text-[var(--t1)]"
                     title="Limpar logs"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -3138,7 +3138,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 </div>
                 <div className="max-h-[200px] overflow-y-auto p-3">
                   {webviewLogs.map((log, idx) => (
-                    <p key={idx} className="font-mono text-[10px] leading-4 text-slate-400">
+                    <p key={idx} className="font-mono text-[10px] leading-4 text-[var(--t3)]">
                       {log}
                     </p>
                   ))}

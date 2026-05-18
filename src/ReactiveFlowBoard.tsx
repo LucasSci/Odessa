@@ -404,7 +404,7 @@ function VideoFlowNode({ data, selected }: NodeProps<VideoFlowNodeType>) {
       className={cn(
         'w-56 overflow-hidden rounded-[24px] border bg-[#0b0d10] shadow-2xl transition',
         data.isActive && 'odessa-flow-node-active border-lime-200/80',
-        selected ? 'border-sky-200/70 shadow-[0_0_40px_rgba(125,211,252,0.2)]' : 'border-white/10',
+        selected ? 'border-sky-200/70 shadow-[0_0_40px_rgba(125,211,252,0.2)]' : 'border-[var(--border)]',
       )}
     >
       <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-sky-100 !bg-sky-300" />
@@ -419,7 +419,7 @@ function VideoFlowNode({ data, selected }: NodeProps<VideoFlowNodeType>) {
       </div>
       <div className="p-3">
         <div className="truncate text-sm font-semibold text-white">{nodeTitle(data.flowNode, data.video)}</div>
-        <div className="mt-1 truncate text-[11px] text-slate-500">{data.video.group || data.video.id}</div>
+        <div className="mt-1 truncate text-[11px] text-[var(--t3)]">{data.video.group || data.video.id}</div>
       </div>
       <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-sky-100 !bg-sky-300" />
     </div>
@@ -1290,7 +1290,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   }
 
   return (
-    <div className="grid flex-1 min-h-0 grid-rows-[1fr] gap-4 overflow-hidden p-4 xl:grid-cols-[280px_minmax(640px,1fr)_360px]">
+    <div className="grid h-[calc(100dvh-64px)] grid-rows-[1fr] gap-4 overflow-hidden p-4 xl:grid-cols-[280px_minmax(640px,1fr)_360px]">
       <aside className="odessa-panel flex min-h-0 flex-col overflow-hidden p-4">
         <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
           <Video className="h-4 w-4 text-sky-200" />
@@ -1310,13 +1310,13 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
                   event.dataTransfer.setData('text/plain', video.id);
                 }}
                 onClick={() => addNodeToCanvas(video)}
-                className="w-full rounded-2xl border border-white/10 bg-white/[0.045] p-2 text-left transition hover:border-sky-200/35"
+                className="w-full rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] p-2 text-left transition hover:border-sky-200/35"
               >
                 <div className="flex gap-3">
                   <StaticThumbnail videoId={video.id} className="h-14 w-20 shrink-0 rounded-xl" />
                   <div className="min-w-0">
                     <div className="truncate text-xs font-semibold text-white">{shortVideo(video)}</div>
-                    <div className="mt-1 truncate text-[10px] text-slate-500">{video.group || video.id}</div>
+                    <div className="mt-1 truncate text-[10px] text-[var(--t3)]">{video.group || video.id}</div>
                     <div className="mt-1 flex gap-1">
                       {video.id === idleVideoId && <Badge variant="gold">Idle</Badge>}
                       {copies > 0 && <Badge variant="lavender">{copies} no canvas</Badge>}
@@ -1337,7 +1337,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
         </div>
       </aside>
 
-      <section className="signal-lane-surface relative flex min-h-0 flex-col overflow-hidden rounded-[34px] border border-white/10 bg-[#07080a]">
+      <section className="signal-lane-surface relative flex min-h-0 flex-col overflow-hidden rounded-[34px] border border-[var(--border)] bg-[var(--bg)]">
         <div className="absolute inset-x-5 top-5 z-20 flex items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-sky-200/70">
@@ -1438,7 +1438,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
         )}
 
         {publishPreview && (
-          <div className="absolute bottom-5 left-5 z-30 max-w-xl rounded-2xl border border-white/10 bg-black/70 px-4 py-3 text-xs text-slate-300 backdrop-blur">
+          <div className="absolute bottom-5 left-5 z-30 max-w-xl rounded-2xl border border-[var(--border)] bg-[rgba(0,0,0,0.70)] px-4 py-3 text-xs text-[var(--t2)] backdrop-blur">
             <div className="mb-1 font-semibold text-white">Resumo do rascunho/publicacao</div>
             {JSON.stringify(
               (publishPreview.comparison as Record<string, unknown>) ||
@@ -1453,7 +1453,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-sm font-semibold text-white">Prévia da importação</div>
-                <div className="mt-1 text-xs text-slate-400">
+                <div className="mt-1 text-xs text-[var(--t3)]">
                   {JSON.stringify((workflowPreview.summary as Record<string, unknown>) || {})}
                 </div>
                 {Array.isArray(workflowPreview.missingVideoIds) && workflowPreview.missingVideoIds.length > 0 && (
@@ -1557,7 +1557,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
                 <StatusDot status={selectedVideo.id === idleVideoId ? 'idle' : 'online'} />
               </div>
               <div className="text-lg font-semibold text-white">{nodeTitle(selectedFlowNode, selectedVideo)}</div>
-              <div className="mt-1 truncate text-xs text-slate-400">{selectedVideo.group || selectedVideo.id}</div>
+              <div className="mt-1 truncate text-xs text-[var(--t3)]">{selectedVideo.group || selectedVideo.id}</div>
             </div>
 
             <Input
@@ -1566,8 +1566,8 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
               onChange={(event) => updateFlowNode(selectedFlowNode.nodeId, { label: event.target.value })}
             />
 
-            <div className="rounded-[24px] border border-white/10 bg-white/[0.045] p-3">
-              <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-slate-300">
+            <div className="rounded-[24px] border border-[var(--border)] bg-[rgba(255,255,255,0.035)] p-3">
+              <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-[var(--t2)]">
                 <Scissors className="h-4 w-4 text-sky-200" />
                 Corte e transicao
               </div>
@@ -1603,8 +1603,8 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
               </div>
             </div>
 
-            <div className="rounded-[24px] border border-white/10 bg-white/[0.045] p-3">
-              <div className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-300">Audio do clipe</div>
+            <div className="rounded-[24px] border border-[var(--border)] bg-[rgba(255,255,255,0.035)] p-3">
+              <div className="mb-3 text-xs font-semibold uppercase tracking-widest text-[var(--t2)]">Audio do clipe</div>
               <div className="grid gap-2">
                 <label className="block">
                   <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">Modo</span>
@@ -1646,7 +1646,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
               {selectedVideo.id === idleVideoId ? 'Idle configurado' : 'Definir como Idle'}
             </Button>
 
-            <label className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-3 text-sm text-slate-200">
+            <label className="flex items-center justify-between rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] px-3 py-3 text-sm text-[var(--t1)]">
               <span>Arquivo em loop</span>
               <input
                 type="checkbox"
@@ -1656,9 +1656,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
               />
             </label>
 
-            <div className="rounded-[24px] border border-white/10 bg-white/[0.045] p-3">
+            <div className="rounded-[24px] border border-[var(--border)] bg-[rgba(255,255,255,0.035)] p-3">
               <div className="mb-3 flex items-center justify-between gap-2">
-                <div className="text-xs font-semibold uppercase tracking-widest text-slate-300">Gatilhos OCR</div>
+                <div className="text-xs font-semibold uppercase tracking-widest text-[var(--t2)]">Gatilhos OCR</div>
                 <Button variant="secondary" onClick={() => createNodeTrigger(selectedFlowNode.nodeId)}>
                   <Plus className="h-4 w-4" />
                   Novo
@@ -1666,7 +1666,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
               </div>
 
               {selectedNodeTriggers.length === 0 ? (
-                <p className="rounded-2xl border border-dashed border-white/15 p-3 text-xs text-slate-500">
+                <p className="rounded-2xl border border-dashed border-[var(--border2)] p-3 text-xs text-[var(--t3)]">
                   Nenhum gatilho aciona esta instancia.
                 </p>
               ) : (
@@ -1693,10 +1693,10 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
             </Button>
           </div>
         ) : !selectedConnection || !selectedTrigger ? (
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center rounded-[26px] border border-dashed border-white/15 bg-white/[0.035] p-6 text-center">
-            <MousePointer2 className="h-8 w-8 text-slate-600" />
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center rounded-[26px] border border-dashed border-[var(--border2)] bg-[rgba(255,255,255,0.035)] p-6 text-center">
+            <MousePointer2 className="h-8 w-8 text-[var(--t4)]" />
             <div className="mt-3 text-sm font-semibold text-white">Selecione uma instancia ou conecte uma linha</div>
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs text-[var(--t3)]">
               Cada arraste cria uma nova instancia do video. Conecte os pontos laterais para criar rotas.
             </p>
           </div>
@@ -1710,7 +1710,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
                 <StatusDot status={selectedTrigger.enabled ? 'online' : 'warn'} />
               </div>
               <div className="text-lg font-semibold text-white">{nodeTitle(selectedTargetNode, selectedTargetVideo)}</div>
-              <div className="mt-1 text-xs text-slate-400">{eventKey(selectedTrigger)} aciona esta instancia</div>
+              <div className="mt-1 text-xs text-[var(--t3)]">{eventKey(selectedTrigger)} aciona esta instancia</div>
             </div>
 
             <TriggerCard
@@ -1723,7 +1723,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
               onSimulate={() => simulate(selectedTrigger)}
             />
 
-            <label className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-3 text-sm text-slate-200">
+            <label className="flex items-center justify-between rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] px-3 py-3 text-sm text-[var(--t1)]">
               <span>Arquivo em loop</span>
               <input type="checkbox" checked={!!selectedTargetVideo?.loop} onChange={(event) => toggleTargetLoop(event.target.checked)} />
             </label>
@@ -1737,8 +1737,8 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
           </div>
         )}
 
-        <div className="mt-4 rounded-[22px] border border-white/10 bg-white/[0.045] p-3 text-xs text-slate-500">
-          <div className="mb-2 flex items-center gap-2 font-semibold text-slate-300">
+        <div className="mt-4 rounded-[22px] border border-[var(--border)] bg-[rgba(255,255,255,0.035)] p-3 text-xs text-[var(--t3)]">
+          <div className="mb-2 flex items-center gap-2 font-semibold text-[var(--t2)]">
             <Plus className="h-3.5 w-3.5 text-sky-200" />
             Como usar
           </div>
@@ -1796,7 +1796,7 @@ function TriggerCard({
   };
 
   return (
-    <div className="space-y-3 rounded-[22px] border border-white/10 bg-black/20 p-3">
+    <div className="space-y-3 rounded-[22px] border border-[var(--border)] bg-[rgba(0,0,0,0.20)] p-3">
       <div className="flex items-center justify-between gap-2">
         <Badge variant={trigger.enabled ? 'success' : 'warning'}>{trigger.enabled ? 'Ativo' : 'Pausado'}</Badge>
         <Button variant="danger" onClick={onRemove}>
@@ -1859,13 +1859,13 @@ function TriggerCard({
         </div>
       )}
 
-      <label className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-3 text-sm text-slate-200">
+      <label className="flex items-center justify-between rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] px-3 py-3 text-sm text-[var(--t1)]">
         <span>Regra ativa</span>
         <input type="checkbox" checked={trigger.enabled} onChange={(event) => onTriggerChange({ enabled: event.target.checked })} />
       </label>
 
       {trigger.eventType !== 'natural' && (
-        <label className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-3 text-sm text-slate-200">
+        <label className="flex items-center justify-between rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] px-3 py-3 text-sm text-[var(--t1)]">
           <span>Voltar ao Idle depois</span>
           <input
             type="checkbox"
