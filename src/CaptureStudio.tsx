@@ -575,18 +575,40 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const activeZone = zones[activeZoneIndex] || zones[0];
 
   const lastEvent = captureEvents[captureEvents.length - 1];
-  const successfulEvents = useMemo(
-    () => captureEvents.filter((event) => event.routeStatus !== 'error'),
-    [captureEvents],
-  );
-  const averageConfidence = useMemo(() =>
-    successfulEvents.reduce((sum, event) => sum + (event.confidence ?? 0), 0) /
-    Math.max(1, successfulEvents.filter((event) => event.confidence !== null).length)
-  , [successfulEvents]);
-  const averageLatency = useMemo(() =>
-    successfulEvents.reduce((sum, event) => sum + (event.latencyMs ?? 0), 0) /
-    Math.max(1, successfulEvents.filter((event) => event.latencyMs !== null).length)
-  , [successfulEvents]);
+
+  // ⚡ Bolt Optimization: Calculate stats in a single pass to avoid multiple O(N) iterations
+  // over the continuously growing captureEvents array.
+  const { successfulEventsCount, averageConfidence, averageLatency } = useMemo(() => {
+    let successCount = 0;
+    let confidenceSum = 0;
+    let confidenceCount = 0;
+    let latencySum = 0;
+    let latencyCount = 0;
+
+    for (let i = 0; i < captureEvents.length; i++) {
+      const event = captureEvents[i];
+      if (event.routeStatus !== 'error') {
+        successCount++;
+
+        if (event.confidence !== null) {
+          confidenceSum += event.confidence;
+          confidenceCount++;
+        }
+
+        if (event.latencyMs !== null) {
+          latencySum += event.latencyMs;
+          latencyCount++;
+        }
+      }
+    }
+
+    return {
+      successfulEventsCount: successCount,
+      averageConfidence: confidenceCount > 0 ? confidenceSum / confidenceCount : 0,
+      averageLatency: latencyCount > 0 ? latencySum / latencyCount : 0,
+    };
+  }, [captureEvents]);
+
   const desktopRuntime = (window as ElectronRuntimeWindow).odessaDesktop;
   const isElectronRuntime = Boolean(desktopRuntime?.isElectron);
   const canUseDirectWebCapture = Boolean(desktopRuntime?.canUseDirectWebCapture);
@@ -2925,7 +2947,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 Latencia media
               </div>
               <p className="mt-2 font-mono text-lg font-black text-white">
-                {successfulEvents.length ? `${Math.round(averageLatency)}ms` : '0ms'}
+                {successfulEventsCount ? `${Math.round(averageLatency)}ms` : '0ms'}
               </p>
             </div>
             <div className="bg-[#0B1018] p-4">
@@ -2934,7 +2956,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 Confianca OCR
               </div>
               <p className="mt-2 font-mono text-lg font-black text-white">
-                {successfulEvents.length ? `${Math.round(averageConfidence * 100)}%` : '0%'}
+                {successfulEventsCount ? `${Math.round(averageConfidence * 100)}%` : '0%'}
               </p>
             </div>
             <div className="bg-[#0B1018] p-4">
