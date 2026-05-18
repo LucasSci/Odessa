@@ -901,7 +901,7 @@ export default function OdessaLiveCenter({
         )}
       </header>
 
-      <section className="flex-1">
+      <section className="min-h-0 flex-1 overflow-y-auto">
         {activeTab === 'home' && (
           <HomeDashboard
             configError={configError}
@@ -2422,7 +2422,7 @@ function ReactiveFlowLogLab({
         </div>
 
         <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
-          <div className="min-h-0 overflow-hidden od-panel p-4">
+          <div className="min-h-[260px] overflow-y-auto od-panel p-4">
             <SectionTitle icon={<RadioTower />} title="Ultimo teste" />
             <div className="mt-4 space-y-3 text-sm">
               <FlowDatum label="Entrada" value={latestRun?.input || 'aguardando teste'} />
@@ -2438,9 +2438,9 @@ function ReactiveFlowLogLab({
             </div>
           </div>
 
-          <div className="min-h-0 overflow-hidden od-panel p-4">
+          <div className="min-h-[260px] overflow-y-auto od-panel p-4">
             <SectionTitle icon={<ListVideo />} title="Eventos capturados" />
-            <div className="mt-4 max-h-full space-y-2 overflow-y-auto pr-1">
+            <div className="mt-4 space-y-2 pr-1">
               {capturedText.slice(-10).reverse().map((event) => (
                 <div key={event.id} className="rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] p-3">
                   <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-[var(--t3)]">
@@ -2456,9 +2456,9 @@ function ReactiveFlowLogLab({
         </div>
       </section>
 
-      <aside className="od-panel p-4" style={{ overflow: 'visible' }}>
+      <aside className="od-panel p-4 min-h-[320px] overflow-y-auto">
         <SectionTitle icon={<ListVideo />} title="Timeline backend" />
-        <div className="mt-4 h-[calc(100%-36px)] space-y-2 overflow-y-auto pr-1">
+        <div className="mt-4 space-y-2 pr-1">
           {logs.map((entry, index) => (
             <div key={`${entry.timestamp}-${index}`} className="rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] p-3">
               <div className="mb-1 flex items-center justify-between gap-2">

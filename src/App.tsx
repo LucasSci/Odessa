@@ -91,30 +91,20 @@ function getPanelFromHash(): AdvancedPanel {
 }
 
 function loadLiveConfig(): LiveConfig {
+  const defaults: LiveConfig = {
+    prepareObs: true,
+    showStage: true,
+    startAutomation: true,
+    startCapture: false,
+    startTransmission: true,
+    voiceEnabled: false,
+    enableChat: false,
+  };
   try {
     const raw = window.localStorage.getItem(LIVE_CONFIG_KEY);
-    return {
-      prepareObs: true,
-      showStage: true,
-      startAutomation: true,
-      startCapture: false,
-      startTransmission: false,
-      actionMode: 'simulated',
-      voiceEnabled: false,
-      enableChat: false,
-      ...(raw ? JSON.parse(raw) : {}),
-    };
+    return { ...defaults, ...(raw ? JSON.parse(raw) : {}) };
   } catch {
-    return {
-      prepareObs: true,
-      showStage: true,
-      startAutomation: true,
-      startCapture: false,
-      startTransmission: false,
-      actionMode: 'simulated',
-      voiceEnabled: false,
-      enableChat: false,
-    };
+    return defaults;
   }
 }
 
@@ -234,10 +224,9 @@ export default function App() {
 
   const startLiveWithConfig = async () => {
     setLiveStartError(null);
-    const isRealMode = (liveConfig.actionMode || 'simulated') === 'real';
 
-    // OBS preparation — only in real mode
-    if (isRealMode && liveConfig.prepareObs !== false) {
+    // OBS preparation — always attempt when enabled
+    if (liveConfig.prepareObs !== false) {
       try {
         const health = await routeLiveHealth(obsSettings);
         let obsReady = health.ok;
@@ -246,37 +235,21 @@ export default function App() {
           const setup = await routeSetupLiveScene(obsSettings);
           obsReady = setup.ok;
           if (!obsReady) {
-            setLiveStartError(
-              setup.error ||
-                (health.error as string) ||
-                'Nao foi possivel preparar a Mesa OBS. Verifique se o OBS esta aberto e se o WebSocket esta ativo.',
-            );
-            return;
+            // OBS not available — warn but don't block automation
+            console.warn('[Odessa] OBS nao disponivel:', setup.error || health.error);
           }
         }
 
-        if (liveConfig.showStage !== false) {
+        if (obsReady && liveConfig.showStage !== false) {
           const stage = await routeShowStage(obsSettings);
           if (!stage.ok) {
-            setLiveStartError((stage.error as string) || 'Nao foi possivel colocar o palco ao vivo no OBS.');
-            return;
+            console.warn('[Odessa] Falha ao mostrar palco:', stage.error);
           }
         }
       } catch (err) {
-        setLiveStartError(
-          err instanceof Error
-            ? `Nao foi possivel preparar a Mesa OBS: ${err.message}`
-            : 'Nao foi possivel iniciar a live assistida: OBS WebSocket indisponivel.',
-        );
-        return;
+        // OBS unavailable — log but don't block automation start
+        console.warn('[Odessa] OBS WebSocket indisponivel:', err);
       }
-    } else if (!isRealMode) {
-      // Log dry-run for visibility, but don't block automation start
-      fetch(apiUrl('/obs/start-live/dry-run'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(liveConfig),
-      }).catch(() => {});
     }
 
     const toolPatches = [
@@ -295,16 +268,16 @@ export default function App() {
       }
     }
 
+    // Always start automation
     if (liveConfig.startAutomation !== false) {
       runtime.start({ voiceEnabled: liveConfig.voiceEnabled, toolPatches });
     }
 
-    if (isRealMode && liveConfig.startTransmission) {
-      routeStartTransmission(obsSettings).catch(() => undefined);
-    }
-
-    if (!isRealMode) {
-      setLiveStartError('Modo simulado: automacao iniciada, mas OBS/transmissao nao foram acionados. Mude para "Real" nas Configuracoes para controlar o OBS.');
+    // Start OBS transmission
+    if (liveConfig.startTransmission !== false) {
+      routeStartTransmission(obsSettings).catch((err) => {
+        console.warn('[Odessa] Falha ao iniciar transmissao:', err);
+      });
     }
   };
 
