@@ -1,7 +1,7 @@
 import logging
 import os
 from pathlib import Path
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -88,7 +88,12 @@ if dist_dir.exists():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_web_app(full_path: str):
-        target = dist_dir / full_path
+        target = (dist_dir / full_path).resolve()
+
+        # Prevent path traversal vulnerabilities
+        if not target.is_relative_to(dist_dir.resolve()):
+            raise HTTPException(status_code=403, detail="Access denied")
+
         if full_path and target.is_file():
             return FileResponse(target)
         return FileResponse(dist_dir / "index.html")
