@@ -1001,7 +1001,7 @@ function PageSurface({
         <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-white">{title}</h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-400">{description}</p>
       </div>
-      <div className="min-h-0 flex-1 overflow-hidden rounded-[34px] border border-white/10 bg-[#07080a]">
+      <div className="min-h-0 flex-1 overflow-y-auto rounded-[34px] border border-white/10 bg-[#07080a]">
         {children}
       </div>
     </div>
@@ -2311,8 +2311,8 @@ function ReactiveFlowLogLab({
   };
 
   return (
-    <div className="grid h-full min-h-0 gap-4 overflow-hidden p-4 xl:grid-cols-[minmax(520px,1fr)_360px]">
-      <section className="flex min-h-0 flex-col gap-4 overflow-hidden">
+    <div className="grid min-h-full gap-4 p-4 xl:grid-cols-[minmax(520px,1fr)_360px]">
+      <section className="flex min-h-0 flex-col gap-4">
         <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
@@ -2360,7 +2360,7 @@ function ReactiveFlowLogLab({
         </div>
 
         <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
-          <div className="min-h-0 overflow-hidden rounded-[28px] border border-white/10 bg-[#101114] p-4">
+          <div className="min-h-[260px] overflow-y-auto rounded-[28px] border border-white/10 bg-[#101114] p-4">
             <SectionTitle icon={<RadioTower />} title="Ultimo teste" />
             <div className="mt-4 space-y-3 text-sm">
               <FlowDatum label="Entrada" value={latestRun?.input || 'aguardando teste'} />
@@ -2376,9 +2376,9 @@ function ReactiveFlowLogLab({
             </div>
           </div>
 
-          <div className="min-h-0 overflow-hidden rounded-[28px] border border-white/10 bg-[#101114] p-4">
+          <div className="min-h-[260px] overflow-y-auto rounded-[28px] border border-white/10 bg-[#101114] p-4">
             <SectionTitle icon={<ListVideo />} title="Eventos capturados" />
-            <div className="mt-4 max-h-full space-y-2 overflow-y-auto pr-1">
+            <div className="mt-4 space-y-2 pr-1">
               {capturedText.slice(-10).reverse().map((event) => (
                 <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
                   <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-[var(--t3)]">
@@ -2394,9 +2394,9 @@ function ReactiveFlowLogLab({
         </div>
       </section>
 
-      <aside className="min-h-0 overflow-hidden rounded-[28px] border border-white/10 bg-[#101114] p-4">
+      <aside className="min-h-[320px] overflow-y-auto rounded-[28px] border border-white/10 bg-[#101114] p-4">
         <SectionTitle icon={<ListVideo />} title="Timeline backend" />
-        <div className="mt-4 h-[calc(100%-36px)] space-y-2 overflow-y-auto pr-1">
+        <div className="mt-4 space-y-2 pr-1">
           {logs.map((entry, index) => (
             <div key={`${entry.timestamp}-${index}`} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
               <div className="mb-1 flex items-center justify-between gap-2">
