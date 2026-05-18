@@ -746,23 +746,23 @@ export default function OdessaLiveCenter({
 
   return (
     <main className="odessa-shell flex h-screen w-screen min-h-0 flex-col overflow-hidden text-[var(--t1)]">
-      <header className="relative z-30 flex h-16 shrink-0 items-center justify-between border-b border-[var(--border2)] bg-[#06070a]/96 px-5 backdrop-blur-xl">
+      <header className="relative z-30 flex h-16 shrink-0 items-center justify-between border-b border-[var(--border2)] bg-[#06070a]/96 px-[22px] backdrop-blur-xl">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-sky-200/25 bg-sky-300/15 text-2xl font-bold text-sky-100 shadow-[0_0_28px_rgba(125,211,252,0.18)]">
-            O
+          <div className="odessa-brand-mark">
+            <img src="/favicon.png" alt="Odessa" />
           </div>
           <div>
-            <div className="heading-serif text-2xl leading-none">Odessa</div>
-            <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
+            <div className="heading-serif text-[24px] leading-none">Odessa</div>
+            <div className="mt-1 text-[9px] font-semibold uppercase tracking-[0.32em] text-[var(--t3)]">
               Live Direction Desk
             </div>
           </div>
         </div>
 
-        <nav className="hidden items-center gap-1 lg:flex">
+        <nav className="hidden items-center gap-0.5 lg:flex">
           <NavButton
             icon={<Home />}
-            label="Inicio"
+            label="Início"
             active={activeTab === 'home'}
             onClick={() => setActiveTab('home')}
           />
@@ -786,7 +786,7 @@ export default function OdessaLiveCenter({
           />
           <NavButton
             icon={<Camera />}
-            label="Fontes/OCR"
+            label="Fontes / OCR"
             active={activeTab === 'sources'}
             onClick={() => setActiveTab('sources')}
           />
@@ -804,15 +804,15 @@ export default function OdessaLiveCenter({
           />
         </nav>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           <button
             type="button"
             onClick={() => void onRefreshAgentStatus?.()}
-            className="hidden items-center gap-2 rounded-full border border-[var(--border2)] bg-[var(--bg2)] px-3 py-1.5 text-left sm:flex"
+            className="hidden h-[36px] items-center gap-2 rounded-full border border-[var(--border2)] bg-[var(--bg2)] px-3 text-left text-[11.5px] font-semibold text-[var(--t2)] transition hover:bg-[var(--bg3)] sm:flex"
             title={agentStatus?.message || 'Status do Odessa Agent'}
           >
             <StatusDot status={agentStatus?.agentConnected ? 'online' : 'error'} pulse={!!agentStatus?.agentConnected} />
-            <span className="text-xs font-semibold text-slate-200">
+            <span>
               Agent {agentStatus?.agentConnected ? 'online' : 'offline'}
             </span>
             {typeof agentStatus?.queueSize === 'number' && (
@@ -821,9 +821,9 @@ export default function OdessaLiveCenter({
               </span>
             )}
           </button>
-          <div className="hidden items-center gap-2 rounded-full border border-[var(--border2)] bg-[var(--bg2)] px-3 py-1.5 sm:flex">
+          <div className="hidden h-[36px] items-center gap-2 rounded-full border border-[var(--border2)] bg-[var(--bg2)] px-3 text-[11.5px] font-bold uppercase tracking-[0.14em] text-[var(--sky)] sm:flex">
             <StatusDot status={runtime.autopilotEnabled ? 'online' : 'idle'} pulse />
-            <span className="text-xs font-semibold text-emerald-300">
+            <span>
               {runtime.autopilotEnabled ? 'AO VIVO' : 'PRONTA'}
             </span>
           </div>
@@ -858,7 +858,7 @@ export default function OdessaLiveCenter({
         </div>
 
         {liveStartError && (
-          <div className="absolute right-5 top-[58px] z-40 max-w-md rounded-lg border border-rose-400/30 bg-rose-950/90 px-4 py-3 text-xs font-semibold leading-5 text-rose-100 shadow-2xl">
+          <div className="absolute right-5 top-[58px] z-40 max-w-md rounded-[18px] border border-rose-400/30 bg-rose-950/90 px-4 py-3 text-xs font-semibold leading-5 text-rose-100 shadow-[var(--shadow-alert)]">
             {liveStartError}
           </div>
         )}
@@ -2446,17 +2446,16 @@ function NavButton({
     <button
       onClick={onClick}
       className={cn(
-        'relative flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold transition',
+        'inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[12.5px] font-medium transition',
         active
-          ? 'bg-[var(--bg3)] text-[var(--t1)]'
+          ? 'bg-[var(--bg3)] text-[var(--t1)] shadow-[inset_0_0_0_1px_var(--border2)]'
           : 'text-[var(--t2)] hover:bg-[var(--bg3)] hover:text-[var(--t1)]',
       )}
     >
-      <span className="h-4 w-4">{icon}</span>
+      <span className="flex h-4 w-4 items-center justify-center [&_svg]:h-4 [&_svg]:w-4 [&_svg]:stroke-[1.75]">
+        {icon}
+      </span>
       {label}
-      {active && (
-        <span className="absolute -bottom-[9px] left-4 right-4 h-0.5 bg-gradient-to-r from-[var(--gold)] to-[var(--lavender)]" />
-      )}
     </button>
   );
 }
@@ -2508,6 +2507,163 @@ function HomeDashboard({
       tone: 'slate',
     },
   ];
+
+  return (
+    <div className="h-full overflow-y-auto p-[18px]">
+      <div className="grid min-h-[calc(100vh-100px)] gap-4 xl:grid-cols-[minmax(680px,1fr)_minmax(420px,0.72fr)]">
+        <section className="grid min-h-0 gap-4">
+          <div className="odessa-stage-mesh odessa-panel-surface relative min-h-[390px] overflow-hidden bg-[#07080a]">
+            <div className="pointer-events-none absolute right-4 top-4 z-10 flex items-center gap-2">
+              <Badge variant={videoState?.state === 'ACTION' ? 'lavender' : 'gold'}>
+                {videoState?.state === 'ACTION' ? 'reacao no ar' : 'em ensaio'}
+              </Badge>
+              <span className="rounded-full border border-white/10 bg-black/55 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-300">
+                1080 x 1920
+              </span>
+            </div>
+            <div className="flex h-full min-h-[390px] items-center justify-center p-5">
+              {videoState?.current_video_id ? (
+                <video
+                  key={videoState.current_video_id}
+                  autoPlay
+                  muted
+                  loop={
+                    videoState.state !== 'ACTION' &&
+                    (videoState.current_video_id === view.idleVideoId || !!view.currentVideo?.loop)
+                  }
+                  onEnded={async () => {
+                    if (videoState.state !== 'ACTION') return;
+                    await fetch(apiUrl('/api/video/idle'), { method: 'POST' }).catch(() => undefined);
+                    onRefresh();
+                  }}
+                  playsInline
+                  className="h-full max-h-[330px] w-full rounded-[28px] object-contain"
+                  src={apiUrl(`/api/video/play/${videoState.current_video_id}`)}
+                />
+              ) : (
+                <div className="relative grid h-44 w-44 place-items-center rounded-full border border-sky-200/25 bg-[radial-gradient(circle_at_32%_28%,rgba(125,211,252,0.72),rgba(251,113,133,0.55)_58%,rgba(7,8,10,0.92)_100%)] shadow-[0_0_96px_rgba(125,211,252,0.22)]">
+                  <div className="absolute inset-[-34px] rounded-full border border-dashed border-sky-200/16" />
+                  <div className="absolute inset-[-18px] rounded-full border border-sky-200/18" />
+                  <span className="sr-only">Player aguardando estado do backend</span>
+                </div>
+              )}
+            </div>
+            <div className="pointer-events-none absolute bottom-5 left-6 font-mono text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+              {videoState?.current_video_id || currentLabel}
+            </div>
+          </div>
+
+          <div className="odessa-panel-surface min-h-[300px] p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.32em] text-[var(--t3)]">
+                <Link2 className="h-4 w-4 text-[var(--sky)]" />
+                Gatilhos · fluxo reativo
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => go('flow')}>
+                Editar fluxo
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {activeConnections.map(({ connection, trigger, video }, index) => (
+                <button
+                  key={connection.id}
+                  onClick={() => go('flow')}
+                  className="group grid w-full grid-cols-[1fr_auto] items-center gap-3 rounded-[18px] border border-white/10 bg-black/20 p-3 text-left transition hover:border-sky-200/35 hover:bg-white/[0.045]"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-white">
+                        {trigger ? eventLabel(trigger) : `Sinal ${String(index + 1).padStart(2, '0')}`}
+                      </span>
+                      <StatusDot status={trigger?.enabled ? 'online' : 'warn'} />
+                    </div>
+                    <div className="mt-1 truncate font-mono text-[11px] text-[var(--t3)]">
+                      {connection.triggerId} · {videoLabel(video)}
+                    </div>
+                  </div>
+                  <div className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 font-mono text-[10px] text-slate-300">
+                    play
+                  </div>
+                </button>
+              ))}
+              {activeConnections.length === 0 && (
+                <p className="rounded-[22px] border border-dashed border-white/15 p-4 text-sm text-slate-500">
+                  Configure os gatilhos no Fluxo Reativo e deixe a Odessa conduzir a transmissao.
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <aside className="grid min-h-0 gap-4">
+          <div className="odessa-panel-surface p-5">
+            <div className="mb-4 text-[10px] font-semibold uppercase tracking-[0.32em] text-[var(--t3)]">
+              Sessão de hoje
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Metric label="Clipes na fila" value={videoState?.queue_len ?? 0} />
+              <Metric label="Gatilhos ativos" value={view.activeTriggers.length} />
+              <Metric label="Eventos parseados" value={capturedText.length} />
+              <Metric label="Cenas autorizadas" value={view.readyScore} />
+            </div>
+          </div>
+
+          <div className="odessa-panel-surface p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.32em] text-[var(--t3)]">
+                Ações rápidas
+              </div>
+              <span className="font-mono text-[10px] text-slate-500">obs.live_health · ok</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={() => go('stage')}>
+                <RadioTower className="h-4 w-4" />
+                Abrir palco
+              </Button>
+              <Button variant="secondary" onClick={onSimulateGift}>
+                <Play className="h-4 w-4" />
+                Testar gatilho
+              </Button>
+              <Button variant="ghost" onClick={() => go('library')}>
+                <Film className="h-4 w-4" />
+                Biblioteca
+              </Button>
+            </div>
+            {configError && (
+              <div className="mt-4 rounded-[18px] border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-100">
+                Backend/config: {configError}
+              </div>
+            )}
+          </div>
+
+          <div className="odessa-panel-surface min-h-[300px] overflow-hidden p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.32em] text-[var(--t3)]">
+                <ListVideo className="h-4 w-4 text-[var(--sky)]" />
+                Eventos · ao vivo
+              </div>
+              <Badge variant="gold">Captura</Badge>
+            </div>
+            <div className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
+              {latestEvents.map((event) => (
+                <div key={event.id} className="rounded-[18px] border border-white/10 bg-black/25 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-[10px] text-slate-500">{event.time}</span>
+                    <Badge variant={event.kind === 'gift' ? 'lavender' : 'default'}>{event.kind}</Badge>
+                  </div>
+                  <div className="mt-2 text-sm font-semibold text-white">{event.source}</div>
+                  <div className="mt-1 line-clamp-2 text-sm text-slate-300">{event.text}</div>
+                </div>
+              ))}
+              {latestEvents.length === 0 && (
+                <p className="text-sm text-slate-500">Aguardando captura ou simulacao.</p>
+              )}
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
 
   return (
     <div className="h-full overflow-y-auto p-4 lg:p-5">
@@ -4074,7 +4230,9 @@ function VideoLibraryPanel({
 function SectionTitle({ icon, title }: { icon: ReactNode; title: string }) {
   return (
     <div className="flex items-center gap-2 text-sm font-semibold text-[var(--t1)]">
-      <span className="h-4 w-4 text-[var(--gold)]">{icon}</span>
+      <span className="flex h-4 w-4 items-center justify-center text-[var(--sky)] [&_svg]:h-4 [&_svg]:w-4 [&_svg]:stroke-[1.75]">
+        {icon}
+      </span>
       {title}
     </div>
   );
@@ -4082,9 +4240,9 @@ function SectionTitle({ icon, title }: { icon: ReactNode; title: string }) {
 
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="min-w-0 rounded-2xl border border-[var(--border)] bg-[var(--bg3)] p-3">
-      <div className="truncate text-sm font-semibold text-[var(--t1)]">{value}</div>
-      <div className="mt-1 text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
+    <div className="min-w-0 rounded-[22px] border border-[var(--border2)] bg-black/20 p-4 shadow-[var(--shadow-1)]">
+      <div className="heading-serif truncate text-[34px] leading-none text-[var(--t1)]">{value}</div>
+      <div className="mt-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-[var(--t3)]">
         {label}
       </div>
     </div>

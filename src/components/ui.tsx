@@ -18,13 +18,13 @@ export function Button({
   return (
     <button
       className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-2xl border text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-[var(--gold)]/40 disabled:cursor-not-allowed disabled:opacity-55',
+        'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[22px] border font-semibold transition focus:outline-none focus:ring-2 focus:ring-[var(--gold)]/40 disabled:cursor-not-allowed disabled:opacity-55',
         size === 'sm' && 'h-8 px-3 text-xs',
-        size === 'md' && 'h-10 px-4',
+        size === 'md' && 'h-[38px] px-4 text-[13px]',
         size === 'icon' && 'h-9 w-9 px-0',
         variant === 'default' && 'border-[var(--border2)] bg-[var(--bg3)] text-[var(--t1)] hover:bg-[var(--bg4)]',
         variant === 'primary' &&
-          'border-transparent bg-gradient-to-r from-[var(--gold)] to-[var(--lavender)] text-[#0a0a0c] shadow-[0_0_24px_rgba(201,169,89,0.2)] hover:brightness-105',
+          'border-transparent bg-[image:var(--grad-live)] text-[#051018] shadow-[var(--shadow-live)] hover:brightness-105',
         variant === 'secondary' &&
           'border-[var(--border2)] bg-[var(--bg2)] text-[var(--t1)] hover:border-[var(--gold)]/45',
         variant === 'ghost' && 'border-transparent bg-transparent text-[var(--t2)] hover:bg-[var(--bg3)] hover:text-[var(--t1)]',
@@ -44,7 +44,10 @@ export function Button({
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('rounded-3xl border border-[var(--border2)] bg-[var(--bg2)] shadow-xl', className)}
+      className={cn(
+        'rounded-[34px] border border-[var(--border2)] bg-[var(--bg2)] shadow-[0_16px_50px_rgba(0,0,0,0.36)]',
+        className,
+      )}
       {...props}
     />
   );
@@ -54,7 +57,7 @@ export function GlassCard({ className, ...props }: HTMLAttributes<HTMLDivElement
   return (
     <div
       className={cn(
-        'rounded-3xl border border-[var(--border2)] bg-[rgba(21,21,26,0.76)] shadow-xl backdrop-blur-xl',
+        'rounded-[34px] border border-[var(--border2)] bg-[rgba(21,21,26,0.76)] shadow-[0_16px_50px_rgba(0,0,0,0.36)] backdrop-blur-xl',
         className,
       )}
       {...props}
@@ -74,10 +77,10 @@ export function Badge({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide',
+        'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em]',
         variant === 'default' && 'border-[var(--border2)] bg-[var(--bg3)] text-[var(--t2)]',
         variant === 'gold' && 'border-[var(--gold)]/30 bg-[var(--gold)]/10 text-[var(--gold)]',
-        variant === 'lavender' && 'border-[var(--lavender)]/30 bg-[var(--lavender)]/10 text-[#c4b5fd]',
+        variant === 'lavender' && 'border-[var(--rose)]/30 bg-[var(--rose)]/10 text-[var(--rose)]',
         variant === 'success' && 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300',
         variant === 'warning' && 'border-amber-400/30 bg-amber-500/10 text-amber-300',
         variant === 'danger' && 'border-red-400/30 bg-red-500/10 text-red-300',
@@ -100,7 +103,7 @@ export function StatusDot({
     <span
       className={cn(
         'inline-block h-2 w-2 rounded-full',
-        status === 'online' && 'bg-emerald-400',
+        status === 'online' && 'bg-[var(--green)]',
         status === 'idle' && 'bg-[var(--gold)]',
         status === 'warn' && 'bg-amber-400',
         status === 'error' && 'bg-red-400',
