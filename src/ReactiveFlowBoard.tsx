@@ -553,41 +553,75 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     return () => window.clearTimeout(timer);
   }, [loadConfig]);
 
-  const loadWfProfiles = useCallback(async () => {
+  // Profiles are persisted in localStorage (per-device) so they work
+  // independently of backend caching/sync issues. Each profile holds a full
+  // workflow snapshot.
+  const WF_PROFILES_KEY = 'odessa:wf-profiles:v1';
+
+  const readProfilesFromStorage = () => {
     try {
-      const res = await fetch(apiUrl('/workflow/profiles'));
-      const data = (await res.json().catch(() => ({}))) as { profiles?: typeof wfProfiles };
-      if (Array.isArray(data.profiles)) setWfProfiles(data.profiles);
+      const raw = window.localStorage.getItem(WF_PROFILES_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { return []; }
+  };
+
+  const writeProfilesToStorage = (list: typeof wfProfiles) => {
+    try { window.localStorage.setItem(WF_PROFILES_KEY, JSON.stringify(list)); } catch { /* ignore */ }
+  };
+
+  const loadWfProfiles = useCallback(async () => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem(WF_PROFILES_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed)) setWfProfiles(parsed);
     } catch { /* ignore */ }
   }, []);
 
   const saveWfProfile = async (name: string) => {
     if (!name.trim()) return;
     setSaving(true);
+    setError(null);
     try {
-      const currentWorkflow = {
-        flowNodes: nodes.map((n) => n.data?.flowNode).filter(Boolean),
-        flowConnections: edges.map((e) => ({
-          id: e.id,
-          sourceNodeId: e.source,
-          targetNodeId: e.target,
-          eventLabel: (e.label as string) || '',
-        })),
-        triggers: triggers,
+      const flowNodesSnapshot = nodes.map((node) => ({
+        ...node.data.flowNode,
+        position: { x: Math.round(node.position.x), y: Math.round(node.position.y) },
+      }));
+      const flowConnectionsSnapshot = edges
+        .map((edge) => {
+          const existing = (config?.flowConnections || []).find((c) => c.id === edge.id);
+          return existing ? { ...existing, fromNodeId: edge.source, toNodeId: edge.target } : null;
+        })
+        .filter(Boolean);
+      const snapshot = {
+        flowNodes: flowNodesSnapshot,
+        flowConnections: flowConnectionsSnapshot,
+        triggers: config?.triggers || [],
         idleVideoId: config?.idleVideoId || null,
-        videos: videos,
+        videos: config?.videos || [],
+        action_map: config?.action_map || {},
+        transitions: config?.transitions || [],
+        flowLayout: flowNodesSnapshot.reduce((acc, n) => {
+          acc[n.nodeId] = n.position;
+          return acc;
+        }, {} as Record<string, { x: number; y: number }>),
       };
-      const res = await fetch(apiUrl('/workflow/profiles'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, workflow: currentWorkflow }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { profiles?: typeof wfProfiles };
-      if (Array.isArray(data.profiles)) setWfProfiles(data.profiles);
+      const existing = readProfilesFromStorage();
+      const existingIdx = existing.findIndex((p) => p.name === name);
+      const profile = {
+        id: existingIdx >= 0 ? existing[existingIdx].id : `wf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name,
+        workflow: snapshot,
+        createdAt: existingIdx >= 0 ? existing[existingIdx].createdAt : new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const next = existingIdx >= 0 ? existing.map((p, i) => i === existingIdx ? profile : p) : [...existing, profile];
+      writeProfilesToStorage(next);
+      setWfProfiles(next);
+      setActiveWfProfileId(profile.id);
       setWfProfileName('');
-      const saved = data.profiles?.find((p) => p.name === name);
-      if (saved) setActiveWfProfileId(saved.id);
-      setStatusMessage(`Perfil "${name}" salvo.`);
+      setStatusMessage(`Perfil "${name}" salvo (local).`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao salvar perfil');
     } finally {
@@ -596,19 +630,26 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   };
 
   const applyWfProfile = async (id: string) => {
+    const profile = readProfilesFromStorage().find((p) => p.id === id);
+    if (!profile?.workflow) {
+      setError('Perfil nao encontrado.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(apiUrl('/workflow/profiles-apply'), {
+      const w = profile.workflow;
+      // Push the snapshot to the backend as the new draft
+      const response = await fetch(apiUrl('/workflow/draft'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ workflow: w }),
       });
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; appliedProfile?: string };
-      if (!res.ok || !data.ok) throw new Error('Falha ao aplicar perfil');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       setActiveWfProfileId(id);
+      // Reload to re-render the canvas with the profile's snapshot
       await loadConfig();
-      setStatusMessage(`Perfil "${data.appliedProfile}" aplicado.`);
+      setStatusMessage(`Perfil "${profile.name}" aplicado.`);
       onSaved?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao aplicar perfil');
@@ -619,13 +660,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
 
   const deleteWfProfile = async (id: string) => {
     try {
-      const res = await fetch(apiUrl('/workflow/profiles'), {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { profiles?: typeof wfProfiles };
-      if (Array.isArray(data.profiles)) setWfProfiles(data.profiles);
+      const next = readProfilesFromStorage().filter((p) => p.id !== id);
+      writeProfilesToStorage(next);
+      setWfProfiles(next);
       if (activeWfProfileId === id) setActiveWfProfileId('');
     } catch { /* ignore */ }
   };

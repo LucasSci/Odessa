@@ -1225,29 +1225,45 @@ function SettingsPanel({
     }
   }, []);
 
-  const loadObsProfiles = useCallback(async () => {
+  // OBS profiles persisted in localStorage (per-device).
+  const OBS_PROFILES_KEY = 'odessa:obs-profiles:v1';
+
+  const readObsProfilesFromStorage = () => {
     try {
-      const res = await fetch(apiUrl('/obs/profiles'));
-      const data = (await res.json().catch(() => ({}))) as { profiles?: typeof obsProfiles };
-      if (Array.isArray(data.profiles)) setObsProfiles(data.profiles);
-    } catch { /* ignore */ }
+      const raw = typeof window !== 'undefined' ? window.localStorage.getItem(OBS_PROFILES_KEY) : null;
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { return []; }
+  };
+
+  const writeObsProfilesToStorage = (list: typeof obsProfiles) => {
+    try { if (typeof window !== 'undefined') window.localStorage.setItem(OBS_PROFILES_KEY, JSON.stringify(list)); } catch { /* ignore */ }
+  };
+
+  const loadObsProfiles = useCallback(async () => {
+    setObsProfiles(readObsProfilesFromStorage());
   }, []);
 
   const saveObsProfile = async (name: string) => {
     if (!name.trim()) return;
     setSaving(true);
+    setMessage(null);
     try {
-      const res = await fetch(apiUrl('/obs/profiles'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, settings: obsSettings }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { profiles?: typeof obsProfiles };
-      if (Array.isArray(data.profiles)) setObsProfiles(data.profiles);
-      const saved = data.profiles?.find((p) => p.name === name);
-      if (saved) setActiveObsProfileId(saved.id);
+      const existing = readObsProfilesFromStorage();
+      const existingIdx = existing.findIndex((p) => p.name === name);
+      const profile = {
+        id: existingIdx >= 0 ? existing[existingIdx].id : `obs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name,
+        settings: obsSettings,
+        createdAt: existingIdx >= 0 ? existing[existingIdx].createdAt : new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const next = existingIdx >= 0 ? existing.map((p, i) => i === existingIdx ? profile : p) : [...existing, profile];
+      writeObsProfilesToStorage(next);
+      setObsProfiles(next);
+      setActiveObsProfileId(profile.id);
       setObsProfileName('');
-      setMessage(`Perfil "${name}" salvo.`);
+      setMessage(`Perfil "${name}" salvo (local).`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Falha ao salvar perfil');
     } finally {
@@ -1256,24 +1272,20 @@ function SettingsPanel({
   };
 
   const applyObsProfile = async (id: string) => {
+    const profile = readObsProfilesFromStorage().find((p) => p.id === id);
+    if (!profile?.settings) {
+      setMessage('Perfil nao encontrado.');
+      return;
+    }
     setSaving(true);
     setMessage(null);
     try {
-      const res = await fetch(apiUrl('/obs/profiles-apply'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; settings?: Partial<ObsSettings>; appliedProfile?: string };
-      if (!res.ok || !data.ok) throw new Error('Falha ao aplicar perfil');
-      if (data.settings) {
-        const normalized = normalizeObsSettings(data.settings);
-        setObsSettings(normalized);
-        setObsConnection(parseObsConnection(normalized));
-      }
+      const normalized = normalizeObsSettings(profile.settings);
+      setObsSettings(normalized);
+      setObsConnection(parseObsConnection(normalized));
       setActiveObsProfileId(id);
-      setMessage(`Perfil "${data.appliedProfile}" aplicado.`);
-      if (onObsSettingsChanged && data.settings) onObsSettingsChanged(data.settings as Record<string, unknown>);
+      setMessage(`Perfil "${profile.name}" aplicado. Clique em "Salvar OBS" para persistir.`);
+      if (onObsSettingsChanged) onObsSettingsChanged(profile.settings as Record<string, unknown>);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Falha ao aplicar perfil');
     } finally {
@@ -1283,13 +1295,9 @@ function SettingsPanel({
 
   const deleteObsProfile = async (id: string) => {
     try {
-      const res = await fetch(apiUrl('/obs/profiles'), {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { profiles?: typeof obsProfiles };
-      if (Array.isArray(data.profiles)) setObsProfiles(data.profiles);
+      const next = readObsProfilesFromStorage().filter((p) => p.id !== id);
+      writeObsProfilesToStorage(next);
+      setObsProfiles(next);
       if (activeObsProfileId === id) setActiveObsProfileId('');
     } catch { /* ignore */ }
   };

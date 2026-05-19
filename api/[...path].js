@@ -1151,10 +1151,6 @@ async function protectedResponse(req, res, rawPath) {
       });
     }
   }
-  // ── Debug marker (temp) ──
-  if (path === '/workflow/debug-profile-marker-xyz') {
-    return json(res, 200, { ok: true, marker: 'PROFILES_DEPLOYED_v2', path, method: req.method });
-  }
   // ── Workflow profiles ──
   if (path === '/workflow/profiles') {
     if (req.method === 'GET') {
