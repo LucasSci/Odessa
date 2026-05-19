@@ -72,13 +72,7 @@ type AgentStatus = {
 };
 
 const LIVE_CONFIG_KEY = 'odessa:live-config:v1';
-const LOCAL_AGENT_URL = 'http://127.0.0.1:8766';
-
-function isCloudHosted() {
-  if (typeof window === 'undefined') return false;
-  const h = window.location.hostname;
-  return h !== '' && h !== 'localhost' && h !== '127.0.0.1' && h !== '::1';
-}
+// Agent removed — browser connects to OBS directly via WebSocket
 
 function getPanelFromHash(): AdvancedPanel {
   if (window.location.hash === '#capture') return 'capture';
@@ -122,7 +116,8 @@ export default function App() {
   const [liveConfigOpen, setLiveConfigOpen] = useState(false);
   const [liveConfig, setLiveConfig] = useState<LiveConfig>(() => loadLiveConfig());
   const [liveStartError, setLiveStartError] = useState<string | null>(null);
-  const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
+  // Agent removed — status always null (direct OBS connection replaces agent)
+  const agentStatus = null as AgentStatus | null;
 
   const [obsDirectStatus, setObsDirectStatus] = useState<ObsDirectStatus | null>(null);
   const [obsSettings, setObsSettings] = useState<ObsSettingsState | null>(null);
@@ -179,40 +174,8 @@ export default function App() {
   const runtime = useAutopilotRuntime({ capturedText, setCapturedText });
 
 
-  const refreshAgentStatus = useCallback(async () => {
-    try {
-      // On localhost, try the local agent HTTP server first for faster response
-      if (!isCloudHosted()) {
-        try {
-          const localResponse = await fetch(`${LOCAL_AGENT_URL}/status`, { credentials: 'omit' });
-          if (localResponse.ok) {
-            setAgentStatus((await localResponse.json()) as AgentStatus);
-            return;
-          }
-        } catch {
-          // Fall through to cloud API
-        }
-      }
-      // Cloud or fallback: always use the Hostinger API (agent reports status via heartbeat)
-      const response = await fetch(apiUrl('/agent?action=status'));
-      if (!response.ok) {
-        setAgentStatus(null);
-        return;
-      }
-      setAgentStatus((await response.json()) as AgentStatus);
-    } catch {
-      setAgentStatus(null);
-    }
-  }, []);
-
-  useEffect(() => {
-    const initialRefresh = window.setTimeout(() => void refreshAgentStatus(), 0);
-    const interval = window.setInterval(() => void refreshAgentStatus(), 5000);
-    return () => {
-      window.clearTimeout(initialRefresh);
-      window.clearInterval(interval);
-    };
-  }, [refreshAgentStatus]);
+  // Agent polling removed — no longer needed with direct OBS connection
+  const refreshAgentStatus = useCallback(async () => {}, []);
 
 
   useEffect(() => {
