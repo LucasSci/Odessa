@@ -1134,6 +1134,14 @@ async function protectedResponse(req, res, rawPath) {
       if (workflow.planningCanvas) config.planningCanvas = workflow.planningCanvas;
       config.updatedAt = new Date().toISOString();
       setCloudValue(PERSONA_CONFIG_KEY, config);
+      // If no video is currently playing, auto-start the idle video
+      const currentVideoState = getCloudValue('video_state')?.value;
+      const draftIdleId = workflow.idleVideoId || config.idleVideoId;
+      if (draftIdleId && !currentVideoState?.current_video_id) {
+        const draftNodes = workflow.flowNodes || config.flowNodes || [];
+        const idleNode = draftNodes.find((n) => n.videoId === draftIdleId);
+        saveCloudVideoState(draftIdleId, { activeNodeId: idleNode?.nodeId || null });
+      }
       return json(res, 200, {
         ok: true,
         status: 'draft',
@@ -1223,11 +1231,32 @@ async function protectedResponse(req, res, rawPath) {
       config.publishedWorkflow = { ...draft, status: 'published', publishedAt: new Date().toISOString() };
       config.updatedAt = new Date().toISOString();
       setCloudValue(PERSONA_CONFIG_KEY, config);
+      // Auto-start idle video so the overlay immediately picks it up
+      const idleVideoId = draft.idleVideoId || config.idleVideoId || null;
+      if (idleVideoId) {
+        const flowNodes = draft.flowNodes || config.flowNodes || [];
+        const idleNode = flowNodes.find((n) => n.videoId === idleVideoId);
+        const pb = idleNode?.playback || {};
+        saveCloudVideoState(idleVideoId, {
+          activeNodeId: idleNode?.nodeId || null,
+          currentClip: {
+            nodeId: idleNode?.nodeId || null,
+            videoId: idleVideoId,
+            startSec: pb.startSec || 0,
+            endSec: pb.endSec || null,
+            transitionMs: pb.transitionMs || 220,
+            loop: true,
+            returnToIdle: false,
+            audio: idleNode?.audio || { mode: 'muted', volume: 1 },
+          },
+        });
+      }
       return json(res, 200, {
         ok: true,
         status: 'published',
         publishedAt: config.publishedWorkflow.publishedAt,
         updatedAt: config.updatedAt,
+        idleVideoStarted: !!idleVideoId,
         validation: { ok: true, warnings: [], errors: [] },
         cloudStorage: cloudCapabilities(),
       });

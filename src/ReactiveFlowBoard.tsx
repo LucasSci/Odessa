@@ -1166,7 +1166,12 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
       if (!response.ok) throw new Error(String(data.detail || `HTTP ${response.status}`));
       loadRulesFromFlowTriggers(config?.triggers || []);
       setPublishPreview(data);
-      setStatusMessage('Fluxo publicado. A live usara esta versao nos proximos eventos.');
+      const idleStarted = data.idleVideoStarted;
+      setStatusMessage(
+        idleStarted
+          ? 'Fluxo publicado e video idle iniciado. O palco ja esta reproduzindo.'
+          : 'Fluxo publicado. Configure um video idle para reproducao automatica.',
+      );
       await loadConfig();
       onSaved?.();
     } catch (err) {
