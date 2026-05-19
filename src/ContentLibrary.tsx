@@ -216,12 +216,33 @@ export default function ContentLibrary() {
     }
   };
 
-  const stats = {
-    total: items.length,
-    enabled: items.filter((item) => item.enabled).length,
-    safety: items.filter((item) => item.enabled && item.usage === 'safety').length,
-    action: items.filter((item) => item.enabled && item.usage === 'action').length,
-  };
+  // ⚡ Bolt: Single-pass iteration to calculate multiple content stats to prevent render bottlenecks
+  const { stats, typeCounts } = useMemo(() => {
+    let enabledCount = 0;
+    let safetyCount = 0;
+    let actionCount = 0;
+    const typeCountMap: Record<string, number> = {};
+
+    for (const item of items) {
+      if (item.enabled) {
+        enabledCount++;
+        if (item.usage === 'safety') safetyCount++;
+        if (item.usage === 'action') actionCount++;
+
+        typeCountMap[item.type] = (typeCountMap[item.type] || 0) + 1;
+      }
+    }
+
+    return {
+      stats: {
+        total: items.length,
+        enabled: enabledCount,
+        safety: safetyCount,
+        action: actionCount,
+      },
+      typeCounts: typeCountMap
+    };
+  }, [items]);
 
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--odessa-bg)] text-slate-100">
@@ -582,7 +603,7 @@ export default function ContentLibrary() {
             <h3 className="mb-3 text-sm font-black text-white">Tipos ativos</h3>
             <div className="space-y-2">
               {CONTENT_TYPES.map((type) => {
-                const count = items.filter((item) => item.enabled && item.type === type).length;
+                const count = typeCounts[type] || 0;
                 return (
                   <div
                     key={type}

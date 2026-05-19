@@ -3991,16 +3991,28 @@ function VideoLibraryPanel({
   >([]);
   const videos = config?.videos || [];
 
-  const uploadSummary = useMemo(
-    () => ({
-      sent: uploadBatch.filter((item) => item.status === 'done').length,
-      failed: uploadBatch.filter((item) => item.status === 'error').length,
-      pending: uploadBatch.filter(
-        (item) => item.status === 'pending' || item.status === 'uploading',
-      ).length,
-    }),
-    [uploadBatch],
-  );
+  // ⚡ Bolt: Single-pass loop to calculate upload batch statistics to prevent render bottlenecks
+  const uploadSummary = useMemo(() => {
+    let sentCount = 0;
+    let failedCount = 0;
+    let pendingCount = 0;
+
+    for (const item of uploadBatch) {
+      if (item.status === 'done') {
+        sentCount++;
+      } else if (item.status === 'error') {
+        failedCount++;
+      } else if (item.status === 'pending' || item.status === 'uploading') {
+        pendingCount++;
+      }
+    }
+
+    return {
+      sent: sentCount,
+      failed: failedCount,
+      pending: pendingCount,
+    };
+  }, [uploadBatch]);
 
   const uploadOne = (file: File, index: number, total: number) =>
     new Promise<void>((resolve, reject) => {
