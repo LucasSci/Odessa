@@ -1,5 +1,5 @@
 param(
-  [string]$CloudUrl = "https://odessa-gules.vercel.app"
+  [string]$CloudUrl = "https://darkgrey-shark-457698.hostingersite.com"
 )
 
 $ErrorActionPreference = "Stop"
