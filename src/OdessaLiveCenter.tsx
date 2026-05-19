@@ -2537,7 +2537,7 @@ function HomeDashboard({
                     onRefresh();
                   }}
                   playsInline
-                  className="odessa-stage-video rounded-[28px]"
+                  className="h-full max-h-[330px] w-full rounded-[28px] object-contain"
                   src={apiUrl(`/api/video/play/${videoState.current_video_id}`)}
                 />
               ) : (
