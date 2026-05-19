@@ -462,6 +462,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [wfProfiles, setWfProfiles] = useState<Array<{ id: string; name: string; updatedAt?: string }>>([]);
   const [wfProfileName, setWfProfileName] = useState('');
+  const [activeWfProfileId, setActiveWfProfileId] = useState('');
   const [nodes, setNodes, onNodesChange] = useNodesState<VideoFlowNodeType>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
@@ -572,6 +573,8 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
       const data = (await res.json().catch(() => ({}))) as { profiles?: typeof wfProfiles };
       if (Array.isArray(data.profiles)) setWfProfiles(data.profiles);
       setWfProfileName('');
+      const saved = data.profiles?.find((p) => p.name === name);
+      if (saved) setActiveWfProfileId(saved.id);
       setStatusMessage(`Perfil "${name}" salvo.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao salvar perfil');
@@ -591,6 +594,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
       });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; appliedProfile?: string };
       if (!res.ok || !data.ok) throw new Error('Falha ao aplicar perfil');
+      setActiveWfProfileId(id);
       await loadConfig();
       setStatusMessage(`Perfil "${data.appliedProfile}" aplicado.`);
       onSaved?.();
@@ -610,6 +614,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
       });
       const data = (await res.json().catch(() => ({}))) as { profiles?: typeof wfProfiles };
       if (Array.isArray(data.profiles)) setWfProfiles(data.profiles);
+      if (activeWfProfileId === id) setActiveWfProfileId('');
     } catch { /* ignore */ }
   };
 
@@ -1508,33 +1513,38 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
           </div>
         </div>
 
-        <div className="absolute left-5 right-5 top-[120px] z-20 flex items-center gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Perfis</span>
-          {wfProfiles.map((p) => (
-            <div key={p.id} className="group flex items-center gap-0.5">
-              <Button size="sm" variant="secondary" onClick={() => void applyWfProfile(p.id)}>
-                {p.name}
-              </Button>
+        {wfProfiles.length > 0 && (
+          <div className="absolute left-5 top-[120px] z-20 flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#0b0d10]/80 px-2.5 py-1.5 backdrop-blur">
+            <select
+              className="h-7 cursor-pointer rounded-lg border border-white/10 bg-white/[0.06] px-2 pr-6 text-xs text-white"
+              value={activeWfProfileId}
+              onChange={(e) => { if (e.target.value) void applyWfProfile(e.target.value); else setActiveWfProfileId(''); }}
+            >
+              <option value="">Perfil...</option>
+              {wfProfiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            {activeWfProfileId && (
               <button
-                onClick={() => void deleteWfProfile(p.id)}
-                className="hidden rounded-full p-0.5 text-slate-500 hover:text-red-400 group-hover:inline-flex"
-                title="Remover"
+                onClick={() => void deleteWfProfile(activeWfProfileId)}
+                className="rounded-md p-1 text-slate-500 transition-colors hover:bg-red-500/15 hover:text-red-400"
+                title="Excluir perfil"
               >
-                <Trash2 className="h-3 w-3" />
+                <Trash2 className="h-3.5 w-3.5" />
               </button>
-            </div>
-          ))}
-          <input
-            className="h-7 w-36 rounded-lg border border-white/10 bg-white/[0.04] px-2 text-xs text-white placeholder:text-slate-500"
-            value={wfProfileName}
-            onChange={(e) => setWfProfileName(e.target.value)}
-            placeholder="Novo perfil..."
-            onKeyDown={(e) => { if (e.key === 'Enter') void saveWfProfile(wfProfileName); }}
-          />
-          <Button size="sm" variant="secondary" disabled={!wfProfileName.trim()} onClick={() => void saveWfProfile(wfProfileName)}>
-            <Save className="h-3 w-3" />
-          </Button>
-        </div>
+            )}
+            <div className="mx-0.5 h-4 w-px bg-white/10" />
+            <input
+              className="h-7 w-28 rounded-lg border border-white/10 bg-white/[0.04] px-2 text-xs text-white placeholder:text-slate-500"
+              value={wfProfileName}
+              onChange={(e) => setWfProfileName(e.target.value)}
+              placeholder="Novo..."
+              onKeyDown={(e) => { if (e.key === 'Enter') void saveWfProfile(wfProfileName); }}
+            />
+            <Button size="sm" variant="secondary" disabled={!wfProfileName.trim()} onClick={() => void saveWfProfile(wfProfileName)}>
+              <Save className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
 
         {(error || statusMessage) && (
           <div
