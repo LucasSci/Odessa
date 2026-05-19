@@ -1,0 +1,4 @@
+## 2026-05-19 - [Fix Path Traversal in FileResponse catch-all route]
+**Vulnerability:** Path traversal vulnerability allowed reading arbitrary server files via a catch-all route utilizing `FileResponse`. `StaticFiles` prevents this inherently, but manually resolving and using `FileResponse` bypassed the check.
+**Learning:** `FileResponse` provides no inherent boundary checks. When constructing a dynamic path from an input route (like `/{full_path:path}`), `httpx` and `fastapi.testclient` normalize out `../` patterns, hiding the vulnerability during normal local testing. However, sending raw HTTP requests with encoded or plain path traversal elements demonstrates the gap.
+**Prevention:** Always explicitly validate that the dynamically requested file is within the intended directory using `path.resolve().is_relative_to(base_dir.resolve())` before calling `FileResponse`.
