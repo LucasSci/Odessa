@@ -216,6 +216,11 @@ function findVideo(videos: VideoEntry[], videoId?: string) {
   return videos.find((video) => video.id === videoId);
 }
 
+/** Placeholder for imported nodes whose video isn't in the library yet */
+function placeholderVideo(videoId: string): VideoEntry {
+  return { id: videoId, label: `[${videoId}]`, description: 'Video nao encontrado na biblioteca', missingFile: true };
+}
+
 function makeFlowNode(video: VideoEntry, index: number, position?: FlowPosition): FlowNode {
   return {
     nodeId: newNodeId(video.id),
@@ -464,6 +469,13 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
       const response = await fetch(apiUrl('/workflow/draft'));
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = (await response.json()) as PersonaConfig;
+      console.log('[Odessa] loadConfig:', {
+        videos: data.videos?.length ?? 0,
+        flowNodes: data.flowNodes?.length ?? 0,
+        triggers: data.triggers?.length ?? 0,
+        flowConnections: data.flowConnections?.length ?? 0,
+        idleVideoId: data.idleVideoId,
+      });
       const idleVideoId =
         data.idleVideoId ||
         data.action_map?.idle?.[0] ||
@@ -517,10 +529,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
       setNodes(
         nextFlowNodes
           .map((flowNode) => {
-            const video = findVideo(nextVideos, flowNode.videoId);
-            return video ? makeNode(flowNode, video, idleVideoId, null) : null;
-          })
-          .filter(Boolean) as VideoFlowNodeType[],
+            const video = findVideo(nextVideos, flowNode.videoId) || placeholderVideo(flowNode.videoId);
+            return makeNode(flowNode, video, idleVideoId, null);
+          }),
       );
       setEdges(
         nextConnections.map((connection) =>
@@ -1181,18 +1192,35 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   const validateWorkflowFile = async (file?: File | null) => {
     if (!file) return;
     setError(null);
+    setStatusMessage(null);
     try {
-      const workflow = JSON.parse(await file.text()) as Record<string, unknown>;
+      const raw = await file.text();
+      console.log('[Odessa] Validando arquivo:', { name: file.name, size: raw.length });
+      let workflow: Record<string, unknown>;
+      try {
+        workflow = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        throw new Error(`Arquivo "${file.name}" nao e um JSON valido.`);
+      }
+      if (!workflow || typeof workflow !== 'object') {
+        throw new Error('JSON invalido: esperado um objeto com videos, flowNodes, triggers, etc.');
+      }
+      const hasFlowData = Array.isArray(workflow.flowNodes) || Array.isArray(workflow.triggers) || Array.isArray(workflow.videos);
+      if (!hasFlowData) {
+        throw new Error('JSON nao parece ser um workflow Odessa. Campos esperados: flowNodes, triggers, videos.');
+      }
       const response = await fetch(apiUrl('/video/workflow/validate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(workflow),
       });
       const preview = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      console.log('[Odessa] Validacao:', { status: response.status, ok: preview.ok, warnings: preview.warnings });
       if (!response.ok) throw new Error(String(preview.detail || `HTTP ${response.status}`));
       setPendingWorkflow(workflow);
       setWorkflowPreview(preview);
     } catch (err) {
+      console.error('[Odessa] Falha na validacao:', err);
       setError(err instanceof Error ? err.message : 'JSON de workflow invalido');
     } finally {
       if (importInputRef.current) importInputRef.current.value = '';
@@ -1204,19 +1232,30 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     setSaving(true);
     setError(null);
     try {
+      const payload = { workflow: pendingWorkflow };
+      const bodyStr = JSON.stringify(payload);
+      console.log('[Odessa] Importando workflow:', {
+        bodySize: bodyStr.length,
+        flowNodes: Array.isArray(pendingWorkflow.flowNodes) ? (pendingWorkflow.flowNodes as unknown[]).length : 0,
+        triggers: Array.isArray(pendingWorkflow.triggers) ? (pendingWorkflow.triggers as unknown[]).length : 0,
+        videos: Array.isArray(pendingWorkflow.videos) ? (pendingWorkflow.videos as unknown[]).length : 0,
+      });
       const response = await fetch(apiUrl('/workflow/draft'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workflow: pendingWorkflow }),
+        body: bodyStr,
       });
-      const data = (await response.json().catch(() => ({}))) as { detail?: string };
+      const data = (await response.json().catch(() => ({}))) as { detail?: string; ok?: boolean; updatedAt?: string };
+      console.log('[Odessa] Resposta import:', { status: response.status, ok: data.ok, updatedAt: data.updatedAt });
       if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+      if (!data.ok) throw new Error(data.detail || 'Servidor retornou ok=false');
       setPendingWorkflow(null);
       setWorkflowPreview(null);
       await loadConfig();
       setStatusMessage('Workflow importado como rascunho. Publique para usar na live.');
       onSaved?.();
     } catch (err) {
+      console.error('[Odessa] Falha ao importar:', err);
       setError(err instanceof Error ? err.message : 'Falha ao importar workflow');
     } finally {
       setSaving(false);

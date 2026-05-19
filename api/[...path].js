@@ -1083,6 +1083,11 @@ async function protectedResponse(req, res, rawPath) {
     if (req.method === 'POST' || req.method === 'PUT') {
       const body = await readBody(req);
       const workflow = body.workflow && typeof body.workflow === 'object' ? body.workflow : body;
+      // Guard: detect empty/invalid payloads (e.g. body parse failure returns {})
+      const hasData = Array.isArray(workflow.flowNodes) || Array.isArray(workflow.triggers) || Array.isArray(workflow.videos) || workflow.idleVideoId;
+      if (!hasData && !workflow.planningCanvas) {
+        return json(res, 400, { ok: false, detail: 'Payload vazio ou invalido. Verifique o JSON enviado.' });
+      }
       const config = loadCloudConfig() || {};
       config.draftWorkflow = workflow;
       // Merge videos: keep existing library videos (with valid upload URLs) and add new ones from import

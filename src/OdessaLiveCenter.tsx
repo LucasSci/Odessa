@@ -798,7 +798,7 @@ export default function OdessaLiveCenter({
           />
           <NavButton
             icon={<StickyNote />}
-            label="Canvas"
+            label="Mural"
             active={activeTab === 'canvas'}
             onClick={() => setActiveTab('canvas')}
           />

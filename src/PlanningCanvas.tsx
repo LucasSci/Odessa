@@ -28,6 +28,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
+  Download,
   FileText,
   Image,
   Link2,
@@ -41,6 +42,7 @@ import {
   Trash2,
   Type,
   Palette,
+  Upload,
   Zap,
   GripVertical,
   X,
@@ -376,11 +378,15 @@ const nodeTypes = {
 function CanvasToolbar({
   onAdd,
   onSave,
+  onExport,
+  onImport,
   saving,
   dirty,
 }: {
   onAdd: (type: CanvasItemType, color?: NoteColor) => void;
   onSave: () => void;
+  onExport: () => void;
+  onImport: () => void;
   saving: boolean;
   dirty: boolean;
 }) {
@@ -436,10 +442,28 @@ function CanvasToolbar({
           'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
           dirty ? 'bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)]' : 'text-[var(--t3)] hover:bg-white/10',
         )}
-        title={dirty ? 'Salvar canvas' : 'Nada para salvar'}
+        title={dirty ? 'Salvar mural' : 'Nada para salvar'}
       >
         {saving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
         {dirty ? 'Salvar' : 'Salvo'}
+      </button>
+
+      <div className="w-px h-5 bg-[var(--border)] mx-1" />
+
+      <button
+        onClick={onImport}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-white/10 text-[var(--t2)] text-xs font-medium transition-colors"
+        title="Importar mural de JSON"
+      >
+        <Upload size={14} /> Importar
+      </button>
+
+      <button
+        onClick={onExport}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-white/10 text-[var(--t2)] text-xs font-medium transition-colors"
+        title="Exportar mural como JSON"
+      >
+        <Download size={14} /> Exportar
       </button>
     </div>
   );
@@ -708,6 +732,97 @@ function PlanningCanvasInner() {
     }
   }, [nodes, edges, getViewport]);
 
+  // ── Export as JSON ──
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  const exportCanvas = useCallback(() => {
+    const items: CanvasItem[] = nodes.map((n) => ({
+      id: n.id,
+      position: n.position,
+      data: n.data as CanvasItemData,
+    }));
+    const connections: CanvasConnection[] = edges.map((e) => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      label: typeof e.label === 'string' ? e.label : undefined,
+    }));
+    const viewport = getViewport();
+    const payload = {
+      schemaVersion: 'odessa.mural.v1',
+      exportedAt: new Date().toISOString(),
+      items,
+      connections,
+      viewport,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `odessa-mural-${new Date().toISOString().slice(0, 19).replaceAll(':', '-')}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [nodes, edges, getViewport]);
+
+  // ── Import from JSON ──
+  const importCanvas = useCallback(
+    async (file?: File | null) => {
+      if (!file) return;
+      try {
+        const raw = JSON.parse(await file.text()) as CanvasState & { schemaVersion?: string };
+        const items = Array.isArray(raw.items) ? raw.items : [];
+        const connections = Array.isArray(raw.connections) ? raw.connections : [];
+        if (items.length === 0 && connections.length === 0) {
+          setToastMsg('JSON vazio ou formato invalido.');
+          return;
+        }
+        const loadedNodes: Node<CanvasItemData>[] = items.map((item) => ({
+          id: item.id || nextId(),
+          type: item.data?.type || 'sticky',
+          position: item.position || { x: 0, y: 0 },
+          data: {
+            type: item.data?.type || 'sticky',
+            content: item.data?.content || '',
+            color: item.data?.color || 'yellow',
+            width: item.data?.width,
+            height: item.data?.height,
+            fontSize: item.data?.fontSize,
+            linkedTriggerId: item.data?.linkedTriggerId,
+            linkedVideoId: item.data?.linkedVideoId,
+            tags: item.data?.tags,
+          },
+        }));
+        const loadedEdges: Edge[] = connections.map((conn) => ({
+          id: conn.id || nextId(),
+          source: conn.source,
+          target: conn.target,
+          label: conn.label,
+          type: 'default',
+          animated: false,
+          style: { stroke: 'rgba(255,255,255,0.2)', strokeWidth: 2 },
+          labelStyle: { fill: 'var(--t2)', fontSize: 11 },
+        }));
+        setNodes(loadedNodes);
+        setEdges(loadedEdges);
+        setDirty(true);
+        setToastMsg(`Importado: ${items.length} elementos, ${connections.length} conexoes.`);
+      } catch {
+        setToastMsg('Falha ao ler JSON. Verifique o formato do arquivo.');
+      } finally {
+        if (importInputRef.current) importInputRef.current.value = '';
+      }
+    },
+    [setNodes, setEdges],
+  );
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (!toastMsg) return;
+    const t = setTimeout(() => setToastMsg(null), 4000);
+    return () => clearTimeout(t);
+  }, [toastMsg]);
+
   // ── Keyboard shortcuts ──
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -804,7 +919,14 @@ function PlanningCanvasInner() {
 
         {/* Floating toolbar */}
         <Panel position="top-center">
-          <CanvasToolbar onAdd={addItem} onSave={saveCanvas} saving={saving} dirty={dirty} />
+          <CanvasToolbar
+            onAdd={addItem}
+            onSave={saveCanvas}
+            onExport={exportCanvas}
+            onImport={() => importInputRef.current?.click()}
+            saving={saving}
+            dirty={dirty}
+          />
         </Panel>
 
         {/* Empty state */}
@@ -812,7 +934,7 @@ function PlanningCanvasInner() {
           <Panel position="top-center" className="mt-20">
             <div className="text-center text-[var(--t3)] space-y-3">
               <StickyNote size={48} className="mx-auto opacity-30" />
-              <p className="text-sm">Canvas vazio. Adicione notas, textos e secoes<br />para planejar sua live.</p>
+              <p className="text-sm">Mural vazio. Adicione notas, textos e secoes<br />para planejar sua live.</p>
               <div className="flex gap-2 justify-center">
                 <Button variant="secondary" size="sm" onClick={() => addItem('sticky', 'yellow')}>
                   <StickyNote size={14} className="mr-1" /> Nota
@@ -855,6 +977,22 @@ function PlanningCanvasInner() {
           >
             <Trash2 size={16} />
           </button>
+        </div>
+      )}
+
+      {/* Hidden file input for import */}
+      <input
+        ref={importInputRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={(e) => void importCanvas(e.target.files?.[0])}
+      />
+
+      {/* Toast */}
+      {toastMsg && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-xs text-[var(--t1)] shadow-xl">
+          {toastMsg}
         </div>
       )}
     </div>
