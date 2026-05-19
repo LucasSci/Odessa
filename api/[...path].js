@@ -356,6 +356,16 @@ function saveObsSettings(settings) {
   return next;
 }
 
+// ── Profile helpers (OBS settings + Workflow) ──
+function loadProfiles(kind) {
+  const stored = getCloudValue(`${kind}_profiles`);
+  return Array.isArray(stored?.value) ? stored.value : [];
+}
+
+function saveProfiles(kind, profiles) {
+  setCloudValue(`${kind}_profiles`, profiles);
+}
+
 function enqueueAgentCommand(command) {
   const normalized = {
     id: command.id || crypto.randomUUID(),
@@ -1133,6 +1143,67 @@ async function protectedResponse(req, res, rawPath) {
       });
     }
   }
+  // ── Workflow profiles ──
+  if (path === '/workflow/profiles') {
+    if (req.method === 'GET') {
+      return json(res, 200, { ok: true, profiles: loadProfiles('workflow') });
+    }
+    if (req.method === 'POST') {
+      const body = await readBody(req);
+      const name = String(body.name || '').trim();
+      if (!name) return json(res, 400, { ok: false, detail: 'Nome do perfil e obrigatorio.' });
+      const profiles = loadProfiles('workflow');
+      const config = loadCloudConfig() || {};
+      const snapshot = body.workflow || {
+        flowNodes: config.flowNodes || [],
+        flowConnections: config.flowConnections || [],
+        triggers: config.triggers || [],
+        idleVideoId: config.idleVideoId || null,
+        videos: config.videos || [],
+        giftMap: config.giftMap || config.gift_map || {},
+        transitions: config.transitions || [],
+        workflowName: name,
+      };
+      const existing = profiles.findIndex((p) => p.id === body.id);
+      const profile = {
+        id: existing >= 0 ? profiles[existing].id : crypto.randomUUID(),
+        name,
+        workflow: snapshot,
+        createdAt: existing >= 0 ? profiles[existing].createdAt : new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      if (existing >= 0) profiles[existing] = profile;
+      else profiles.push(profile);
+      saveProfiles('workflow', profiles);
+      return json(res, 200, { ok: true, profile, profiles });
+    }
+    if (req.method === 'DELETE') {
+      const body = await readBody(req);
+      const profiles = loadProfiles('workflow').filter((p) => p.id !== body.id);
+      saveProfiles('workflow', profiles);
+      return json(res, 200, { ok: true, profiles });
+    }
+  }
+  if (path === '/workflow/profiles/apply' && req.method === 'POST') {
+    const body = await readBody(req);
+    const profiles = loadProfiles('workflow');
+    const profile = profiles.find((p) => p.id === body.id);
+    if (!profile) return json(res, 404, { ok: false, detail: 'Perfil nao encontrado.' });
+    const config = loadCloudConfig() || {};
+    const w = profile.workflow;
+    if (Array.isArray(w.videos)) config.videos = w.videos;
+    if (Array.isArray(w.triggers)) config.triggers = w.triggers;
+    if (Array.isArray(w.flowNodes)) config.flowNodes = w.flowNodes;
+    if (Array.isArray(w.flowConnections)) config.flowConnections = w.flowConnections;
+    if (w.idleVideoId !== undefined) config.idleVideoId = w.idleVideoId;
+    if (w.giftMap) config.giftMap = w.giftMap;
+    if (w.transitions) config.transitions = w.transitions;
+    config.draftWorkflow = w;
+    config.updatedAt = new Date().toISOString();
+    setCloudValue(PERSONA_CONFIG_KEY, config);
+    return json(res, 200, { ok: true, appliedProfile: profile.name, updatedAt: config.updatedAt });
+  }
+
   if (path === '/workflow/published') {
     return json(res, 200, getCloudWorkflow('published'));
   }
@@ -1245,6 +1316,47 @@ async function protectedResponse(req, res, rawPath) {
         error: null,
         ...cloudState(),
       });
+    }
+
+    // OBS profiles
+    if (action === 'profiles') {
+      if (req.method === 'GET') {
+        return json(res, 200, { ok: true, profiles: loadProfiles('obs') });
+      }
+      if (req.method === 'POST') {
+        const body = await readBody(req);
+        const name = String(body.name || '').trim();
+        if (!name) return json(res, 400, { ok: false, detail: 'Nome do perfil e obrigatorio.' });
+        const profiles = loadProfiles('obs');
+        const settings = body.settings || loadObsSettings(req);
+        const existing = profiles.findIndex((p) => p.id === body.id);
+        const profile = {
+          id: existing >= 0 ? profiles[existing].id : crypto.randomUUID(),
+          name,
+          settings,
+          createdAt: existing >= 0 ? profiles[existing].createdAt : new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        if (existing >= 0) profiles[existing] = profile;
+        else profiles.push(profile);
+        saveProfiles('obs', profiles);
+        return json(res, 200, { ok: true, profile, profiles });
+      }
+      if (req.method === 'DELETE') {
+        const body = await readBody(req);
+        const profiles = loadProfiles('obs').filter((p) => p.id !== body.id);
+        saveProfiles('obs', profiles);
+        return json(res, 200, { ok: true, profiles });
+      }
+    }
+
+    if (action === 'profiles-apply' && req.method === 'POST') {
+      const body = await readBody(req);
+      const profiles = loadProfiles('obs');
+      const profile = profiles.find((p) => p.id === body.id);
+      if (!profile) return json(res, 404, { ok: false, detail: 'Perfil nao encontrado.' });
+      const settings = saveObsSettings(profile.settings);
+      return json(res, 200, { ok: true, settings, appliedProfile: profile.name });
     }
 
     if (req.method === 'GET' && (action === 'health' || action === 'live-health')) {

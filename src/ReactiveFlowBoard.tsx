@@ -460,6 +460,8 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   const [pendingWorkflow, setPendingWorkflow] = useState<Record<string, unknown> | null>(null);
   const [publishPreview, setPublishPreview] = useState<Record<string, unknown> | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [wfProfiles, setWfProfiles] = useState<Array<{ id: string; name: string; updatedAt?: string }>>([]);
+  const [wfProfileName, setWfProfileName] = useState('');
   const [nodes, setNodes, onNodesChange] = useNodesState<VideoFlowNodeType>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
@@ -549,6 +551,69 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [loadConfig]);
+
+  const loadWfProfiles = useCallback(async () => {
+    try {
+      const res = await fetch(apiUrl('/workflow/profiles'));
+      const data = (await res.json().catch(() => ({}))) as { profiles?: typeof wfProfiles };
+      if (Array.isArray(data.profiles)) setWfProfiles(data.profiles);
+    } catch { /* ignore */ }
+  }, []);
+
+  const saveWfProfile = async (name: string) => {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch(apiUrl('/workflow/profiles'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { profiles?: typeof wfProfiles };
+      if (Array.isArray(data.profiles)) setWfProfiles(data.profiles);
+      setWfProfileName('');
+      setStatusMessage(`Perfil "${name}" salvo.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao salvar perfil');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const applyWfProfile = async (id: string) => {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(apiUrl('/workflow/profiles/apply'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; appliedProfile?: string };
+      if (!res.ok || !data.ok) throw new Error('Falha ao aplicar perfil');
+      await loadConfig();
+      setStatusMessage(`Perfil "${data.appliedProfile}" aplicado.`);
+      onSaved?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao aplicar perfil');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteWfProfile = async (id: string) => {
+    try {
+      const res = await fetch(apiUrl('/workflow/profiles'), {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { profiles?: typeof wfProfiles };
+      if (Array.isArray(data.profiles)) setWfProfiles(data.profiles);
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => { void loadWfProfiles(); }, [loadWfProfiles]);
 
   const videos = useMemo(() => config?.videos || [], [config?.videos]);
   const triggers = useMemo(() => config?.triggers || [], [config?.triggers]);
@@ -1438,10 +1503,38 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
           </div>
         </div>
 
+        <div className="absolute left-5 right-5 top-[120px] z-20 flex items-center gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Perfis</span>
+          {wfProfiles.map((p) => (
+            <div key={p.id} className="group flex items-center gap-0.5">
+              <Button size="sm" variant="secondary" onClick={() => void applyWfProfile(p.id)}>
+                {p.name}
+              </Button>
+              <button
+                onClick={() => void deleteWfProfile(p.id)}
+                className="hidden rounded-full p-0.5 text-slate-500 hover:text-red-400 group-hover:inline-flex"
+                title="Remover"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+          <input
+            className="h-7 w-36 rounded-lg border border-white/10 bg-white/[0.04] px-2 text-xs text-white placeholder:text-slate-500"
+            value={wfProfileName}
+            onChange={(e) => setWfProfileName(e.target.value)}
+            placeholder="Novo perfil..."
+            onKeyDown={(e) => { if (e.key === 'Enter') void saveWfProfile(wfProfileName); }}
+          />
+          <Button size="sm" variant="secondary" disabled={!wfProfileName.trim()} onClick={() => void saveWfProfile(wfProfileName)}>
+            <Save className="h-3 w-3" />
+          </Button>
+        </div>
+
         {(error || statusMessage) && (
           <div
             className={cn(
-              'absolute left-5 right-5 top-32 z-30 rounded-2xl border px-4 py-3 text-sm',
+              'absolute left-5 right-5 top-40 z-30 rounded-2xl border px-4 py-3 text-sm',
               error
                 ? 'border-red-400/30 bg-red-500/10 text-red-100'
                 : 'border-emerald-400/25 bg-emerald-500/10 text-emerald-100',

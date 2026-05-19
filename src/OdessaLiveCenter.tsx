@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Rewind,
   Route,
+  Save,
   Settings,
   ShieldAlert,
   Scissors,
@@ -1198,6 +1199,8 @@ function SettingsPanel({
   const [livePlan, setLivePlan] = useState<LivePlan | null>(null);
   const [livePlanLoading, setLivePlanLoading] = useState(false);
   const [livePlanMessage, setLivePlanMessage] = useState<string | null>(null);
+  const [obsProfiles, setObsProfiles] = useState<Array<{ id: string; name: string; updatedAt?: string }>>([]);
+  const [obsProfileName, setObsProfileName] = useState('');
 
   const loadObsSettings = useCallback(async () => {
     setLoading(true);
@@ -1220,6 +1223,71 @@ function SettingsPanel({
       setLoading(false);
     }
   }, []);
+
+  const loadObsProfiles = useCallback(async () => {
+    try {
+      const res = await fetch(apiUrl('/obs/profiles'));
+      const data = (await res.json().catch(() => ({}))) as { profiles?: typeof obsProfiles };
+      if (Array.isArray(data.profiles)) setObsProfiles(data.profiles);
+    } catch { /* ignore */ }
+  }, []);
+
+  const saveObsProfile = async (name: string) => {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch(apiUrl('/obs/profiles'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, settings: obsSettings }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { profiles?: typeof obsProfiles };
+      if (Array.isArray(data.profiles)) setObsProfiles(data.profiles);
+      setObsProfileName('');
+      setMessage(`Perfil "${name}" salvo.`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Falha ao salvar perfil');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const applyObsProfile = async (id: string) => {
+    setSaving(true);
+    setMessage(null);
+    try {
+      const res = await fetch(apiUrl('/obs/profiles-apply'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; settings?: Partial<ObsSettings>; appliedProfile?: string };
+      if (!res.ok || !data.ok) throw new Error('Falha ao aplicar perfil');
+      if (data.settings) {
+        const normalized = normalizeObsSettings(data.settings);
+        setObsSettings(normalized);
+        setObsConnection(parseObsConnection(normalized));
+      }
+      setMessage(`Perfil "${data.appliedProfile}" aplicado.`);
+      if (onObsSettingsChanged && data.settings) onObsSettingsChanged(data.settings as Record<string, unknown>);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Falha ao aplicar perfil');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteObsProfile = async (id: string) => {
+    try {
+      const res = await fetch(apiUrl('/obs/profiles'), {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { profiles?: typeof obsProfiles };
+      if (Array.isArray(data.profiles)) setObsProfiles(data.profiles);
+    } catch { /* ignore */ }
+  };
 
   const loadWebhooks = useCallback(async () => {
     try {
@@ -1316,6 +1384,7 @@ function SettingsPanel({
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void loadObsSettings();
+      void loadObsProfiles();
       void loadWebhooks();
       void loadLivePlan();
     }, 0);
@@ -1578,6 +1647,38 @@ function SettingsPanel({
                     {obsReady ? 'pronto' : obsHealth ? 'pendente' : 'nao testado'}
                   </Badge>
                 </div>
+              </div>
+
+              {obsProfiles.length > 0 && (
+                <div className="mb-4 flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-400">Perfis:</span>
+                  {obsProfiles.map((p) => (
+                    <div key={p.id} className="group flex items-center gap-1">
+                      <Button size="sm" variant="secondary" onClick={() => void applyObsProfile(p.id)}>
+                        {p.name}
+                      </Button>
+                      <button
+                        onClick={() => void deleteObsProfile(p.id)}
+                        className="hidden rounded-full p-0.5 text-slate-500 hover:text-red-400 group-hover:inline-flex"
+                        title="Remover perfil"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="mb-4 flex items-center gap-2">
+                <Input
+                  value={obsProfileName}
+                  onChange={(e) => setObsProfileName(e.target.value)}
+                  placeholder="Nome do novo perfil (ex: Desktop)"
+                  onKeyDown={(e) => { if (e.key === 'Enter') void saveObsProfile(obsProfileName); }}
+                />
+                <Button size="sm" variant="secondary" disabled={!obsProfileName.trim()} onClick={() => void saveObsProfile(obsProfileName)}>
+                  <Save className="h-4 w-4" />
+                  Salvar perfil
+                </Button>
               </div>
 
               <div className="mb-4 flex items-start gap-3 rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
@@ -2553,8 +2654,8 @@ function HomeDashboard({
   return (
     <div className="h-full overflow-y-auto p-[18px]">
       <div className="grid min-h-[calc(100vh-100px)] gap-4 xl:grid-cols-[minmax(680px,1fr)_minmax(420px,0.72fr)]">
-        <section className="grid min-h-0 gap-4">
-          <div className="odessa-stage-mesh odessa-panel-surface relative min-h-[390px] overflow-hidden bg-[#07080a]">
+        <section className="grid min-h-0 grid-rows-[1fr_auto] gap-4">
+          <div className="odessa-stage-mesh odessa-panel-surface relative min-h-[320px] overflow-hidden bg-[#07080a]">
             <div className="pointer-events-none absolute right-4 top-4 z-10 flex items-center gap-2">
               <Badge variant={videoState?.state === 'ACTION' ? 'lavender' : 'gold'}>
                 {videoState?.state === 'ACTION' ? 'reacao no ar' : 'em ensaio'}
@@ -2563,7 +2664,7 @@ function HomeDashboard({
                 1080 x 1920
               </span>
             </div>
-            <div className="flex h-full min-h-[390px] items-center justify-center p-5">
+            <div className="flex h-full items-center justify-center p-4">
               {videoState?.current_video_id ? (
                 <video
                   key={videoState.current_video_id}
@@ -2579,7 +2680,7 @@ function HomeDashboard({
                     onRefresh();
                   }}
                   playsInline
-                  className="h-full max-h-[330px] w-full rounded-[28px] object-contain"
+                  className="h-full w-full rounded-[28px] object-contain"
                   src={apiUrl(`/api/video/play/${videoState.current_video_id}`)}
                 />
               ) : (
