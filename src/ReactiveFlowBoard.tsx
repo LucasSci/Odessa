@@ -1487,36 +1487,41 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
           </div>
         )}
 
-        {workflowPreview && (
-          <div className="absolute left-5 right-5 top-24 z-40 rounded-3xl border border-sky-200/25 bg-[#0b0d10]/95 p-4 shadow-2xl backdrop-blur">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-sm font-semibold text-white">Prévia da importação</div>
-                <div className="mt-1 text-xs text-[var(--t3)]">
-                  {JSON.stringify((workflowPreview.summary as Record<string, unknown>) || {})}
+        {workflowPreview && (() => {
+          const s = (workflowPreview.summary || {}) as Record<string, unknown>;
+          const warnings = Array.isArray(workflowPreview.warnings) ? workflowPreview.warnings as string[] : [];
+          return (
+            <div className="absolute left-5 right-5 top-24 z-40 rounded-3xl border border-sky-200/25 bg-[#0b0d10]/95 p-4 shadow-2xl backdrop-blur">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="text-sm font-semibold text-white">Importar workflow</div>
+                  <div className="flex gap-2 text-xs text-[var(--t3)]">
+                    <span>{String(s.videos ?? 0)} videos</span>
+                    <span>·</span>
+                    <span>{String(s.flowNodes ?? 0)} nodes</span>
+                    <span>·</span>
+                    <span>{String(s.triggers ?? 0)} triggers</span>
+                    <span>·</span>
+                    <span>{String(s.flowConnections ?? 0)} conexoes</span>
+                  </div>
+                  {warnings.length > 0 && (
+                    <span className="text-xs text-amber-200" title={warnings.join('\n')}>
+                      {warnings.length} aviso{warnings.length > 1 ? 's' : ''}
+                    </span>
+                  )}
                 </div>
-                {Array.isArray(workflowPreview.missingVideoIds) && workflowPreview.missingVideoIds.length > 0 && (
-                  <div className="mt-2 text-xs text-amber-200">
-                    Vídeos ausentes serão placeholders: {(workflowPreview.missingVideoIds as string[]).join(', ')}
-                  </div>
-                )}
-                {Array.isArray(workflowPreview.warnings) && workflowPreview.warnings.length > 0 && (
-                  <div className="mt-2 text-xs text-sky-200">
-                    Avisos: {(workflowPreview.warnings as string[]).join(', ')}
-                  </div>
-                )}
-              </div>
-              <div className="flex shrink-0 gap-2">
-                <Button variant="secondary" onClick={() => { setWorkflowPreview(null); setPendingWorkflow(null); }}>
-                  Cancelar
-                </Button>
-                <Button variant="primary" loading={saving} onClick={applyWorkflowImport}>
-                  Aplicar
-                </Button>
+                <div className="flex shrink-0 gap-2">
+                  <Button variant="secondary" onClick={() => { setWorkflowPreview(null); setPendingWorkflow(null); }}>
+                    Cancelar
+                  </Button>
+                  <Button variant="primary" loading={saving} onClick={applyWorkflowImport}>
+                    Aplicar
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {nodes.length === 0 && (
           <div className="pointer-events-none absolute inset-0 top-40 z-10 flex flex-col items-center justify-center gap-3 text-center">
