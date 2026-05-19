@@ -243,6 +243,13 @@ async function executeCommand(cmd) {
     // ── Setup live scene (create scenes, sources, configure canvas) ──
     if (type === 'obs.setup_live_scene' || type === 'obs.setup') {
       await refreshObsState();
+
+      // SAFETY: Never modify OBS settings while actively streaming
+      if (obsStreaming) {
+        console.log('[setup] Ignorado: OBS esta transmitindo. Parar a transmissao antes de reconfigurar.');
+        return { ok: true, skipped: true, warnings: ['Setup ignorado: OBS esta transmitindo.'] };
+      }
+
       const startScene = payload?.startupSceneName || 'Odessa START';
       const liveScene = payload?.liveSceneName || 'Odessa LIVE';
       const stageUrl = payload?.stageUrl || '';
@@ -253,7 +260,7 @@ async function executeCommand(cmd) {
       const created = [];
       const warnings = [];
 
-      // 1. Set canvas resolution (Video Settings)
+      // 1. Set canvas resolution (Video Settings) — only if different
       try {
         const videoSettings = await obs.call('GetVideoSettings');
         if (videoSettings.baseWidth !== canvasW || videoSettings.baseHeight !== canvasH) {
@@ -296,12 +303,19 @@ async function executeCommand(cmd) {
           const existing = sceneItems.find((item) => item.sourceName === sourceName);
 
           if (existing) {
-            // Update existing source settings
-            await obs.call('SetInputSettings', {
-              inputName: sourceName,
-              inputSettings: { url, width: canvasW, height: canvasH, css: '' },
-              overlay: true,
-            });
+            // Only update if URL actually changed — SetInputSettings reloads the browser source
+            let needsUpdate = true;
+            try {
+              const currentSettings = await obs.call('GetInputSettings', { inputName: sourceName });
+              if (currentSettings.inputSettings?.url === url) needsUpdate = false;
+            } catch { /* can't read, update anyway */ }
+            if (needsUpdate) {
+              await obs.call('SetInputSettings', {
+                inputName: sourceName,
+                inputSettings: { url, width: canvasW, height: canvasH, css: '' },
+                overlay: true,
+              });
+            }
             // Reset transform to fill canvas
             await obs.call('SetSceneItemTransform', {
               sceneName,
@@ -412,8 +426,8 @@ async function executeCommand(cmd) {
       await refreshObsState();
       results.push({ step: 'refresh', ok: true });
 
-      // 2. Setup scenes & sources if prepareObs is enabled
-      if (payload?.prepareObs !== false) {
+      // 2. Setup scenes & sources if prepareObs is enabled — SKIP if already streaming
+      if (payload?.prepareObs !== false && !obsStreaming) {
         const startScene = payload?.startupSceneName || 'Odessa START';
         const liveScene = payload?.liveSceneName || 'Odessa LIVE';
         const stageUrl = payload?.stageUrl || '';
@@ -443,11 +457,19 @@ async function executeCommand(cmd) {
               const { sceneItems } = await obs.call('GetSceneItemList', { sceneName: liveScene });
               const existing = sceneItems.find((item) => item.sourceName === srcName);
               if (existing) {
-                await obs.call('SetInputSettings', {
-                  inputName: srcName,
-                  inputSettings: { url: stageUrl, width: canvasW, height: canvasH, css: '' },
-                  overlay: true,
-                });
+                // Only update if URL changed — SetInputSettings reloads browser source
+                let needsUpdate = true;
+                try {
+                  const cur = await obs.call('GetInputSettings', { inputName: srcName });
+                  if (cur.inputSettings?.url === stageUrl) needsUpdate = false;
+                } catch { /* update anyway */ }
+                if (needsUpdate) {
+                  await obs.call('SetInputSettings', {
+                    inputName: srcName,
+                    inputSettings: { url: stageUrl, width: canvasW, height: canvasH, css: '' },
+                    overlay: true,
+                  });
+                }
               } else {
                 const created = await obs.call('CreateInput', {
                   sceneName: liveScene,
@@ -478,17 +500,20 @@ async function executeCommand(cmd) {
         }
       }
 
-      // 4. Start transmission if configured
+      // 4. Start transmission if configured — skip if already active
       if (payload?.startTransmission) {
         const mode = payload?.transmissionMode || 'stream';
         try {
           if (mode === 'virtual_camera') {
-            await obs.call('StartVirtualCam');
-            results.push({ step: 'start_transmission', ok: true, mode });
+            try { const vc = await obs.call('GetVirtualCamStatus'); if (vc.outputActive) { results.push({ step: 'start_transmission', ok: true, mode, note: 'already_active' }); } else { await obs.call('StartVirtualCam'); results.push({ step: 'start_transmission', ok: true, mode }); } } catch { await obs.call('StartVirtualCam'); results.push({ step: 'start_transmission', ok: true, mode }); }
           } else if (mode !== 'none') {
-            await obs.call('StartStream');
-            obsStreaming = true;
-            results.push({ step: 'start_transmission', ok: true, mode });
+            if (obsStreaming) {
+              results.push({ step: 'start_transmission', ok: true, mode, note: 'already_streaming' });
+            } else {
+              await obs.call('StartStream');
+              obsStreaming = true;
+              results.push({ step: 'start_transmission', ok: true, mode });
+            }
           }
         } catch (err) {
           results.push({ step: 'start_transmission', ok: false, mode, error: err.message });
