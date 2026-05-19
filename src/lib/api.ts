@@ -37,6 +37,9 @@ export function apiUrl(path: string) {
   if (/^https?:\/\//i.test(path)) return path;
 
   const normalized = path.startsWith('/') ? path : `/${path}`;
+  if (usesSameOriginCloudApi && (normalized === '/obs/profiles' || normalized === '/obs/profiles-apply')) {
+    return `${browserOrigin}/api${normalized}`;
+  }
   if (usesSameOriginCloudApi && (normalized === '/obs' || normalized.startsWith('/obs/') || normalized.startsWith('/obs?'))) {
     const [pathPart, query = ''] = normalized.split('?');
     const action = pathPart.replace(/^\/obs\/?/, '') || 'status';

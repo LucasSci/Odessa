@@ -7,8 +7,29 @@ import { getRecentEvents, replaceEvents } from './core/eventBus';
 import { useAutopilotRuntime } from './core/useAutopilotRuntime';
 import { apiUrl } from './lib/api';
 import { installCredentialedFetch } from './lib/fetchCredentials';
-import { connectObs, onObsStatus, type ObsDirectStatus } from './lib/obsWebSocket';
+import { connectObs, disconnectObs, onObsStatus, type ObsDirectStatus } from './lib/obsWebSocket';
+import {
+  routeSetupLiveScene,
+  routeShowStage,
+  routeStartTransmission,
+  routeLiveHealth,
+} from './lib/obsCommandRouter';
 import type { CapturedMessage } from './types';
+
+type ObsSettingsState = {
+  websocketUrl?: string;
+  websocketPassword?: string;
+  startupSceneName?: string;
+  liveSceneName?: string;
+  stageSourceName?: string;
+  chatSourceName?: string;
+  stageUrl?: string;
+  canvasWidth?: number;
+  canvasHeight?: number;
+  transmissionMode?: string;
+  ocrSourceName?: string;
+  enabled?: boolean;
+};
 
 installCredentialedFetch();
 
@@ -51,13 +72,7 @@ type AgentStatus = {
 };
 
 const LIVE_CONFIG_KEY = 'odessa:live-config:v1';
-const LOCAL_AGENT_URL = 'http://127.0.0.1:8766';
-
-function isCloudHosted() {
-  if (typeof window === 'undefined') return false;
-  const h = window.location.hostname;
-  return h !== '' && h !== 'localhost' && h !== '127.0.0.1' && h !== '::1';
-}
+// Agent removed — browser connects to OBS directly via WebSocket
 
 function getPanelFromHash(): AdvancedPanel {
   if (window.location.hash === '#capture') return 'capture';
@@ -65,35 +80,33 @@ function getPanelFromHash(): AdvancedPanel {
   if (window.location.hash === '#content') return 'content';
   if (window.location.hash === '#runtime') return 'runtime';
   if (window.location.hash === '#settings') return 'settings';
+  if (window.location.hash === '#canvas') return 'canvas';
   if (window.location.hash === '#overlay') return 'overlay' as AdvancedPanel;
   return 'overview';
 }
 
 function loadLiveConfig(): LiveConfig {
+  const defaults: LiveConfig = {
+    prepareObs: true,
+    showStage: true,
+    startAutomation: true,
+    startCapture: false,
+    startTransmission: true,
+    voiceEnabled: false,
+    enableChat: false,
+  };
   try {
     const raw = window.localStorage.getItem(LIVE_CONFIG_KEY);
-    return {
-      prepareObs: true,
-      showStage: true,
-      startAutomation: true,
-      startCapture: false,
-      startTransmission: false,
-      actionMode: 'simulated',
-      voiceEnabled: false,
-      enableChat: false,
-      ...(raw ? JSON.parse(raw) : {}),
-    };
+    if (!raw) return defaults;
+    const stored = JSON.parse(raw) as Partial<LiveConfig>;
+    // Migrate: old configs had these as false — force true so Iniciar Live works
+    if (stored.startAutomation === false) delete stored.startAutomation;
+    if (stored.startTransmission === false) delete stored.startTransmission;
+    // Remove deprecated actionMode
+    delete stored.actionMode;
+    return { ...defaults, ...stored };
   } catch {
-    return {
-      prepareObs: true,
-      showStage: true,
-      startAutomation: true,
-      startCapture: false,
-      startTransmission: false,
-      actionMode: 'simulated',
-      voiceEnabled: false,
-      enableChat: false,
-    };
+    return defaults;
   }
 }
 
@@ -104,9 +117,11 @@ export default function App() {
   const [liveConfigOpen, setLiveConfigOpen] = useState(false);
   const [liveConfig, setLiveConfig] = useState<LiveConfig>(() => loadLiveConfig());
   const [liveStartError, setLiveStartError] = useState<string | null>(null);
-  const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
+  // Agent removed — status always null (direct OBS connection replaces agent)
+  const agentStatus = null as AgentStatus | null;
 
   const [obsDirectStatus, setObsDirectStatus] = useState<ObsDirectStatus | null>(null);
+  const [obsSettings, setObsSettings] = useState<ObsSettingsState | null>(null);
 
   useEffect(() => {
     // Skip auth check for overlay (OBS browser source)
@@ -119,16 +134,34 @@ export default function App() {
       .catch(() => setAuthenticated(false));
   }, []);
 
-  // Try direct OBS WebSocket connection after auth
+  // Direct OBS WebSocket connection — works both local and cloud.
+  // Fetches OBS settings from API, then connects to ws://localhost:<port>.
   useEffect(() => {
     if (!authenticated) return;
     const unsub = onObsStatus(setObsDirectStatus);
-    // Try localhost first (same machine), then LAN IP from saved settings
-    const savedHost = window.localStorage.getItem('odessa:obs-host') || '';
-    const savedPort = window.localStorage.getItem('odessa:obs-port') || '4455';
-    const savedPass = window.localStorage.getItem('odessa:obs-password') || '';
-    const url = savedHost ? `ws://${savedHost}:${savedPort}` : `ws://localhost:${savedPort}`;
-    connectObs(url, savedPass);
+
+    // Fetch settings from API and connect to OBS directly
+    fetch(apiUrl('/obs/settings'))
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { ok?: boolean; settings?: ObsSettingsState } | null) => {
+        if (!data?.ok || !data?.settings) return;
+        const settings = data.settings;
+        setObsSettings(settings);
+        // Extract port from stored URL (might be ws://192.168.x.x:4455)
+        let port = '4455';
+        try {
+          const parsed = new URL(settings.websocketUrl || 'ws://localhost:4455');
+          port = parsed.port || '4455';
+        } catch { /* use default */ }
+        // Always connect via localhost (browser is on same machine as OBS)
+        const directUrl = `ws://localhost:${port}`;
+        connectObs(directUrl, settings.websocketPassword || '');
+      })
+      .catch(() => {
+        // Fallback: try default OBS WebSocket without settings
+        connectObs('ws://localhost:4455');
+      });
+
     return unsub;
   }, [authenticated]);
 
@@ -142,38 +175,8 @@ export default function App() {
   const runtime = useAutopilotRuntime({ capturedText, setCapturedText });
 
 
-  const refreshAgentStatus = useCallback(async () => {
-    try {
-      if (isCloudHosted()) {
-        try {
-          const localResponse = await fetch(`${LOCAL_AGENT_URL}/status`, { credentials: 'omit' });
-          if (localResponse.ok) {
-            setAgentStatus((await localResponse.json()) as AgentStatus);
-            return;
-          }
-        } catch {
-          // Fall back to the cloud heartbeat status below.
-        }
-      }
-      const response = await fetch(apiUrl('/agent?action=status'));
-      if (!response.ok) {
-        setAgentStatus(null);
-        return;
-      }
-      setAgentStatus((await response.json()) as AgentStatus);
-    } catch {
-      setAgentStatus(null);
-    }
-  }, []);
-
-  useEffect(() => {
-    const initialRefresh = window.setTimeout(() => void refreshAgentStatus(), 0);
-    const interval = window.setInterval(() => void refreshAgentStatus(), 5000);
-    return () => {
-      window.clearTimeout(initialRefresh);
-      window.clearInterval(interval);
-    };
-  }, [refreshAgentStatus]);
+  // Agent polling removed — no longer needed with direct OBS connection
+  const refreshAgentStatus = useCallback(async () => {}, []);
 
 
   useEffect(() => {
@@ -190,106 +193,10 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  const startLiveWithConfig = async () => {
+  const startLiveWithConfig = () => {
     setLiveStartError(null);
-    const hostedOnVercel = isCloudHosted();
-    if ((liveConfig.actionMode || 'simulated') !== 'real') {
-      try {
-        await fetch(apiUrl('/obs/start-live/dry-run'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(liveConfig),
-        });
-      } catch {
-        // Dry-run visibility is helpful, but it should not block a local simulated start.
-      }
-      setLiveStartError('Iniciar Live esta em modo seguro/simulado. Altere para "Real ao clicar" em Configuracoes para executar OBS/transmissao.');
-      return;
-    }
 
-    if (hostedOnVercel) {
-      try {
-        const localResponse = await fetch(`${LOCAL_AGENT_URL}/command`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'omit',
-          body: JSON.stringify({
-            type: 'live.start',
-            payload: liveConfig,
-          }),
-        });
-        const localResult = (await localResponse.json().catch(() => ({}))) as {
-          ok?: boolean;
-          result?: { error?: string | null };
-        };
-        if (localResponse.ok && localResult.ok) {
-          await refreshAgentStatus();
-          setLiveStartError('Comando executado pelo Odessa Agent local.');
-          return;
-        }
-        const response = await fetch(apiUrl('/agent?action=commands'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'live.start',
-            payload: liveConfig,
-          }),
-        });
-        const result = (await response.json().catch(() => ({}))) as { ok?: boolean; queueSize?: number; detail?: string };
-        if (!response.ok || !result.ok) {
-          setLiveStartError(
-            localResult.result?.error ||
-              result.detail ||
-              'Nao foi possivel acionar o Odessa Agent local. Verifique se npm run dev:agent esta rodando.',
-          );
-          return;
-        }
-        await refreshAgentStatus();
-        setLiveStartError(`Comando enviado para o Odessa Agent. Fila atual: ${result.queueSize ?? 1}.`);
-      } catch (err) {
-        setLiveStartError(err instanceof Error ? err.message : 'Falha ao acionar o Odessa Agent.');
-      }
-      return;
-    }
-
-    if (liveConfig.prepareObs !== false) {
-      try {
-        const response = await fetch(apiUrl('/obs/live-health'));
-        const obsHealth = (await response.json().catch(() => ({}))) as ObsHealth;
-        let obsReady = response.ok && obsHealth.ok;
-
-        if (!obsReady) {
-          const setupResponse = await fetch(apiUrl('/obs/setup-live-scene'), { method: 'POST' });
-          const setup = (await setupResponse.json().catch(() => ({}))) as { ok?: boolean; error?: string | null };
-          obsReady = setupResponse.ok && !!setup.ok;
-          if (!obsReady) {
-            setLiveStartError(
-              setup.error ||
-                obsHealth.error ||
-                'Nao foi possivel preparar a Mesa OBS. Verifique se o OBS esta aberto e se o WebSocket esta ativo.',
-            );
-            return;
-          }
-        }
-
-        if (liveConfig.showStage !== false) {
-          const stageResponse = await fetch(apiUrl('/obs/show-stage'), { method: 'POST' });
-          const stage = (await stageResponse.json().catch(() => ({}))) as { ok?: boolean; error?: string | null };
-          if (!stageResponse.ok || !stage.ok) {
-            setLiveStartError(stage.error || 'Nao foi possivel colocar o palco ao vivo no OBS.');
-            return;
-          }
-        }
-      } catch (err) {
-        setLiveStartError(
-          err instanceof Error
-            ? `Nao foi possivel preparar a Mesa OBS: ${err.message}`
-            : 'Nao foi possivel iniciar a live assistida: OBS WebSocket indisponivel.',
-        );
-        return;
-      }
-    }
-
+    // 1. ALWAYS start automation first — this is the primary action
     const toolPatches = [
       {
         capability: 'tts.speak',
@@ -297,22 +204,35 @@ export default function App() {
       },
       { capability: 'chat.reply', patch: { enabled: !!liveConfig.enableChat } },
     ];
+    runtime.start({ voiceEnabled: liveConfig.voiceEnabled, toolPatches });
 
+    // 2. Start capture if configured
     if (liveConfig.startCapture) {
       try {
         window.dispatchEvent(new CustomEvent('odessa:start-live', { detail: { prefer: 'monitor' } }));
-      } catch {
-        // Capture can still be started manually.
+      } catch { /* Capture can still be started manually. */ }
+    }
+
+    // 3. OBS preparation + transmission — runs in background, never blocks
+    (async () => {
+      try {
+        if (liveConfig.prepareObs !== false) {
+          const health = await routeLiveHealth(obsSettings);
+          if (!health.ok) {
+            await routeSetupLiveScene(obsSettings);
+          }
+          if (liveConfig.showStage !== false) {
+            await routeShowStage(obsSettings);
+          }
+        }
+        // Start transmission
+        if (liveConfig.startTransmission !== false) {
+          await routeStartTransmission(obsSettings);
+        }
+      } catch (err) {
+        console.warn('[Odessa] OBS:', err);
       }
-    }
-
-    if (liveConfig.startAutomation !== false) {
-      runtime.start({ voiceEnabled: liveConfig.voiceEnabled, toolPatches });
-    }
-
-  if (liveConfig.startTransmission) {
-      fetch(apiUrl('/obs/transmission/start'), { method: 'POST' }).catch(() => undefined);
-    }
+    })();
   };
 
   if (requestedPanel === ('overlay' as AdvancedPanel)) {
@@ -341,10 +261,22 @@ export default function App() {
       liveConfigOpen={liveConfigOpen}
       liveStartError={liveStartError}
       agentStatus={agentStatus}
+      obsDirectStatus={obsDirectStatus}
+      obsSettingsFromApp={obsSettings}
       onRefreshAgentStatus={refreshAgentStatus}
       onLiveConfigOpenChange={setLiveConfigOpen}
       onLiveConfigChange={setLiveConfig}
       onStartLive={startLiveWithConfig}
+      onObsSettingsChanged={(newSettings) => {
+        setObsSettings(newSettings);
+        let port = '4455';
+        try {
+          const parsed = new URL(newSettings.websocketUrl || 'ws://localhost:4455');
+          port = parsed.port || '4455';
+        } catch {}
+        disconnectObs();
+        connectObs(`ws://localhost:${port}`, newSettings.websocketPassword || '');
+      }}
     />
   );
 }

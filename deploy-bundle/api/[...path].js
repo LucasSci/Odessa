@@ -356,16 +356,6 @@ function saveObsSettings(settings) {
   return next;
 }
 
-// ── Profile helpers (OBS settings + Workflow) ──
-function loadProfiles(kind) {
-  const stored = getCloudValue(`${kind}_profiles`);
-  return Array.isArray(stored?.value) ? stored.value : [];
-}
-
-function saveProfiles(kind, profiles) {
-  setCloudValue(`${kind}_profiles`, profiles);
-}
-
 function enqueueAgentCommand(command) {
   const normalized = {
     id: command.id || crypto.randomUUID(),
@@ -1093,11 +1083,6 @@ async function protectedResponse(req, res, rawPath) {
     if (req.method === 'POST' || req.method === 'PUT') {
       const body = await readBody(req);
       const workflow = body.workflow && typeof body.workflow === 'object' ? body.workflow : body;
-      // Guard: detect empty/invalid payloads (e.g. body parse failure returns {})
-      const hasData = Array.isArray(workflow.flowNodes) || Array.isArray(workflow.triggers) || Array.isArray(workflow.videos) || workflow.idleVideoId;
-      if (!hasData && !workflow.planningCanvas) {
-        return json(res, 400, { ok: false, detail: 'Payload vazio ou invalido. Verifique o JSON enviado.' });
-      }
       const config = loadCloudConfig() || {};
       config.draftWorkflow = workflow;
       // Merge videos: keep existing library videos (with valid upload URLs) and add new ones from import
@@ -1131,17 +1116,8 @@ async function protectedResponse(req, res, rawPath) {
       if (workflow.gift_map) config.gift_map = workflow.gift_map;
       if (workflow.action_map) config.action_map = workflow.action_map;
       if (workflow.transitions) config.transitions = workflow.transitions;
-      if (workflow.planningCanvas) config.planningCanvas = workflow.planningCanvas;
       config.updatedAt = new Date().toISOString();
       setCloudValue(PERSONA_CONFIG_KEY, config);
-      // If no video is currently playing, auto-start the idle video
-      const currentVideoState = getCloudValue('video_state')?.value;
-      const draftIdleId = workflow.idleVideoId || config.idleVideoId;
-      if (draftIdleId && !currentVideoState?.current_video_id) {
-        const draftNodes = workflow.flowNodes || config.flowNodes || [];
-        const idleNode = draftNodes.find((n) => n.videoId === draftIdleId);
-        saveCloudVideoState(draftIdleId, { activeNodeId: idleNode?.nodeId || null });
-      }
       return json(res, 200, {
         ok: true,
         status: 'draft',
@@ -1151,71 +1127,6 @@ async function protectedResponse(req, res, rawPath) {
       });
     }
   }
-  // ── Debug marker (temp) ──
-  if (path === '/workflow/debug-profile-marker-xyz') {
-    return json(res, 200, { ok: true, marker: 'PROFILES_DEPLOYED_v2', path, method: req.method });
-  }
-  // ── Workflow profiles ──
-  if (path === '/workflow/profiles') {
-    if (req.method === 'GET') {
-      return json(res, 200, { ok: true, profiles: loadProfiles('workflow') });
-    }
-    if (req.method === 'POST') {
-      const body = await readBody(req);
-      const name = String(body.name || '').trim();
-      if (!name) return json(res, 400, { ok: false, detail: 'Nome do perfil e obrigatorio.' });
-      const profiles = loadProfiles('workflow');
-      const config = loadCloudConfig() || {};
-      const snapshot = body.workflow || {
-        flowNodes: config.flowNodes || [],
-        flowConnections: config.flowConnections || [],
-        triggers: config.triggers || [],
-        idleVideoId: config.idleVideoId || null,
-        videos: config.videos || [],
-        giftMap: config.giftMap || config.gift_map || {},
-        transitions: config.transitions || [],
-        workflowName: name,
-      };
-      const existing = profiles.findIndex((p) => p.id === body.id);
-      const profile = {
-        id: existing >= 0 ? profiles[existing].id : crypto.randomUUID(),
-        name,
-        workflow: snapshot,
-        createdAt: existing >= 0 ? profiles[existing].createdAt : new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      if (existing >= 0) profiles[existing] = profile;
-      else profiles.push(profile);
-      saveProfiles('workflow', profiles);
-      return json(res, 200, { ok: true, profile, profiles });
-    }
-    if (req.method === 'DELETE') {
-      const body = await readBody(req);
-      const profiles = loadProfiles('workflow').filter((p) => p.id !== body.id);
-      saveProfiles('workflow', profiles);
-      return json(res, 200, { ok: true, profiles });
-    }
-  }
-  if (path === '/workflow/profiles/apply' && req.method === 'POST') {
-    const body = await readBody(req);
-    const profiles = loadProfiles('workflow');
-    const profile = profiles.find((p) => p.id === body.id);
-    if (!profile) return json(res, 404, { ok: false, detail: 'Perfil nao encontrado.' });
-    const config = loadCloudConfig() || {};
-    const w = profile.workflow;
-    if (Array.isArray(w.videos)) config.videos = w.videos;
-    if (Array.isArray(w.triggers)) config.triggers = w.triggers;
-    if (Array.isArray(w.flowNodes)) config.flowNodes = w.flowNodes;
-    if (Array.isArray(w.flowConnections)) config.flowConnections = w.flowConnections;
-    if (w.idleVideoId !== undefined) config.idleVideoId = w.idleVideoId;
-    if (w.giftMap) config.giftMap = w.giftMap;
-    if (w.transitions) config.transitions = w.transitions;
-    config.draftWorkflow = w;
-    config.updatedAt = new Date().toISOString();
-    setCloudValue(PERSONA_CONFIG_KEY, config);
-    return json(res, 200, { ok: true, appliedProfile: profile.name, updatedAt: config.updatedAt });
-  }
-
   if (path === '/workflow/published') {
     return json(res, 200, getCloudWorkflow('published'));
   }
@@ -1235,32 +1146,11 @@ async function protectedResponse(req, res, rawPath) {
       config.publishedWorkflow = { ...draft, status: 'published', publishedAt: new Date().toISOString() };
       config.updatedAt = new Date().toISOString();
       setCloudValue(PERSONA_CONFIG_KEY, config);
-      // Auto-start idle video so the overlay immediately picks it up
-      const idleVideoId = draft.idleVideoId || config.idleVideoId || null;
-      if (idleVideoId) {
-        const flowNodes = draft.flowNodes || config.flowNodes || [];
-        const idleNode = flowNodes.find((n) => n.videoId === idleVideoId);
-        const pb = idleNode?.playback || {};
-        saveCloudVideoState(idleVideoId, {
-          activeNodeId: idleNode?.nodeId || null,
-          currentClip: {
-            nodeId: idleNode?.nodeId || null,
-            videoId: idleVideoId,
-            startSec: pb.startSec || 0,
-            endSec: pb.endSec || null,
-            transitionMs: pb.transitionMs || 220,
-            loop: true,
-            returnToIdle: false,
-            audio: idleNode?.audio || { mode: 'muted', volume: 1 },
-          },
-        });
-      }
       return json(res, 200, {
         ok: true,
         status: 'published',
         publishedAt: config.publishedWorkflow.publishedAt,
         updatedAt: config.updatedAt,
-        idleVideoStarted: !!idleVideoId,
         validation: { ok: true, warnings: [], errors: [] },
         cloudStorage: cloudCapabilities(),
       });
@@ -1349,47 +1239,6 @@ async function protectedResponse(req, res, rawPath) {
         error: null,
         ...cloudState(),
       });
-    }
-
-    // OBS profiles
-    if (action === 'profiles') {
-      if (req.method === 'GET') {
-        return json(res, 200, { ok: true, profiles: loadProfiles('obs') });
-      }
-      if (req.method === 'POST') {
-        const body = await readBody(req);
-        const name = String(body.name || '').trim();
-        if (!name) return json(res, 400, { ok: false, detail: 'Nome do perfil e obrigatorio.' });
-        const profiles = loadProfiles('obs');
-        const settings = body.settings || loadObsSettings(req);
-        const existing = profiles.findIndex((p) => p.id === body.id);
-        const profile = {
-          id: existing >= 0 ? profiles[existing].id : crypto.randomUUID(),
-          name,
-          settings,
-          createdAt: existing >= 0 ? profiles[existing].createdAt : new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        if (existing >= 0) profiles[existing] = profile;
-        else profiles.push(profile);
-        saveProfiles('obs', profiles);
-        return json(res, 200, { ok: true, profile, profiles });
-      }
-      if (req.method === 'DELETE') {
-        const body = await readBody(req);
-        const profiles = loadProfiles('obs').filter((p) => p.id !== body.id);
-        saveProfiles('obs', profiles);
-        return json(res, 200, { ok: true, profiles });
-      }
-    }
-
-    if (action === 'profiles-apply' && req.method === 'POST') {
-      const body = await readBody(req);
-      const profiles = loadProfiles('obs');
-      const profile = profiles.find((p) => p.id === body.id);
-      if (!profile) return json(res, 404, { ok: false, detail: 'Perfil nao encontrado.' });
-      const settings = saveObsSettings(profile.settings);
-      return json(res, 200, { ok: true, settings, appliedProfile: profile.name });
     }
 
     if (req.method === 'GET' && (action === 'health' || action === 'live-health')) {
@@ -1494,21 +1343,6 @@ async function protectedResponse(req, res, rawPath) {
         if (idleVideoId) saveCloudVideoState(idleVideoId);
       }
 
-      const obsSettings = loadObsSettings(req);
-      const enrichedPayload = { ...body };
-      if (!enrichedPayload.transmissionMode && obsSettings.transmissionMode) {
-        enrichedPayload.transmissionMode = obsSettings.transmissionMode;
-      }
-      if (actionPath === 'start-live') {
-        if (!enrichedPayload.stageUrl && obsSettings.stageUrl) enrichedPayload.stageUrl = obsSettings.stageUrl;
-        if (!enrichedPayload.startupSceneName && obsSettings.startupSceneName) enrichedPayload.startupSceneName = obsSettings.startupSceneName;
-        if (!enrichedPayload.liveSceneName && obsSettings.liveSceneName) enrichedPayload.liveSceneName = obsSettings.liveSceneName;
-        if (!enrichedPayload.stageSourceName && obsSettings.stageSourceName) enrichedPayload.stageSourceName = obsSettings.stageSourceName;
-        if (!enrichedPayload.chatSourceName) enrichedPayload.chatSourceName = obsSettings.chatSourceName || obsSettings.ocrSourceName;
-        if (!enrichedPayload.canvasWidth && obsSettings.canvasWidth) enrichedPayload.canvasWidth = obsSettings.canvasWidth;
-        if (!enrichedPayload.canvasHeight && obsSettings.canvasHeight) enrichedPayload.canvasHeight = obsSettings.canvasHeight;
-      }
-
       const queued = enqueueAgentCommand({
         type:
           actionPath === 'start-live'
@@ -1516,7 +1350,7 @@ async function protectedResponse(req, res, rawPath) {
             : actionPath === 'setup-live-scene'
               ? 'obs.setup_live_scene'
               : `obs.${actionPath.replace(/\//g, '.').replace(/-/g, '_')}`,
-        payload: enrichedPayload,
+        payload: body,
       });
       return json(res, 202, {
         ok: true,

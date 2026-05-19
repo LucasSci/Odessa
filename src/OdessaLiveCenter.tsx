@@ -19,10 +19,12 @@ import {
   RefreshCw,
   Rewind,
   Route,
+  Save,
   Settings,
   ShieldAlert,
   Scissors,
   SlidersHorizontal,
+  StickyNote,
   Trash2,
   Upload,
   Video,
@@ -32,6 +34,14 @@ import {
 } from 'lucide-react';
 import { emitEvent } from './core/eventBus';
 import { apiUrl } from './lib/api';
+import {
+  routeSetupLiveScene,
+  routeShowStart,
+  routeShowStage,
+  routeStartTransmission,
+  routeStopTransmission,
+  type CommandResult,
+} from './lib/obsCommandRouter';
 import { cn } from './lib/utils';
 import type { AutopilotRuntimeState } from './core/useAutopilotRuntime';
 import type { CapturedMessage } from './types';
@@ -39,6 +49,7 @@ import { Badge, Button, Card, Input, StatusDot } from './components/ui';
 
 const CaptureStudio = lazy(() => import('./CaptureStudio'));
 const ReactiveFlowBoard = lazy(() => import('./ReactiveFlowBoard'));
+const PlanningCanvas = lazy(() => import('./PlanningCanvas'));
 
 // ─── Gift detection ───────────────────────────────────────────────────────────
 // isGiftEvent is imported from ocrPipeline — single source of truth.
@@ -50,7 +61,8 @@ export type AdvancedPanel =
   | 'content'
   | 'runtime'
   | 'settings'
-  | 'overlay';
+  | 'overlay'
+  | 'canvas';
 
 type LiveConfig = {
   voiceEnabled?: boolean;
@@ -94,9 +106,12 @@ interface OdessaLiveCenterProps {
   onLiveConfigChange?: Dispatch<SetStateAction<LiveConfig>>;
   onStartLive?: () => void | Promise<void>;
   onRefreshAgentStatus?: () => void | Promise<void>;
+  obsDirectStatus?: import('./lib/obsWebSocket').ObsDirectStatus | null;
+  obsSettingsFromApp?: Record<string, unknown> | null;
+  onObsSettingsChanged?: (settings: Record<string, unknown>) => void;
 }
 
-type TabKey = 'home' | 'stage' | 'flow' | 'library' | 'sources' | 'logs' | 'settings';
+type TabKey = 'home' | 'stage' | 'flow' | 'canvas' | 'library' | 'sources' | 'logs' | 'settings';
 
 type VideoEntry = {
   id: string;
@@ -329,6 +344,7 @@ function tabFromPanel(panel: AdvancedPanel): TabKey {
   if (panel === 'content') return 'library';
   if (panel === 'runtime') return 'logs';
   if (panel === 'settings') return 'settings';
+  if (panel === 'canvas') return 'canvas';
   return 'home';
 }
 
@@ -369,6 +385,9 @@ export default function OdessaLiveCenter({
   onLiveConfigChange,
   onStartLive,
   onRefreshAgentStatus,
+  obsDirectStatus = null,
+  obsSettingsFromApp = null,
+  onObsSettingsChanged,
 }: OdessaLiveCenterProps) {
   const [activeTab, setActiveTab] = useState<TabKey>(() => tabFromPanel(requestedPanel));
   const [config, setConfig] = useState<PersonaConfig | null>(null);
@@ -779,6 +798,12 @@ export default function OdessaLiveCenter({
             onClick={() => setActiveTab('flow')}
           />
           <NavButton
+            icon={<StickyNote />}
+            label="Mural"
+            active={activeTab === 'canvas'}
+            onClick={() => setActiveTab('canvas')}
+          />
+          <NavButton
             icon={<Film />}
             label="Biblioteca"
             active={activeTab === 'library'}
@@ -865,7 +890,7 @@ export default function OdessaLiveCenter({
       </header>
 
       <div className="flex gap-2 overflow-x-auto border-b border-[var(--border)] px-3 py-2 lg:hidden">
-        {(['home', 'stage', 'flow', 'library', 'sources', 'logs', 'settings'] as TabKey[]).map((tab) => (
+        {(['home', 'stage', 'flow', 'canvas', 'library', 'sources', 'logs', 'settings'] as TabKey[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -900,6 +925,8 @@ export default function OdessaLiveCenter({
             capturedText={capturedText}
             view={view}
             videoState={videoState}
+            obsDirectStatus={obsDirectStatus}
+            obsSettingsFromApp={obsSettingsFromApp}
             onRefresh={refreshVideoState}
             onPlayVideoById={playVideoById}
             onPatchFlowNodePlayback={patchFlowNodePlayback}
@@ -916,6 +943,13 @@ export default function OdessaLiveCenter({
                 refreshVideoState();
               }}
             />
+          </Suspense>
+        )}
+        {activeTab === 'canvas' && (
+          <Suspense fallback={<PanelLoading label="Carregando canvas" />}>
+            <div className="flex-1 min-h-0 h-full overflow-hidden">
+              <PlanningCanvas />
+            </div>
           </Suspense>
         )}
         {activeTab === 'library' && <VideoLibraryPanel config={config} onChanged={loadConfig} />}
@@ -961,6 +995,8 @@ export default function OdessaLiveCenter({
             onRefreshHealth={runtime.refreshHealth}
             liveConfig={liveConfig}
             onLiveConfigChange={onLiveConfigChange}
+            agentStatus={agentStatus}
+            onObsSettingsChanged={onObsSettingsChanged}
             onSaved={() => {
               void runtime.refreshObsScenes();
             }}
@@ -1131,12 +1167,16 @@ function SettingsPanel({
   liveConfig,
   onLiveConfigChange,
   onSaved,
+  agentStatus,
+  onObsSettingsChanged,
 }: {
   health: AutopilotRuntimeState['health'];
   onRefreshHealth: () => Promise<void>;
   liveConfig: LiveConfig;
   onLiveConfigChange?: Dispatch<SetStateAction<LiveConfig>>;
   onSaved: () => void;
+  agentStatus?: AgentStatus | null;
+  onObsSettingsChanged?: (settings: Record<string, unknown>) => void;
 }) {
   const [obsSettings, setObsSettings] = useState<ObsSettings>(DEFAULT_OBS_SETTINGS);
   const [obsConnection, setObsConnection] = useState<ObsConnectionFields>(() =>
@@ -1159,6 +1199,9 @@ function SettingsPanel({
   const [livePlan, setLivePlan] = useState<LivePlan | null>(null);
   const [livePlanLoading, setLivePlanLoading] = useState(false);
   const [livePlanMessage, setLivePlanMessage] = useState<string | null>(null);
+  const [obsProfiles, setObsProfiles] = useState<Array<{ id: string; name: string; updatedAt?: string }>>([]);
+  const [obsProfileName, setObsProfileName] = useState('');
+  const [activeObsProfileId, setActiveObsProfileId] = useState('');
 
   const loadObsSettings = useCallback(async () => {
     setLoading(true);
@@ -1181,6 +1224,75 @@ function SettingsPanel({
       setLoading(false);
     }
   }, []);
+
+  const loadObsProfiles = useCallback(async () => {
+    try {
+      const res = await fetch(apiUrl('/obs/profiles'));
+      const data = (await res.json().catch(() => ({}))) as { profiles?: typeof obsProfiles };
+      if (Array.isArray(data.profiles)) setObsProfiles(data.profiles);
+    } catch { /* ignore */ }
+  }, []);
+
+  const saveObsProfile = async (name: string) => {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch(apiUrl('/obs/profiles'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, settings: obsSettings }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { profiles?: typeof obsProfiles };
+      if (Array.isArray(data.profiles)) setObsProfiles(data.profiles);
+      const saved = data.profiles?.find((p) => p.name === name);
+      if (saved) setActiveObsProfileId(saved.id);
+      setObsProfileName('');
+      setMessage(`Perfil "${name}" salvo.`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Falha ao salvar perfil');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const applyObsProfile = async (id: string) => {
+    setSaving(true);
+    setMessage(null);
+    try {
+      const res = await fetch(apiUrl('/obs/profiles-apply'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; settings?: Partial<ObsSettings>; appliedProfile?: string };
+      if (!res.ok || !data.ok) throw new Error('Falha ao aplicar perfil');
+      if (data.settings) {
+        const normalized = normalizeObsSettings(data.settings);
+        setObsSettings(normalized);
+        setObsConnection(parseObsConnection(normalized));
+      }
+      setActiveObsProfileId(id);
+      setMessage(`Perfil "${data.appliedProfile}" aplicado.`);
+      if (onObsSettingsChanged && data.settings) onObsSettingsChanged(data.settings as Record<string, unknown>);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Falha ao aplicar perfil');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteObsProfile = async (id: string) => {
+    try {
+      const res = await fetch(apiUrl('/obs/profiles'), {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { profiles?: typeof obsProfiles };
+      if (Array.isArray(data.profiles)) setObsProfiles(data.profiles);
+      if (activeObsProfileId === id) setActiveObsProfileId('');
+    } catch { /* ignore */ }
+  };
 
   const loadWebhooks = useCallback(async () => {
     try {
@@ -1277,6 +1389,7 @@ function SettingsPanel({
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void loadObsSettings();
+      void loadObsProfiles();
       void loadWebhooks();
       void loadLivePlan();
     }, 0);
@@ -1330,6 +1443,9 @@ function SettingsPanel({
       setPasswordInput('');
       setMessage('Configuracoes do OBS salvas.');
       onSaved();
+      if (onObsSettingsChanged) {
+        onObsSettingsChanged(payload as Record<string, unknown>);
+      }
       void onRefreshHealth();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Falha ao salvar configuracoes');
@@ -1536,6 +1652,43 @@ function SettingsPanel({
                     {obsReady ? 'pronto' : obsHealth ? 'pendente' : 'nao testado'}
                   </Badge>
                 </div>
+              </div>
+
+              <div className="mb-4 flex items-center gap-2">
+                {obsProfiles.length > 0 ? (
+                  <>
+                    <select
+                      className="h-9 cursor-pointer rounded-xl border border-white/10 bg-white/[0.06] px-3 pr-7 text-sm text-white outline-none focus:border-sky-400/40"
+                      value={activeObsProfileId}
+                      onChange={(e) => { if (e.target.value) void applyObsProfile(e.target.value); else setActiveObsProfileId(''); }}
+                    >
+                      <option value="">Selecionar perfil...</option>
+                      {obsProfiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    {activeObsProfileId && (
+                      <button
+                        onClick={() => void deleteObsProfile(activeObsProfileId)}
+                        className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-red-500/15 hover:text-red-400"
+                        title="Excluir perfil"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                    <div className="mx-1 h-5 w-px bg-white/10" />
+                  </>
+                ) : (
+                  <span className="text-xs font-semibold uppercase tracking-widest text-slate-500">Perfis</span>
+                )}
+                <Input
+                  value={obsProfileName}
+                  onChange={(e) => setObsProfileName(e.target.value)}
+                  placeholder="Novo perfil..."
+                  className="max-w-[200px]"
+                  onKeyDown={(e) => { if (e.key === 'Enter') void saveObsProfile(obsProfileName); }}
+                />
+                <Button size="sm" variant="secondary" disabled={!obsProfileName.trim() || saving} onClick={() => void saveObsProfile(obsProfileName)}>
+                  <Save className="h-4 w-4" />
+                </Button>
               </div>
 
               <div className="mb-4 flex items-start gap-3 rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
@@ -2511,8 +2664,8 @@ function HomeDashboard({
   return (
     <div className="h-full overflow-y-auto p-[18px]">
       <div className="grid min-h-[calc(100vh-100px)] gap-4 xl:grid-cols-[minmax(680px,1fr)_minmax(420px,0.72fr)]">
-        <section className="grid min-h-0 gap-4">
-          <div className="odessa-stage-mesh odessa-panel-surface relative min-h-[390px] overflow-hidden bg-[#07080a]">
+        <section className="grid min-h-0 grid-rows-[1fr_auto] gap-4">
+          <div className="odessa-stage-mesh odessa-panel-surface relative min-h-[320px] overflow-hidden bg-[#07080a]">
             <div className="pointer-events-none absolute right-4 top-4 z-10 flex items-center gap-2">
               <Badge variant={videoState?.state === 'ACTION' ? 'lavender' : 'gold'}>
                 {videoState?.state === 'ACTION' ? 'reacao no ar' : 'em ensaio'}
@@ -2521,7 +2674,7 @@ function HomeDashboard({
                 1080 x 1920
               </span>
             </div>
-            <div className="flex h-full min-h-[390px] items-center justify-center p-5">
+            <div className="flex h-full items-center justify-center p-4">
               {videoState?.current_video_id ? (
                 <video
                   key={videoState.current_video_id}
@@ -2537,7 +2690,7 @@ function HomeDashboard({
                     onRefresh();
                   }}
                   playsInline
-                  className="h-full max-h-[330px] w-full rounded-[28px] object-contain"
+                  className="h-full w-full rounded-[28px] object-contain"
                   src={apiUrl(`/api/video/play/${videoState.current_video_id}`)}
                 />
               ) : (
@@ -3541,6 +3694,8 @@ function StagePanel({
   capturedText,
   view,
   videoState,
+  obsDirectStatus,
+  obsSettingsFromApp,
   onRefresh,
   onPlayVideoById,
   onPatchFlowNodePlayback,
@@ -3552,6 +3707,8 @@ function StagePanel({
   capturedText: CapturedMessage[];
   view: HomeViewData;
   videoState: VideoState | null;
+  obsDirectStatus?: import('./lib/obsWebSocket').ObsDirectStatus | null;
+  obsSettingsFromApp?: Record<string, unknown> | null;
   onRefresh: () => void;
   onPlayVideoById: (videoId: string, reason?: string) => Promise<unknown>;
   onPatchFlowNodePlayback: (nodeId: string, patch: Partial<PlaybackSettings>) => Promise<void>;
@@ -3575,6 +3732,20 @@ function StagePanel({
   const [previewMessage, setPreviewMessage] = useState<string | null>(null);
   const [connectionPreviewClip, setConnectionPreviewClip] = useState<VideoClip | null>(null);
   const previewTimersRef = useRef<number[]>([]);
+
+  const runRoutedCommand = async (label: string, fn: () => Promise<CommandResult>) => {
+    setObsBusy(label);
+    setObsMessage(null);
+    try {
+      const result = await fn();
+      setObsMessage(`${label}: ${result.ok ? 'ok' : result.error} (${result.route})`);
+      onRefresh();
+    } catch (err) {
+      setObsMessage(`${label}: ${err instanceof Error ? err.message : 'falha'}`);
+    } finally {
+      setObsBusy('');
+    }
+  };
 
   useEffect(() => {
     const syncFullscreen = () => {
@@ -3906,11 +4077,15 @@ function StagePanel({
             Simular Rosa pelo ingest
           </button>
           <span className="hidden h-5 w-px bg-white/10 md:inline" />
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: obsDirectStatus?.state === 'connected' ? '#34d399' : obsDirectStatus?.state === 'connecting' ? '#fbbf24' : '#64748b' }}>
+            <span className="inline-block h-2 w-2 rounded-full" style={{ background: obsDirectStatus?.state === 'connected' ? '#34d399' : obsDirectStatus?.state === 'connecting' ? '#fbbf24' : '#64748b' }} />
+            {obsDirectStatus?.state === 'connected' ? 'OBS Direto' : obsDirectStatus?.state === 'connecting' ? 'Conectando...' : 'OBS Offline'}
+          </span>
           <Button
             size="sm"
             variant="secondary"
             loading={obsBusy === 'Preparar OBS'}
-            onClick={() => void runObsCommand('Preparar OBS', '/obs/setup-live-scene')}
+            onClick={() => void runRoutedCommand('Preparar OBS', () => routeSetupLiveScene(obsSettingsFromApp))}
           >
             Preparar OBS
           </Button>
@@ -3918,7 +4093,7 @@ function StagePanel({
             size="sm"
             variant="secondary"
             loading={obsBusy === 'Tela inicial'}
-            onClick={() => void runObsCommand('Tela inicial', '/obs/show-start')}
+            onClick={() => void runRoutedCommand('Tela inicial', () => routeShowStart(obsSettingsFromApp))}
           >
             Tela inicial
           </Button>
@@ -3926,7 +4101,7 @@ function StagePanel({
             size="sm"
             variant="secondary"
             loading={obsBusy === 'Palco ao vivo'}
-            onClick={() => void runObsCommand('Palco ao vivo', '/obs/show-stage')}
+            onClick={() => void runRoutedCommand('Palco ao vivo', () => routeShowStage(obsSettingsFromApp))}
           >
             Palco ao vivo
           </Button>
@@ -3934,7 +4109,7 @@ function StagePanel({
             size="sm"
             variant="primary"
             loading={obsBusy === 'Iniciar transmissao'}
-            onClick={() => void runObsCommand('Iniciar transmissao', '/obs/transmission/start')}
+            onClick={() => void runRoutedCommand('Iniciar transmissao', () => routeStartTransmission(obsSettingsFromApp))}
           >
             Iniciar transmissao
           </Button>
@@ -3942,7 +4117,7 @@ function StagePanel({
             size="sm"
             variant="secondary"
             loading={obsBusy === 'Parar transmissao'}
-            onClick={() => void runObsCommand('Parar transmissao', '/obs/transmission/stop')}
+            onClick={() => void runRoutedCommand('Parar transmissao', () => routeStopTransmission(obsSettingsFromApp))}
           >
             Parar transmissao
           </Button>

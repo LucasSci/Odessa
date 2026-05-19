@@ -219,10 +219,11 @@ export default function PersonaOverlay() {
           onTimeUpdate={(event) => handleProgress(slotClip, event.currentTarget)}
           onEnded={() => handleEnded(slotClip)}
           className={cn(
-            'absolute inset-0 h-full w-full object-contain transition-opacity',
+            'absolute inset-0 w-full origin-top object-contain transition-opacity',
             activeSlot === index ? 'opacity-100' : 'opacity-0',
           )}
           style={{
+            height: '104%',
             transitionDuration: `${slotClip?.transitionMs ?? 220}ms`,
             willChange: 'opacity, transform',
             transform: 'translateZ(0)'
@@ -232,7 +233,7 @@ export default function PersonaOverlay() {
 
       <audio ref={audioRef} />
 
-      <div className="absolute bottom-2 right-2 opacity-0 transition hover:opacity-100">
+      <div className="absolute bottom-2 right-2 opacity-0 transition hover:opacity-100" style={{ zIndex: 11 }}>
         <span className="font-mono text-[10px] text-white/20">ODESSA_OVERLAY_SYNC_ACTIVE</span>
       </div>
     </div>
