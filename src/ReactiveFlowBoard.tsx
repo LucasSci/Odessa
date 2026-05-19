@@ -599,7 +599,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(apiUrl('/workflow/profiles/apply'), {
+      const res = await fetch(apiUrl('/workflow/profiles-apply'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
