@@ -2664,8 +2664,8 @@ function HomeDashboard({
   return (
     <div className="h-full overflow-y-auto p-[18px]">
       <div className="grid min-h-[calc(100vh-100px)] gap-4 xl:grid-cols-[minmax(680px,1fr)_minmax(420px,0.72fr)]">
-        <section className="grid min-h-0 grid-rows-[1fr_auto] gap-4">
-          <div className="odessa-stage-mesh odessa-panel-surface relative min-h-[320px] overflow-hidden bg-[#07080a]">
+        <section className="grid min-h-0 grid-rows-[auto_auto] gap-4">
+          <div className="odessa-stage-mesh odessa-panel-surface relative h-[520px] max-h-[60vh] overflow-hidden bg-[#07080a]">
             <div className="pointer-events-none absolute right-4 top-4 z-10 flex items-center gap-2">
               <Badge variant={videoState?.state === 'ACTION' ? 'lavender' : 'gold'}>
                 {videoState?.state === 'ACTION' ? 'reacao no ar' : 'em ensaio'}
@@ -2690,7 +2690,7 @@ function HomeDashboard({
                     onRefresh();
                   }}
                   playsInline
-                  className="h-full w-full rounded-[28px] object-contain"
+                  className="max-h-full max-w-full rounded-[28px] object-contain"
                   src={apiUrl(`/api/video/play/${videoState.current_video_id}`)}
                 />
               ) : (
