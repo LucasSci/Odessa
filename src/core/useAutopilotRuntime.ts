@@ -11,6 +11,7 @@ import {
 } from './personaRuntime';
 import { loadToolRegistry, updateToolRegistry } from './toolRegistry';
 import { apiUrl } from '../lib/api';
+import { isObsDirectAvailable, getObsStatus } from '../lib/obsWebSocket';
 import { loadMemory } from '../lib/memory';
 import type {
   AutopilotAction,
@@ -248,6 +249,15 @@ export function useAutopilotRuntime({
   }, []);
 
   const refreshObsScenes = useCallback(async () => {
+    // Prefer direct WebSocket state when connected — avoids unnecessary API calls
+    if (isObsDirectAvailable()) {
+      const status = getObsStatus();
+      setObsScenes(status.scenes);
+      setCurrentObsScene(status.currentScene);
+      setObsError(null);
+      return;
+    }
+    // Fallback: use API (cloud relay)
     try {
       const response = await fetch(apiUrl('/obs/scenes'));
       const data = (await response.json().catch(() => ({}))) as {

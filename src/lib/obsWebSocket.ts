@@ -176,10 +176,22 @@ export async function obsStopStream(): Promise<ObsResult> {
 export async function obsStartTransmission(mode: string = 'stream'): Promise<ObsResult> {
   try {
     if (mode === 'virtual_camera') {
+      try {
+        const vcStatus = await obs.call('GetVirtualCamStatus');
+        if (vcStatus.outputActive) return { ok: true }; // Already active
+      } catch { /* proceed to start */ }
       await obs.call('StartVirtualCam');
       return { ok: true };
     }
     if (mode === 'none') return { ok: true };
+    // Check if already streaming — calling StartStream while active can cause issues
+    try {
+      const streamStatus = await obs.call('GetStreamStatus');
+      if (streamStatus.outputActive) {
+        setState({ streaming: true });
+        return { ok: true }; // Already streaming, skip
+      }
+    } catch { /* proceed to start */ }
     await obs.call('StartStream');
     return { ok: true };
   } catch (err) {
@@ -203,7 +215,7 @@ export async function obsStopTransmission(mode: string = 'stream'): Promise<ObsR
 
 // --- Setup live scene (port of agent.mjs obs.setup_live_scene) ---
 
-export async function obsSetupLiveScene(settings: ObsSetupSettings): Promise<ObsResult & { created?: string[]; warnings?: string[] }> {
+export async function obsSetupLiveScene(settings: ObsSetupSettings): Promise<ObsResult & { created?: string[]; warnings?: string[]; skipped?: boolean }> {
   const startScene = settings.startupSceneName || 'Odessa START';
   const liveScene = settings.liveSceneName || 'Odessa LIVE';
   const stageUrl = settings.stageUrl || '';
@@ -215,7 +227,15 @@ export async function obsSetupLiveScene(settings: ObsSetupSettings): Promise<Obs
   const warnings: string[] = [];
 
   try {
-    // 1. Set canvas resolution
+    // SAFETY: Never modify OBS settings while actively streaming — this can kill the stream
+    try {
+      const streamStatus = await obs.call('GetStreamStatus');
+      if (streamStatus.outputActive) {
+        return { ok: true, skipped: true, created: [], warnings: ['Setup ignorado: OBS esta transmitindo. Parar a transmissao antes de reconfigurar.'] };
+      }
+    } catch { /* not connected or error — proceed with setup */ }
+
+    // 1. Set canvas resolution — only if different (SetVideoSettings restarts encoder)
     try {
       const videoSettings = await obs.call('GetVideoSettings');
       if (videoSettings.baseWidth !== canvasW || videoSettings.baseHeight !== canvasH) {
@@ -287,11 +307,23 @@ async function ensureBrowserSource(
     .find((item) => item.sourceName === sourceName);
 
   if (existing) {
-    await obs.call('SetInputSettings', {
-      inputName: sourceName,
-      inputSettings: { url, width: canvasW, height: canvasH, css: '' },
-      overlay: true,
-    });
+    // Only update settings if the URL actually changed — SetInputSettings reloads
+    // the browser source (spins up new Chromium process), causing CPU spikes and
+    // potential stream disruption.
+    let needsUpdate = true;
+    try {
+      const currentSettings = await obs.call('GetInputSettings', { inputName: sourceName });
+      const currentUrl = (currentSettings.inputSettings as Record<string, unknown>)?.url;
+      if (currentUrl === url) needsUpdate = false;
+    } catch { /* can't read settings, update anyway */ }
+
+    if (needsUpdate) {
+      await obs.call('SetInputSettings', {
+        inputName: sourceName,
+        inputSettings: { url, width: canvasW, height: canvasH, css: '' },
+        overlay: true,
+      });
+    }
     await obs.call('SetSceneItemTransform', {
       sceneName,
       sceneItemId: existing.sceneItemId,
