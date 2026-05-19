@@ -80,6 +80,7 @@ function getPanelFromHash(): AdvancedPanel {
   if (window.location.hash === '#content') return 'content';
   if (window.location.hash === '#runtime') return 'runtime';
   if (window.location.hash === '#settings') return 'settings';
+  if (window.location.hash === '#canvas') return 'canvas';
   if (window.location.hash === '#overlay') return 'overlay' as AdvancedPanel;
   return 'overview';
 }

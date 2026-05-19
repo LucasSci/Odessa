@@ -1116,6 +1116,7 @@ async function protectedResponse(req, res, rawPath) {
       if (workflow.gift_map) config.gift_map = workflow.gift_map;
       if (workflow.action_map) config.action_map = workflow.action_map;
       if (workflow.transitions) config.transitions = workflow.transitions;
+      if (workflow.planningCanvas) config.planningCanvas = workflow.planningCanvas;
       config.updatedAt = new Date().toISOString();
       setCloudValue(PERSONA_CONFIG_KEY, config);
       return json(res, 200, {

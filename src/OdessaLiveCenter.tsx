@@ -23,6 +23,7 @@ import {
   ShieldAlert,
   Scissors,
   SlidersHorizontal,
+  StickyNote,
   Trash2,
   Upload,
   Video,
@@ -47,6 +48,7 @@ import { Badge, Button, Card, Input, StatusDot } from './components/ui';
 
 const CaptureStudio = lazy(() => import('./CaptureStudio'));
 const ReactiveFlowBoard = lazy(() => import('./ReactiveFlowBoard'));
+const PlanningCanvas = lazy(() => import('./PlanningCanvas'));
 
 // ─── Gift detection ───────────────────────────────────────────────────────────
 // isGiftEvent is imported from ocrPipeline — single source of truth.
@@ -58,7 +60,8 @@ export type AdvancedPanel =
   | 'content'
   | 'runtime'
   | 'settings'
-  | 'overlay';
+  | 'overlay'
+  | 'canvas';
 
 type LiveConfig = {
   voiceEnabled?: boolean;
@@ -107,7 +110,7 @@ interface OdessaLiveCenterProps {
   onObsSettingsChanged?: (settings: Record<string, unknown>) => void;
 }
 
-type TabKey = 'home' | 'stage' | 'flow' | 'library' | 'sources' | 'logs' | 'settings';
+type TabKey = 'home' | 'stage' | 'flow' | 'canvas' | 'library' | 'sources' | 'logs' | 'settings';
 
 type VideoEntry = {
   id: string;
@@ -340,6 +343,7 @@ function tabFromPanel(panel: AdvancedPanel): TabKey {
   if (panel === 'content') return 'library';
   if (panel === 'runtime') return 'logs';
   if (panel === 'settings') return 'settings';
+  if (panel === 'canvas') return 'canvas';
   return 'home';
 }
 
@@ -793,6 +797,12 @@ export default function OdessaLiveCenter({
             onClick={() => setActiveTab('flow')}
           />
           <NavButton
+            icon={<StickyNote />}
+            label="Canvas"
+            active={activeTab === 'canvas'}
+            onClick={() => setActiveTab('canvas')}
+          />
+          <NavButton
             icon={<Film />}
             label="Biblioteca"
             active={activeTab === 'library'}
@@ -879,7 +889,7 @@ export default function OdessaLiveCenter({
       </header>
 
       <div className="flex gap-2 overflow-x-auto border-b border-[var(--border)] px-3 py-2 lg:hidden">
-        {(['home', 'stage', 'flow', 'library', 'sources', 'logs', 'settings'] as TabKey[]).map((tab) => (
+        {(['home', 'stage', 'flow', 'canvas', 'library', 'sources', 'logs', 'settings'] as TabKey[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -932,6 +942,13 @@ export default function OdessaLiveCenter({
                 refreshVideoState();
               }}
             />
+          </Suspense>
+        )}
+        {activeTab === 'canvas' && (
+          <Suspense fallback={<PanelLoading label="Carregando canvas" />}>
+            <div className="flex-1 min-h-0 h-full overflow-hidden">
+              <PlanningCanvas />
+            </div>
           </Suspense>
         )}
         {activeTab === 'library' && <VideoLibraryPanel config={config} onChanged={loadConfig} />}
