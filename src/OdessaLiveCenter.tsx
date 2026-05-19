@@ -1655,34 +1655,38 @@ function SettingsPanel({
               </div>
 
               <div className="mb-4 flex items-center gap-2">
-                {obsProfiles.length > 0 && (
-                  <select
-                    className="h-9 cursor-pointer rounded-xl border border-white/10 bg-white/[0.06] px-3 pr-7 text-sm text-white"
-                    value={activeObsProfileId}
-                    onChange={(e) => { if (e.target.value) void applyObsProfile(e.target.value); else setActiveObsProfileId(''); }}
-                  >
-                    <option value="">Perfil...</option>
-                    {obsProfiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
+                {obsProfiles.length > 0 ? (
+                  <>
+                    <select
+                      className="h-9 cursor-pointer rounded-xl border border-white/10 bg-white/[0.06] px-3 pr-7 text-sm text-white outline-none focus:border-sky-400/40"
+                      value={activeObsProfileId}
+                      onChange={(e) => { if (e.target.value) void applyObsProfile(e.target.value); else setActiveObsProfileId(''); }}
+                    >
+                      <option value="">Selecionar perfil...</option>
+                      {obsProfiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    {activeObsProfileId && (
+                      <button
+                        onClick={() => void deleteObsProfile(activeObsProfileId)}
+                        className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-red-500/15 hover:text-red-400"
+                        title="Excluir perfil"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                    <div className="mx-1 h-5 w-px bg-white/10" />
+                  </>
+                ) : (
+                  <span className="text-xs font-semibold uppercase tracking-widest text-slate-500">Perfis</span>
                 )}
-                {activeObsProfileId && (
-                  <button
-                    onClick={() => void deleteObsProfile(activeObsProfileId)}
-                    className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-red-500/15 hover:text-red-400"
-                    title="Excluir perfil"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                )}
-                <div className="mx-1 h-5 w-px bg-white/10" />
                 <Input
                   value={obsProfileName}
                   onChange={(e) => setObsProfileName(e.target.value)}
                   placeholder="Novo perfil..."
-                  className="max-w-[180px]"
+                  className="max-w-[200px]"
                   onKeyDown={(e) => { if (e.key === 'Enter') void saveObsProfile(obsProfileName); }}
                 />
-                <Button size="sm" variant="secondary" disabled={!obsProfileName.trim()} onClick={() => void saveObsProfile(obsProfileName)}>
+                <Button size="sm" variant="secondary" disabled={!obsProfileName.trim() || saving} onClick={() => void saveObsProfile(obsProfileName)}>
                   <Save className="h-4 w-4" />
                 </Button>
               </div>
