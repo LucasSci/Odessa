@@ -23,6 +23,7 @@ import {
   CircleDot,
   Download,
   Eye,
+  Gift,
   MousePointer2,
   Play,
   Plus,
@@ -35,8 +36,10 @@ import {
   Video,
 } from 'lucide-react';
 import { Badge, Button, Input, Skeleton, StatusDot } from './components/ui';
+import GiftCatalogModal from './GiftCatalogModal';
+import { type GiftCatalogEntry, loadGiftCatalog } from './core/giftCatalog';
 import { loadRulesFromFlowTriggers } from './core/giftEventBus';
-import { ANY_GIFT_KEY, KNOWN_GIFTS, giftLabel, isCustomGift } from './core/knownGifts';
+import { ANY_GIFT_KEY, giftLabel } from './core/knownGifts';
 import { apiUrl } from './lib/api';
 import { cn } from './lib/utils';
 
@@ -467,6 +470,8 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   const [wfProfiles, setWfProfiles] = useState<Array<{ id: string; name: string; updatedAt?: string }>>([]);
   const [wfProfileName, setWfProfileName] = useState('');
   const [activeWfProfileId, setActiveWfProfileId] = useState('');
+  const [giftCatalog, setGiftCatalog] = useState<GiftCatalogEntry[]>([]);
+  const [giftCatalogOpen, setGiftCatalogOpen] = useState(false);
   const [nodes, setNodes, onNodesChange] = useNodesState<VideoFlowNodeType>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
@@ -672,6 +677,8 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   };
 
   useEffect(() => { void loadWfProfiles(); }, [loadWfProfiles]);
+
+  useEffect(() => { setGiftCatalog(loadGiftCatalog()); }, []);
 
   const videos = useMemo(() => config?.videos || [], [config?.videos]);
   const triggers = useMemo(() => config?.triggers || [], [config?.triggers]);
@@ -1537,6 +1544,10 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
               <Download className="h-4 w-4" />
               Exportar
             </Button>
+            <Button onClick={() => setGiftCatalogOpen(true)} variant="secondary">
+              <Gift className="h-4 w-4" />
+              Presentes
+            </Button>
             <Button onClick={toggleAnimateFlow} variant={animateFlow ? 'success' : 'secondary'}>
               <Eye className="h-4 w-4" />
               Fluxo
@@ -1891,10 +1902,12 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
                       trigger={trigger}
                       connection={connection}
                       testing={testing}
+                      giftCatalog={giftCatalog}
                       onTriggerChange={(patch) => updateTrigger(trigger.id, patch)}
                       onConnectionChange={(patch) => updateConnection(connection.id, patch)}
                       onRemove={() => removeTrigger(trigger.id)}
                       onSimulate={() => simulate(trigger)}
+                      onManageGifts={() => setGiftCatalogOpen(true)}
                     />
                   ))}
                 </div>
@@ -1931,10 +1944,12 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
               trigger={selectedTrigger}
               connection={selectedConnection}
               testing={testing}
+              giftCatalog={giftCatalog}
               onTriggerChange={updateSelectedTrigger}
               onConnectionChange={updateSelectedConnection}
               onRemove={removeSelectedConnection}
               onSimulate={() => simulate(selectedTrigger)}
+              onManageGifts={() => setGiftCatalogOpen(true)}
             />
 
             <label className="flex items-center justify-between rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] px-3 py-3 text-sm text-[var(--t1)]">
@@ -1959,21 +1974,56 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
           Arraste ou clique em videos para criar instancias independentes. Cada instancia pode ter cortes e retorno proprios.
         </div>
       </aside>
+
+      <GiftCatalogModal
+        open={giftCatalogOpen}
+        onClose={() => setGiftCatalogOpen(false)}
+        onChange={(entries) => setGiftCatalog(entries)}
+      />
     </div>
   );
 }
 
-function GiftPicker({ value, onChange }: { value: string; onChange: (giftKey: string) => void }) {
+function GiftPicker({
+  value,
+  onChange,
+  catalog,
+  onManage,
+}: {
+  value: string;
+  onChange: (giftKey: string) => void;
+  catalog: GiftCatalogEntry[];
+  onManage?: () => void;
+}) {
+  const inCatalog = catalog.some((gift) => gift.key === value);
   const mode: 'any' | 'known' | 'custom' =
-    value === ANY_GIFT_KEY ? 'any' : isCustomGift(value) ? 'custom' : 'known';
+    value === ANY_GIFT_KEY ? 'any' : value && !inCatalog ? 'custom' : 'known';
   const selectValue = mode === 'any' ? ANY_GIFT_KEY : mode === 'custom' ? '__custom__' : value;
+  const selected = catalog.find((gift) => gift.key === value);
 
   return (
     <div className="space-y-2">
-      <label className="block">
-        <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
           Presente que dispara
         </span>
+        {onManage && (
+          <button
+            onClick={onManage}
+            className="text-[10px] font-semibold text-sky-300 hover:text-sky-200"
+          >
+            Gerenciar catalogo
+          </button>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[var(--border2)] bg-black/40">
+          {selected?.imageUrl ? (
+            <img src={selected.imageUrl} alt={selected.name} className="h-full w-full object-contain" />
+          ) : (
+            <span className="text-lg">{selected?.emoji || (mode === 'any' ? '🎉' : '🎁')}</span>
+          )}
+        </div>
         <select
           value={selectValue}
           onChange={(event) => {
@@ -1981,17 +2031,18 @@ function GiftPicker({ value, onChange }: { value: string; onChange: (giftKey: st
             if (next === '__custom__') onChange('');
             else onChange(next);
           }}
-          className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-white outline-none"
+          className="h-10 flex-1 rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-white outline-none"
         >
           <option value={ANY_GIFT_KEY}>Qualquer presente</option>
-          {KNOWN_GIFTS.map((gift) => (
-            <option key={gift.key} value={gift.key}>
-              {gift.emoji} {gift.label}
+          {catalog.map((gift) => (
+            <option key={gift.id} value={gift.key}>
+              {(gift.emoji || '🎁')} {gift.name}
+              {gift.price != null ? ` — ${gift.price} moedas` : ''}
             </option>
           ))}
           <option value="__custom__">Personalizado...</option>
         </select>
-      </label>
+      </div>
       {mode === 'custom' && (
         <Input
           label="Codigo do presente"
@@ -2005,7 +2056,7 @@ function GiftPicker({ value, onChange }: { value: string; onChange: (giftKey: st
           ? 'Dispara para qualquer presente recebido na live.'
           : mode === 'custom'
             ? 'Use o codigo exato que aparece nos eventos da sua live (ex: gift.rosa).'
-            : 'Presente comum — o nome deve corresponder ao que chega da live.'}
+            : 'O nome do presente deve corresponder ao que chega da live.'}
       </p>
     </div>
   );
@@ -2015,18 +2066,22 @@ function TriggerCard({
   trigger,
   connection,
   testing,
+  giftCatalog,
   onTriggerChange,
   onConnectionChange,
   onRemove,
   onSimulate,
+  onManageGifts,
 }: {
   trigger: TriggerEntry;
   connection: FlowConnection;
   testing: string;
+  giftCatalog: GiftCatalogEntry[];
   onTriggerChange: (patch: Partial<TriggerEntry>) => void;
   onConnectionChange: (patch: Partial<FlowConnection>) => void;
   onRemove: () => void;
   onSimulate: () => void;
+  onManageGifts?: () => void;
 }) {
   type TriggerAction = NonNullable<TriggerEntry['actions']>[number];
   const isSceneAction = (action: TriggerAction) =>
@@ -2096,6 +2151,8 @@ function TriggerCard({
         <GiftPicker
           value={trigger.conditions?.giftKey || ''}
           onChange={(giftKey) => onTriggerChange({ conditions: { giftKey } })}
+          catalog={giftCatalog}
+          onManage={onManageGifts}
         />
       )}
 
