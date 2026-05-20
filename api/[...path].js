@@ -502,6 +502,7 @@ function clipFromVideoId(videoId, options = {}) {
     startSec: 0,
     endSec: null,
     transitionMs: 220,
+    loop: shouldLoop,
     returnToIdle: !shouldLoop,
   };
 }
@@ -529,6 +530,8 @@ function loadCloudVideoState() {
         nodeId: activeNodeId,
         startSec: pb.startSec || stored?.value?.currentClip?.startSec || 0,
         endSec: pb.endSec ?? stored?.value?.currentClip?.endSec ?? null,
+        // Only the idle clip loops — sequence clips must end to advance.
+        loop: isIdleVideo ? true : Boolean(pb.loop || stored?.value?.currentClip?.loop),
         returnToIdle: isIdleVideo ? false : stored?.value?.currentClip?.returnToIdle ?? true,
         audio: matchFlowNode?.audio || stored?.value?.currentClip?.audio || { mode: 'muted', volume: 1 },
       }
@@ -617,6 +620,8 @@ function saveCloudVideoState(videoId, patch = {}) {
     ? {
         ...clipFromVideoId(videoId, { loop: isIdleVideo }),
         ...(patch.currentClip || {}),
+        // Only the idle clip loops. Sequence clips must end so the flow advances.
+        loop: isIdleVideo ? true : Boolean(patch.currentClip?.loop),
         returnToIdle: isIdleVideo ? false : patch.currentClip?.returnToIdle ?? true,
       }
     : null;

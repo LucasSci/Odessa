@@ -49,10 +49,11 @@ function clipKey(clip: VideoClip | null | undefined) {
 
 function shouldLoopClip(clip: VideoClip | null | undefined) {
   if (!clip?.videoId || clip.endSec) return false;
-  // Loop is driven purely by explicit state: the idle clip is marked with
-  // loop:true / returnToIdle:false. Never infer loop from the video's name —
-  // clips named "01_IDLE_..." are sequence steps, not the idle loop.
-  return clip.loop === true || clip.returnToIdle === false;
+  // Loop ONLY when the clip is explicitly a looping clip (the idle).
+  // returnToIdle is a flow setting ("go back to idle after"), not a loop
+  // flag — and the video name means nothing ("01_IDLE_..." is a sequence
+  // step, not the idle loop).
+  return clip.loop === true;
 }
 
 export default function PersonaOverlay() {

@@ -3201,8 +3201,10 @@ export function ContinuityPlayer({
       const alreadyLoaded = clipKey(slotClipRef.current[slot]) === clipKey(slotClip);
       if (!alreadyLoaded) {
         slotClipRef.current[slot] = slotClip;
-        element.loop =
-          !slotClip.endSec && (slotClip.loop === true || slotClip.returnToIdle === false);
+        // Loop ONLY when the clip is explicitly a looping clip (the idle).
+        // returnToIdle is a flow setting ("go back to idle after"), not a
+        // loop flag — using it here made sequence clips loop forever.
+        element.loop = !slotClip.endSec && slotClip.loop === true;
         element.src = apiUrl(`/api/video/play/${slotClip.videoId}`);
         element.load();
       }
