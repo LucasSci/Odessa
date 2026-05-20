@@ -207,6 +207,7 @@ type VideoState = {
   start_ts?: number;
   server_time?: number;
   currentClip?: VideoClip | null;
+  nextClip?: VideoClip | null;
   upcoming?: VideoClip[];
   activeNodeId?: string | null;
   activeConnectionId?: string | null;
@@ -2739,6 +2740,7 @@ function HomeDashboard({
                   playback and keeps Início in sync with the live state. */}
               <ContinuityPlayer
                 clip={homeActiveClip}
+                nextClip={videoState?.nextClip ?? null}
                 videos={view.videos}
                 onEnded={async () => {
                   await advanceReactiveFlow(videoState ?? null);
@@ -3112,7 +3114,10 @@ function clipFromVideoId(videoId: string, videos: VideoEntry[] = []): VideoClip 
 
 function clipKey(clip?: VideoClip | null) {
   if (!clip) return 'none';
-  return `${clip.nodeId || 'video'}:${clip.videoId}:${clip.startSec}:${clip.endSec ?? 'end'}:${clip.transitionMs}`;
+  // Identity only — nodeId + video + trimmed range. transitionMs is a
+  // transition setting, not part of the clip's identity, so it is excluded
+  // (it differs between currentClip and the preloaded nextClip).
+  return `${clip.nodeId || 'video'}:${clip.videoId}:${clip.startSec}:${clip.endSec ?? 'end'}`;
 }
 
 /**
@@ -3143,6 +3148,7 @@ function formatClipTime(value: number | null | undefined) {
 
 export function ContinuityPlayer({
   clip,
+  nextClip = null,
   videos,
   onEnded,
   className,
@@ -3150,6 +3156,7 @@ export function ContinuityPlayer({
   showLabel = true,
 }: {
   clip: VideoClip | null;
+  nextClip?: VideoClip | null;
   videos: VideoEntry[];
   onEnded: () => Promise<void>;
   className?: string;
@@ -3158,193 +3165,158 @@ export function ContinuityPlayer({
 }) {
   const firstVideoRef = useRef<HTMLVideoElement>(null);
   const secondVideoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [activeSlot, setActiveSlot] = useState<0 | 1>(0);
-  const [slotClips, setSlotClips] = useState<[VideoClip | null, VideoClip | null]>([null, null]);
-  const activeSlotRef = useRef<0 | 1>(0);
-  const slotClipsRef = useRef<[VideoClip | null, VideoClip | null]>([null, null]);
-  const endedRef = useRef('');
-  const watchdogRef = useRef({ key: '', time: -1, stuck: 0 });
-  const currentKey = clipKey(clip);
   const refs = useMemo(() => [firstVideoRef, secondVideoRef] as const, []);
+  const [activeSlot, setActiveSlot] = useState<0 | 1>(0);
+  const activeSlotRef = useRef<0 | 1>(0);
+  // Which clip each <video> slot currently holds. A ref (not state) because
+  // playback is driven imperatively for frame-accurate, gap-free cuts.
+  const slotClipRef = useRef<[VideoClip | null, VideoClip | null]>([null, null]);
+  const endedRef = useRef('');
 
   useEffect(() => {
     activeSlotRef.current = activeSlot;
   }, [activeSlot]);
 
-  useEffect(() => {
-    slotClipsRef.current = slotClips;
-  }, [slotClips]);
+  const primeElement = useCallback((element: HTMLVideoElement, slotClip: VideoClip) => {
+    element.muted = (slotClip.audio?.mode || 'muted') !== 'original';
+    element.volume = Math.max(0, Math.min(1, slotClip.audio?.volume ?? 1));
+    const start = Math.max(0, slotClip.startSec || 0);
+    try {
+      if (Math.abs(element.currentTime - start) > 0.25) element.currentTime = start;
+    } catch {
+      // Seeking can fail before metadata is ready — handled on loadedmetadata.
+    }
+  }, []);
 
-  const playSlot = useCallback(
-    (slot: 0 | 1, slotClip: VideoClip, seekToStart: boolean) => {
+  // Load a clip into a slot. autoplay=true plays + activates it; autoplay=false
+  // just buffers it (first frame decoded, paused) so a later cut is instant.
+  const loadSlot = useCallback(
+    (slot: 0 | 1, slotClip: VideoClip, autoplay: boolean) => {
       const element = refs[slot].current;
       if (!element) return;
-
-      const start = Math.max(0, slotClip.startSec || 0);
-      const play = () => {
-        element.muted = (slotClip.audio?.mode || 'muted') !== 'original';
-        element.volume = Math.max(0, Math.min(1, slotClip.audio?.volume ?? 1));
-        if (seekToStart) {
-          try {
-            element.currentTime = start;
-          } catch {
-            // The media element may only allow seeking after metadata is available.
-          }
-        }
-        void element.play().catch(() => undefined);
-        const audioElement = audioRef.current;
-        if (audioElement) {
-          if (slotClip.audio?.mode === 'track' && slotClip.audio.trackUrl) {
-            audioElement.src = slotClip.audio.trackUrl;
-            audioElement.volume = Math.max(0, Math.min(1, slotClip.audio.volume ?? 1));
-            audioElement.currentTime = 0;
-            void audioElement.play().catch(() => undefined);
-          } else {
-            audioElement.pause();
-            audioElement.removeAttribute('src');
-          }
-        }
-        setActiveSlot(slot);
-      };
-
-      if (element.readyState >= 1) {
-        play();
-        return;
+      const alreadyLoaded = clipKey(slotClipRef.current[slot]) === clipKey(slotClip);
+      if (!alreadyLoaded) {
+        slotClipRef.current[slot] = slotClip;
+        element.loop =
+          !slotClip.endSec && (slotClip.loop === true || slotClip.returnToIdle === false);
+        element.src = apiUrl(`/api/video/play/${slotClip.videoId}`);
+        element.load();
       }
-
-      element.addEventListener('loadedmetadata', play, { once: true });
-      element.load();
+      const ready = () => {
+        primeElement(element, slotClip);
+        if (autoplay) {
+          void element.play().catch(() => undefined);
+          setActiveSlot(slot);
+        } else {
+          element.pause();
+        }
+      };
+      if (element.readyState >= 1) ready();
+      else element.addEventListener('loadedmetadata', ready, { once: true });
     },
-    [refs],
+    [primeElement, refs],
   );
 
-  useEffect(() => {
-    if (!clip) {
-      setSlotClips([null, null]);
-      return;
-    }
+  // Instant hard-cut to a slot whose clip is already buffered. No fade.
+  const cutToSlot = useCallback(
+    (slot: 0 | 1) => {
+      const element = refs[slot].current;
+      const slotClip = slotClipRef.current[slot];
+      if (!element || !slotClip) return;
+      primeElement(element, slotClip);
+      void element.play().catch(() => undefined);
+      const other = refs[slot === 0 ? 1 : 0].current;
+      if (other) other.pause();
+      setActiveSlot(slot);
+    },
+    [primeElement, refs],
+  );
 
+  // Keep the active slot playing the current clip.
+  useEffect(() => {
+    if (!clip) return;
     endedRef.current = '';
-    const currentSlot = activeSlotRef.current;
-    const currentSlotClip = slotClipsRef.current[currentSlot];
-    if (clipKey(currentSlotClip) === currentKey) {
-      playSlot(currentSlot, clip, false);
+    const active = activeSlotRef.current;
+    const idle: 0 | 1 = active === 0 ? 1 : 0;
+    if (clipKey(slotClipRef.current[active]) === clipKey(clip)) return; // already playing
+    if (clipKey(slotClipRef.current[idle]) === clipKey(clip)) {
+      cutToSlot(idle); // preloaded in the idle slot → seamless cut
       return;
     }
+    // Not loaded anywhere — use the active slot on first run, otherwise the
+    // idle slot (the old video stays visible until the new one can play).
+    loadSlot(slotClipRef.current[active] ? idle : active, clip, true);
+  }, [clip, cutToSlot, loadSlot]);
 
-    const nextSlot: 0 | 1 = currentSlot === 0 ? 1 : 0;
-    let playTimer = 0;
-    const swapTimer = window.setTimeout(() => {
-      setSlotClips((current) => {
-        const next: [VideoClip | null, VideoClip | null] = [...current] as [VideoClip | null, VideoClip | null];
-        next[nextSlot] = clip;
-        return next;
-      });
-      playTimer = window.setTimeout(() => playSlot(nextSlot, clip, true), 30);
-    }, 30);
-
-    return () => {
-      window.clearTimeout(swapTimer);
-      window.clearTimeout(playTimer);
-    };
-  }, [clip, currentKey, playSlot]);
-
+  // Preload the next clip into the idle slot so the end-of-video cut is gapless.
   useEffect(() => {
-    refs.forEach((ref, index) => {
-      const element = ref.current;
-      if (!element || index === activeSlot) return;
-      element.pause();
-    });
-  }, [activeSlot, refs]);
+    if (!nextClip) return;
+    const idle: 0 | 1 = activeSlotRef.current === 0 ? 1 : 0;
+    if (clipKey(slotClipRef.current[idle]) === clipKey(nextClip)) return;
+    if (clipKey(slotClipRef.current[idle]) === clipKey(clip)) return; // idle is mid-cut
+    loadSlot(idle, nextClip, false);
+  }, [nextClip, clip, loadSlot]);
 
+  // The active clip ended → instantly cut to the preloaded next slot, advance.
+  const handleClipEnd = useCallback(
+    (endedClip: VideoClip | null) => {
+      if (!endedClip) return;
+      const key = clipKey(endedClip);
+      if (endedRef.current === key) return;
+      endedRef.current = key;
+      const idle: 0 | 1 = activeSlotRef.current === 0 ? 1 : 0;
+      if (slotClipRef.current[idle]) cutToSlot(idle);
+      void onEnded();
+    },
+    [cutToSlot, onEnded],
+  );
+
+  const handleProgress = (slot: 0 | 1, element: HTMLVideoElement) => {
+    const slotClip = slotClipRef.current[slot];
+    if (!slotClip?.endSec) return;
+    if (element.currentTime >= slotClip.endSec) handleClipEnd(slotClip);
+  };
+
+  // Watchdog — recover a stalled active video (e.g. inside OBS Browser Source).
   useEffect(() => {
     const interval = window.setInterval(() => {
-      const slot = activeSlotRef.current;
-      const element = refs[slot].current;
-      const slotClip = slotClipsRef.current[slot];
-      if (!element || !slotClip) return;
-
-      const key = clipKey(slotClip);
-      if (watchdogRef.current.key !== key) {
-        watchdogRef.current = { key, time: element.currentTime, stuck: 0 };
-      }
-
-      if (element.paused && !element.ended) {
+      const element = refs[activeSlotRef.current].current;
+      if (element && element.paused && !element.ended && element.readyState >= 2) {
         void element.play().catch(() => undefined);
-        return;
       }
-
-      const lastTime = watchdogRef.current.time;
-      if (!element.ended && Math.abs(element.currentTime - lastTime) < 0.01) {
-        watchdogRef.current.stuck += 1;
-        if (watchdogRef.current.stuck >= 2) {
-          void element.play().catch(() => undefined);
-        }
-      } else {
-        watchdogRef.current.stuck = 0;
-      }
-      watchdogRef.current.time = element.currentTime;
-    }, 1000);
-
+    }, 1500);
     return () => window.clearInterval(interval);
   }, [refs]);
 
-  const handleProgress = (slotClip: VideoClip | null, element: HTMLVideoElement) => {
-    if (!slotClip?.endSec) return;
-    const key = clipKey(slotClip);
-    if (element.currentTime >= slotClip.endSec && endedRef.current !== key) {
-      endedRef.current = key;
-      void onEnded();
-    }
-  };
-
-  if (!clip) {
-    return (
-      <div
-        className={cn(
-          'flex h-full min-h-[320px] w-full flex-col items-center justify-center bg-slate-950 text-slate-500',
-          className,
-        )}
-      >
-        <Play className="mb-3 h-12 w-12 opacity-20" />
-        <p className="text-sm font-medium uppercase tracking-widest">Sem sinal de video</p>
-        <p className="mt-1 text-xs opacity-50">Aguardando configuracao ou backend</p>
-      </div>
-    );
-  }
-
   return (
     <div className={cn('relative h-full w-full overflow-hidden bg-black', className)}>
-      {slotClips.map((slotClip, index) => (
+      {[0, 1].map((index) => (
         <video
-          key={`${index}-${clipKey(slotClip)}`}
+          key={index}
           ref={refs[index]}
-          autoPlay
-          muted={(slotClip?.audio?.mode || 'muted') !== 'original'}
+          muted
           playsInline
-          loop={Boolean(
-            slotClip && !slotClip.endSec && (slotClip.loop === true || slotClip.returnToIdle === false),
-          )}
-          preload={activeSlot === index ? 'auto' : 'metadata'}
-          src={slotClip ? apiUrl(`/api/video/play/${slotClip.videoId}`) : undefined}
-          onTimeUpdate={(event) => handleProgress(slotClip, event.currentTarget)}
-          onEnded={() => {
-            if (slotClip && endedRef.current !== clipKey(slotClip)) {
-              endedRef.current = clipKey(slotClip);
-              void onEnded();
-            }
+          disablePictureInPicture
+          preload="auto"
+          onTimeUpdate={(event) => handleProgress(index as 0 | 1, event.currentTarget)}
+          onEnded={(event) => {
+            if (!event.currentTarget.loop) handleClipEnd(slotClipRef.current[index]);
           }}
           className={cn(
-            'absolute inset-0 h-full w-full transition-opacity',
+            'absolute inset-0 h-full w-full',
             fit === 'contain' ? 'object-contain' : 'object-cover',
             activeSlot === index ? 'opacity-100' : 'opacity-0',
           )}
-          style={{ transitionDuration: `${slotClip?.transitionMs ?? 220}ms` }}
         />
       ))}
-      <audio ref={audioRef} />
-      {showLabel && (
+      {!clip && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 text-slate-500">
+          <Play className="mb-3 h-12 w-12 opacity-20" />
+          <p className="text-sm font-medium uppercase tracking-widest">Sem sinal de video</p>
+          <p className="mt-1 text-xs opacity-50">Aguardando configuracao ou backend</p>
+        </div>
+      )}
+      {showLabel && clip && (
         <div className="pointer-events-none absolute bottom-4 left-4 rounded-lg bg-black/60 px-2 py-1 text-[10px] font-mono text-white/45">
           {clipDisplayName(clip, videos)} | {formatClipTime(clip.startSec)} {'->'} {formatClipTime(clip.endSec)}
         </div>
@@ -3956,6 +3928,7 @@ function StagePanel({
         <div className="relative aspect-[9/16] h-full max-h-screen max-w-full bg-black">
           <ContinuityPlayer
             clip={activeClip}
+            nextClip={videoState?.nextClip ?? null}
             videos={view.videos}
             onEnded={advanceVideo}
             fit="contain"
@@ -3991,6 +3964,7 @@ function StagePanel({
           <div className="relative aspect-[9/16] h-full max-h-full bg-black shadow-[0_0_80px_rgba(0,0,0,0.45)]">
             <ContinuityPlayer
               clip={displayClip}
+              nextClip={connectionPreviewClip ? null : videoState?.nextClip ?? null}
               videos={view.videos}
               onEnded={advanceVideo}
               fit="contain"

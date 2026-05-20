@@ -540,10 +540,72 @@ function loadCloudVideoState() {
     start_ts: stored?.value?.start_ts || now,
     server_time: now,
     currentClip,
+    nextClip: resolveNextClip(activeNodeId, currentVideoId),
     queue: [],
     activeNodeId,
     activeConnectionId: stored?.value?.activeConnectionId || null,
     executionMode: 'cloud',
+  };
+}
+
+/**
+ * Computes the clip that naturally follows the given node — i.e. the target
+ * of the "ao finalizar" (natural) connection, or idle when there is none.
+ * Used to expose `nextClip` on the video_state so players can preload it and
+ * cut to it seamlessly when the current clip ends.
+ */
+function resolveNextClip(currentNodeId, currentVideoId) {
+  const config = loadCloudConfig() || {};
+  const wf = config.draftWorkflow || config.publishedWorkflow || config;
+  const flowNodes = wf.flowNodes || config.flowNodes || [];
+  const flowConnections = wf.flowConnections || config.flowConnections || [];
+  const triggers = wf.triggers || config.triggers || [];
+  const idleVideoId = wf.idleVideoId || config.idleVideoId || null;
+
+  let nodeId = currentNodeId || null;
+  if (!nodeId && currentVideoId) {
+    nodeId = flowNodes.find((n) => n.videoId === currentVideoId)?.nodeId || null;
+  }
+  if (!nodeId) return null;
+
+  const outConnections = flowConnections.filter((c) => c.fromNodeId === nodeId);
+  const endConnection =
+    outConnections.find((c) => {
+      const trigger = triggers.find((t) => t.id === c.triggerId);
+      if (!trigger) return true;
+      const tp = trigger.type || trigger.eventType || '';
+      return tp === 'natural' || tp === 'on_end' || tp === 'ao_finalizar' || tp === 'video_end' || tp === 'finish';
+    }) || outConnections[0];
+
+  let nextNodeId = endConnection ? endConnection.toNodeId : null;
+  let nextVideoId = nextNodeId ? flowNodes.find((n) => n.nodeId === nextNodeId)?.videoId || null : null;
+  // No outgoing connection — the sequence returns to idle.
+  if (!nextNodeId || !nextVideoId) {
+    const idleNode = flowNodes.find((n) => n.videoId === idleVideoId);
+    if (!idleNode) return null;
+    nextNodeId = idleNode.nodeId;
+    nextVideoId = idleVideoId;
+  }
+  // Never point back at the same node — that would freeze playback.
+  if (nextNodeId === nodeId && nextVideoId !== idleVideoId) {
+    const idleNode = flowNodes.find((n) => n.videoId === idleVideoId);
+    nextNodeId = idleNode?.nodeId || null;
+    nextVideoId = idleVideoId;
+  }
+  if (!nextVideoId) return null;
+
+  const targetNode = flowNodes.find((n) => n.nodeId === nextNodeId);
+  const isIdle = Boolean(idleVideoId && nextVideoId === idleVideoId);
+  const pb = targetNode?.playback || {};
+  return {
+    nodeId: nextNodeId,
+    videoId: nextVideoId,
+    startSec: pb.startSec || 0,
+    endSec: pb.endSec || null,
+    transitionMs: 0,
+    loop: isIdle || Boolean(pb.loop),
+    returnToIdle: !isIdle,
+    audio: targetNode?.audio || { mode: 'muted', volume: 1 },
   };
 }
 
@@ -565,6 +627,7 @@ function saveCloudVideoState(videoId, patch = {}) {
     start_ts: now,
     server_time: now,
     currentClip,
+    nextClip: resolveNextClip(patch.activeNodeId || null, videoId),
     queue: [],
     activeNodeId: patch.activeNodeId || null,
     activeConnectionId: patch.activeConnectionId || null,
