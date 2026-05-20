@@ -452,6 +452,42 @@ function loadCloudConfig() {
   return stored?.value && typeof stored.value === 'object' ? stored.value : null;
 }
 
+/** True when the node has a "ao finalizar" (natural) connection to ANOTHER node. */
+function nodeHasNaturalNext(nodeId) {
+  if (!nodeId) return false;
+  const config = loadCloudConfig() || {};
+  const wf = config.draftWorkflow || config.publishedWorkflow || config;
+  const flowConnections = wf.flowConnections || config.flowConnections || [];
+  const triggers = wf.triggers || config.triggers || [];
+  const outConnections = flowConnections.filter((c) => c.fromNodeId === nodeId);
+  const endConnection = outConnections.find((c) => {
+    const trigger = triggers.find((t) => t.id === c.triggerId);
+    if (!trigger) return true; // connection without trigger = implicit natural
+    const tp = trigger.type || trigger.eventType || '';
+    return tp === 'natural' || tp === 'on_end' || tp === 'ao_finalizar' || tp === 'video_end' || tp === 'finish';
+  });
+  return Boolean(endConnection && endConnection.toNodeId && endConnection.toNodeId !== nodeId);
+}
+
+/**
+ * Whether a clip should loop. A clip loops ONLY when:
+ *  - the node's playback is explicitly set to loop, OR
+ *  - it is the designated idle clip AND has no natural "ao finalizar" exit.
+ * An idle that is wired into a sequence (01→02→…→01) advances instead of
+ * looping on itself — the sequence as a whole is the loop.
+ */
+function resolveClipLoop(videoId, nodeId) {
+  if (!videoId) return false;
+  const config = loadCloudConfig() || {};
+  const wf = config.draftWorkflow || config.publishedWorkflow || config;
+  const flowNodes = wf.flowNodes || config.flowNodes || [];
+  const idleVideoId = wf.idleVideoId || config.idleVideoId || null;
+  const node = nodeId ? flowNodes.find((n) => n.nodeId === nodeId) : null;
+  if (node?.playback?.loop) return true;
+  const isIdle = Boolean(idleVideoId && videoId === idleVideoId);
+  return isIdle && !nodeHasNaturalNext(nodeId);
+}
+
 function configWithCloudVideos(config) {
   const safeConfig = config && typeof config === 'object' ? structuredClone(config) : {};
   const cloudVideos = listLocalVideos();
@@ -530,8 +566,8 @@ function loadCloudVideoState() {
         nodeId: activeNodeId,
         startSec: pb.startSec || stored?.value?.currentClip?.startSec || 0,
         endSec: pb.endSec ?? stored?.value?.currentClip?.endSec ?? null,
-        // Only the idle clip loops — sequence clips must end to advance.
-        loop: isIdleVideo ? true : Boolean(pb.loop || stored?.value?.currentClip?.loop),
+        // A clip loops only when it has no natural exit (see resolveClipLoop).
+        loop: resolveClipLoop(currentVideoId, activeNodeId),
         returnToIdle: isIdleVideo ? false : stored?.value?.currentClip?.returnToIdle ?? true,
         audio: matchFlowNode?.audio || stored?.value?.currentClip?.audio || { mode: 'muted', volume: 1 },
       }
@@ -606,7 +642,7 @@ function resolveNextClip(currentNodeId, currentVideoId) {
     startSec: pb.startSec || 0,
     endSec: pb.endSec || null,
     transitionMs: 0,
-    loop: isIdle || Boolean(pb.loop),
+    loop: resolveClipLoop(nextVideoId, nextNodeId),
     returnToIdle: !isIdle,
     audio: targetNode?.audio || { mode: 'muted', volume: 1 },
   };
@@ -620,8 +656,8 @@ function saveCloudVideoState(videoId, patch = {}) {
     ? {
         ...clipFromVideoId(videoId, { loop: isIdleVideo }),
         ...(patch.currentClip || {}),
-        // Only the idle clip loops. Sequence clips must end so the flow advances.
-        loop: isIdleVideo ? true : Boolean(patch.currentClip?.loop),
+        // A clip loops only when it has no natural exit (see resolveClipLoop).
+        loop: resolveClipLoop(videoId, patch.activeNodeId || null),
         returnToIdle: isIdleVideo ? false : patch.currentClip?.returnToIdle ?? true,
       }
     : null;
