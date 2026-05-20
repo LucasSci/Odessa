@@ -3207,13 +3207,18 @@ export function ContinuityPlayer({
         element.load();
       }
       const ready = () => {
-        primeElement(element, slotClip);
         if (autoplay) {
+          primeElement(element, slotClip);
           void element.play().catch(() => undefined);
           activateSlot(slot);
-        } else {
-          element.pause();
+          return;
         }
+        // Preload only. But metadata loads asynchronously — if a cut promoted
+        // this slot to active while we waited, it is now playing the clip and
+        // must NOT be paused or re-seeked, or the flow freezes.
+        if (activeSlotRef.current === slot) return;
+        primeElement(element, slotClip);
+        element.pause();
       };
       if (element.readyState >= 1) ready();
       else element.addEventListener('loadedmetadata', ready, { once: true });
