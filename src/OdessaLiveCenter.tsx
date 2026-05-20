@@ -2712,6 +2712,15 @@ function HomeDashboard({
     },
   ];
 
+  // Derive the active clip exactly like StagePanel so both players stay in sync.
+  const homeActiveClip =
+    videoState?.currentClip ||
+    (videoState?.current_video_id
+      ? clipFromVideoId(videoState.current_video_id, view.videos)
+      : view.idleVideoId
+        ? clipFromVideoId(view.idleVideoId, view.videos)
+        : null);
+
   return (
     <div className="h-full overflow-y-auto p-[18px]">
       <div className="grid min-h-[calc(100vh-100px)] gap-4 xl:grid-cols-[minmax(680px,1fr)_minmax(420px,0.72fr)]">
@@ -2725,29 +2734,20 @@ function HomeDashboard({
                 1080 x 1920
               </span>
             </div>
-            <div className="flex h-full items-center justify-center p-4">
-              {videoState?.current_video_id ? (
-                <video
-                  key={videoState.current_video_id}
-                  autoPlay
-                  muted
-                  loop={clipShouldLoop(videoState, view.idleVideoId)}
-                  onEnded={async () => {
-                    if (clipShouldLoop(videoState, view.idleVideoId)) return;
-                    await advanceReactiveFlow(videoState);
-                    onRefresh();
-                  }}
-                  playsInline
-                  className="max-h-full max-w-full rounded-[28px] object-contain"
-                  src={apiUrl(`/api/video/play/${videoState.current_video_id}`)}
-                />
-              ) : (
-                <div className="relative grid h-44 w-44 place-items-center rounded-full border border-sky-200/25 bg-[radial-gradient(circle_at_32%_28%,rgba(125,211,252,0.72),rgba(251,113,133,0.55)_58%,rgba(7,8,10,0.92)_100%)] shadow-[0_0_96px_rgba(125,211,252,0.22)]">
-                  <div className="absolute inset-[-34px] rounded-full border border-dashed border-sky-200/16" />
-                  <div className="absolute inset-[-18px] rounded-full border border-sky-200/18" />
-                  <span className="sr-only">Player aguardando estado do backend</span>
-                </div>
-              )}
+            <div className="flex h-full items-center justify-center p-2">
+              {/* Same player component as Palco — guarantees identical
+                  playback and keeps Início in sync with the live state. */}
+              <ContinuityPlayer
+                clip={homeActiveClip}
+                videos={view.videos}
+                onEnded={async () => {
+                  await advanceReactiveFlow(videoState ?? null);
+                  onRefresh();
+                }}
+                fit="contain"
+                showLabel={false}
+                className="rounded-[28px]"
+              />
             </div>
             <div className="pointer-events-none absolute bottom-5 left-6 font-mono text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
               {videoState?.current_video_id || currentLabel}
@@ -3113,23 +3113,6 @@ function clipFromVideoId(videoId: string, videos: VideoEntry[] = []): VideoClip 
 function clipKey(clip?: VideoClip | null) {
   if (!clip) return 'none';
   return `${clip.nodeId || 'video'}:${clip.videoId}:${clip.startSec}:${clip.endSec ?? 'end'}:${clip.transitionMs}`;
-}
-
-/**
- * Whether the currently playing clip should loop. Loop is driven purely by
- * explicit state — the idle clip carries loop:true / returnToIdle:false.
- * Never inferred from the video name. Shared by every in-app player so they
- * all behave identically.
- */
-function clipShouldLoop(state: VideoState | null, idleVideoId?: string | null): boolean {
-  if (!state?.current_video_id) return false;
-  const clip = state.currentClip;
-  if (clip) {
-    if (clip.endSec) return false;
-    return clip.loop === true || clip.returnToIdle === false;
-  }
-  // No clip metadata — fall back to: only the idle video loops.
-  return Boolean(idleVideoId && state.current_video_id === idleVideoId);
 }
 
 /**
