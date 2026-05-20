@@ -3987,12 +3987,13 @@ function StagePanel({
           <span>{videoState?.executionMode || (runtime.autopilotEnabled ? 'live' : 'edicao')}</span>
         </div>
 
-        <div className="flex h-full min-h-[420px] items-center justify-center px-4 py-6">
-          <div className="relative aspect-[9/16] h-[min(68vh,620px)] max-h-[calc(100vh-280px)] min-h-[360px] bg-black shadow-[0_0_80px_rgba(0,0,0,0.45)]">
+        <div className="flex h-full min-h-0 items-center justify-center p-3">
+          <div className="relative aspect-[9/16] h-full max-h-full bg-black shadow-[0_0_80px_rgba(0,0,0,0.45)]">
             <ContinuityPlayer
               clip={displayClip}
               videos={view.videos}
               onEnded={advanceVideo}
+              fit="contain"
               className="h-full w-full"
             />
             <div className="pointer-events-none absolute inset-0 border-2 border-[var(--gold)]" />
