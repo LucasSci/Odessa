@@ -82,14 +82,14 @@ async def startup_event():
     logger.info("Odessa Backend is ready.")
 
 
-dist_dir = Path(__file__).resolve().parents[1] / "dist"
+dist_dir = (Path(__file__).resolve().parents[1] / "dist").resolve()
 if dist_dir.exists():
     app.mount("/assets", StaticFiles(directory=dist_dir / "assets"), name="web-assets")
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_web_app(full_path: str):
-        target = dist_dir / full_path
-        if full_path and target.is_file():
+        target = (dist_dir / full_path).resolve()
+        if full_path and target.is_relative_to(dist_dir) and target.is_file():
             return FileResponse(target)
         return FileResponse(dist_dir / "index.html")
 
