@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { Badge, Button, Input, Skeleton, StatusDot } from './components/ui';
 import { loadRulesFromFlowTriggers } from './core/giftEventBus';
+import { ANY_GIFT_KEY, KNOWN_GIFTS, giftLabel, isCustomGift } from './core/knownGifts';
 import { apiUrl } from './lib/api';
 import { cn } from './lib/utils';
 
@@ -198,7 +199,10 @@ function actionNodeId(trigger: TriggerEntry) {
 
 function eventKey(trigger?: TriggerEntry) {
   if (!trigger) return 'sem.regra';
-  if (trigger.eventType === 'gift') return trigger.conditions?.giftKey || 'gift.*';
+  if (trigger.eventType === 'gift') {
+    const key = trigger.conditions?.giftKey;
+    return key ? giftLabel(key) : 'Qualquer presente';
+  }
   if (trigger.eventType === 'comment') return trigger.conditions?.keyword || 'chat.keyword';
   if (trigger.eventType === 'natural') return 'Ao finalizar';
   return trigger.eventType;
@@ -1959,6 +1963,54 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   );
 }
 
+function GiftPicker({ value, onChange }: { value: string; onChange: (giftKey: string) => void }) {
+  const mode: 'any' | 'known' | 'custom' =
+    value === ANY_GIFT_KEY ? 'any' : isCustomGift(value) ? 'custom' : 'known';
+  const selectValue = mode === 'any' ? ANY_GIFT_KEY : mode === 'custom' ? '__custom__' : value;
+
+  return (
+    <div className="space-y-2">
+      <label className="block">
+        <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
+          Presente que dispara
+        </span>
+        <select
+          value={selectValue}
+          onChange={(event) => {
+            const next = event.target.value;
+            if (next === '__custom__') onChange('');
+            else onChange(next);
+          }}
+          className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-white outline-none"
+        >
+          <option value={ANY_GIFT_KEY}>Qualquer presente</option>
+          {KNOWN_GIFTS.map((gift) => (
+            <option key={gift.key} value={gift.key}>
+              {gift.emoji} {gift.label}
+            </option>
+          ))}
+          <option value="__custom__">Personalizado...</option>
+        </select>
+      </label>
+      {mode === 'custom' && (
+        <Input
+          label="Codigo do presente"
+          value={value}
+          placeholder="gift.exemplo"
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )}
+      <p className="text-[10px] leading-relaxed text-[var(--t3)]">
+        {mode === 'any'
+          ? 'Dispara para qualquer presente recebido na live.'
+          : mode === 'custom'
+            ? 'Use o codigo exato que aparece nos eventos da sua live (ex: gift.rosa).'
+            : 'Presente comum — o nome deve corresponder ao que chega da live.'}
+      </p>
+    </div>
+  );
+}
+
 function TriggerCard({
   trigger,
   connection,
@@ -2040,15 +2092,18 @@ function TriggerCard({
         </select>
       </label>
 
-      {trigger.eventType !== 'natural' && (
+      {trigger.eventType === 'gift' && (
+        <GiftPicker
+          value={trigger.conditions?.giftKey || ''}
+          onChange={(giftKey) => onTriggerChange({ conditions: { giftKey } })}
+        />
+      )}
+
+      {trigger.eventType === 'comment' && (
         <Input
-          label={trigger.eventType === 'gift' ? 'Evento normalizado' : 'Palavra-chave'}
-          value={trigger.eventType === 'gift' ? trigger.conditions?.giftKey || '' : trigger.conditions?.keyword || ''}
-          onChange={(event) =>
-            onTriggerChange({
-              conditions: trigger.eventType === 'gift' ? { giftKey: event.target.value } : { keyword: event.target.value },
-            })
-          }
+          label="Palavra-chave"
+          value={trigger.conditions?.keyword || ''}
+          onChange={(event) => onTriggerChange({ conditions: { keyword: event.target.value } })}
         />
       )}
 
