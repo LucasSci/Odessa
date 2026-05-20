@@ -82,8 +82,17 @@ export default function PersonaOverlay() {
     }
   }, []);
 
-  const advanceAndRefresh = useCallback(async () => {
-    await fetch(apiUrl('/api/video/advance'), { method: 'POST' }).catch(() => undefined);
+  const advanceAndRefresh = useCallback(async (endedClip?: VideoClip | null) => {
+    // Tell the backend which clip just ended so the advance is idempotent —
+    // if another player already advanced, this call becomes a no-op.
+    await fetch(apiUrl('/api/video/advance'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fromNodeId: endedClip?.nodeId || null,
+        fromVideoId: endedClip?.videoId || null,
+      }),
+    }).catch(() => undefined);
   }, []);
 
   const transitionToClip = useCallback(
@@ -120,7 +129,7 @@ export default function PersonaOverlay() {
         const naturalEndSec = Number.isFinite(endSec) ? endSec : duration;
         if (!shouldLoopClip(clip) && naturalEndSec > 0 && startSec + elapsed >= naturalEndSec - 0.1) {
           setIsTransitioning(false);
-          await advanceAndRefresh();
+          await advanceAndRefresh(clip);
           return;
         }
         const targetTime =
@@ -193,7 +202,7 @@ export default function PersonaOverlay() {
     const key = clipKey(slotClip);
     if (element.currentTime >= slotClip.endSec && endedRef.current !== key) {
       endedRef.current = key;
-      void advanceAndRefresh();
+      void advanceAndRefresh(slotClip);
     }
   };
 
@@ -203,7 +212,7 @@ export default function PersonaOverlay() {
     const key = clipKey(slotClip);
     if (endedRef.current === key) return;
     endedRef.current = key;
-    void advanceAndRefresh();
+    void advanceAndRefresh(slotClip);
   };
 
   return (

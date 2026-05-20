@@ -884,6 +884,7 @@ async function protectedResponse(req, res, rawPath) {
   }
 
   if (path.includes('/video/advance') && req.method === 'POST') {
+    const body = await readBody(req);
     const config = loadCloudConfig() || {};
     // Prefer the most recently edited workflow (draft first, then published, then top-level)
     const activeWorkflow = config.draftWorkflow || config.publishedWorkflow || config;
@@ -892,18 +893,40 @@ async function protectedResponse(req, res, rawPath) {
     const triggers = activeWorkflow.triggers || config.triggers || [];
     const idleVideoId = activeWorkflow.idleVideoId || config.idleVideoId || null;
     const currentState = getCloudValue('video_state')?.value || {};
-    const activeNodeId = currentState.activeNodeId || null;
 
-    // Find the next node via "on_end" connection from current node
+    // Resolve the currently active node. Fall back to the clip's node, then
+    // to looking the node up from the playing video id.
+    const currentVideoId = currentState.current_video_id || currentState.currentClip?.videoId || null;
+    let activeNodeId = currentState.activeNodeId || currentState.currentClip?.nodeId || null;
+    if (!activeNodeId && currentVideoId) {
+      activeNodeId = flowNodes.find((n) => n.videoId === currentVideoId)?.nodeId || null;
+    }
+
+    // Idempotency — multiple players (overlay, Palco, Início) may all report
+    // the same clip ending. The caller passes the node/video it just finished;
+    // if that no longer matches the live state, another client already
+    // advanced, so this call is a no-op that just echoes the current state.
+    const fromNodeId = body.fromNodeId || null;
+    const fromVideoId = body.fromVideoId || null;
+    const staleByNode = fromNodeId && activeNodeId && fromNodeId !== activeNodeId;
+    const staleByVideo = !fromNodeId && fromVideoId && currentVideoId && fromVideoId !== currentVideoId;
+    if (staleByNode || staleByVideo) {
+      return json(res, 200, {
+        ok: true,
+        advanced: false,
+        reason: 'already-advanced',
+        ...currentState,
+        ...cloudState(),
+      });
+    }
+
+    // Find the next node via the "natural / ao finalizar" connection.
     let nextVideoId = idleVideoId;
     let nextNodeId = null;
     let nextConnectionId = null;
     if (activeNodeId) {
-      const outConnections = flowConnections.filter(
-        (c) => c.fromNodeId === activeNodeId,
-      );
+      const outConnections = flowConnections.filter((c) => c.fromNodeId === activeNodeId);
       // Prefer "natural" (ao finalizar) connections — these fire when the video ends.
-      // Also match on_end / video_end for legacy compat. Fall back to first connection.
       const endConnection =
         outConnections.find((c) => {
           const trigger = triggers.find((t) => t.id === c.triggerId);
@@ -926,11 +949,22 @@ async function protectedResponse(req, res, rawPath) {
         }
       }
     }
-    // If no next found and we're not idle, return to idle
+    // No outgoing connection (or none found) — return to idle.
     if (!nextNodeId && idleVideoId) {
       const idleNode = flowNodes.find((n) => n.videoId === idleVideoId);
       nextNodeId = idleNode?.nodeId || null;
+      nextVideoId = idleVideoId;
     }
+    // Safety: never "advance" to the exact same node — that would freeze the
+    // player on the last frame. Fall back to idle instead.
+    if (nextNodeId && activeNodeId && nextNodeId === activeNodeId && nextVideoId !== idleVideoId) {
+      const idleNode = flowNodes.find((n) => n.videoId === idleVideoId);
+      nextNodeId = idleNode?.nodeId || null;
+      nextVideoId = idleVideoId;
+      nextConnectionId = null;
+    }
+    console.log('[Odessa] /video/advance:', { fromNodeId: activeNodeId, toNodeId: nextNodeId, nextVideoId });
+
     // Build currentClip from the target flowNode's playback settings
     const targetFlowNode = flowNodes.find((n) => n.nodeId === nextNodeId);
     const isIdle = Boolean(nextVideoId && idleVideoId && nextVideoId === idleVideoId);

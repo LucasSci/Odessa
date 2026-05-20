@@ -162,6 +162,7 @@ type VideoClip = {
   endSec: number | null;
   transitionMs: number;
   returnToIdle?: boolean;
+  loop?: boolean;
   playback?: PlaybackSettings;
   audio?: ClipAudioSettings;
 };
@@ -2730,13 +2731,10 @@ function HomeDashboard({
                   key={videoState.current_video_id}
                   autoPlay
                   muted
-                  loop={
-                    videoState.state !== 'ACTION' &&
-                    (videoState.current_video_id === view.idleVideoId || !!view.currentVideo?.loop)
-                  }
+                  loop={clipShouldLoop(videoState, view.idleVideoId)}
                   onEnded={async () => {
-                    if (videoState.state !== 'ACTION') return;
-                    await fetch(apiUrl('/api/video/idle'), { method: 'POST' }).catch(() => undefined);
+                    if (clipShouldLoop(videoState, view.idleVideoId)) return;
+                    await advanceReactiveFlow(videoState);
                     onRefresh();
                   }}
                   playsInline
@@ -3117,6 +3115,39 @@ function clipKey(clip?: VideoClip | null) {
   return `${clip.nodeId || 'video'}:${clip.videoId}:${clip.startSec}:${clip.endSec ?? 'end'}:${clip.transitionMs}`;
 }
 
+/**
+ * Whether the currently playing clip should loop. Loop is driven purely by
+ * explicit state — the idle clip carries loop:true / returnToIdle:false.
+ * Never inferred from the video name. Shared by every in-app player so they
+ * all behave identically.
+ */
+function clipShouldLoop(state: VideoState | null, idleVideoId?: string | null): boolean {
+  if (!state?.current_video_id) return false;
+  const clip = state.currentClip;
+  if (clip) {
+    if (clip.endSec) return false;
+    return clip.loop === true || clip.returnToIdle === false;
+  }
+  // No clip metadata — fall back to: only the idle video loops.
+  return Boolean(idleVideoId && state.current_video_id === idleVideoId);
+}
+
+/**
+ * Reports that the active clip ended so the backend advances the reactive
+ * flow to the next node. Idempotent on the server via fromNodeId/fromVideoId,
+ * so several players can call it for the same clip without double-advancing.
+ */
+async function advanceReactiveFlow(state: VideoState | null): Promise<void> {
+  await fetch(apiUrl('/api/video/advance'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      fromNodeId: state?.activeNodeId || state?.currentClip?.nodeId || null,
+      fromVideoId: state?.current_video_id || null,
+    }),
+  }).catch(() => undefined);
+}
+
 function clipDisplayName(clip: VideoClip, videos: VideoEntry[]) {
   const video = videos.find((item) => item.id === clip.videoId);
   return clip.label || videoLabel(video);
@@ -3310,10 +3341,7 @@ export function ContinuityPlayer({
           muted={(slotClip?.audio?.mode || 'muted') !== 'original'}
           playsInline
           loop={Boolean(
-            slotClip &&
-              slotClip.returnToIdle === false &&
-              !slotClip.endSec &&
-              videos.find((item) => item.id === slotClip.videoId)?.loop,
+            slotClip && !slotClip.endSec && (slotClip.loop === true || slotClip.returnToIdle === false),
           )}
           preload={activeSlot === index ? 'auto' : 'metadata'}
           src={slotClip ? apiUrl(`/api/video/play/${slotClip.videoId}`) : undefined}
@@ -3887,7 +3915,7 @@ function StagePanel({
       : 6.04;
 
   const advanceVideo = async () => {
-    await fetch(apiUrl('/api/video/advance'), { method: 'POST' }).catch(() => undefined);
+    await advanceReactiveFlow(videoState ?? null);
     onRefresh();
   };
 
