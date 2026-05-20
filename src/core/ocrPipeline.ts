@@ -66,16 +66,40 @@ export const runtimeCapabilities = {
 };
 
 export function logCapabilities() {
-  console.log('[CAPABILITIES] videoPlayback:', runtimeCapabilities.videoPlayback ? 'enabled' : 'disabled');
-  console.log('[CAPABILITIES] manualVideoClick:', runtimeCapabilities.manualVideoClick ? 'enabled' : 'disabled');
-  console.log('[CAPABILITIES] ocrCapture:', runtimeCapabilities.ocrCapture ? 'enabled' : 'disabled');
-  console.log('[CAPABILITIES] simulatedOCR:', runtimeCapabilities.simulatedOCR ? 'enabled' : 'disabled');
-  console.log('[CAPABILITIES] messageParsing:', runtimeCapabilities.messageParsing ? 'enabled' : 'disabled');
-  console.log('[CAPABILITIES] giftDetection:', runtimeCapabilities.giftDetection ? 'enabled' : 'disabled');
-  console.log('[CAPABILITIES] giftTriggers:', runtimeCapabilities.giftTriggers ? 'enabled' : 'disabled');
+  console.log(
+    '[CAPABILITIES] videoPlayback:',
+    runtimeCapabilities.videoPlayback ? 'enabled' : 'disabled',
+  );
+  console.log(
+    '[CAPABILITIES] manualVideoClick:',
+    runtimeCapabilities.manualVideoClick ? 'enabled' : 'disabled',
+  );
+  console.log(
+    '[CAPABILITIES] ocrCapture:',
+    runtimeCapabilities.ocrCapture ? 'enabled' : 'disabled',
+  );
+  console.log(
+    '[CAPABILITIES] simulatedOCR:',
+    runtimeCapabilities.simulatedOCR ? 'enabled' : 'disabled',
+  );
+  console.log(
+    '[CAPABILITIES] messageParsing:',
+    runtimeCapabilities.messageParsing ? 'enabled' : 'disabled',
+  );
+  console.log(
+    '[CAPABILITIES] giftDetection:',
+    runtimeCapabilities.giftDetection ? 'enabled' : 'disabled',
+  );
+  console.log(
+    '[CAPABILITIES] giftTriggers:',
+    runtimeCapabilities.giftTriggers ? 'enabled' : 'disabled',
+  );
   console.log('[CAPABILITIES] legacyAI:', runtimeCapabilities.legacyAI ? 'enabled' : 'disabled');
   console.log('[CAPABILITIES] tts:', runtimeCapabilities.tts ? 'enabled' : 'disabled');
-  console.log('[CAPABILITIES] personaConfig:', runtimeCapabilities.personaConfig ? 'enabled' : 'disabled');
+  console.log(
+    '[CAPABILITIES] personaConfig:',
+    runtimeCapabilities.personaConfig ? 'enabled' : 'disabled',
+  );
 }
 
 // ─── Patterns ─────────────────────────────────────────────────────────────────
@@ -169,7 +193,9 @@ export function handleParsedEvent(event: ParsedEvent, logs: string[]): string | 
   }
 
   const videoId = DEFAULT_GIFT_VIDEO_ID;
-  logs.push(`[GIFT_TRIGGER] gift_detected: ${event.giftName} x${event.quantity} de ${event.sender}`);
+  logs.push(
+    `[GIFT_TRIGGER] gift_detected: ${event.giftName} x${event.quantity} de ${event.sender}`,
+  );
   logs.push(`[GIFT_TRIGGER] video_selected: ${videoId}`);
 
   if (!_triggerVideoFn) {
@@ -181,7 +207,9 @@ export function handleParsedEvent(event: ParsedEvent, logs: string[]): string | 
     _triggerVideoFn(videoId, 'gift_detected');
     return videoId;
   } catch (err) {
-    logs.push(`[GIFT_TRIGGER_ERROR] play_failed: ${err instanceof Error ? err.message : String(err)}`);
+    logs.push(
+      `[GIFT_TRIGGER_ERROR] play_failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return null;
   }
 }
@@ -204,14 +232,22 @@ export function onCapturedText(rawText: string, context: PipelineContext = {}): 
     event = parseCapturedText(rawText, context);
     logs.push(`[OCR_PIPELINE] event_parsed: ${event.kind}`);
   } catch (err) {
-    logs.push(`[OCR_PIPELINE_ERROR] parse_failed: ${err instanceof Error ? err.message : String(err)}`);
+    logs.push(
+      `[OCR_PIPELINE_ERROR] parse_failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
     const fallback: ParsedEvent = {
       kind: 'unknown',
       rawText,
       source: context.source ?? 'unknown',
       timestamp: new Date().toISOString(),
     };
-    return { event: fallback, videoTriggered: null, blocked: true, blockedReason: 'parse_failed', logs };
+    return {
+      event: fallback,
+      videoTriggered: null,
+      blocked: true,
+      blockedReason: 'parse_failed',
+      logs,
+    };
   }
 
   const videoTriggered = handleParsedEvent(event, logs);
@@ -220,9 +256,8 @@ export function onCapturedText(rawText: string, context: PipelineContext = {}): 
     event,
     videoTriggered,
     blocked: videoTriggered === null,
-    blockedReason: videoTriggered === null
-      ? logs.find((l) => l.includes('_ERROR]')) ?? null
-      : null,
+    blockedReason:
+      videoTriggered === null ? (logs.find((l) => l.includes('_ERROR]')) ?? null) : null,
     logs,
   };
 }

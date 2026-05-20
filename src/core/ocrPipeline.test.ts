@@ -44,7 +44,6 @@ afterEach(() => {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('OCR Pipeline — parseCapturedText', () => {
-
   // Teste 1
   it('gift simples: "Lucas enviou Rosa"', () => {
     const event = parseCapturedText('Lucas enviou Rosa');
@@ -145,7 +144,6 @@ describe('OCR Pipeline — parseCapturedText', () => {
 });
 
 describe.skip('OCR Pipeline — onCapturedText (LEGADO: video fixo)', () => {
-
   // Teste 1 (pipeline completo)
   it('"Lucas enviou Rosa" → gift → aciona vídeo', () => {
     const result = onCapturedText('Lucas enviou Rosa', { source: 'test' });
@@ -216,7 +214,6 @@ describe.skip('OCR Pipeline — onCapturedText (LEGADO: video fixo)', () => {
 });
 
 describe.skip('OCR Pipeline — simulateOCRText (LEGADO: video fixo)', () => {
-
   // Teste 6: botão de teste passa pelo mesmo pipeline
   it('"Simular presente Rosa" → simulateOCRText → gift → vídeo', () => {
     // simulates what the "Simular presente Rosa" button does

@@ -475,7 +475,9 @@ export default function OdessaLiveCenter({
             metadata: { triggerTest: true },
           });
           processedGiftIdsRef.current.add(emitted.id);
-          setCapturedText((current) => [...current.filter((event) => event.id !== emitted.id), emitted].slice(-100));
+          setCapturedText((current) =>
+            [...current.filter((event) => event.id !== emitted.id), emitted].slice(-100),
+          );
         }
 
         const response = await fetch(apiUrl('/api/automation/ingest'), {
@@ -634,7 +636,10 @@ export default function OdessaLiveCenter({
                       : patch.endSec === undefined
                         ? node.playback.endSec
                         : Math.max(0, Number(patch.endSec)),
-                  transitionMs: Math.max(0, Number(patch.transitionMs ?? node.playback.transitionMs ?? 220)),
+                  transitionMs: Math.max(
+                    0,
+                    Number(patch.transitionMs ?? node.playback.transitionMs ?? 220),
+                  ),
                 },
               }
             : node,
@@ -669,25 +674,33 @@ export default function OdessaLiveCenter({
                     0,
                     Math.min(
                       2000,
-                      Number(patch.transitionMs ?? connection.connectionSettings?.transitionMs ?? 220),
+                      Number(
+                        patch.transitionMs ?? connection.connectionSettings?.transitionMs ?? 220,
+                      ),
                     ),
                   ),
                   fadeMode:
-                    patch.fadeMode === 'cut' || patch.fadeMode === 'fade' || patch.fadeMode === 'crossfade'
+                    patch.fadeMode === 'cut' ||
+                    patch.fadeMode === 'fade' ||
+                    patch.fadeMode === 'crossfade'
                       ? patch.fadeMode
                       : connection.connectionSettings?.fadeMode || 'crossfade',
                   previewTailSec: Math.max(
                     0.5,
                     Math.min(
                       8,
-                      Number(patch.previewTailSec ?? connection.connectionSettings?.previewTailSec ?? 2),
+                      Number(
+                        patch.previewTailSec ?? connection.connectionSettings?.previewTailSec ?? 2,
+                      ),
                     ),
                   ),
                   previewHeadSec: Math.max(
                     0.5,
                     Math.min(
                       8,
-                      Number(patch.previewHeadSec ?? connection.connectionSettings?.previewHeadSec ?? 2),
+                      Number(
+                        patch.previewHeadSec ?? connection.connectionSettings?.previewHeadSec ?? 2,
+                      ),
                     ),
                   ),
                 },
@@ -836,10 +849,11 @@ export default function OdessaLiveCenter({
             className="hidden h-[36px] items-center gap-2 rounded-full border border-[var(--border2)] bg-[var(--bg2)] px-3 text-left text-[11.5px] font-semibold text-[var(--t2)] transition hover:bg-[var(--bg3)] sm:flex"
             title={agentStatus?.message || 'Status do Odessa Agent'}
           >
-            <StatusDot status={agentStatus?.agentConnected ? 'online' : 'error'} pulse={!!agentStatus?.agentConnected} />
-            <span>
-              Agent {agentStatus?.agentConnected ? 'online' : 'offline'}
-            </span>
+            <StatusDot
+              status={agentStatus?.agentConnected ? 'online' : 'error'}
+              pulse={!!agentStatus?.agentConnected}
+            />
+            <span>Agent {agentStatus?.agentConnected ? 'online' : 'offline'}</span>
             {typeof agentStatus?.queueSize === 'number' && (
               <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-bold text-slate-300">
                 {agentStatus.queueSize}
@@ -848,9 +862,7 @@ export default function OdessaLiveCenter({
           </button>
           <div className="hidden h-[36px] items-center gap-2 rounded-full border border-[var(--border2)] bg-[var(--bg2)] px-3 text-[11.5px] font-bold uppercase tracking-[0.14em] text-[var(--sky)] sm:flex">
             <StatusDot status={runtime.autopilotEnabled ? 'online' : 'idle'} pulse />
-            <span>
-              {runtime.autopilotEnabled ? 'AO VIVO' : 'PRONTA'}
-            </span>
+            <span>{runtime.autopilotEnabled ? 'AO VIVO' : 'PRONTA'}</span>
           </div>
           <Button
             size="icon"
@@ -890,7 +902,9 @@ export default function OdessaLiveCenter({
       </header>
 
       <div className="flex gap-2 overflow-x-auto border-b border-[var(--border)] px-3 py-2 lg:hidden">
-        {(['home', 'stage', 'flow', 'canvas', 'library', 'sources', 'logs', 'settings'] as TabKey[]).map((tab) => (
+        {(
+          ['home', 'stage', 'flow', 'canvas', 'library', 'sources', 'logs', 'settings'] as TabKey[]
+        ).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -1079,8 +1093,10 @@ function normalizeObsSettings(settings?: Partial<ObsSettings>): ObsSettings {
   return {
     ...DEFAULT_OBS_SETTINGS,
     ...settings,
-    ocrSourceName: settings?.ocrSourceName || settings?.chatSourceName || DEFAULT_OBS_SETTINGS.ocrSourceName,
-    chatSourceName: settings?.chatSourceName || settings?.ocrSourceName || DEFAULT_OBS_SETTINGS.chatSourceName,
+    ocrSourceName:
+      settings?.ocrSourceName || settings?.chatSourceName || DEFAULT_OBS_SETTINGS.ocrSourceName,
+    chatSourceName:
+      settings?.chatSourceName || settings?.ocrSourceName || DEFAULT_OBS_SETTINGS.chatSourceName,
     transmissionMode:
       settings?.transmissionMode === 'virtual_camera' || settings?.transmissionMode === 'none'
         ? settings.transmissionMode
@@ -1125,7 +1141,11 @@ function parseObsConnection(settings: ObsSettings): ObsConnectionFields {
 }
 
 function buildObsWebsocketUrl(connection: ObsConnectionFields) {
-  const host = connection.host.trim().replace(/^wss?:\/\//i, '').replace(/\/.*$/, '') || 'localhost';
+  const host =
+    connection.host
+      .trim()
+      .replace(/^wss?:\/\//i, '')
+      .replace(/\/.*$/, '') || 'localhost';
   const port = String(connection.port || '4455').replace(/\D/g, '') || '4455';
   return `ws://${host}:${port}`;
 }
@@ -1199,7 +1219,9 @@ function SettingsPanel({
   const [livePlan, setLivePlan] = useState<LivePlan | null>(null);
   const [livePlanLoading, setLivePlanLoading] = useState(false);
   const [livePlanMessage, setLivePlanMessage] = useState<string | null>(null);
-  const [obsProfiles, setObsProfiles] = useState<Array<{ id: string; name: string; updatedAt?: string }>>([]);
+  const [obsProfiles, setObsProfiles] = useState<
+    Array<{ id: string; name: string; updatedAt?: string }>
+  >([]);
   const [obsProfileName, setObsProfileName] = useState('');
   const [activeObsProfileId, setActiveObsProfileId] = useState('');
 
@@ -1230,14 +1252,22 @@ function SettingsPanel({
 
   const readObsProfilesFromStorage = () => {
     try {
-      const raw = typeof window !== 'undefined' ? window.localStorage.getItem(OBS_PROFILES_KEY) : null;
+      const raw =
+        typeof window !== 'undefined' ? window.localStorage.getItem(OBS_PROFILES_KEY) : null;
       const parsed = raw ? JSON.parse(raw) : [];
       return Array.isArray(parsed) ? parsed : [];
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   };
 
   const writeObsProfilesToStorage = (list: typeof obsProfiles) => {
-    try { if (typeof window !== 'undefined') window.localStorage.setItem(OBS_PROFILES_KEY, JSON.stringify(list)); } catch { /* ignore */ }
+    try {
+      if (typeof window !== 'undefined')
+        window.localStorage.setItem(OBS_PROFILES_KEY, JSON.stringify(list));
+    } catch {
+      /* ignore */
+    }
   };
 
   const loadObsProfiles = useCallback(async () => {
@@ -1252,13 +1282,19 @@ function SettingsPanel({
       const existing = readObsProfilesFromStorage();
       const existingIdx = existing.findIndex((p) => p.name === name);
       const profile = {
-        id: existingIdx >= 0 ? existing[existingIdx].id : `obs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id:
+          existingIdx >= 0
+            ? existing[existingIdx].id
+            : `obs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         name,
         settings: obsSettings,
         createdAt: existingIdx >= 0 ? existing[existingIdx].createdAt : new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-      const next = existingIdx >= 0 ? existing.map((p, i) => i === existingIdx ? profile : p) : [...existing, profile];
+      const next =
+        existingIdx >= 0
+          ? existing.map((p, i) => (i === existingIdx ? profile : p))
+          : [...existing, profile];
       writeObsProfilesToStorage(next);
       setObsProfiles(next);
       setActiveObsProfileId(profile.id);
@@ -1299,7 +1335,9 @@ function SettingsPanel({
       writeObsProfilesToStorage(next);
       setObsProfiles(next);
       if (activeObsProfileId === id) setActiveObsProfileId('');
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   };
 
   const loadWebhooks = useCallback(async () => {
@@ -1342,7 +1380,13 @@ function SettingsPanel({
       setMessage('OBS pronto para captura OCR persistente.');
     } catch (err) {
       const error = err instanceof Error ? err.message : 'Falha ao testar OBS';
-      setObsHealth({ ok: false, connected: false, sourceReady: false, screenshotReady: false, error });
+      setObsHealth({
+        ok: false,
+        connected: false,
+        sourceReady: false,
+        screenshotReady: false,
+        error,
+      });
       setMessage(error);
     } finally {
       setLoading(false);
@@ -1489,7 +1533,9 @@ function SettingsPanel({
         currentScene: data.currentScene || current?.currentScene || null,
         sceneSwitchReady: Boolean((data.allowedScenes || obsSettings.allowedScenes).length),
       }));
-      setMessage(`Cenas sincronizadas: ${scenes.length}. Marque as cenas que as automacoes podem usar.`);
+      setMessage(
+        `Cenas sincronizadas: ${scenes.length}. Marque as cenas que as automacoes podem usar.`,
+      );
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Falha ao sincronizar cenas do OBS');
     } finally {
@@ -1499,7 +1545,9 @@ function SettingsPanel({
 
   const toggleAllowedScene = (scene: string) => {
     setObsSettings((current) => {
-      const exists = current.allowedScenes.some((item) => item.toLowerCase() === scene.toLowerCase());
+      const exists = current.allowedScenes.some(
+        (item) => item.toLowerCase() === scene.toLowerCase(),
+      );
       const next = exists
         ? current.allowedScenes.filter((item) => item.toLowerCase() !== scene.toLowerCase())
         : [...current.allowedScenes, scene];
@@ -1530,7 +1578,9 @@ function SettingsPanel({
         error?: string;
       };
       if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      setMessage(`Cena alterada no OBS: ${data.currentScene || data.sceneName || data.scene || sceneName}`);
+      setMessage(
+        `Cena alterada no OBS: ${data.currentScene || data.sceneName || data.scene || sceneName}`,
+      );
       void testObs();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Falha ao trocar cena no OBS');
@@ -1628,7 +1678,10 @@ function SettingsPanel({
   };
 
   const obsReady =
-    !!obsHealth?.ok && !!obsHealth.connected && !!obsHealth.sourceReady && !!obsHealth.screenshotReady;
+    !!obsHealth?.ok &&
+    !!obsHealth.connected &&
+    !!obsHealth.sourceReady &&
+    !!obsHealth.screenshotReady;
   const sceneSwitchReady = !!obsHealth?.connected && !!obsHealth.sceneSwitchReady;
   const apiRows = [
     { label: 'Gemini', ok: !!health?.gemini_configured },
@@ -1651,7 +1704,8 @@ function SettingsPanel({
                 <div>
                   <SectionTitle icon={<Settings />} title="OBS WebSocket" />
                   <p className="mt-2 text-sm text-slate-400">
-                    A live assistida usa uma source dedicada do OBS para OCR, sem depender da aba ativa.
+                    A live assistida usa uma source dedicada do OBS para OCR, sem depender da aba
+                    ativa.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1668,10 +1722,17 @@ function SettingsPanel({
                     <select
                       className="h-9 cursor-pointer rounded-xl border border-white/10 bg-white/[0.06] px-3 pr-7 text-sm text-white outline-none focus:border-sky-400/40"
                       value={activeObsProfileId}
-                      onChange={(e) => { if (e.target.value) void applyObsProfile(e.target.value); else setActiveObsProfileId(''); }}
+                      onChange={(e) => {
+                        if (e.target.value) void applyObsProfile(e.target.value);
+                        else setActiveObsProfileId('');
+                      }}
                     >
                       <option value="">Selecionar perfil...</option>
-                      {obsProfiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      {obsProfiles.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
                     </select>
                     {activeObsProfileId && (
                       <button
@@ -1685,16 +1746,25 @@ function SettingsPanel({
                     <div className="mx-1 h-5 w-px bg-white/10" />
                   </>
                 ) : (
-                  <span className="text-xs font-semibold uppercase tracking-widest text-slate-500">Perfis</span>
+                  <span className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+                    Perfis
+                  </span>
                 )}
                 <Input
                   value={obsProfileName}
                   onChange={(e) => setObsProfileName(e.target.value)}
                   placeholder="Novo perfil..."
                   className="max-w-[200px]"
-                  onKeyDown={(e) => { if (e.key === 'Enter') void saveObsProfile(obsProfileName); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void saveObsProfile(obsProfileName);
+                  }}
                 />
-                <Button size="sm" variant="secondary" disabled={!obsProfileName.trim() || saving} onClick={() => void saveObsProfile(obsProfileName)}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={!obsProfileName.trim() || saving}
+                  onClick={() => void saveObsProfile(obsProfileName)}
+                >
                   <Save className="h-4 w-4" />
                 </Button>
               </div>
@@ -1702,11 +1772,13 @@ function SettingsPanel({
               <div className="mb-4 flex items-start gap-3 rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
                 <span className="mt-0.5 shrink-0 text-amber-400">⚠</span>
                 <span>
-                  O OBS WebSocket conecta via <strong>Odessa Agent</strong> — um processo local que deve estar rodando
-                  no mesmo computador que o OBS. Sem o Agent ativo, o teste de conexao sempre falha.
+                  O OBS WebSocket conecta via <strong>Odessa Agent</strong> — um processo local que
+                  deve estar rodando no mesmo computador que o OBS. Sem o Agent ativo, o teste de
+                  conexao sempre falha.
                   {!obsReady && !obsHealth && (
                     <span className="mt-1 block text-amber-300">
-                      Status atual: Agent/OBS nao detectado. Inicie o Odessa Agent e clique em "Testar conexao" abaixo.
+                      Status atual: Agent/OBS nao detectado. Inicie o Odessa Agent e clique em
+                      "Testar conexao" abaixo.
                     </span>
                   )}
                 </span>
@@ -1784,7 +1856,10 @@ function SettingsPanel({
                   label="Source do palco"
                   value={obsSettings.stageSourceName}
                   onChange={(event) =>
-                    setObsSettings((current) => ({ ...current, stageSourceName: event.target.value }))
+                    setObsSettings((current) => ({
+                      ...current,
+                      stageSourceName: event.target.value,
+                    }))
                   }
                 />
                 <Input
@@ -1798,7 +1873,10 @@ function SettingsPanel({
                   label="Cena inicial"
                   value={obsSettings.startupSceneName}
                   onChange={(event) =>
-                    setObsSettings((current) => ({ ...current, startupSceneName: event.target.value }))
+                    setObsSettings((current) => ({
+                      ...current,
+                      startupSceneName: event.target.value,
+                    }))
                   }
                 />
                 <Input
@@ -1893,8 +1971,12 @@ function SettingsPanel({
                         allowedScenes?: string[];
                         error?: string | null;
                       };
-                      if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
-                      if (data.layout) setObsSettings((current) => normalizeObsSettings({ ...current, ...data.layout }));
+                      if (!response.ok || !data.ok)
+                        throw new Error(data.error || `HTTP ${response.status}`);
+                      if (data.layout)
+                        setObsSettings((current) =>
+                          normalizeObsSettings({ ...current, ...data.layout }),
+                        );
                       if (Array.isArray(data.allowedScenes)) {
                         setObsSettings((current) => ({
                           ...current,
@@ -1923,10 +2005,15 @@ function SettingsPanel({
                       Cenas permitidas para automacoes
                     </div>
                     <div className="mt-1 text-xs text-slate-400">
-                      Sincronize do OBS e marque apenas as cenas que podem ser acionadas por gatilhos.
+                      Sincronize do OBS e marque apenas as cenas que podem ser acionadas por
+                      gatilhos.
                     </div>
                   </div>
-                  <Button variant="secondary" loading={loading} onClick={() => void syncObsScenes()}>
+                  <Button
+                    variant="secondary"
+                    loading={loading}
+                    onClick={() => void syncObsScenes()}
+                  >
                     <RefreshCw className="h-4 w-4" />
                     Sincronizar cenas
                   </Button>
@@ -1992,7 +2079,11 @@ function SettingsPanel({
                   <RefreshCw className="h-4 w-4" />
                   Testar source
                 </Button>
-                <Button variant="secondary" loading={loading} onClick={() => void loadObsSettings()}>
+                <Button
+                  variant="secondary"
+                  loading={loading}
+                  onClick={() => void loadObsSettings()}
+                >
                   <RefreshCw className="h-4 w-4" />
                   Recarregar
                 </Button>
@@ -2017,7 +2108,8 @@ function SettingsPanel({
                 <div>
                   <SectionTitle icon={<ClipboardCheck />} title="Configuracao do Iniciar Live" />
                   <p className="mt-2 text-sm text-slate-400">
-                    O botao do topo executa este plano. Use a simulacao para conferir tudo sem afetar a live.
+                    O botao do topo executa este plano. Use a simulacao para conferir tudo sem
+                    afetar a live.
                   </p>
                 </div>
                 <Badge variant={liveConfig.actionMode === 'real' ? 'danger' : 'success'}>
@@ -2114,11 +2206,19 @@ function SettingsPanel({
                   )}
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Button variant="secondary" loading={livePlanLoading} onClick={() => void loadLivePlan()}>
+                  <Button
+                    variant="secondary"
+                    loading={livePlanLoading}
+                    onClick={() => void loadLivePlan()}
+                  >
                     <RefreshCw className="h-4 w-4" />
                     Atualizar plano
                   </Button>
-                  <Button variant="success" loading={livePlanLoading} onClick={() => void simulateLiveStart()}>
+                  <Button
+                    variant="success"
+                    loading={livePlanLoading}
+                    onClick={() => void simulateLiveStart()}
+                  >
                     <ShieldAlert className="h-4 w-4" />
                     Simular Iniciar Live
                   </Button>
@@ -2137,7 +2237,8 @@ function SettingsPanel({
                 <div>
                   <SectionTitle icon={<Link2 />} title="Webhooks" />
                   <p className="mt-2 text-sm text-slate-400">
-                    Cadastre endpoints genericos para gatilhos. n8n entra aqui como um webhook comum.
+                    Cadastre endpoints genericos para gatilhos. n8n entra aqui como um webhook
+                    comum.
                   </p>
                 </div>
                 <Badge variant={webhooks.length ? 'success' : 'default'}>
@@ -2161,9 +2262,7 @@ function SettingsPanel({
                             <div className="truncate text-sm font-semibold text-white">
                               {webhook.name}
                             </div>
-                            <div className="mt-1 truncate text-xs text-slate-500">
-                              {webhook.id}
-                            </div>
+                            <div className="mt-1 truncate text-xs text-slate-500">{webhook.id}</div>
                           </button>
                           <Badge variant={webhook.enabled ? 'success' : 'warning'}>
                             {webhook.enabled ? 'ativo' : 'pausado'}
@@ -2282,7 +2381,11 @@ function SettingsPanel({
                     />
                   </label>
                   <div className="flex flex-wrap gap-2 md:col-span-2">
-                    <Button variant="primary" loading={webhookSaving} onClick={() => void saveWebhook()}>
+                    <Button
+                      variant="primary"
+                      loading={webhookSaving}
+                      onClick={() => void saveWebhook()}
+                    >
                       <CheckCircle2 className="h-4 w-4" />
                       Salvar webhook
                     </Button>
@@ -2397,12 +2500,11 @@ function SettingsPanel({
                   />
                 </label>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3 text-xs leading-5 text-slate-400">
-                  Estas preferencias ficam locais por enquanto. A estrutura ja deixa o painel pronto para
-                  plugar provedores de erro, custos de API e novas automacoes.
+                  Estas preferencias ficam locais por enquanto. A estrutura ja deixa o painel pronto
+                  para plugar provedores de erro, custos de API e novas automacoes.
                 </div>
               </div>
             </div>
-
 
             <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
               <SectionTitle icon={<ListVideo />} title="Diagnostico OBS" />
@@ -2415,7 +2517,10 @@ function SettingsPanel({
                   label="Cenas OBS"
                   value={String(availableScenes.length || obsHealth?.availableScenes?.length || 0)}
                 />
-                <FlowDatum label="Cenas permitidas" value={String(obsSettings.allowedScenes.length)} />
+                <FlowDatum
+                  label="Cenas permitidas"
+                  value={String(obsSettings.allowedScenes.length)}
+                />
                 <FlowDatum
                   label="Resolucao"
                   value={
@@ -2527,12 +2632,18 @@ function ReactiveFlowLogLab({
               <FlowDatum label="Entrada" value={latestRun?.input || 'aguardando teste'} />
               <FlowDatum label="Tipo parseado" value={textValue(parsedEvent?.kind)} />
               <FlowDatum label="Gift key" value={textValue(parsedEvent?.gift_key)} />
-              <FlowDatum label="Mensagem" value={textValue(parsedEvent?.message || parsedEvent?.text)} />
+              <FlowDatum
+                label="Mensagem"
+                value={textValue(parsedEvent?.message || parsedEvent?.text)}
+              />
               <FlowDatum label="Gatilho" value={textValue(matched[0]?.name || matched[0]?.id)} />
               <FlowDatum label="Video enfileirado" value={textValue(queued[0]?.videoId)} />
               <FlowDatum
                 label="Video atual"
-                value={textValue(videoState?.current_video_id || latestRun?.executions[0]?.videoState?.current_video_id)}
+                value={textValue(
+                  videoState?.current_video_id ||
+                    latestRun?.executions[0]?.videoState?.current_video_id,
+                )}
               />
             </div>
           </div>
@@ -2540,16 +2651,24 @@ function ReactiveFlowLogLab({
           <div className="min-h-[260px] overflow-y-auto rounded-[28px] border border-white/10 bg-[#101114] p-4">
             <SectionTitle icon={<ListVideo />} title="Eventos capturados" />
             <div className="mt-4 space-y-2 pr-1">
-              {capturedText.slice(-10).reverse().map((event) => (
-                <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
-                  <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-[var(--t3)]">
-                    <span>{event.kind}</span>
-                    <span>{event.time}</span>
+              {capturedText
+                .slice(-10)
+                .reverse()
+                .map((event) => (
+                  <div
+                    key={event.id}
+                    className="rounded-2xl border border-white/10 bg-white/[0.045] p-3"
+                  >
+                    <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-[var(--t3)]">
+                      <span>{event.kind}</span>
+                      <span>{event.time}</span>
+                    </div>
+                    <div className="line-clamp-2 text-sm text-slate-200">{event.text}</div>
                   </div>
-                  <div className="line-clamp-2 text-sm text-slate-200">{event.text}</div>
-                </div>
-              ))}
-              {!capturedText.length && <div className="text-sm text-slate-500">Nenhum evento capturado.</div>}
+                ))}
+              {!capturedText.length && (
+                <div className="text-sm text-slate-500">Nenhum evento capturado.</div>
+              )}
             </div>
           </div>
         </div>
@@ -2559,9 +2678,20 @@ function ReactiveFlowLogLab({
         <SectionTitle icon={<ListVideo />} title="Timeline backend" />
         <div className="mt-4 space-y-2 pr-1">
           {logs.map((entry, index) => (
-            <div key={`${entry.timestamp}-${index}`} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
+            <div
+              key={`${entry.timestamp}-${index}`}
+              className="rounded-2xl border border-white/10 bg-white/[0.045] p-3"
+            >
               <div className="mb-1 flex items-center justify-between gap-2">
-                <Badge variant={entry.stage === 'EXECUTOR' ? 'success' : entry.stage === 'FILTER' ? 'warning' : 'lavender'}>
+                <Badge
+                  variant={
+                    entry.stage === 'EXECUTOR'
+                      ? 'success'
+                      : entry.stage === 'FILTER'
+                        ? 'warning'
+                        : 'lavender'
+                  }
+                >
                   {entry.stage}
                 </Badge>
                 <span className="text-[10px] text-slate-500">
@@ -2586,7 +2716,9 @@ function ReactiveFlowLogLab({
 function FlowDatum({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
-      <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">{label}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
+        {label}
+      </div>
       <div className="mt-1 break-words text-sm font-semibold text-white">{value}</div>
     </div>
   );
@@ -2694,7 +2826,9 @@ function HomeDashboard({
                   }
                   onEnded={async () => {
                     if (videoState.state !== 'ACTION') return;
-                    await fetch(apiUrl('/api/video/idle'), { method: 'POST' }).catch(() => undefined);
+                    await fetch(apiUrl('/api/video/idle'), { method: 'POST' }).catch(
+                      () => undefined,
+                    );
                     onRefresh();
                   }}
                   playsInline
@@ -2734,7 +2868,9 @@ function HomeDashboard({
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-white">
-                        {trigger ? eventLabel(trigger) : `Sinal ${String(index + 1).padStart(2, '0')}`}
+                        {trigger
+                          ? eventLabel(trigger)
+                          : `Sinal ${String(index + 1).padStart(2, '0')}`}
                       </span>
                       <StatusDot status={trigger?.enabled ? 'online' : 'warn'} />
                     </div>
@@ -2807,10 +2943,15 @@ function HomeDashboard({
             </div>
             <div className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
               {latestEvents.map((event) => (
-                <div key={event.id} className="rounded-[18px] border border-white/10 bg-black/25 p-3">
+                <div
+                  key={event.id}
+                  className="rounded-[18px] border border-white/10 bg-black/25 p-3"
+                >
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-mono text-[10px] text-slate-500">{event.time}</span>
-                    <Badge variant={event.kind === 'gift' ? 'lavender' : 'default'}>{event.kind}</Badge>
+                    <Badge variant={event.kind === 'gift' ? 'lavender' : 'default'}>
+                      {event.kind}
+                    </Badge>
                   </div>
                   <div className="mt-2 text-sm font-semibold text-white">{event.source}</div>
                   <div className="mt-1 line-clamp-2 text-sm text-slate-300">{event.text}</div>
@@ -2864,11 +3005,14 @@ function HomeDashboard({
                       muted
                       loop={
                         videoState.state !== 'ACTION' &&
-                        (videoState.current_video_id === view.idleVideoId || !!view.currentVideo?.loop)
+                        (videoState.current_video_id === view.idleVideoId ||
+                          !!view.currentVideo?.loop)
                       }
                       onEnded={async () => {
                         if (videoState.state !== 'ACTION') return;
-                        await fetch(apiUrl('/api/video/idle'), { method: 'POST' }).catch(() => undefined);
+                        await fetch(apiUrl('/api/video/idle'), { method: 'POST' }).catch(
+                          () => undefined,
+                        );
                         onRefresh();
                       }}
                       playsInline
@@ -2943,9 +3087,7 @@ function HomeDashboard({
                           <span className="text-[10px] font-semibold uppercase tracking-widest text-sky-200">
                             sinal {String(index + 1).padStart(2, '0')}
                           </span>
-                          <StatusDot
-                            status={trigger?.enabled ? 'online' : 'warn'}
-                          />
+                          <StatusDot status={trigger?.enabled ? 'online' : 'warn'} />
                         </div>
                         <div className="mt-2 truncate text-sm font-semibold text-white">
                           {trigger ? eventLabel(trigger) : 'sinal'}
@@ -3181,7 +3323,10 @@ export function ContinuityPlayer({
     let playTimer = 0;
     const swapTimer = window.setTimeout(() => {
       setSlotClips((current) => {
-        const next: [VideoClip | null, VideoClip | null] = [...current] as [VideoClip | null, VideoClip | null];
+        const next: [VideoClip | null, VideoClip | null] = [...current] as [
+          VideoClip | null,
+          VideoClip | null,
+        ];
         next[nextSlot] = clip;
         return next;
       });
@@ -3269,9 +3414,9 @@ export function ContinuityPlayer({
           playsInline
           loop={Boolean(
             slotClip &&
-              slotClip.returnToIdle === false &&
-              !slotClip.endSec &&
-              videos.find((item) => item.id === slotClip.videoId)?.loop,
+            slotClip.returnToIdle === false &&
+            !slotClip.endSec &&
+            videos.find((item) => item.id === slotClip.videoId)?.loop,
           )}
           preload={activeSlot === index ? 'auto' : 'metadata'}
           src={slotClip ? apiUrl(`/api/video/play/${slotClip.videoId}`) : undefined}
@@ -3293,7 +3438,8 @@ export function ContinuityPlayer({
       <audio ref={audioRef} />
       {showLabel && (
         <div className="pointer-events-none absolute bottom-4 left-4 rounded-lg bg-black/60 px-2 py-1 text-[10px] font-mono text-white/45">
-          {clipDisplayName(clip, videos)} | {formatClipTime(clip.startSec)} {'->'} {formatClipTime(clip.endSec)}
+          {clipDisplayName(clip, videos)} | {formatClipTime(clip.startSec)} {'->'}{' '}
+          {formatClipTime(clip.endSec)}
         </div>
       )}
     </div>
@@ -3407,7 +3553,9 @@ function ClipTimeline({
               onClick={() => onModeChange('sequence')}
               className={cn(
                 'rounded-lg px-3 py-1.5 text-xs font-semibold',
-                mode === 'sequence' ? 'bg-[var(--gold)] text-black' : 'text-slate-400 hover:text-white',
+                mode === 'sequence'
+                  ? 'bg-[var(--gold)] text-black'
+                  : 'text-slate-400 hover:text-white',
               )}
             >
               Sequencia atual
@@ -3417,7 +3565,9 @@ function ClipTimeline({
               onClick={() => onModeChange('workflow')}
               className={cn(
                 'rounded-lg px-3 py-1.5 text-xs font-semibold',
-                mode === 'workflow' ? 'bg-[var(--gold)] text-black' : 'text-slate-400 hover:text-white',
+                mode === 'workflow'
+                  ? 'bg-[var(--gold)] text-black'
+                  : 'text-slate-400 hover:text-white',
               )}
             >
               Workflow completo
@@ -3464,7 +3614,10 @@ function ClipTimeline({
                       : 'configurada'
                 : '';
               return (
-                <div key={`${clipKey(clip)}-${index}`} className="flex shrink-0 items-stretch gap-2">
+                <div
+                  key={`${clipKey(clip)}-${index}`}
+                  className="flex shrink-0 items-stretch gap-2"
+                >
                   <button
                     type="button"
                     onClick={() => {
@@ -3473,7 +3626,9 @@ function ClipTimeline({
                     }}
                     className={cn(
                       'relative h-24 overflow-hidden rounded-md border bg-black text-left',
-                      isSelected ? 'border-[var(--gold)] ring-2 ring-[var(--gold)]/55' : 'border-white/10',
+                      isSelected
+                        ? 'border-[var(--gold)] ring-2 ring-[var(--gold)]/55'
+                        : 'border-white/10',
                       isActive && 'shadow-[0_0_0_2px_rgba(56,189,248,0.55)]',
                     )}
                     style={{ width: `${zoom}px` }}
@@ -3485,7 +3640,8 @@ function ClipTimeline({
                         {clipDisplayName(clip, view.videos)}
                       </div>
                       <div className="mt-0.5 truncate font-mono text-[10px] text-slate-300">
-                        {formatClipTime(clip.startSec)} {'->'} {formatClipTime(clip.endSec)} | {clip.audio?.mode || 'muted'}
+                        {formatClipTime(clip.startSec)} {'->'} {formatClipTime(clip.endSec)} |{' '}
+                        {clip.audio?.mode || 'muted'}
                       </div>
                     </div>
                     <span className="absolute left-0 top-0 h-full w-2 cursor-ew-resize border-r border-[var(--gold)]/70 bg-[var(--gold)]/20" />
@@ -3532,7 +3688,9 @@ function ClipTimeline({
                 {clipDisplayName(selectedClip, view.videos)}
               </div>
               <div className="mt-1 text-xs text-slate-500">
-                {selectedClip.nodeId === activeNodeId ? 'Clipe ativo no palco' : 'Clipe selecionado'}
+                {selectedClip.nodeId === activeNodeId
+                  ? 'Clipe ativo no palco'
+                  : 'Clipe selecionado'}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -3542,7 +3700,9 @@ function ClipTimeline({
                 step="0.1"
                 value={selectedClip.startSec}
                 onChange={(event) =>
-                  void onPatchClip(selectedClip.nodeId || '', { startSec: Number(event.target.value) || 0 })
+                  void onPatchClip(selectedClip.nodeId || '', {
+                    startSec: Number(event.target.value) || 0,
+                  })
                 }
               />
               <Input
@@ -3564,7 +3724,9 @@ function ClipTimeline({
               max="2000"
               value={selectedClip.transitionMs}
               onChange={(event) =>
-                void onPatchClip(selectedClip.nodeId || '', { transitionMs: Number(event.target.value) || 0 })
+                void onPatchClip(selectedClip.nodeId || '', {
+                  transitionMs: Number(event.target.value) || 0,
+                })
               }
             />
           </div>
@@ -3827,7 +3989,9 @@ function StagePanel({
   const displayClip = connectionPreviewClip || activeClip;
   const upcomingClips = Array.isArray(videoState?.upcoming) ? videoState.upcoming : [];
   const latestSignals = capturedText.slice(-3).reverse();
-  const activeClipLabel = activeClip ? clipDisplayName(activeClip, view.videos) : 'Sem video selecionado';
+  const activeClipLabel = activeClip
+    ? clipDisplayName(activeClip, view.videos)
+    : 'Sem video selecionado';
   const activeNodeId = videoState?.activeNodeId || activeClip?.nodeId || null;
   const activeConnectionId = videoState?.activeConnectionId || null;
   const selectedClip =
@@ -3899,7 +4063,10 @@ function StagePanel({
 
   if (isFullscreen) {
     return (
-      <div ref={stageRef} className="flex h-screen w-screen items-center justify-center overflow-hidden bg-black">
+      <div
+        ref={stageRef}
+        className="flex h-screen w-screen items-center justify-center overflow-hidden bg-black"
+      >
         <div className="relative aspect-[9/16] h-full max-h-screen max-w-full bg-black">
           <ContinuityPlayer
             clip={activeClip}
@@ -3950,7 +4117,8 @@ function StagePanel({
             <span className="pointer-events-none absolute left-1/2 top-[-28px] h-7 w-px bg-[var(--gold)]" />
             <span className="pointer-events-none absolute left-1/2 top-[-31px] h-2 w-2 -translate-x-[3.5px] rounded-full border-2 border-[var(--gold)] bg-[#101114]" />
             <div className="pointer-events-none absolute bottom-2 left-2 max-w-[calc(100%-16px)] rounded bg-black/65 px-2 py-1 text-[10px] font-mono text-white/45">
-              {connectionPreviewClip ? 'PREVIEW CONEXAO' : 'ID'}: {displayClip?.videoId || view.idleVideoId || 'None'} |{' '}
+              {connectionPreviewClip ? 'PREVIEW CONEXAO' : 'ID'}:{' '}
+              {displayClip?.videoId || view.idleVideoId || 'None'} |{' '}
               {formatClipTime(displayClip?.startSec)} {'->'} {formatClipTime(displayClip?.endSec)}
             </div>
           </div>
@@ -4023,7 +4191,11 @@ function StagePanel({
               aria-label={runtime.autopilotEnabled ? 'Pausar live' : 'Iniciar live'}
               title={runtime.autopilotEnabled ? 'Pausar live' : 'Iniciar live'}
             >
-              {runtime.autopilotEnabled ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+              {runtime.autopilotEnabled ? (
+                <Pause className="h-5 w-5" />
+              ) : (
+                <Play className="h-5 w-5" />
+              )}
             </button>
             <EditorIconButton title="Proximo clipe" onClick={() => void advanceVideo()}>
               <FastForward className="h-4 w-4" />
@@ -4085,15 +4257,41 @@ function StagePanel({
             Simular Rosa pelo ingest
           </button>
           <span className="hidden h-5 w-px bg-white/10 md:inline" />
-          <span className="flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: obsDirectStatus?.state === 'connected' ? '#34d399' : obsDirectStatus?.state === 'connecting' ? '#fbbf24' : '#64748b' }}>
-            <span className="inline-block h-2 w-2 rounded-full" style={{ background: obsDirectStatus?.state === 'connected' ? '#34d399' : obsDirectStatus?.state === 'connecting' ? '#fbbf24' : '#64748b' }} />
-            {obsDirectStatus?.state === 'connected' ? 'OBS Direto' : obsDirectStatus?.state === 'connecting' ? 'Conectando...' : 'OBS Offline'}
+          <span
+            className="flex items-center gap-1.5 text-[11px] font-semibold"
+            style={{
+              color:
+                obsDirectStatus?.state === 'connected'
+                  ? '#34d399'
+                  : obsDirectStatus?.state === 'connecting'
+                    ? '#fbbf24'
+                    : '#64748b',
+            }}
+          >
+            <span
+              className="inline-block h-2 w-2 rounded-full"
+              style={{
+                background:
+                  obsDirectStatus?.state === 'connected'
+                    ? '#34d399'
+                    : obsDirectStatus?.state === 'connecting'
+                      ? '#fbbf24'
+                      : '#64748b',
+              }}
+            />
+            {obsDirectStatus?.state === 'connected'
+              ? 'OBS Direto'
+              : obsDirectStatus?.state === 'connecting'
+                ? 'Conectando...'
+                : 'OBS Offline'}
           </span>
           <Button
             size="sm"
             variant="secondary"
             loading={obsBusy === 'Preparar OBS'}
-            onClick={() => void runRoutedCommand('Preparar OBS', () => routeSetupLiveScene(obsSettingsFromApp))}
+            onClick={() =>
+              void runRoutedCommand('Preparar OBS', () => routeSetupLiveScene(obsSettingsFromApp))
+            }
           >
             Preparar OBS
           </Button>
@@ -4101,7 +4299,9 @@ function StagePanel({
             size="sm"
             variant="secondary"
             loading={obsBusy === 'Tela inicial'}
-            onClick={() => void runRoutedCommand('Tela inicial', () => routeShowStart(obsSettingsFromApp))}
+            onClick={() =>
+              void runRoutedCommand('Tela inicial', () => routeShowStart(obsSettingsFromApp))
+            }
           >
             Tela inicial
           </Button>
@@ -4109,7 +4309,9 @@ function StagePanel({
             size="sm"
             variant="secondary"
             loading={obsBusy === 'Palco ao vivo'}
-            onClick={() => void runRoutedCommand('Palco ao vivo', () => routeShowStage(obsSettingsFromApp))}
+            onClick={() =>
+              void runRoutedCommand('Palco ao vivo', () => routeShowStage(obsSettingsFromApp))
+            }
           >
             Palco ao vivo
           </Button>
@@ -4117,7 +4319,11 @@ function StagePanel({
             size="sm"
             variant="primary"
             loading={obsBusy === 'Iniciar transmissao'}
-            onClick={() => void runRoutedCommand('Iniciar transmissao', () => routeStartTransmission(obsSettingsFromApp))}
+            onClick={() =>
+              void runRoutedCommand('Iniciar transmissao', () =>
+                routeStartTransmission(obsSettingsFromApp),
+              )
+            }
           >
             Iniciar transmissao
           </Button>
@@ -4125,12 +4331,18 @@ function StagePanel({
             size="sm"
             variant="secondary"
             loading={obsBusy === 'Parar transmissao'}
-            onClick={() => void runRoutedCommand('Parar transmissao', () => routeStopTransmission(obsSettingsFromApp))}
+            onClick={() =>
+              void runRoutedCommand('Parar transmissao', () =>
+                routeStopTransmission(obsSettingsFromApp),
+              )
+            }
           >
             Parar transmissao
           </Button>
           {obsMessage && <span className="truncate text-xs text-slate-500">{obsMessage}</span>}
-          {previewMessage && <span className="truncate text-xs text-emerald-300">{previewMessage}</span>}
+          {previewMessage && (
+            <span className="truncate text-xs text-emerald-300">{previewMessage}</span>
+          )}
         </div>
         <div className="flex min-w-0 items-center gap-2">
           <select
@@ -4257,7 +4469,9 @@ function VideoLibraryPanel({
   };
 
   const archiveVideo = async (videoId: string) => {
-    await fetch(apiUrl(`/video/${encodeURIComponent(videoId)}/archive`), { method: 'POST' }).catch(() => undefined);
+    await fetch(apiUrl(`/video/${encodeURIComponent(videoId)}/archive`), { method: 'POST' }).catch(
+      () => undefined,
+    );
     onChanged();
   };
 
@@ -4363,7 +4577,9 @@ function VideoLibraryPanel({
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Film className="mb-4 h-12 w-12 text-[var(--t3)]" />
           <p className="text-sm font-semibold text-[var(--t1)]">Nenhum video na biblioteca</p>
-          <p className="mt-1 text-xs text-[var(--t3)]">Clique em "Adicionar videos" para fazer upload</p>
+          <p className="mt-1 text-xs text-[var(--t3)]">
+            Clique em "Adicionar videos" para fazer upload
+          </p>
         </div>
       )}
 
@@ -4424,7 +4640,9 @@ function SectionTitle({ icon, title }: { icon: ReactNode; title: string }) {
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="min-w-0 rounded-[22px] border border-[var(--border2)] bg-black/20 p-4 shadow-[var(--shadow-1)]">
-      <div className="heading-serif truncate text-[34px] leading-none text-[var(--t1)]">{value}</div>
+      <div className="heading-serif truncate text-[34px] leading-none text-[var(--t1)]">
+        {value}
+      </div>
       <div className="mt-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-[var(--t3)]">
         {label}
       </div>

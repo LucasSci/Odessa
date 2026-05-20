@@ -44,11 +44,13 @@ npm run lint
 Coloque seus vídeos em uma dessas pastas (em ordem de preferência):
 
 1. **OneDrive (recomendado)**
+
    ```
    C:\Users\{SeuUsuário}\OneDrive\Videos\Captures\
    ```
 
 2. **Videos local**
+
    ```
    C:\Users\{SeuUsuário}\Videos\Odessa\
    ```
@@ -61,6 +63,7 @@ Coloque seus vídeos em uma dessas pastas (em ordem de preferência):
 ### Passo 2: Nomear corretamente
 
 Renomeie todos os vídeos seguindo este padrão:
+
 ```
 video_01.mp4
 video_02.mp4
@@ -70,6 +73,7 @@ video_16.mp4
 ```
 
 **Script auxiliar (PowerShell):**
+
 ```powershell
 # Já existe em: scripts/organize_videos.ps1
 # Para executar:
@@ -97,6 +101,7 @@ curl http://localhost:8000/api/video/available
 ## ▶️ Iniciar o Sistema
 
 ### Terminal 1: Backend
+
 ```bash
 cd server
 python main.py
@@ -105,6 +110,7 @@ python main.py
 ```
 
 ### Terminal 2: Frontend
+
 ```bash
 npm run dev
 # Abre em: http://localhost:3000
@@ -115,11 +121,13 @@ npm run dev
 ## 🎯 Usar PersonaStudio
 
 ### Via UI
+
 1. Abrir http://localhost:3000
 2. Ir para aba **Studio Video** (🎬)
 3. Clicar em **🎁 Gift Recebido** ou **💬 Chat Ativo**
 
 ### Via API (testar manualmente)
+
 ```bash
 # Ver vídeos disponíveis
 curl http://localhost:8000/api/video/available
@@ -213,6 +221,7 @@ const SAFE_TRANSITIONS: Record<string, string[]> = {
 **Causa:** Pasta de vídeos não está na localização esperada
 
 **Solução:**
+
 1. Verificar onde estão os vídeos
 2. Copiar para `OneDrive\Videos\Captures`
 3. Ou editar `server/core/video_files.py` para apontar para a pasta correta
@@ -230,6 +239,7 @@ POSSIBLE_VIDEO_DIRS = [
 **Causa:** PIL.ImageGrab pode ter problemas com multi-monitores
 
 **Solução:**
+
 1. Verificar se todos os monitores têm mesma taxa de refresh
 2. Atualizar Pillow: `pip install --upgrade Pillow`
 3. Testar com uma única tela
@@ -239,6 +249,7 @@ POSSIBLE_VIDEO_DIRS = [
 **Causa:** URL incorreta ou firewall bloqueando
 
 **Solução:**
+
 1. Verificar se frontend está rodando: `http://localhost:3000`
 2. Testar URL em navegador: `http://localhost:3000/#persona-studio`
 3. Verificar firewall: permitir localhost:3000
@@ -249,7 +260,9 @@ POSSIBLE_VIDEO_DIRS = [
 **Causa:** Codec incompatível ou arquivo corrompido
 
 **Solução:**
+
 1. Converter vídeo com FFmpeg:
+
    ```bash
    ffmpeg -i video_original.mp4 -c:v libx264 -c:a aac video_01.mp4
    ```
@@ -297,6 +310,7 @@ curl http://localhost:8000/api/video/health
 ### Para Produção
 
 1. **CORS restritivo:**
+
    ```python
    # server/main.py
    allow_origins=[
@@ -357,6 +371,7 @@ curl http://localhost:8000/api/video/health
 Se encontrar problemas:
 
 1. Verificar logs:
+
    ```bash
    # Backend
    tail -f ~/.odessa/logs.txt
@@ -366,12 +381,14 @@ Se encontrar problemas:
    ```
 
 2. Testar endpoints individualmente:
+
    ```bash
    curl -v http://localhost:8000/api/video/health
    curl -v http://localhost:3000
    ```
 
 3. Limpar cache:
+
    ```bash
    # Frontend
    npm run build

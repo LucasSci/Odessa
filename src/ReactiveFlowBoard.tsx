@@ -160,9 +160,10 @@ function shortVideo(video?: VideoEntry) {
 function playbackFrom(value?: Partial<PlaybackSettings>): PlaybackSettings {
   const startSec = Math.max(0, Number(value?.startSec || 0));
   const rawEnd = value?.endSec;
-  const endSec = rawEnd === null || rawEnd === undefined || Number(rawEnd) <= startSec
-    ? null
-    : Math.max(0, Number(rawEnd));
+  const endSec =
+    rawEnd === null || rawEnd === undefined || Number(rawEnd) <= startSec
+      ? null
+      : Math.max(0, Number(rawEnd));
   const transitionMs = Math.max(0, Math.min(2000, Number(value?.transitionMs ?? 220)));
   return { startSec, endSec, transitionMs };
 }
@@ -218,7 +219,12 @@ function findVideo(videos: VideoEntry[], videoId?: string) {
 
 /** Placeholder for imported nodes whose video isn't in the library yet */
 function placeholderVideo(videoId: string): VideoEntry {
-  return { id: videoId, label: `[${videoId}]`, description: 'Video nao encontrado na biblioteca', missingFile: true };
+  return {
+    id: videoId,
+    label: `[${videoId}]`,
+    description: 'Video nao encontrado na biblioteca',
+    missingFile: true,
+  };
 }
 
 function makeFlowNode(video: VideoEntry, index: number, position?: FlowPosition): FlowNode {
@@ -245,12 +251,18 @@ function makeNode(
     id: flowNode.nodeId,
     type: 'videoNode',
     position: flowNode.position,
-        data: {
-      flowNode: { ...flowNode, playback: playbackFrom(flowNode.playback), audio: audioFrom(flowNode.audio) },
+    data: {
+      flowNode: {
+        ...flowNode,
+        playback: playbackFrom(flowNode.playback),
+        audio: audioFrom(flowNode.audio),
+      },
       video,
       isIdle: video.id === idleVideoId,
       isActive: flowState?.activeNodeId === flowNode.nodeId,
-      isNext: Boolean(flowState?.nextConnectionIds?.some((id) => id && id.includes(flowNode.nodeId))),
+      isNext: Boolean(
+        flowState?.nextConnectionIds?.some((id) => id && id.includes(flowNode.nodeId)),
+      ),
     },
   };
 }
@@ -281,7 +293,9 @@ function makeEdge(
           : isNext
             ? '#fbbf24'
             : trigger?.enabled
-              ? (isNatural ? '#fbbf24' : 'var(--accent)')
+              ? isNatural
+                ? '#fbbf24'
+                : 'var(--accent)'
               : 'rgba(255,255,255,0.24)',
       strokeWidth: isActive ? 4 : isNatural || isNext ? 3 : 2,
       filter: isActive ? 'drop-shadow(0 0 10px rgba(190,242,100,0.45))' : undefined,
@@ -296,7 +310,8 @@ function triggerToConnection(
   nodes: FlowNode[],
   idleNodeId: string,
 ): FlowConnection | null {
-  const targetNodeId = actionNodeId(trigger) || nodes.find((node) => node.videoId === actionVideoId(trigger))?.nodeId;
+  const targetNodeId =
+    actionNodeId(trigger) || nodes.find((node) => node.videoId === actionVideoId(trigger))?.nodeId;
   const targetNode = nodes.find((node) => node.nodeId === targetNodeId);
   const idleNode = nodes.find((node) => node.nodeId === idleNodeId);
   if (!targetNode || !idleNode) return null;
@@ -351,20 +366,30 @@ function buildTransitions(
 
     if (trigger.eventType === 'natural') {
       transitions[fromVideoId] ||= { safe_next: [] };
-      transitions[fromVideoId].safe_next = uniqueList([...transitions[fromVideoId].safe_next, toVideoId]);
+      transitions[fromVideoId].safe_next = uniqueList([
+        ...transitions[fromVideoId].safe_next,
+        toVideoId,
+      ]);
       return;
     }
 
     if (connection.returnToIdle !== false && idleVideoId) {
       transitions[toVideoId] ||= { safe_next: [] };
-      transitions[toVideoId].safe_next = uniqueList([...transitions[toVideoId].safe_next, idleVideoId]);
+      transitions[toVideoId].safe_next = uniqueList([
+        ...transitions[toVideoId].safe_next,
+        idleVideoId,
+      ]);
     }
   });
 
   return transitions;
 }
 
-function buildActionMap(current: Record<string, string[]> | undefined, triggers: TriggerEntry[], idleVideoId: string) {
+function buildActionMap(
+  current: Record<string, string[]> | undefined,
+  triggers: TriggerEntry[],
+  idleVideoId: string,
+) {
   const nextMap: Record<string, string[]> = { ...(current || {}) };
   nextMap.idle = idleVideoId ? [idleVideoId] : [];
   nextMap.gift = [];
@@ -409,24 +434,40 @@ function VideoFlowNode({ data, selected }: NodeProps<VideoFlowNodeType>) {
       className={cn(
         'w-56 overflow-hidden rounded-[24px] border bg-[#0b0d10] shadow-2xl transition',
         data.isActive && 'odessa-flow-node-active border-lime-200/80',
-        selected ? 'border-sky-200/70 shadow-[0_0_40px_rgba(125,211,252,0.2)]' : 'border-[var(--border)]',
+        selected
+          ? 'border-sky-200/70 shadow-[0_0_40px_rgba(125,211,252,0.2)]'
+          : 'border-[var(--border)]',
       )}
     >
-      <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-sky-100 !bg-sky-300" />
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!h-3 !w-3 !border-sky-100 !bg-sky-300"
+      />
       <div className="relative aspect-video bg-black">
         <StaticThumbnail videoId={data.video.id} className="h-full w-full" />
         <div className="absolute left-2 top-2 flex gap-1.5">
           {data.isIdle && <Badge variant="gold">Idle</Badge>}
           {data.isActive && <Badge variant="success">Agora</Badge>}
           {data.video.missingFile && <Badge variant="warning">Sem arquivo</Badge>}
-          <Badge variant="lavender">{secondsLabel(playback.startSec)} {'->'} {secondsLabel(playback.endSec)}</Badge>
+          <Badge variant="lavender">
+            {secondsLabel(playback.startSec)} {'->'} {secondsLabel(playback.endSec)}
+          </Badge>
         </div>
       </div>
       <div className="p-3">
-        <div className="truncate text-sm font-semibold text-white">{nodeTitle(data.flowNode, data.video)}</div>
-        <div className="mt-1 truncate text-[11px] text-[var(--t3)]">{data.video.group || data.video.id}</div>
+        <div className="truncate text-sm font-semibold text-white">
+          {nodeTitle(data.flowNode, data.video)}
+        </div>
+        <div className="mt-1 truncate text-[11px] text-[var(--t3)]">
+          {data.video.group || data.video.id}
+        </div>
       </div>
-      <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-sky-100 !bg-sky-300" />
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!h-3 !w-3 !border-sky-100 !bg-sky-300"
+      />
     </div>
   );
 }
@@ -455,12 +496,16 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [selectedEdgeIds, setSelectedEdgeIds] = useState<string[]>([]);
   const [flowState, setFlowState] = useState<FlowRuntimeState | null>(null);
-  const [animateFlow, setAnimateFlow] = useState(() => localStorage.getItem('odessa:flow-animate') !== 'false');
+  const [animateFlow, setAnimateFlow] = useState(
+    () => localStorage.getItem('odessa:flow-animate') !== 'false',
+  );
   const [workflowPreview, setWorkflowPreview] = useState<Record<string, unknown> | null>(null);
   const [pendingWorkflow, setPendingWorkflow] = useState<Record<string, unknown> | null>(null);
   const [publishPreview, setPublishPreview] = useState<Record<string, unknown> | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [wfProfiles, setWfProfiles] = useState<Array<{ id: string; name: string; updatedAt?: string }>>([]);
+  const [wfProfiles, setWfProfiles] = useState<
+    Array<{ id: string; name: string; updatedAt?: string }>
+  >([]);
   const [wfProfileName, setWfProfileName] = useState('');
   const [activeWfProfileId, setActiveWfProfileId] = useState('');
   const [nodes, setNodes, onNodesChange] = useNodesState<VideoFlowNodeType>([]);
@@ -510,7 +555,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
           toVideoId: nodeById.get(connection.toNodeId)?.videoId || connection.toVideoId,
           returnToIdle: connection.returnToIdle !== false,
         }))
-        .filter((connection) => nodeById.has(connection.fromNodeId) && nodeById.has(connection.toNodeId));
+        .filter(
+          (connection) => nodeById.has(connection.fromNodeId) && nodeById.has(connection.toNodeId),
+        );
       const nextTriggers = (data.triggers || []).map((trigger) => {
         const connection = nextConnections.find((item) => item.triggerId === trigger.id);
         return connection ? normalizeTriggerForConnection(trigger, connection, nodeById) : trigger;
@@ -530,15 +577,20 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
       };
       setConfig(nextConfig);
       setNodes(
-        nextFlowNodes
-          .map((flowNode) => {
-            const video = findVideo(nextVideos, flowNode.videoId) || placeholderVideo(flowNode.videoId);
-            return makeNode(flowNode, video, idleVideoId, null);
-          }),
+        nextFlowNodes.map((flowNode) => {
+          const video =
+            findVideo(nextVideos, flowNode.videoId) || placeholderVideo(flowNode.videoId);
+          return makeNode(flowNode, video, idleVideoId, null);
+        }),
       );
       setEdges(
         nextConnections.map((connection) =>
-          makeEdge(connection, nextTriggers.find((trigger) => trigger.id === connection.triggerId), null, animateFlow),
+          makeEdge(
+            connection,
+            nextTriggers.find((trigger) => trigger.id === connection.triggerId),
+            null,
+            animateFlow,
+          ),
         ),
       );
     } catch (err) {
@@ -563,11 +615,17 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
       const raw = window.localStorage.getItem(WF_PROFILES_KEY);
       const parsed = raw ? JSON.parse(raw) : [];
       return Array.isArray(parsed) ? parsed : [];
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   };
 
   const writeProfilesToStorage = (list: typeof wfProfiles) => {
-    try { window.localStorage.setItem(WF_PROFILES_KEY, JSON.stringify(list)); } catch { /* ignore */ }
+    try {
+      window.localStorage.setItem(WF_PROFILES_KEY, JSON.stringify(list));
+    } catch {
+      /* ignore */
+    }
   };
 
   const loadWfProfiles = useCallback(async () => {
@@ -576,7 +634,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
       const raw = window.localStorage.getItem(WF_PROFILES_KEY);
       const parsed = raw ? JSON.parse(raw) : [];
       if (Array.isArray(parsed)) setWfProfiles(parsed);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   const saveWfProfile = async (name: string) => {
@@ -602,21 +662,30 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
         videos: config?.videos || [],
         action_map: config?.action_map || {},
         transitions: config?.transitions || [],
-        flowLayout: flowNodesSnapshot.reduce((acc, n) => {
-          acc[n.nodeId] = n.position;
-          return acc;
-        }, {} as Record<string, { x: number; y: number }>),
+        flowLayout: flowNodesSnapshot.reduce(
+          (acc, n) => {
+            acc[n.nodeId] = n.position;
+            return acc;
+          },
+          {} as Record<string, { x: number; y: number }>,
+        ),
       };
       const existing = readProfilesFromStorage();
       const existingIdx = existing.findIndex((p) => p.name === name);
       const profile = {
-        id: existingIdx >= 0 ? existing[existingIdx].id : `wf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id:
+          existingIdx >= 0
+            ? existing[existingIdx].id
+            : `wf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         name,
         workflow: snapshot,
         createdAt: existingIdx >= 0 ? existing[existingIdx].createdAt : new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-      const next = existingIdx >= 0 ? existing.map((p, i) => i === existingIdx ? profile : p) : [...existing, profile];
+      const next =
+        existingIdx >= 0
+          ? existing.map((p, i) => (i === existingIdx ? profile : p))
+          : [...existing, profile];
       writeProfilesToStorage(next);
       setWfProfiles(next);
       setActiveWfProfileId(profile.id);
@@ -664,30 +733,41 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
       writeProfilesToStorage(next);
       setWfProfiles(next);
       if (activeWfProfileId === id) setActiveWfProfileId('');
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   };
 
-  useEffect(() => { void loadWfProfiles(); }, [loadWfProfiles]);
+  useEffect(() => {
+    void loadWfProfiles();
+  }, [loadWfProfiles]);
 
   const videos = useMemo(() => config?.videos || [], [config?.videos]);
   const triggers = useMemo(() => config?.triggers || [], [config?.triggers]);
   const connections = useMemo(() => config?.flowConnections || [], [config?.flowConnections]);
   const flowNodes = useMemo(() => config?.flowNodes || [], [config?.flowNodes]);
   const idleVideoId = config?.idleVideoId || '';
-  const nodeById = useMemo(() => new Map(flowNodes.map((node) => [node.nodeId, node])), [flowNodes]);
+  const nodeById = useMemo(
+    () => new Map(flowNodes.map((node) => [node.nodeId, node])),
+    [flowNodes],
+  );
   const selectedFlowNode = nodeById.get(selectedNodeId);
   const selectedVideo = findVideo(videos, selectedFlowNode?.videoId);
   const selectedConnection = connections.find((connection) => connection.id === selectedEdgeId);
   const selectedTrigger = triggers.find((trigger) => trigger.id === selectedConnection?.triggerId);
   const selectedTargetNode = nodeById.get(selectedConnection?.toNodeId || '');
   const selectedTargetVideo = findVideo(videos, selectedTargetNode?.videoId);
-  const selectedNodeConnections = connections.filter((connection) => connection.toNodeId === selectedNodeId);
+  const selectedNodeConnections = connections.filter(
+    (connection) => connection.toNodeId === selectedNodeId,
+  );
   const selectedNodeTriggers = selectedNodeConnections
     .map((connection) => ({
       connection,
       trigger: triggers.find((trigger) => trigger.id === connection.triggerId),
     }))
-    .filter((entry): entry is { connection: FlowConnection; trigger: TriggerEntry } => Boolean(entry.trigger));
+    .filter((entry): entry is { connection: FlowConnection; trigger: TriggerEntry } =>
+      Boolean(entry.trigger),
+    );
 
   const refreshFlowState = useCallback(async () => {
     try {
@@ -698,7 +778,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
         activeNodeId: data.activeNodeId || data.currentClip?.nodeId || null,
         activeConnectionId: data.activeConnectionId || null,
         nextConnectionIds: Array.isArray(data.nextConnectionIds) ? data.nextConnectionIds : [],
-        blockedConnectionIds: Array.isArray(data.blockedConnectionIds) ? data.blockedConnectionIds : [],
+        blockedConnectionIds: Array.isArray(data.blockedConnectionIds)
+          ? data.blockedConnectionIds
+          : [],
         executionMode: data.executionMode || 'live',
         lastTransitionAt: data.lastTransitionAt || data.start_ts || null,
       });
@@ -763,24 +845,34 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     [animateFlow, flowState, setEdges],
   );
 
-  const updateConfig = useCallback((recipe: (current: PersonaConfig) => PersonaConfig) => {
-    setConfig((current) => {
-      if (!current) return current;
-      const next = recipe(current);
-      const nextNodeById = new Map((next.flowNodes || []).map((node) => [node.nodeId, node]));
-      setNodes((currentNodes) =>
-        currentNodes.map((node) => {
-          const flowNode = nextNodeById.get(node.id);
-          const video = next.videos.find((item) => item.id === flowNode?.videoId);
-          return flowNode && video
-            ? { ...node, data: { flowNode: { ...flowNode, audio: audioFrom(flowNode.audio) }, video, isIdle: video.id === next.idleVideoId } }
-            : node;
-        }),
-      );
-      syncEdges(next.flowConnections || [], next.triggers || []);
-      return next;
-    });
-  }, [setNodes, syncEdges]);
+  const updateConfig = useCallback(
+    (recipe: (current: PersonaConfig) => PersonaConfig) => {
+      setConfig((current) => {
+        if (!current) return current;
+        const next = recipe(current);
+        const nextNodeById = new Map((next.flowNodes || []).map((node) => [node.nodeId, node]));
+        setNodes((currentNodes) =>
+          currentNodes.map((node) => {
+            const flowNode = nextNodeById.get(node.id);
+            const video = next.videos.find((item) => item.id === flowNode?.videoId);
+            return flowNode && video
+              ? {
+                  ...node,
+                  data: {
+                    flowNode: { ...flowNode, audio: audioFrom(flowNode.audio) },
+                    video,
+                    isIdle: video.id === next.idleVideoId,
+                  },
+                }
+              : node;
+          }),
+        );
+        syncEdges(next.flowConnections || [], next.triggers || []);
+        return next;
+      });
+    },
+    [setNodes, syncEdges],
+  );
 
   const updateFlowNode = (nodeId: string, patch: Partial<FlowNode>) => {
     updateConfig((current) => ({
@@ -807,7 +899,13 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
 
   const createConnection = useCallback(
     (connection: Connection) => {
-      if (!config || !connection.source || !connection.target || connection.source === connection.target) return;
+      if (
+        !config ||
+        !connection.source ||
+        !connection.target ||
+        connection.source === connection.target
+      )
+        return;
       const fromNode = nodeById.get(connection.source);
       const toNode = nodeById.get(connection.target);
       if (!fromNode || !toNode) return;
@@ -851,17 +949,20 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     [config, nodeById, setEdges, videos],
   );
 
-  const addNodeToCanvas = useCallback((video: VideoEntry, position?: FlowPosition) => {
-    const flowNode = makeFlowNode(video, nodes.length, position);
-    setNodes((current) => [...current, makeNode(flowNode, video, idleVideoId)]);
-    updateConfig((current) => ({
-      ...current,
-      flowNodes: [...(current.flowNodes || []), flowNode],
-      flowCanvasVideoIds: uniqueList([...(current.flowCanvasVideoIds || []), video.id]),
-    }));
-    setSelectedNodeId(flowNode.nodeId);
-    setSelectedEdgeId('');
-  }, [idleVideoId, nodes.length, setNodes, updateConfig]);
+  const addNodeToCanvas = useCallback(
+    (video: VideoEntry, position?: FlowPosition) => {
+      const flowNode = makeFlowNode(video, nodes.length, position);
+      setNodes((current) => [...current, makeNode(flowNode, video, idleVideoId)]);
+      updateConfig((current) => ({
+        ...current,
+        flowNodes: [...(current.flowNodes || []), flowNode],
+        flowCanvasVideoIds: uniqueList([...(current.flowCanvasVideoIds || []), video.id]),
+      }));
+      setSelectedNodeId(flowNode.nodeId);
+      setSelectedEdgeId('');
+    },
+    [idleVideoId, nodes.length, setNodes, updateConfig],
+  );
 
   const setIdleFromNode = (nodeId: string) => {
     const idleNode = nodeById.get(nodeId);
@@ -887,19 +988,25 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
 
   const updateTrigger = (triggerId: string, patch: Partial<TriggerEntry>) => {
     updateConfig((current) => {
-      const connection = (current.flowConnections || []).find((item) => item.triggerId === triggerId);
+      const connection = (current.flowConnections || []).find(
+        (item) => item.triggerId === triggerId,
+      );
       const currentNodeById = new Map((current.flowNodes || []).map((node) => [node.nodeId, node]));
       return {
         ...current,
         triggers: current.triggers.map((trigger) =>
           trigger.id === triggerId
-            ? normalizeTriggerForConnection({ ...trigger, ...patch }, connection || {
-                id: `flow-${triggerId}`,
-                fromNodeId: '',
-                toNodeId: actionNodeId(trigger),
-                triggerId,
-                returnToIdle: true,
-              }, currentNodeById)
+            ? normalizeTriggerForConnection(
+                { ...trigger, ...patch },
+                connection || {
+                  id: `flow-${triggerId}`,
+                  fromNodeId: '',
+                  toNodeId: actionNodeId(trigger),
+                  triggerId,
+                  returnToIdle: true,
+                },
+                currentNodeById,
+              )
             : trigger,
         ),
       };
@@ -914,7 +1021,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
       const currentNodeById = new Map((current.flowNodes || []).map((node) => [node.nodeId, node]));
       const nextTriggers = current.triggers.map((trigger) => {
         const connection = nextConnections.find((item) => item.triggerId === trigger.id);
-        return connection ? normalizeTriggerForConnection(trigger, connection, currentNodeById) : trigger;
+        return connection
+          ? normalizeTriggerForConnection(trigger, connection, currentNodeById)
+          : trigger;
       });
       return { ...current, flowConnections: nextConnections, triggers: nextTriggers };
     });
@@ -934,7 +1043,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     updateConfig((current) => ({
       ...current,
       videos: current.videos.map((video) =>
-        video.id === videoId ? { ...video, loop: video.id === current.idleVideoId ? true : loop } : video,
+        video.id === videoId
+          ? { ...video, loop: video.id === current.idleVideoId ? true : loop }
+          : video,
       ),
     }));
   };
@@ -990,7 +1101,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   const removeTrigger = (triggerId: string) => {
     updateConfig((current) => ({
       ...current,
-      flowConnections: (current.flowConnections || []).filter((connection) => connection.triggerId !== triggerId),
+      flowConnections: (current.flowConnections || []).filter(
+        (connection) => connection.triggerId !== triggerId,
+      ),
       triggers: current.triggers.filter((trigger) => trigger.id !== triggerId),
     }));
     if (selectedConnection?.triggerId === triggerId) setSelectedEdgeId('');
@@ -1005,7 +1118,11 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     if (!selectedFlowNode) return;
     const affectedConnectionIds = new Set(
       connections
-        .filter((connection) => connection.fromNodeId === selectedFlowNode.nodeId || connection.toNodeId === selectedFlowNode.nodeId)
+        .filter(
+          (connection) =>
+            connection.fromNodeId === selectedFlowNode.nodeId ||
+            connection.toNodeId === selectedFlowNode.nodeId,
+        )
         .map((connection) => connection.id),
     );
     const affectedTriggerIds = new Set(
@@ -1015,8 +1132,12 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     );
     updateConfig((current) => ({
       ...current,
-      flowNodes: (current.flowNodes || []).filter((node) => node.nodeId !== selectedFlowNode.nodeId),
-      flowConnections: (current.flowConnections || []).filter((connection) => !affectedConnectionIds.has(connection.id)),
+      flowNodes: (current.flowNodes || []).filter(
+        (node) => node.nodeId !== selectedFlowNode.nodeId,
+      ),
+      flowConnections: (current.flowConnections || []).filter(
+        (connection) => !affectedConnectionIds.has(connection.id),
+      ),
       triggers: current.triggers.filter((trigger) => !affectedTriggerIds.has(trigger.id)),
     }));
     setNodes((current) => current.filter((node) => node.id !== selectedFlowNode.nodeId));
@@ -1041,7 +1162,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
       connections
         .filter(
           (connection) =>
-            edgeIds.has(connection.id) || nodeIds.has(connection.fromNodeId) || nodeIds.has(connection.toNodeId),
+            edgeIds.has(connection.id) ||
+            nodeIds.has(connection.fromNodeId) ||
+            nodeIds.has(connection.toNodeId),
         )
         .map((connection) => connection.id),
     );
@@ -1053,7 +1176,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     updateConfig((current) => ({
       ...current,
       flowNodes: (current.flowNodes || []).filter((node) => !nodeIds.has(node.nodeId)),
-      flowConnections: (current.flowConnections || []).filter((connection) => !affectedConnectionIds.has(connection.id)),
+      flowConnections: (current.flowConnections || []).filter(
+        (connection) => !affectedConnectionIds.has(connection.id),
+      ),
       triggers: current.triggers.filter((trigger) => !affectedTriggerIds.has(trigger.id)),
     }));
     setNodes((current) => current.filter((node) => !nodeIds.has(node.id)));
@@ -1077,16 +1202,19 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     updateConfig((current) => ({
       ...current,
       flowNodes: [...(current.flowNodes || []), ...clones],
-      flowCanvasVideoIds: uniqueList([...(current.flowCanvasVideoIds || []), ...clones.map((node) => node.videoId)]),
+      flowCanvasVideoIds: uniqueList([
+        ...(current.flowCanvasVideoIds || []),
+        ...clones.map((node) => node.videoId),
+      ]),
     }));
     setNodes((current) => [
       ...current,
-      ...clones
+      ...(clones
         .map((node) => {
           const video = findVideo(videos, node.videoId);
           return video ? makeNode(node, video, idleVideoId) : null;
         })
-        .filter(Boolean) as VideoFlowNodeType[],
+        .filter(Boolean) as VideoFlowNodeType[]),
     ]);
     setStatusMessage('Instancias duplicadas no rascunho.');
   };
@@ -1098,12 +1226,16 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     updateConfig((current) => ({
       ...current,
       flowNodes: (current.flowNodes || []).map((node) =>
-        selectedNodeIds.includes(node.nodeId) ? { ...node, position: { ...node.position, y: targetY } } : node,
+        selectedNodeIds.includes(node.nodeId)
+          ? { ...node, position: { ...node.position, y: targetY } }
+          : node,
       ),
     }));
     setNodes((current) =>
       current.map((node) =>
-        selectedNodeIds.includes(node.id) ? { ...node, position: { ...node.position, y: targetY } } : node,
+        selectedNodeIds.includes(node.id)
+          ? { ...node, position: { ...node.position, y: targetY } }
+          : node,
       ),
     );
     setStatusMessage('Selecao alinhada no rascunho.');
@@ -1112,7 +1244,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
-      const videoId = event.dataTransfer.getData('application/odessa-video') || event.dataTransfer.getData('text/plain');
+      const videoId =
+        event.dataTransfer.getData('application/odessa-video') ||
+        event.dataTransfer.getData('text/plain');
       const video = videos.find((item) => item.id === videoId);
       if (!video || !wrapperRef.current) return;
       addNodeToCanvas(video, screenToFlowPosition({ x: event.clientX, y: event.clientY }));
@@ -1136,7 +1270,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     const nextNodeById = new Map(nextFlowNodes.map((node) => [node.nodeId, node]));
     const normalizedConnections = edges
       .map((edge) => {
-        const existing = (config.flowConnections || []).find((connection) => connection.id === edge.id);
+        const existing = (config.flowConnections || []).find(
+          (connection) => connection.id === edge.id,
+        );
         const source = nextNodeById.get(edge.source);
         const target = nextNodeById.get(edge.target);
         if (!existing || !source || !target) return null;
@@ -1152,7 +1288,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     const idleId = config.idleVideoId || config.action_map?.idle?.[0] || '';
     const nextTriggers = (config.triggers || []).map((trigger) => {
       const connection = normalizedConnections.find((item) => item.triggerId === trigger.id);
-      return connection ? normalizeTriggerForConnection(trigger, connection, nextNodeById) : trigger;
+      return connection
+        ? normalizeTriggerForConnection(trigger, connection, nextNodeById)
+        : trigger;
     });
     const nextConfig: PersonaConfig = {
       ...config,
@@ -1177,7 +1315,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
         body: JSON.stringify({ workflow: nextConfig }),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = (await response.json().catch(() => ({}))) as { validation?: Record<string, unknown> };
+      const data = (await response.json().catch(() => ({}))) as {
+        validation?: Record<string, unknown>;
+      };
       setConfig(nextConfig);
       setStatusMessage('Rascunho salvo. A live continua usando o fluxo publicado.');
       setPublishPreview(data.validation || null);
@@ -1239,7 +1379,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch(apiUrl('/workflow/draft/reset-from-published'), { method: 'POST' });
+      const response = await fetch(apiUrl('/workflow/draft/reset-from-published'), {
+        method: 'POST',
+      });
       const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
       if (!response.ok) throw new Error(String(data.detail || `HTTP ${response.status}`));
       setStatusMessage('Rascunho revertido para a versao publicada.');
@@ -1262,7 +1404,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: 'Lucas enviou Rosa', kind: 'gift', source: 'draft' }),
       });
-      const data = (await response.json().catch(() => ({}))) as { plan?: Array<Record<string, unknown>> };
+      const data = (await response.json().catch(() => ({}))) as {
+        plan?: Array<Record<string, unknown>>;
+      };
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const active = data.plan?.find((item) => item.activeNodeId);
       setFlowState({
@@ -1329,9 +1473,14 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
       if (!workflow || typeof workflow !== 'object') {
         throw new Error('JSON invalido: esperado um objeto com videos, flowNodes, triggers, etc.');
       }
-      const hasFlowData = Array.isArray(workflow.flowNodes) || Array.isArray(workflow.triggers) || Array.isArray(workflow.videos);
+      const hasFlowData =
+        Array.isArray(workflow.flowNodes) ||
+        Array.isArray(workflow.triggers) ||
+        Array.isArray(workflow.videos);
       if (!hasFlowData) {
-        throw new Error('JSON nao parece ser um workflow Odessa. Campos esperados: flowNodes, triggers, videos.');
+        throw new Error(
+          'JSON nao parece ser um workflow Odessa. Campos esperados: flowNodes, triggers, videos.',
+        );
       }
       const response = await fetch(apiUrl('/video/workflow/validate'), {
         method: 'POST',
@@ -1339,7 +1488,11 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
         body: JSON.stringify(workflow),
       });
       const preview = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-      console.log('[Odessa] Validacao:', { status: response.status, ok: preview.ok, warnings: preview.warnings });
+      console.log('[Odessa] Validacao:', {
+        status: response.status,
+        ok: preview.ok,
+        warnings: preview.warnings,
+      });
       if (!response.ok) throw new Error(String(preview.detail || `HTTP ${response.status}`));
       setPendingWorkflow(workflow);
       setWorkflowPreview(preview);
@@ -1360,17 +1513,31 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
       const bodyStr = JSON.stringify(payload);
       console.log('[Odessa] Importando workflow:', {
         bodySize: bodyStr.length,
-        flowNodes: Array.isArray(pendingWorkflow.flowNodes) ? (pendingWorkflow.flowNodes as unknown[]).length : 0,
-        triggers: Array.isArray(pendingWorkflow.triggers) ? (pendingWorkflow.triggers as unknown[]).length : 0,
-        videos: Array.isArray(pendingWorkflow.videos) ? (pendingWorkflow.videos as unknown[]).length : 0,
+        flowNodes: Array.isArray(pendingWorkflow.flowNodes)
+          ? (pendingWorkflow.flowNodes as unknown[]).length
+          : 0,
+        triggers: Array.isArray(pendingWorkflow.triggers)
+          ? (pendingWorkflow.triggers as unknown[]).length
+          : 0,
+        videos: Array.isArray(pendingWorkflow.videos)
+          ? (pendingWorkflow.videos as unknown[]).length
+          : 0,
       });
       const response = await fetch(apiUrl('/workflow/draft'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: bodyStr,
       });
-      const data = (await response.json().catch(() => ({}))) as { detail?: string; ok?: boolean; updatedAt?: string };
-      console.log('[Odessa] Resposta import:', { status: response.status, ok: data.ok, updatedAt: data.updatedAt });
+      const data = (await response.json().catch(() => ({}))) as {
+        detail?: string;
+        ok?: boolean;
+        updatedAt?: string;
+      };
+      console.log('[Odessa] Resposta import:', {
+        status: response.status,
+        ok: data.ok,
+        updatedAt: data.updatedAt,
+      });
       if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
       if (!data.ok) throw new Error(data.detail || 'Servidor retornou ok=false');
       setPendingWorkflow(null);
@@ -1459,7 +1626,11 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
           <Video className="h-4 w-4 text-sky-200" />
           Biblioteca
         </div>
-        <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar videos..." />
+        <Input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Buscar videos..."
+        />
         <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
           {filteredVideos.map((video) => {
             const copies = flowNodes.filter((node) => node.videoId === video.id).length;
@@ -1478,8 +1649,12 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
                 <div className="flex gap-3">
                   <StaticThumbnail videoId={video.id} className="h-14 w-20 shrink-0 rounded-xl" />
                   <div className="min-w-0">
-                    <div className="truncate text-xs font-semibold text-white">{shortVideo(video)}</div>
-                    <div className="mt-1 truncate text-[10px] text-[var(--t3)]">{video.group || video.id}</div>
+                    <div className="truncate text-xs font-semibold text-white">
+                      {shortVideo(video)}
+                    </div>
+                    <div className="mt-1 truncate text-[10px] text-[var(--t3)]">
+                      {video.group || video.id}
+                    </div>
                     <div className="mt-1 flex gap-1">
                       {video.id === idleVideoId && <Badge variant="gold">Idle</Badge>}
                       {copies > 0 && <Badge variant="lavender">{copies} no canvas</Badge>}
@@ -1544,7 +1719,11 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
             <Button onClick={() => void resetDraft()} loading={saving} variant="secondary">
               Reverter
             </Button>
-            <Button onClick={() => void testDraft()} loading={testing === 'draft'} variant="secondary">
+            <Button
+              onClick={() => void testDraft()}
+              loading={testing === 'draft'}
+              variant="secondary"
+            >
               <Play className="h-4 w-4" />
               Testar rascunho
             </Button>
@@ -1573,10 +1752,17 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
               <select
                 className="h-7 cursor-pointer rounded-lg border border-white/10 bg-white/[0.06] px-2 pr-6 text-xs text-white outline-none focus:border-sky-400/40"
                 value={activeWfProfileId}
-                onChange={(e) => { if (e.target.value) void applyWfProfile(e.target.value); else setActiveWfProfileId(''); }}
+                onChange={(e) => {
+                  if (e.target.value) void applyWfProfile(e.target.value);
+                  else setActiveWfProfileId('');
+                }}
               >
                 <option value="">Selecionar perfil...</option>
-                {wfProfiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                {wfProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
               </select>
               {activeWfProfileId && (
                 <button
@@ -1590,16 +1776,25 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
               <div className="mx-0.5 h-4 w-px bg-white/10" />
             </>
           ) : (
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Perfis</span>
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+              Perfis
+            </span>
           )}
           <input
             className="h-7 w-32 rounded-lg border border-white/10 bg-white/[0.04] px-2 text-xs text-white placeholder:text-slate-500 outline-none focus:border-sky-400/40"
             value={wfProfileName}
             onChange={(e) => setWfProfileName(e.target.value)}
             placeholder="Novo perfil..."
-            onKeyDown={(e) => { if (e.key === 'Enter') void saveWfProfile(wfProfileName); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void saveWfProfile(wfProfileName);
+            }}
           />
-          <Button size="sm" variant="secondary" disabled={!wfProfileName.trim() || saving} onClick={() => void saveWfProfile(wfProfileName)}>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!wfProfileName.trim() || saving}
+            onClick={() => void saveWfProfile(wfProfileName)}
+          >
             <Save className="h-3 w-3" />
           </Button>
         </div>
@@ -1624,11 +1819,21 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
               {selectedNodeIds.length} no(s), {selectedEdgeIds.length} conexao(oes) selecionados
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="secondary" onClick={duplicateSelectedNodes} disabled={!selectedNodeIds.length}>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={duplicateSelectedNodes}
+                disabled={!selectedNodeIds.length}
+              >
                 <Plus className="h-4 w-4" />
                 Duplicar
               </Button>
-              <Button size="sm" variant="secondary" onClick={alignSelectedNodes} disabled={selectedNodeIds.length < 2}>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={alignSelectedNodes}
+                disabled={selectedNodeIds.length < 2}
+              >
                 Alinhar
               </Button>
               <Button size="sm" variant="danger" onClick={deleteSelectedItems}>
@@ -1653,41 +1858,50 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
           </div>
         )}
 
-        {workflowPreview && (() => {
-          const s = (workflowPreview.summary || {}) as Record<string, unknown>;
-          const warnings = Array.isArray(workflowPreview.warnings) ? workflowPreview.warnings as string[] : [];
-          return (
-            <div className="absolute left-5 right-5 top-24 z-40 rounded-3xl border border-sky-200/25 bg-[#0b0d10]/95 p-4 shadow-2xl backdrop-blur">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="text-sm font-semibold text-white">Importar workflow</div>
-                  <div className="flex gap-2 text-xs text-[var(--t3)]">
-                    <span>{String(s.videos ?? 0)} videos</span>
-                    <span>·</span>
-                    <span>{String(s.flowNodes ?? 0)} nodes</span>
-                    <span>·</span>
-                    <span>{String(s.triggers ?? 0)} triggers</span>
-                    <span>·</span>
-                    <span>{String(s.flowConnections ?? 0)} conexoes</span>
+        {workflowPreview &&
+          (() => {
+            const s = (workflowPreview.summary || {}) as Record<string, unknown>;
+            const warnings = Array.isArray(workflowPreview.warnings)
+              ? (workflowPreview.warnings as string[])
+              : [];
+            return (
+              <div className="absolute left-5 right-5 top-24 z-40 rounded-3xl border border-sky-200/25 bg-[#0b0d10]/95 p-4 shadow-2xl backdrop-blur">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="text-sm font-semibold text-white">Importar workflow</div>
+                    <div className="flex gap-2 text-xs text-[var(--t3)]">
+                      <span>{String(s.videos ?? 0)} videos</span>
+                      <span>·</span>
+                      <span>{String(s.flowNodes ?? 0)} nodes</span>
+                      <span>·</span>
+                      <span>{String(s.triggers ?? 0)} triggers</span>
+                      <span>·</span>
+                      <span>{String(s.flowConnections ?? 0)} conexoes</span>
+                    </div>
+                    {warnings.length > 0 && (
+                      <span className="text-xs text-amber-200" title={warnings.join('\n')}>
+                        {warnings.length} aviso{warnings.length > 1 ? 's' : ''}
+                      </span>
+                    )}
                   </div>
-                  {warnings.length > 0 && (
-                    <span className="text-xs text-amber-200" title={warnings.join('\n')}>
-                      {warnings.length} aviso{warnings.length > 1 ? 's' : ''}
-                    </span>
-                  )}
-                </div>
-                <div className="flex shrink-0 gap-2">
-                  <Button variant="secondary" onClick={() => { setWorkflowPreview(null); setPendingWorkflow(null); }}>
-                    Cancelar
-                  </Button>
-                  <Button variant="primary" loading={saving} onClick={applyWorkflowImport}>
-                    Aplicar
-                  </Button>
+                  <div className="flex shrink-0 gap-2">
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setWorkflowPreview(null);
+                        setPendingWorkflow(null);
+                      }}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button variant="primary" loading={saving} onClick={applyWorkflowImport}>
+                      Aplicar
+                    </Button>
+                  </div>
                 </div>
               </div>
-            </div>
-          );
-        })()}
+            );
+          })()}
 
         {nodes.length === 0 && (
           <div className="pointer-events-none absolute inset-0 top-40 z-10 flex flex-col items-center justify-center gap-3 text-center">
@@ -1766,14 +1980,20 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
                 </Badge>
                 <StatusDot status={selectedVideo.id === idleVideoId ? 'idle' : 'online'} />
               </div>
-              <div className="text-lg font-semibold text-white">{nodeTitle(selectedFlowNode, selectedVideo)}</div>
-              <div className="mt-1 truncate text-xs text-[var(--t3)]">{selectedVideo.group || selectedVideo.id}</div>
+              <div className="text-lg font-semibold text-white">
+                {nodeTitle(selectedFlowNode, selectedVideo)}
+              </div>
+              <div className="mt-1 truncate text-xs text-[var(--t3)]">
+                {selectedVideo.group || selectedVideo.id}
+              </div>
             </div>
 
             <Input
               label="Nome da instancia"
               value={selectedFlowNode.label || ''}
-              onChange={(event) => updateFlowNode(selectedFlowNode.nodeId, { label: event.target.value })}
+              onChange={(event) =>
+                updateFlowNode(selectedFlowNode.nodeId, { label: event.target.value })
+              }
             />
 
             <div className="rounded-[24px] border border-[var(--border)] bg-[rgba(255,255,255,0.035)] p-3">
@@ -1788,7 +2008,11 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
                   min="0"
                   step="0.1"
                   value={selectedFlowNode.playback.startSec}
-                  onChange={(event) => updatePlayback(selectedFlowNode.nodeId, { startSec: Number(event.target.value) || 0 })}
+                  onChange={(event) =>
+                    updatePlayback(selectedFlowNode.nodeId, {
+                      startSec: Number(event.target.value) || 0,
+                    })
+                  }
                 />
                 <Input
                   label="Fim s"
@@ -1808,19 +2032,31 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
                   min="0"
                   step="20"
                   value={selectedFlowNode.playback.transitionMs}
-                  onChange={(event) => updatePlayback(selectedFlowNode.nodeId, { transitionMs: Number(event.target.value) || 0 })}
+                  onChange={(event) =>
+                    updatePlayback(selectedFlowNode.nodeId, {
+                      transitionMs: Number(event.target.value) || 0,
+                    })
+                  }
                 />
               </div>
             </div>
 
             <div className="rounded-[24px] border border-[var(--border)] bg-[rgba(255,255,255,0.035)] p-3">
-              <div className="mb-3 text-xs font-semibold uppercase tracking-widest text-[var(--t2)]">Audio do clipe</div>
+              <div className="mb-3 text-xs font-semibold uppercase tracking-widest text-[var(--t2)]">
+                Audio do clipe
+              </div>
               <div className="grid gap-2">
                 <label className="block">
-                  <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">Modo</span>
+                  <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
+                    Modo
+                  </span>
                   <select
                     value={audioFrom(selectedFlowNode.audio).mode}
-                    onChange={(event) => updateAudio(selectedFlowNode.nodeId, { mode: event.target.value as ClipAudioSettings['mode'] })}
+                    onChange={(event) =>
+                      updateAudio(selectedFlowNode.nodeId, {
+                        mode: event.target.value as ClipAudioSettings['mode'],
+                      })
+                    }
                     className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-white outline-none"
                   >
                     <option value="muted">Sem audio</option>
@@ -1835,13 +2071,19 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
                   max="1"
                   step="0.05"
                   value={audioFrom(selectedFlowNode.audio).volume}
-                  onChange={(event) => updateAudio(selectedFlowNode.nodeId, { volume: Number(event.target.value) || 0 })}
+                  onChange={(event) =>
+                    updateAudio(selectedFlowNode.nodeId, {
+                      volume: Number(event.target.value) || 0,
+                    })
+                  }
                 />
                 {audioFrom(selectedFlowNode.audio).mode === 'track' && (
                   <Input
                     label="URL da trilha"
                     value={audioFrom(selectedFlowNode.audio).trackUrl || ''}
-                    onChange={(event) => updateAudio(selectedFlowNode.nodeId, { trackUrl: event.target.value })}
+                    onChange={(event) =>
+                      updateAudio(selectedFlowNode.nodeId, { trackUrl: event.target.value })
+                    }
                   />
                 )}
               </div>
@@ -1868,8 +2110,13 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
 
             <div className="rounded-[24px] border border-[var(--border)] bg-[rgba(255,255,255,0.035)] p-3">
               <div className="mb-3 flex items-center justify-between gap-2">
-                <div className="text-xs font-semibold uppercase tracking-widest text-[var(--t2)]">Gatilhos OCR</div>
-                <Button variant="secondary" onClick={() => createNodeTrigger(selectedFlowNode.nodeId)}>
+                <div className="text-xs font-semibold uppercase tracking-widest text-[var(--t2)]">
+                  Gatilhos OCR
+                </div>
+                <Button
+                  variant="secondary"
+                  onClick={() => createNodeTrigger(selectedFlowNode.nodeId)}
+                >
                   <Plus className="h-4 w-4" />
                   Novo
                 </Button>
@@ -1905,9 +2152,12 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
         ) : !selectedConnection || !selectedTrigger ? (
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center rounded-[26px] border border-dashed border-[var(--border2)] bg-[rgba(255,255,255,0.035)] p-6 text-center">
             <MousePointer2 className="h-8 w-8 text-[var(--t4)]" />
-            <div className="mt-3 text-sm font-semibold text-white">Selecione uma instancia ou conecte uma linha</div>
+            <div className="mt-3 text-sm font-semibold text-white">
+              Selecione uma instancia ou conecte uma linha
+            </div>
             <p className="mt-2 text-xs text-[var(--t3)]">
-              Cada arraste cria uma nova instancia do video. Conecte os pontos laterais para criar rotas.
+              Cada arraste cria uma nova instancia do video. Conecte os pontos laterais para criar
+              rotas.
             </p>
           </div>
         ) : (
@@ -1919,8 +2169,12 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
                 </Badge>
                 <StatusDot status={selectedTrigger.enabled ? 'online' : 'warn'} />
               </div>
-              <div className="text-lg font-semibold text-white">{nodeTitle(selectedTargetNode, selectedTargetVideo)}</div>
-              <div className="mt-1 text-xs text-[var(--t3)]">{eventKey(selectedTrigger)} aciona esta instancia</div>
+              <div className="text-lg font-semibold text-white">
+                {nodeTitle(selectedTargetNode, selectedTargetVideo)}
+              </div>
+              <div className="mt-1 text-xs text-[var(--t3)]">
+                {eventKey(selectedTrigger)} aciona esta instancia
+              </div>
             </div>
 
             <TriggerCard
@@ -1935,11 +2189,19 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
 
             <label className="flex items-center justify-between rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] px-3 py-3 text-sm text-[var(--t1)]">
               <span>Arquivo em loop</span>
-              <input type="checkbox" checked={!!selectedTargetVideo?.loop} onChange={(event) => toggleTargetLoop(event.target.checked)} />
+              <input
+                type="checkbox"
+                checked={!!selectedTargetVideo?.loop}
+                onChange={(event) => toggleTargetLoop(event.target.checked)}
+              />
             </label>
 
             {selectedTargetNode && (
-              <Button className="w-full" variant="secondary" onClick={() => setIdleFromNode(selectedTargetNode.nodeId)}>
+              <Button
+                className="w-full"
+                variant="secondary"
+                onClick={() => setIdleFromNode(selectedTargetNode.nodeId)}
+              >
                 <CircleDot className="h-4 w-4" />
                 Definir como Idle
               </Button>
@@ -1952,7 +2214,8 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
             <Plus className="h-3.5 w-3.5 text-sky-200" />
             Como usar
           </div>
-          Arraste ou clique em videos para criar instancias independentes. Cada instancia pode ter cortes e retorno proprios.
+          Arraste ou clique em videos para criar instancias independentes. Cada instancia pode ter
+          cortes e retorno proprios.
         </div>
       </aside>
     </div>
@@ -2008,16 +2271,24 @@ function TriggerCard({
   return (
     <div className="space-y-3 rounded-[22px] border border-[var(--border)] bg-[rgba(0,0,0,0.20)] p-3">
       <div className="flex items-center justify-between gap-2">
-        <Badge variant={trigger.enabled ? 'success' : 'warning'}>{trigger.enabled ? 'Ativo' : 'Pausado'}</Badge>
+        <Badge variant={trigger.enabled ? 'success' : 'warning'}>
+          {trigger.enabled ? 'Ativo' : 'Pausado'}
+        </Badge>
         <Button variant="danger" onClick={onRemove}>
           <Trash2 className="h-4 w-4" />
         </Button>
       </div>
 
-      <Input label="Nome da regra" value={defaultTriggerName(trigger)} onChange={(event) => onTriggerChange({ name: event.target.value })} />
+      <Input
+        label="Nome da regra"
+        value={defaultTriggerName(trigger)}
+        onChange={(event) => onTriggerChange({ name: event.target.value })}
+      />
 
       <label className="block">
-        <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">Tipo de evento</span>
+        <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
+          Tipo de evento
+        </span>
         <select
           value={trigger.eventType}
           onChange={(event) =>
@@ -2043,10 +2314,17 @@ function TriggerCard({
       {trigger.eventType !== 'natural' && (
         <Input
           label={trigger.eventType === 'gift' ? 'Evento normalizado' : 'Palavra-chave'}
-          value={trigger.eventType === 'gift' ? trigger.conditions?.giftKey || '' : trigger.conditions?.keyword || ''}
+          value={
+            trigger.eventType === 'gift'
+              ? trigger.conditions?.giftKey || ''
+              : trigger.conditions?.keyword || ''
+          }
           onChange={(event) =>
             onTriggerChange({
-              conditions: trigger.eventType === 'gift' ? { giftKey: event.target.value } : { keyword: event.target.value },
+              conditions:
+                trigger.eventType === 'gift'
+                  ? { giftKey: event.target.value }
+                  : { keyword: event.target.value },
             })
           }
         />
@@ -2071,7 +2349,11 @@ function TriggerCard({
 
       <label className="flex items-center justify-between rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,0.035)] px-3 py-3 text-sm text-[var(--t1)]">
         <span>Regra ativa</span>
-        <input type="checkbox" checked={trigger.enabled} onChange={(event) => onTriggerChange({ enabled: event.target.checked })} />
+        <input
+          type="checkbox"
+          checked={trigger.enabled}
+          onChange={(event) => onTriggerChange({ enabled: event.target.checked })}
+        />
       </label>
 
       {trigger.eventType !== 'natural' && (
@@ -2094,7 +2376,12 @@ function TriggerCard({
         />
       )}
 
-      <Button className="w-full" variant="secondary" loading={testing === trigger.id} onClick={onSimulate}>
+      <Button
+        className="w-full"
+        variant="secondary"
+        loading={testing === trigger.id}
+        onClick={onSimulate}
+      >
         <Play className="h-4 w-4" />
         Testar regra
       </Button>

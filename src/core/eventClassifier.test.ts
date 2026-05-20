@@ -24,7 +24,9 @@ describe.skip('eventClassifier — deterministic rules [LEGADO]', () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   it('@user: message is always chat, never gift', () => {
-    const ev = classifyEventDeterministic(makeEvent('@AnaStarlight: Boa! Mandou muito bem nessa partida'));
+    const ev = classifyEventDeterministic(
+      makeEvent('@AnaStarlight: Boa! Mandou muito bem nessa partida'),
+    );
     expect(ev.kind).toBe('chat');
     expect(ev.metadata?.user).toBe('AnaStarlight');
     expect(ev.metadata?.message).toBe('Boa! Mandou muito bem nessa partida');
@@ -87,7 +89,9 @@ describe.skip('eventClassifier — deterministic rules [LEGADO]', () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   it('classifies "CamilaBR resgatou Trocar Cena: Gameplay Focus" as gift+redeem', () => {
-    const ev = classifyEventDeterministic(makeEvent('CamilaBR resgatou Trocar Cena: Gameplay Focus'));
+    const ev = classifyEventDeterministic(
+      makeEvent('CamilaBR resgatou Trocar Cena: Gameplay Focus'),
+    );
     expect(ev.kind).toBe('gift');
     expect(ev.metadata?.redeemable).toBe(true);
     expect(ev.metadata?.mappedAction).toBe('obs.switch_scene');
@@ -101,7 +105,9 @@ describe.skip('eventClassifier — deterministic rules [LEGADO]', () => {
   });
 
   it('detects music redeem', () => {
-    const ev = classifyEventDeterministic(makeEvent('MariLive resgatou Escolher musica: synthwave neon'));
+    const ev = classifyEventDeterministic(
+      makeEvent('MariLive resgatou Escolher musica: synthwave neon'),
+    );
     expect(ev.kind).toBe('gift');
     expect(ev.metadata?.redeemable).toBe(true);
     expect(ev.metadata?.mappedAction).toBe('media.play_music');

@@ -41,9 +41,9 @@ describe('ContinuityPlayer', () => {
     vi.spyOn(HTMLMediaElement.prototype, 'ended', 'get').mockReturnValue(false);
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
     vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => undefined);
-    playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined) as unknown as ReturnType<
-      typeof vi.fn
-    >;
+    playSpy = vi
+      .spyOn(HTMLMediaElement.prototype, 'play')
+      .mockResolvedValue(undefined) as unknown as ReturnType<typeof vi.fn>;
   });
 
   afterEach(() => {

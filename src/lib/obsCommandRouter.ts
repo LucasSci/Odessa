@@ -45,7 +45,11 @@ async function relayPost(path: string, body?: Record<string, unknown>): Promise<
       ...data,
     };
   } catch (err) {
-    return { ok: false, route: 'relay', error: err instanceof Error ? err.message : 'Falha de rede' };
+    return {
+      ok: false,
+      route: 'relay',
+      error: err instanceof Error ? err.message : 'Falha de rede',
+    };
   }
 }
 
@@ -60,7 +64,11 @@ async function relayGet(path: string): Promise<CommandResult> {
       ...data,
     };
   } catch (err) {
-    return { ok: false, route: 'relay', error: err instanceof Error ? err.message : 'Falha de rede' };
+    return {
+      ok: false,
+      route: 'relay',
+      error: err instanceof Error ? err.message : 'Falha de rede',
+    };
   }
 }
 
@@ -72,18 +80,27 @@ export async function routeSetupLiveScene(settings: ObsSettings | null): Promise
       const result = await obsSetupLiveScene(settings);
       return { ...result, route: 'direct' };
     } catch (err) {
-      return { ok: false, route: 'direct', error: err instanceof Error ? err.message : String(err) };
+      return {
+        ok: false,
+        route: 'direct',
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
-  return relayPost('/obs/setup-live-scene', settings ? {
-    stageUrl: settings.stageUrl,
-    startupSceneName: settings.startupSceneName,
-    liveSceneName: settings.liveSceneName,
-    stageSourceName: settings.stageSourceName,
-    chatSourceName: settings.chatSourceName,
-    canvasWidth: settings.canvasWidth,
-    canvasHeight: settings.canvasHeight,
-  } : undefined);
+  return relayPost(
+    '/obs/setup-live-scene',
+    settings
+      ? {
+          stageUrl: settings.stageUrl,
+          startupSceneName: settings.startupSceneName,
+          liveSceneName: settings.liveSceneName,
+          stageSourceName: settings.stageSourceName,
+          chatSourceName: settings.chatSourceName,
+          canvasWidth: settings.canvasWidth,
+          canvasHeight: settings.canvasHeight,
+        }
+      : undefined,
+  );
 }
 
 export async function routeShowStart(settings: ObsSettings | null): Promise<CommandResult> {
@@ -93,7 +110,11 @@ export async function routeShowStart(settings: ObsSettings | null): Promise<Comm
       const result = await obsSwitchScene(sceneName);
       return { ...result, route: 'direct', currentScene: sceneName };
     } catch (err) {
-      return { ok: false, route: 'direct', error: err instanceof Error ? err.message : String(err) };
+      return {
+        ok: false,
+        route: 'direct',
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
   return relayPost('/obs/show-start', { startupSceneName: sceneName });
@@ -106,7 +127,11 @@ export async function routeShowStage(settings: ObsSettings | null): Promise<Comm
       const result = await obsSwitchScene(sceneName);
       return { ...result, route: 'direct', currentScene: sceneName };
     } catch (err) {
-      return { ok: false, route: 'direct', error: err instanceof Error ? err.message : String(err) };
+      return {
+        ok: false,
+        route: 'direct',
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
   return relayPost('/obs/show-stage', { liveSceneName: sceneName });
@@ -119,7 +144,11 @@ export async function routeStartTransmission(settings: ObsSettings | null): Prom
       const result = await obsStartTransmission(mode);
       return { ...result, route: 'direct', mode };
     } catch (err) {
-      return { ok: false, route: 'direct', error: err instanceof Error ? err.message : String(err) };
+      return {
+        ok: false,
+        route: 'direct',
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
   return relayPost('/obs/transmission/start', { transmissionMode: mode });
@@ -132,7 +161,11 @@ export async function routeStopTransmission(settings: ObsSettings | null): Promi
       const result = await obsStopTransmission(mode);
       return { ...result, route: 'direct', mode };
     } catch (err) {
-      return { ok: false, route: 'direct', error: err instanceof Error ? err.message : String(err) };
+      return {
+        ok: false,
+        route: 'direct',
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
   return relayPost('/obs/transmission/stop', { transmissionMode: mode });
@@ -144,7 +177,11 @@ export async function routeSwitchScene(sceneName: string): Promise<CommandResult
       const result = await obsSwitchScene(sceneName);
       return { ...result, route: 'direct', currentScene: sceneName };
     } catch (err) {
-      return { ok: false, route: 'direct', error: err instanceof Error ? err.message : String(err) };
+      return {
+        ok: false,
+        route: 'direct',
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
   return relayPost('/obs/switch-scene', { sceneName });
@@ -156,7 +193,11 @@ export async function routeLiveHealth(settings: ObsSettings | null): Promise<Com
       const result = await obsLiveHealth(settings || undefined);
       return { ...result, route: 'direct' };
     } catch (err) {
-      return { ok: false, route: 'direct', error: err instanceof Error ? err.message : String(err) };
+      return {
+        ok: false,
+        route: 'direct',
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
   return relayGet('/obs/live-health');

@@ -15,22 +15,27 @@ Em vez de alternar livremente entre todos os vídeos, a Odessa utiliza um sistem
 ## 📂 Grupos de Vídeos
 
 ### Grupo A — Base / Idle / Retorno
+
 Estes formam o "loop vivo" da Odessa.
+
 - `video_04`: Âncora principal / Idle base.
 - `video_16`: Âncora próxima da câmera.
 - `video_14`: Ponte de piscada (ótimo para conectar tudo).
 - `video_05`: Retorno suave.
 
 ### Grupo B — Olhar Lateral
+
 - `video_07`, `video_08`: Olhar para o lado (leitura ou desvio).
 - `video_09`: Sorriso fechado.
 - `video_15`: Retorno de olhar.
 
 ### Grupo C — Movimento de Mão (Cabelo)
+
 - `video_10`, `video_11`, `video_12`, `video_13`: Diferentes toques no cabelo e pescoço.
-> **Dica:** Evite entrar nestes clipes direto de um plano muito diferente. A mão deve aparecer de forma fluida.
+  > **Dica:** Evite entrar nestes clipes direto de um plano muito diferente. A mão deve aparecer de forma fluida.
 
 ### Grupo D — Agradecimentos
+
 - `video_01`: Agradecimento forte/emocional.
 - `video_02`: Reação a Gift/Doação.
 - `video_03`: Agradecimento suave.
@@ -40,12 +45,15 @@ Estes formam o "loop vivo" da Odessa.
 ## 🚀 Sequências Recomendadas
 
 ### Sem Interação (Idle Loop)
+
 `04` → `14` → `16` → `09` → `05` → `04`
 
 ### Reação a Elogio
+
 `04` ou `16` → `03` → `14` → `05` → `04`
 
 ### Lendo Chat
+
 `04` → `07` → `06` (Leitura) → `05` → `16`
 
 ---
@@ -59,4 +67,5 @@ Estes formam o "loop vivo" da Odessa.
 ---
 
 ## 📄 Lógica Programática
+
 A lógica de transição está codificada em `server/core/video_logic.py`, permitindo que o sistema recomende o próximo clipe seguro automaticamente.

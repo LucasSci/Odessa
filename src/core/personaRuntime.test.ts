@@ -65,7 +65,15 @@ vi.mock('./longTermMemory', () => ({
  */
 describe.skip('personaRuntime [LEGADO — fora do escopo atual]', () => {
   const events: LiveEvent[] = [
-    { id: '1', source: 'ocr', zoneName: 'chat', text: 'Olá', kind: 'chat', createdAt: '2026-05-05T00:00:00Z', time: '12:00:00' },
+    {
+      id: '1',
+      source: 'ocr',
+      zoneName: 'chat',
+      text: 'Olá',
+      kind: 'chat',
+      createdAt: '2026-05-05T00:00:00Z',
+      time: '12:00:00',
+    },
   ];
   const options: PersonaRuntimeOptions = {
     personaPrompt: 'You are Juju.',
@@ -199,7 +207,15 @@ describe.skip('personaRuntime [LEGADO — fora do escopo atual]', () => {
 
   it('should record an error if a critical step fails outside local try/catches', async () => {
     const events: LiveEvent[] = [
-      { id: '3', source: 'ocr', zoneName: 'test', text: 'fail', kind: 'chat', createdAt: '2026-05-05T00:00:00Z', time: '12:00:00' },
+      {
+        id: '3',
+        source: 'ocr',
+        zoneName: 'test',
+        text: 'fail',
+        kind: 'chat',
+        createdAt: '2026-05-05T00:00:00Z',
+        time: '12:00:00',
+      },
     ];
 
     // Force a critical failure in classifyEvent which is not caught locally

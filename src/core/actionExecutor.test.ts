@@ -34,9 +34,30 @@ global.URL.revokeObjectURL = vi.fn();
  */
 describe.skip('actionExecutor [LEGADO — fora do escopo atual]', () => {
   const tools: PersonaTool[] = [
-    { id: 'tts', label: 'TTS', capability: 'tts.speak', enabled: true, simulated: false, requiresApproval: false },
-    { id: 'chat', label: 'Chat', capability: 'chat.reply', enabled: true, simulated: true, requiresApproval: false },
-    { id: 'obs', label: 'OBS', capability: 'obs.switch_scene', enabled: true, simulated: true, requiresApproval: false },
+    {
+      id: 'tts',
+      label: 'TTS',
+      capability: 'tts.speak',
+      enabled: true,
+      simulated: false,
+      requiresApproval: false,
+    },
+    {
+      id: 'chat',
+      label: 'Chat',
+      capability: 'chat.reply',
+      enabled: true,
+      simulated: true,
+      requiresApproval: false,
+    },
+    {
+      id: 'obs',
+      label: 'OBS',
+      capability: 'obs.switch_scene',
+      enabled: true,
+      simulated: true,
+      requiresApproval: false,
+    },
   ];
 
   const decision: PersonaDecision = {
@@ -105,7 +126,14 @@ describe.skip('actionExecutor [LEGADO — fora do escopo atual]', () => {
 
   it('should block execution if tool is disabled', async () => {
     const disabledTools: PersonaTool[] = [
-      { id: 'tts', label: 'TTS', capability: 'tts.speak', enabled: false, simulated: false, requiresApproval: false },
+      {
+        id: 'tts',
+        label: 'TTS',
+        capability: 'tts.speak',
+        enabled: false,
+        simulated: false,
+        requiresApproval: false,
+      },
     ];
     const action: AutopilotAction = {
       id: '3',

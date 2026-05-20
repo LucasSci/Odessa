@@ -50,7 +50,8 @@ interface TriggerEditorProps {
 
 function actionKind(action?: Action): ActionType {
   if (!action) return 'play_video';
-  if (action.capability === 'obs.switch_scene' || action.type === 'switch_scene') return 'switch_scene';
+  if (action.capability === 'obs.switch_scene' || action.type === 'switch_scene')
+    return 'switch_scene';
   if (action.capability === 'webhook.call' || action.type === 'webhook') return 'webhook';
   if (action.capability === 'log.event' || action.type === 'log_event') return 'log_event';
   return 'play_video';
@@ -58,10 +59,7 @@ function actionKind(action?: Action): ActionType {
 
 function sceneFromAction(action?: Action) {
   return (
-    action?.payload?.sceneName ||
-    action?.payload?.scene ||
-    action?.payload?.requestedScene ||
-    ''
+    action?.payload?.sceneName || action?.payload?.scene || action?.payload?.requestedScene || ''
   );
 }
 
@@ -217,7 +215,8 @@ export default function TriggerEditor({ onConfigChange }: TriggerEditorProps) {
             Editor de Gatilhos
           </h2>
           <p className="mt-1 text-sm text-slate-400">
-            Configure quando um evento do OCR deve tocar video, trocar cena OBS, chamar webhook ou registrar log.
+            Configure quando um evento do OCR deve tocar video, trocar cena OBS, chamar webhook ou
+            registrar log.
           </p>
         </div>
 
@@ -256,7 +255,9 @@ export default function TriggerEditor({ onConfigChange }: TriggerEditorProps) {
             <div className="rounded-xl border-2 border-dashed border-slate-800 py-12 text-center">
               <Zap className="mx-auto mb-4 h-12 w-12 text-slate-600" />
               <p className="font-medium text-slate-400">Nenhum gatilho configurado.</p>
-              <p className="mt-1 text-sm text-slate-500">Crie um gatilho para automatizar reacoes da live.</p>
+              <p className="mt-1 text-sm text-slate-500">
+                Crie um gatilho para automatizar reacoes da live.
+              </p>
             </div>
           ) : (
             triggers.map((trigger) => {
@@ -302,7 +303,9 @@ export default function TriggerEditor({ onConfigChange }: TriggerEditorProps) {
                       <input
                         type="text"
                         value={trigger.name}
-                        onChange={(event) => updateTrigger(trigger.id, { name: event.target.value })}
+                        onChange={(event) =>
+                          updateTrigger(trigger.id, { name: event.target.value })
+                        }
                         className="w-full border-b border-transparent bg-transparent pb-1 text-lg font-bold text-white outline-none focus:border-blue-500"
                         placeholder="Nome do Gatilho"
                       />
@@ -337,7 +340,10 @@ export default function TriggerEditor({ onConfigChange }: TriggerEditorProps) {
                               value={trigger.conditions.giftKey || ''}
                               onChange={(event) =>
                                 updateTrigger(trigger.id, {
-                                  conditions: { ...trigger.conditions, giftKey: event.target.value },
+                                  conditions: {
+                                    ...trigger.conditions,
+                                    giftKey: event.target.value,
+                                  },
                                 })
                               }
                               placeholder="gift.rosa"
@@ -349,7 +355,10 @@ export default function TriggerEditor({ onConfigChange }: TriggerEditorProps) {
                               value={trigger.conditions.keyword || ''}
                               onChange={(event) =>
                                 updateTrigger(trigger.id, {
-                                  conditions: { ...trigger.conditions, keyword: event.target.value },
+                                  conditions: {
+                                    ...trigger.conditions,
+                                    keyword: event.target.value,
+                                  },
                                 })
                               }
                               placeholder="Palavra-chave"
@@ -382,7 +391,9 @@ export default function TriggerEditor({ onConfigChange }: TriggerEditorProps) {
                       {currentKind === 'play_video' && (
                         <select
                           value={videoFromAction(currentAction)}
-                          onChange={(event) => updateAction(trigger, buildAction('play_video', event.target.value))}
+                          onChange={(event) =>
+                            updateAction(trigger, buildAction('play_video', event.target.value))
+                          }
                           className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 outline-none focus:border-amber-500"
                         >
                           {videoOptions.map((video) => (
@@ -396,7 +407,9 @@ export default function TriggerEditor({ onConfigChange }: TriggerEditorProps) {
                       {currentKind === 'switch_scene' && (
                         <select
                           value={sceneFromAction(currentAction)}
-                          onChange={(event) => updateAction(trigger, buildAction('switch_scene', event.target.value))}
+                          onChange={(event) =>
+                            updateAction(trigger, buildAction('switch_scene', event.target.value))
+                          }
                           className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 outline-none focus:border-amber-500"
                         >
                           <option value="">Selecione uma cena permitida</option>
@@ -411,7 +424,9 @@ export default function TriggerEditor({ onConfigChange }: TriggerEditorProps) {
                       {currentKind === 'webhook' && (
                         <select
                           value={webhookFromAction(currentAction)}
-                          onChange={(event) => updateAction(trigger, buildAction('webhook', event.target.value))}
+                          onChange={(event) =>
+                            updateAction(trigger, buildAction('webhook', event.target.value))
+                          }
                           className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 outline-none focus:border-amber-500"
                         >
                           <option value="">Selecione um webhook</option>
@@ -427,7 +442,9 @@ export default function TriggerEditor({ onConfigChange }: TriggerEditorProps) {
                         <input
                           type="text"
                           value={currentAction.payload?.message || ''}
-                          onChange={(event) => updateAction(trigger, buildAction('log_event', event.target.value))}
+                          onChange={(event) =>
+                            updateAction(trigger, buildAction('log_event', event.target.value))
+                          }
                           className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 outline-none focus:border-amber-500"
                         />
                       )}
@@ -438,24 +455,32 @@ export default function TriggerEditor({ onConfigChange }: TriggerEditorProps) {
                         Ajustes
                       </div>
                       <label className="block space-y-1">
-                        <span className="text-[10px] font-bold uppercase text-slate-500">Cooldown ms</span>
+                        <span className="text-[10px] font-bold uppercase text-slate-500">
+                          Cooldown ms
+                        </span>
                         <input
                           type="number"
                           value={trigger.cooldown_ms}
                           onChange={(event) =>
-                            updateTrigger(trigger.id, { cooldown_ms: parseInt(event.target.value, 10) || 0 })
+                            updateTrigger(trigger.id, {
+                              cooldown_ms: parseInt(event.target.value, 10) || 0,
+                            })
                           }
                           className="w-full rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200 outline-none focus:border-blue-500"
                           step="500"
                         />
                       </label>
                       <label className="block space-y-1">
-                        <span className="text-[10px] font-bold uppercase text-slate-500">Prioridade</span>
+                        <span className="text-[10px] font-bold uppercase text-slate-500">
+                          Prioridade
+                        </span>
                         <input
                           type="number"
                           value={trigger.priority || 0}
                           onChange={(event) =>
-                            updateTrigger(trigger.id, { priority: parseInt(event.target.value, 10) || 0 })
+                            updateTrigger(trigger.id, {
+                              priority: parseInt(event.target.value, 10) || 0,
+                            })
                           }
                           className="w-full rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200 outline-none focus:border-blue-500"
                         />

@@ -13,22 +13,38 @@ const DEFAULT_ADMIN_EMAIL = 'lucasbatista.c.l@gmail.com';
 const DEFAULT_PASSWORD_HASH = 'ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f'; // 12345678
 const ADMIN_EMAIL = (process.env.ODESSA_ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL).trim().toLowerCase();
 const _rawAdminHash = (process.env.ODESSA_ADMIN_PASSWORD_HASH || '').trim();
-const ADMIN_PASSWORD_HASH = _rawAdminHash && /^[0-9a-f]{64}$/i.test(_rawAdminHash) ? _rawAdminHash : _rawAdminHash ? crypto.createHash('sha256').update(_rawAdminHash).digest('hex') : '';
-const SESSION_SECRET = process.env.ODESSA_SESSION_SECRET || 'odessa-hostinger-session-secret-v1-change-in-env';
-const AGENT_TOKEN = process.env.ODESSA_AGENT_TOKEN || '+jj4LlhjinNG46KhmJxqgm0g4t4JYizSmiW12g1ZJy8=';
+const ADMIN_PASSWORD_HASH =
+  _rawAdminHash && /^[0-9a-f]{64}$/i.test(_rawAdminHash)
+    ? _rawAdminHash
+    : _rawAdminHash
+      ? crypto.createHash('sha256').update(_rawAdminHash).digest('hex')
+      : '';
+const SESSION_SECRET =
+  process.env.ODESSA_SESSION_SECRET || 'odessa-hostinger-session-secret-v1-change-in-env';
+const AGENT_TOKEN =
+  process.env.ODESSA_AGENT_TOKEN || '+jj4LlhjinNG46KhmJxqgm0g4t4JYizSmiW12g1ZJy8=';
 const AGENT_STALE_MS = Number(process.env.ODESSA_AGENT_STALE_MS || 45_000);
 // On Hostinger, each deploy replaces the nodejs/ directory.
 // Persist data OUTSIDE the app directory so it survives deploys.
 const HOME_DIR = process.env.HOME || process.env.USERPROFILE || '';
-const PERSISTENT_DIR = HOME_DIR && !HOME_DIR.includes('Windows')
-  ? nodePath.join(HOME_DIR, 'odessa-data')
-  : '';
-const DATA_DIR = process.env.ODESSA_DATA_DIR || (PERSISTENT_DIR ? nodePath.join(PERSISTENT_DIR, 'data') : nodePath.join(__dirname, '..', 'data'));
-const UPLOADS_DIR = process.env.ODESSA_UPLOADS_DIR || (PERSISTENT_DIR ? nodePath.join(PERSISTENT_DIR, 'uploads') : nodePath.join(__dirname, '..', 'uploads'));
+const PERSISTENT_DIR =
+  HOME_DIR && !HOME_DIR.includes('Windows') ? nodePath.join(HOME_DIR, 'odessa-data') : '';
+const DATA_DIR =
+  process.env.ODESSA_DATA_DIR ||
+  (PERSISTENT_DIR ? nodePath.join(PERSISTENT_DIR, 'data') : nodePath.join(__dirname, '..', 'data'));
+const UPLOADS_DIR =
+  process.env.ODESSA_UPLOADS_DIR ||
+  (PERSISTENT_DIR
+    ? nodePath.join(PERSISTENT_DIR, 'uploads')
+    : nodePath.join(__dirname, '..', 'uploads'));
 const KV_PATH = nodePath.join(DATA_DIR, 'kv.json');
 const MIN_PASSWORD_LENGTH = 8;
-try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
-try { fs.mkdirSync(nodePath.join(UPLOADS_DIR, 'videos'), { recursive: true }); } catch {}
+try {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+} catch {}
+try {
+  fs.mkdirSync(nodePath.join(UPLOADS_DIR, 'videos'), { recursive: true });
+} catch {}
 const cloudStore = (globalThis.__ODESSA_CLOUD_STORE ||= {
   agentStatus: null,
   commandQueue: [],
@@ -141,7 +157,9 @@ function storePasswordHash(hash) {
 }
 
 function verifyCredentials(email, password) {
-  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const normalizedEmail = String(email || '')
+    .trim()
+    .toLowerCase();
   if (!safeEqual(normalizedEmail, ADMIN_EMAIL)) return false;
   const normalizedPassword = String(password || '').trim();
   const incomingHash = hashPassword(normalizedPassword);
@@ -171,7 +189,9 @@ function parseCookies(req) {
       .filter(Boolean)
       .map((part) => {
         const index = part.indexOf('=');
-        return index === -1 ? [part, ''] : [part.slice(0, index), decodeURIComponent(part.slice(index + 1))];
+        return index === -1
+          ? [part, '']
+          : [part.slice(0, index), decodeURIComponent(part.slice(index + 1))];
       }),
   );
 }
@@ -232,7 +252,9 @@ function routePath(req) {
 
 function cloudState() {
   const lastSeenAt = cloudStore.agentStatus?.lastSeenAt || null;
-  const agentConnected = Boolean(lastSeenAt && Date.now() - Date.parse(lastSeenAt) < AGENT_STALE_MS);
+  const agentConnected = Boolean(
+    lastSeenAt && Date.now() - Date.parse(lastSeenAt) < AGENT_STALE_MS,
+  );
   return {
     mode: 'cloud',
     agentRequired: true,
@@ -283,8 +305,11 @@ function defaultObsSettings(req) {
 }
 
 function readKv() {
-  try { return JSON.parse(fs.readFileSync(KV_PATH, 'utf8')); }
-  catch { return {}; }
+  try {
+    return JSON.parse(fs.readFileSync(KV_PATH, 'utf8'));
+  } catch {
+    return {};
+  }
 }
 
 function writeKv(store) {
@@ -297,7 +322,9 @@ function getCloudValue(key) {
   try {
     const entry = readKv()[key];
     return entry ? { value: entry.value, updatedAt: entry.updatedAt } : null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function setCloudValue(key, value) {
@@ -310,7 +337,9 @@ function setCloudValue(key, value) {
 
 function stateFromAgentStatus(agentStatus) {
   const lastSeenAt = agentStatus?.lastSeenAt || null;
-  const agentConnected = Boolean(lastSeenAt && Date.now() - Date.parse(lastSeenAt) < AGENT_STALE_MS);
+  const agentConnected = Boolean(
+    lastSeenAt && Date.now() - Date.parse(lastSeenAt) < AGENT_STALE_MS,
+  );
   return {
     mode: 'cloud',
     agentRequired: true,
@@ -331,7 +360,11 @@ function getAgentStatus() {
 
 function saveAgentStatus(status) {
   cloudStore.agentStatus = status;
-  try { setCloudValue('agent_status', status); } catch { /* best-effort */ }
+  try {
+    setCloudValue('agent_status', status);
+  } catch {
+    /* best-effort */
+  }
 }
 
 function loadObsSettings(req) {
@@ -368,7 +401,10 @@ function enqueueAgentCommand(command) {
 }
 
 function claimNextAgentCommand() {
-  return { command: cloudStore.commandQueue.shift() || null, queueSize: cloudStore.commandQueue.length };
+  return {
+    command: cloudStore.commandQueue.shift() || null,
+    queueSize: cloudStore.commandQueue.length,
+  };
 }
 
 function queuedCommandCount() {
@@ -519,8 +555,9 @@ function loadCloudVideoState() {
         nodeId: activeNodeId,
         startSec: pb.startSec || stored?.value?.currentClip?.startSec || 0,
         endSec: pb.endSec ?? stored?.value?.currentClip?.endSec ?? null,
-        returnToIdle: isIdleVideo ? false : stored?.value?.currentClip?.returnToIdle ?? true,
-        audio: matchFlowNode?.audio || stored?.value?.currentClip?.audio || { mode: 'muted', volume: 1 },
+        returnToIdle: isIdleVideo ? false : (stored?.value?.currentClip?.returnToIdle ?? true),
+        audio: matchFlowNode?.audio ||
+          stored?.value?.currentClip?.audio || { mode: 'muted', volume: 1 },
       }
     : null;
   const now = Date.now() / 1000;
@@ -539,13 +576,17 @@ function loadCloudVideoState() {
 
 function saveCloudVideoState(videoId, patch = {}) {
   const config = loadCloudConfig();
-  const idleVideoId = config?.idleVideoId || config?.publishedWorkflow?.idleVideoId || config?.draftWorkflow?.idleVideoId || null;
+  const idleVideoId =
+    config?.idleVideoId ||
+    config?.publishedWorkflow?.idleVideoId ||
+    config?.draftWorkflow?.idleVideoId ||
+    null;
   const isIdleVideo = Boolean(videoId && idleVideoId && videoId === idleVideoId);
   const currentClip = videoId
     ? {
         ...clipFromVideoId(videoId, { loop: isIdleVideo }),
         ...(patch.currentClip || {}),
-        returnToIdle: isIdleVideo ? false : patch.currentClip?.returnToIdle ?? true,
+        returnToIdle: isIdleVideo ? false : (patch.currentClip?.returnToIdle ?? true),
       }
     : null;
   const now = Date.now() / 1000;
@@ -681,11 +722,7 @@ async function protectedResponse(req, res, rawPath) {
     });
   }
 
-  if (
-    path === '/cloud/config' ||
-    path === '/api/cloud/config' ||
-    path === '/cloud/config'
-  ) {
+  if (path === '/cloud/config' || path === '/api/cloud/config' || path === '/cloud/config') {
     if (req.method === 'GET') {
       const stored = getCloudValue(PERSONA_CONFIG_KEY);
       const config = stored?.value || null;
@@ -698,7 +735,9 @@ async function protectedResponse(req, res, rawPath) {
               videos: Array.isArray(config.videos) ? config.videos.length : 0,
               triggers: Array.isArray(config.triggers) ? config.triggers.length : 0,
               flowNodes: Array.isArray(config.flowNodes) ? config.flowNodes.length : 0,
-              flowConnections: Array.isArray(config.flowConnections) ? config.flowConnections.length : 0,
+              flowConnections: Array.isArray(config.flowConnections)
+                ? config.flowConnections.length
+                : 0,
               hasDraftWorkflow: Boolean(config.draftWorkflow),
               hasPublishedWorkflow: Boolean(config.publishedWorkflow),
             }
@@ -718,7 +757,9 @@ async function protectedResponse(req, res, rawPath) {
           videos: Array.isArray(config.videos) ? config.videos.length : 0,
           triggers: Array.isArray(config.triggers) ? config.triggers.length : 0,
           flowNodes: Array.isArray(config.flowNodes) ? config.flowNodes.length : 0,
-          flowConnections: Array.isArray(config.flowConnections) ? config.flowConnections.length : 0,
+          flowConnections: Array.isArray(config.flowConnections)
+            ? config.flowConnections.length
+            : 0,
           hasDraftWorkflow: Boolean(config.draftWorkflow),
           hasPublishedWorkflow: Boolean(config.publishedWorkflow),
         },
@@ -761,7 +802,9 @@ async function protectedResponse(req, res, rawPath) {
       if (!wf) return wf;
       if (Array.isArray(wf.videos)) wf.videos = wf.videos.filter((v) => v.id !== videoId);
       if (Array.isArray(wf.flowNodes)) {
-        const removedNodeIds = new Set(wf.flowNodes.filter((n) => n.videoId === videoId).map((n) => n.nodeId));
+        const removedNodeIds = new Set(
+          wf.flowNodes.filter((n) => n.videoId === videoId).map((n) => n.nodeId),
+        );
         wf.flowNodes = wf.flowNodes.filter((n) => n.videoId !== videoId);
         if (removedNodeIds.size > 0 && Array.isArray(wf.flowConnections)) {
           wf.flowConnections = wf.flowConnections.filter(
@@ -782,7 +825,9 @@ async function protectedResponse(req, res, rawPath) {
     try {
       const filePath = nodePath.join(UPLOADS_DIR, 'videos', `${videoId}.mp4`);
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    } catch { /* best effort */ }
+    } catch {
+      /* best effort */
+    }
 
     return json(res, 200, {
       ok: true,
@@ -806,7 +851,9 @@ async function protectedResponse(req, res, rawPath) {
           videos: Array.isArray(config.videos) ? config.videos.length : 0,
           triggers: Array.isArray(config.triggers) ? config.triggers.length : 0,
           flowNodes: Array.isArray(config.flowNodes) ? config.flowNodes.length : 0,
-          flowConnections: Array.isArray(config.flowConnections) ? config.flowConnections.length : 0,
+          flowConnections: Array.isArray(config.flowConnections)
+            ? config.flowConnections.length
+            : 0,
           hasDraftWorkflow: Boolean(config.draftWorkflow),
           hasPublishedWorkflow: Boolean(config.publishedWorkflow),
         },
@@ -858,8 +905,9 @@ async function protectedResponse(req, res, rawPath) {
 
   if (path.includes('/video/play/')) {
     const videoId = decodeURIComponent(path.split('/video/play/').pop() || '');
-    const match = (listLocalVideos()).find((video) => video.id === videoId);
-    if (!match) return json(res, 404, { detail: `Video '${videoId}' nao encontrado no Vercel Blob.` });
+    const match = listLocalVideos().find((video) => video.id === videoId);
+    if (!match)
+      return json(res, 404, { detail: `Video '${videoId}' nao encontrado no Vercel Blob.` });
     res.statusCode = 302;
     res.setHeader('Location', match.url);
     res.end();
@@ -868,7 +916,7 @@ async function protectedResponse(req, res, rawPath) {
 
   if (path === '/video/state' || path.endsWith('/video/state')) {
     return json(res, 200, {
-      ...(loadCloudVideoState()),
+      ...loadCloudVideoState(),
       ...cloudState(),
     });
   }
@@ -889,9 +937,7 @@ async function protectedResponse(req, res, rawPath) {
     let nextNodeId = null;
     let nextConnectionId = null;
     if (activeNodeId) {
-      const outConnections = flowConnections.filter(
-        (c) => c.fromNodeId === activeNodeId,
-      );
+      const outConnections = flowConnections.filter((c) => c.fromNodeId === activeNodeId);
       // Prefer "natural" (ao finalizar) connections — these fire when the video ends.
       // Also match on_end / video_end for legacy compat. Fall back to first connection.
       const endConnection =
@@ -925,16 +971,18 @@ async function protectedResponse(req, res, rawPath) {
     const targetFlowNode = flowNodes.find((n) => n.nodeId === nextNodeId);
     const isIdle = Boolean(nextVideoId && idleVideoId && nextVideoId === idleVideoId);
     const pb = targetFlowNode?.playback || {};
-    const currentClip = nextVideoId ? {
-      nodeId: nextNodeId,
-      videoId: nextVideoId,
-      startSec: pb.startSec || 0,
-      endSec: pb.endSec || null,
-      transitionMs: pb.transitionMs || 220,
-      loop: isIdle || Boolean(pb.loop),
-      returnToIdle: !isIdle,
-      audio: targetFlowNode?.audio || { mode: 'muted', volume: 1 },
-    } : null;
+    const currentClip = nextVideoId
+      ? {
+          nodeId: nextNodeId,
+          videoId: nextVideoId,
+          startSec: pb.startSec || 0,
+          endSec: pb.endSec || null,
+          transitionMs: pb.transitionMs || 220,
+          loop: isIdle || Boolean(pb.loop),
+          returnToIdle: !isIdle,
+          audio: targetFlowNode?.audio || { mode: 'muted', volume: 1 },
+        }
+      : null;
     const saved = saveCloudVideoState(nextVideoId, {
       activeNodeId: nextNodeId,
       activeConnectionId: nextConnectionId,
@@ -971,8 +1019,10 @@ async function protectedResponse(req, res, rawPath) {
     const isIdle = Boolean(videoId && idleVideoId && videoId === idleVideoId);
     const pb = node.playback || {};
     const currentClip = {
-      nodeId: node.nodeId, videoId,
-      startSec: pb.startSec || 0, endSec: pb.endSec || null,
+      nodeId: node.nodeId,
+      videoId,
+      startSec: pb.startSec || 0,
+      endSec: pb.endSec || null,
       transitionMs: pb.transitionMs || 220,
       loop: isIdle || Boolean(pb.loop),
       returnToIdle: !isIdle,
@@ -983,7 +1033,14 @@ async function protectedResponse(req, res, rawPath) {
       activeConnectionId: null,
       currentClip,
     });
-    return json(res, 200, { ok: true, jumped: true, nodeId: node.nodeId, videoId, ...saved, ...cloudState() });
+    return json(res, 200, {
+      ok: true,
+      jumped: true,
+      nodeId: node.nodeId,
+      videoId,
+      ...saved,
+      ...cloudState(),
+    });
   }
 
   // ── Video trigger endpoint — processes gift/chat/reaction events ──
@@ -1005,7 +1062,9 @@ async function protectedResponse(req, res, rawPath) {
       if (tType !== eventType) return false;
       if (eventType === 'gift') {
         const giftKey = eventData.giftKey || eventData.gift_key || '';
-        return !t.conditions?.giftKey || t.conditions.giftKey === giftKey || t.conditions.giftKey === '*';
+        return (
+          !t.conditions?.giftKey || t.conditions.giftKey === giftKey || t.conditions.giftKey === '*'
+        );
       }
       if (eventType === 'comment') {
         const text = String(eventData.text || eventData.message || '').toLowerCase();
@@ -1016,7 +1075,11 @@ async function protectedResponse(req, res, rawPath) {
     });
 
     if (!matchedTrigger) {
-      return json(res, 200, { ok: true, matched: false, message: 'Nenhum trigger correspondente.' });
+      return json(res, 200, {
+        ok: true,
+        matched: false,
+        message: 'Nenhum trigger correspondente.',
+      });
     }
 
     // Find the connection and target node for this trigger
@@ -1024,15 +1087,21 @@ async function protectedResponse(req, res, rawPath) {
     const currentNodeId = currentState.activeNodeId || null;
     // Prefer connections from current node, fall back to any connection with this trigger
     const connection =
-      flowConnections.find((c) => c.triggerId === matchedTrigger.id && c.fromNodeId === currentNodeId) ||
-      flowConnections.find((c) => c.triggerId === matchedTrigger.id);
+      flowConnections.find(
+        (c) => c.triggerId === matchedTrigger.id && c.fromNodeId === currentNodeId,
+      ) || flowConnections.find((c) => c.triggerId === matchedTrigger.id);
     const action = matchedTrigger.actions?.find((a) => a.type === 'play_video');
     const targetNodeId = connection?.toNodeId || action?.nodeId || null;
     const targetNode = targetNodeId ? flowNodes.find((n) => n.nodeId === targetNodeId) : null;
     const targetVideoId = targetNode?.videoId || action?.videoId || null;
 
     if (!targetVideoId) {
-      return json(res, 200, { ok: true, matched: true, triggered: false, message: 'Trigger sem video de destino.' });
+      return json(res, 200, {
+        ok: true,
+        matched: true,
+        triggered: false,
+        message: 'Trigger sem video de destino.',
+      });
     }
 
     const isIdle = Boolean(targetVideoId === idleVideoId);
@@ -1056,7 +1125,11 @@ async function protectedResponse(req, res, rawPath) {
       ok: true,
       matched: true,
       triggered: true,
-      trigger: { id: matchedTrigger.id, name: matchedTrigger.name, eventType: matchedTrigger.eventType },
+      trigger: {
+        id: matchedTrigger.id,
+        name: matchedTrigger.name,
+        eventType: matchedTrigger.eventType,
+      },
       targetVideoId,
       targetNodeId,
       ...saved,
@@ -1065,7 +1138,8 @@ async function protectedResponse(req, res, rawPath) {
   }
 
   if (path.includes('/automation/logs')) return json(res, 200, []);
-  if (path.includes('/automation/next-action')) return json(res, 200, { action: null, ...cloudState() });
+  if (path.includes('/automation/next-action'))
+    return json(res, 200, { action: null, ...cloudState() });
   if (path.includes('/automation/') && req.method === 'POST') {
     const body = await readBody(req);
     const queued = enqueueAgentCommand({
@@ -1094,8 +1168,10 @@ async function protectedResponse(req, res, rawPath) {
           // Prefer the cloud/library version (has valid upload URL), fall back to imported
           const cloud = cloudById.get(importedVideo.id);
           const existing = existingById.get(importedVideo.id);
-          if (cloud) return { ...importedVideo, ...cloud, label: importedVideo.label || cloud.label };
-          if (existing) return { ...importedVideo, ...existing, label: importedVideo.label || existing.label };
+          if (cloud)
+            return { ...importedVideo, ...cloud, label: importedVideo.label || cloud.label };
+          if (existing)
+            return { ...importedVideo, ...existing, label: importedVideo.label || existing.label };
           return importedVideo;
         });
         // Also keep any library videos not in the import
@@ -1110,7 +1186,8 @@ async function protectedResponse(req, res, rawPath) {
       }
       if (Array.isArray(workflow.triggers)) config.triggers = workflow.triggers;
       if (Array.isArray(workflow.flowNodes)) config.flowNodes = workflow.flowNodes;
-      if (Array.isArray(workflow.flowConnections)) config.flowConnections = workflow.flowConnections;
+      if (Array.isArray(workflow.flowConnections))
+        config.flowConnections = workflow.flowConnections;
       if (workflow.idleVideoId !== undefined) config.idleVideoId = workflow.idleVideoId;
       if (workflow.giftMap) config.giftMap = workflow.giftMap;
       if (workflow.gift_map) config.gift_map = workflow.gift_map;
@@ -1143,7 +1220,11 @@ async function protectedResponse(req, res, rawPath) {
         action_map: config.action_map || {},
         transitions: config.transitions || [],
       };
-      config.publishedWorkflow = { ...draft, status: 'published', publishedAt: new Date().toISOString() };
+      config.publishedWorkflow = {
+        ...draft,
+        status: 'published',
+        publishedAt: new Date().toISOString(),
+      };
       config.updatedAt = new Date().toISOString();
       setCloudValue(PERSONA_CONFIG_KEY, config);
       return json(res, 200, {
@@ -1177,7 +1258,9 @@ async function protectedResponse(req, res, rawPath) {
         warnings,
         errors,
         nodeCount: Array.isArray(workflow.flowNodes) ? workflow.flowNodes.length : 0,
-        connectionCount: Array.isArray(workflow.flowConnections) ? workflow.flowConnections.length : 0,
+        connectionCount: Array.isArray(workflow.flowConnections)
+          ? workflow.flowConnections.length
+          : 0,
         triggerCount: Array.isArray(workflow.triggers) ? workflow.triggers.length : 0,
       });
     }
@@ -1191,13 +1274,18 @@ async function protectedResponse(req, res, rawPath) {
         config.videos = config.publishedWorkflow.videos || config.videos || [];
         config.triggers = config.publishedWorkflow.triggers || config.triggers || [];
         config.flowNodes = config.publishedWorkflow.flowNodes || config.flowNodes || [];
-        config.flowConnections = config.publishedWorkflow.flowConnections || config.flowConnections || [];
+        config.flowConnections =
+          config.publishedWorkflow.flowConnections || config.flowConnections || [];
         config.idleVideoId = config.publishedWorkflow.idleVideoId || config.idleVideoId || null;
         config.updatedAt = new Date().toISOString();
         setCloudValue(PERSONA_CONFIG_KEY, config);
         return json(res, 200, { ok: true, status: 'reverted', updatedAt: config.updatedAt });
       }
-      return json(res, 200, { ok: true, status: 'no-published', message: 'Nenhuma versao publicada para reverter.' });
+      return json(res, 200, {
+        ok: true,
+        status: 'no-published',
+        message: 'Nenhuma versao publicada para reverter.',
+      });
     }
   }
   if (path === '/workflow/draft/test') {
@@ -1208,7 +1296,12 @@ async function protectedResponse(req, res, rawPath) {
       const triggers = config.triggers || [];
       const matchedTrigger = triggers.find((t) => {
         if (testEvent.type && t.type === testEvent.type) return true;
-        if (testEvent.keyword && t.keyword && testEvent.keyword.toLowerCase().includes(t.keyword.toLowerCase())) return true;
+        if (
+          testEvent.keyword &&
+          t.keyword &&
+          testEvent.keyword.toLowerCase().includes(t.keyword.toLowerCase())
+        )
+          return true;
         return false;
       });
       return json(res, 200, {
@@ -1221,7 +1314,12 @@ async function protectedResponse(req, res, rawPath) {
     }
   }
   if (path.startsWith('/workflow/')) {
-    return json(res, 200, { ok: true, simulated: true, workflow: emptyWorkflow(), ...cloudState() });
+    return json(res, 200, {
+      ok: true,
+      simulated: true,
+      workflow: emptyWorkflow(),
+      ...cloudState(),
+    });
   }
 
   if (path.startsWith('/obs/')) {
@@ -1247,13 +1345,16 @@ async function protectedResponse(req, res, rawPath) {
       return json(res, 200, {
         ok: Boolean(obs.ok),
         connected: Boolean(obs.connected || agentStatus?.health?.obsConnected),
-        sourceReady: Boolean(obs.sourceReady || obs.chatSourceReady || obs.stageSourceReady || obs.connected),
+        sourceReady: Boolean(
+          obs.sourceReady || obs.chatSourceReady || obs.stageSourceReady || obs.connected,
+        ),
         screenshotReady: Boolean(obs.screenshotReady || obs.connected),
         sceneSwitchReady: Boolean(obs.sceneSwitchReady || obs.connected),
         currentScene: obs.currentScene || null,
         availableScenes: obs.availableScenes || obs.chatSourceNames || [],
-        allowedScenes: obs.allowedScenes || obs.layout?.allowedScenes || defaultObsSettings(req).allowedScenes,
-        layout: obs.layout || (loadObsSettings(req)),
+        allowedScenes:
+          obs.allowedScenes || obs.layout?.allowedScenes || defaultObsSettings(req).allowedScenes,
+        layout: obs.layout || loadObsSettings(req),
         streaming: Boolean(obs.streaming),
         recording: Boolean(obs.recording),
         error: obs.error || null,
@@ -1328,18 +1429,43 @@ async function protectedResponse(req, res, rawPath) {
           executionMode: 'simulated',
           steps: [
             { id: 'health', label: 'Verificar saude do OBS', enabled: true, blocked: !agentStatus },
-            { id: 'setup', label: 'Preparar cena da live', enabled: body.prepareObs !== false, blocked: !agentStatus },
-            { id: 'stage', label: 'Colocar palco ao vivo', enabled: body.showStage !== false, blocked: !agentStatus },
-            { id: 'automation', label: 'Iniciar automacao do fluxo', enabled: body.startAutomation !== false, blocked: false },
+            {
+              id: 'setup',
+              label: 'Preparar cena da live',
+              enabled: body.prepareObs !== false,
+              blocked: !agentStatus,
+            },
+            {
+              id: 'stage',
+              label: 'Colocar palco ao vivo',
+              enabled: body.showStage !== false,
+              blocked: !agentStatus,
+            },
+            {
+              id: 'automation',
+              label: 'Iniciar automacao do fluxo',
+              enabled: body.startAutomation !== false,
+              blocked: false,
+            },
           ],
-          risks: agentStatus ? [] : ['Odessa Agent local precisa estar conectado para executar OBS.'],
+          risks: agentStatus
+            ? []
+            : ['Odessa Agent local precisa estar conectado para executar OBS.'],
           ...stateFromAgentStatus(agentStatus),
         });
       }
 
-      if (actionPath === 'show-start' || actionPath === 'show_start' || actionPath === 'start-live') {
+      if (
+        actionPath === 'show-start' ||
+        actionPath === 'show_start' ||
+        actionPath === 'start-live'
+      ) {
         const config = loadCloudConfig();
-        const idleVideoId = config?.idleVideoId || config?.publishedWorkflow?.idleVideoId || config?.draftWorkflow?.idleVideoId || null;
+        const idleVideoId =
+          config?.idleVideoId ||
+          config?.publishedWorkflow?.idleVideoId ||
+          config?.draftWorkflow?.idleVideoId ||
+          null;
         if (idleVideoId) saveCloudVideoState(idleVideoId);
       }
 
@@ -1437,10 +1563,14 @@ async function protectedResponse(req, res, rawPath) {
         if (cloudVideoIds.has(node.videoId) || libraryVideoIds.has(node.videoId)) {
           matchedVideos.push(node.videoId);
         } else if (importVideoIds.has(node.videoId)) {
-          warnings.push(`Video '${node.videoId}' esta no JSON mas nao na biblioteca. Faca upload primeiro.`);
+          warnings.push(
+            `Video '${node.videoId}' esta no JSON mas nao na biblioteca. Faca upload primeiro.`,
+          );
           missingVideos.push(node.videoId);
         } else {
-          warnings.push(`Node '${node.label || node.nodeId}' referencia video '${node.videoId}' que nao existe.`);
+          warnings.push(
+            `Node '${node.label || node.nodeId}' referencia video '${node.videoId}' que nao existe.`,
+          );
           missingVideos.push(node.videoId);
         }
       }
@@ -1522,7 +1652,9 @@ export default async function handler(req, res) {
   if (path === '/auth/login' && req.method === 'POST') {
     clearSessionCookie(res);
     const body = await readBody(req);
-    const email = String(body.email || '').trim().toLowerCase();
+    const email = String(body.email || '')
+      .trim()
+      .toLowerCase();
     const password = String(body.password || '').trim();
     if (!email || !password) {
       return json(res, 400, { authenticated: false, detail: 'Email e senha sao obrigatorios.' });
@@ -1545,7 +1677,9 @@ export default async function handler(req, res) {
       return json(res, 400, { detail: 'Senha atual e nova senha sao obrigatorias.' });
     }
     if (newPassword.length < MIN_PASSWORD_LENGTH) {
-      return json(res, 400, { detail: `Senha deve ter pelo menos ${MIN_PASSWORD_LENGTH} caracteres.` });
+      return json(res, 400, {
+        detail: `Senha deve ter pelo menos ${MIN_PASSWORD_LENGTH} caracteres.`,
+      });
     }
     const storedHash = getStoredPasswordHash();
     if (!safeEqual(hashPassword(currentPassword), storedHash)) {
@@ -1559,9 +1693,15 @@ export default async function handler(req, res) {
     const kvData = readKv();
     const kvKeys = Object.keys(kvData);
     const configStored = kvData[PERSONA_CONFIG_KEY];
-    const configVideos = Array.isArray(configStored?.value?.videos) ? configStored.value.videos.length : 0;
-    const configTriggers = Array.isArray(configStored?.value?.triggers) ? configStored.value.triggers.length : 0;
-    const configFlowNodes = Array.isArray(configStored?.value?.flowNodes) ? configStored.value.flowNodes.length : 0;
+    const configVideos = Array.isArray(configStored?.value?.videos)
+      ? configStored.value.videos.length
+      : 0;
+    const configTriggers = Array.isArray(configStored?.value?.triggers)
+      ? configStored.value.triggers.length
+      : 0;
+    const configFlowNodes = Array.isArray(configStored?.value?.flowNodes)
+      ? configStored.value.flowNodes.length
+      : 0;
     let uploadFiles = [];
     try {
       const videoDir = nodePath.join(UPLOADS_DIR, 'videos');
@@ -1581,7 +1721,7 @@ export default async function handler(req, res) {
         uploadsDir: UPLOADS_DIR,
         uploadFiles,
         localVideoCount: localVideos.length,
-        localVideoIds: localVideos.map(v => v.id),
+        localVideoIds: localVideos.map((v) => v.id),
         configVideoCount: configVideos,
         configTriggerCount: configTriggers,
         configFlowNodeCount: configFlowNodes,
@@ -1615,8 +1755,7 @@ export default async function handler(req, res) {
   const normalizedPath = path.replace(/^\/(api\/)?v1\//, '/');
   const publicVideoRead =
     req.method === 'GET' &&
-    (normalizedPath === '/video/state' ||
-      normalizedPath.includes('/video/play/'));
+    (normalizedPath === '/video/state' || normalizedPath.includes('/video/play/'));
   const publicOverlayAdvance = req.method === 'POST' && normalizedPath.includes('/video/advance');
   const publicTrigger = req.method === 'POST' && normalizedPath.includes('/video/trigger');
   const publicPlayNode = req.method === 'POST' && normalizedPath.includes('/video/play-node');

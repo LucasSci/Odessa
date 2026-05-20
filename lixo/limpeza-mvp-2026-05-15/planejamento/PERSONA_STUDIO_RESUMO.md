@@ -9,6 +9,7 @@
 ## ⚡ O Que Foi Feito
 
 ### 1️⃣ Correção da Falha OCR
+
 ```
 PROBLEMA: OCR parava quando mudava de aba
 SOLUÇÃO:  PIL.ImageGrab em vez de pyautogui
@@ -17,6 +18,7 @@ RESULTADO: ✅ OCR agora funciona em background
 ```
 
 ### 2️⃣ PersonaStudio Component
+
 ```
 ARQUIVO:  src/PersonaStudio.tsx
 LINHAS:   ~450 de código
@@ -28,6 +30,7 @@ FEATURES: - Exibição de vídeos
 ```
 
 ### 3️⃣ Sistema de Gatilhos
+
 ```
 ARQUIVO:  src/core/usePersonaTriggers.ts
 FUNÇÃO:   Monitora chat e aciona transições
@@ -37,6 +40,7 @@ EVENTOS:  - 🎁 Gift
 ```
 
 ### 4️⃣ Backend para Vídeos
+
 ```
 ARQUIVOS: server/routes/video.py
           server/core/video_files.py
@@ -46,6 +50,7 @@ ENDPOINTS: GET /api/video/available
 ```
 
 ### 5️⃣ Integração UI
+
 ```
 LOCAL:   OdessaLiveCenter.tsx
 NOVO TAB: Studio Video (🎬)
@@ -94,6 +99,7 @@ POSIÇÃO: Ao lado de "Odessa"
 ## 🎮 Como Usar
 
 ### Acessar PersonaStudio
+
 ```
 Menu Lateral → Studio Video (icone 🎬)
 OU
@@ -101,6 +107,7 @@ Menu Principal → Personas → Studio Video
 ```
 
 ### Controles
+
 ```
 🎁 Gift Recebido      → Toca vídeos de agradecimento (01, 02, 03)
 💬 Chat Ativo         → Toca movimentos de atenção (07, 08, 09)
@@ -111,6 +118,7 @@ Mute                  → Ligar/desligar som
 ```
 
 ### Acessar Backend
+
 ```
 curl http://localhost:8000/api/video/available
 curl http://localhost:8000/api/video/play/04
@@ -121,15 +129,15 @@ curl http://localhost:8000/api/video/health
 
 ## 📂 Arquivos Modificados/Criados
 
-| Arquivo | Tipo | Mudança |
-|---------|------|---------|
-| `server/services/ocr_service.py` | ✏️ Modificado | PIL.ImageGrab em vez de pyautogui |
-| `src/PersonaStudio.tsx` | 🆕 Criado | Componente principal de vídeos |
-| `src/core/usePersonaTriggers.ts` | 🆕 Criado | Hook de detecção de eventos |
-| `server/routes/video.py` | 🆕 Criado | API para servir vídeos |
-| `server/core/video_files.py` | 🆕 Criado | Lógica de auto-descoberta de vídeos |
-| `src/OdessaLiveCenter.tsx` | ✏️ Modificado | Adicionado tab PersonaStudio |
-| `server/main.py` | ✏️ Modificado | Registrada rota de vídeos |
+| Arquivo                          | Tipo          | Mudança                             |
+| -------------------------------- | ------------- | ----------------------------------- |
+| `server/services/ocr_service.py` | ✏️ Modificado | PIL.ImageGrab em vez de pyautogui   |
+| `src/PersonaStudio.tsx`          | 🆕 Criado     | Componente principal de vídeos      |
+| `src/core/usePersonaTriggers.ts` | 🆕 Criado     | Hook de detecção de eventos         |
+| `server/routes/video.py`         | 🆕 Criado     | API para servir vídeos              |
+| `server/core/video_files.py`     | 🆕 Criado     | Lógica de auto-descoberta de vídeos |
+| `src/OdessaLiveCenter.tsx`       | ✏️ Modificado | Adicionado tab PersonaStudio        |
+| `server/main.py`                 | ✏️ Modificado | Registrada rota de vídeos           |
 
 ---
 
@@ -143,6 +151,7 @@ C:\Users\Lucas\OneDrive\Videos\Captures\...
 ```
 
 **Comportamento:**
+
 - Persona alterna entre vídeos naturalmente
 - Estados idle (4, 5, 14, 16) criam loop relaxado
 - Gatilhos disparam reações (agradecimentos, sorrisos)
@@ -175,14 +184,14 @@ C:\Users\Lucas\OneDrive\Videos\Captures\...
 
 ## 📊 Métricas
 
-| Métrica | Valor |
-|---------|-------|
-| Tamanho PersonaStudio.tsx | ~450 linhas |
-| Suporte de vídeos | 16 (video_01 até video_16) |
-| Transições seguras mapeadas | 16 × 3-6 cada |
-| Sequências idle | 3 (calm, engaged, reading) |
-| Cooldown entre gatilhos | 2 segundos |
-| Tempo de transição | 0.5 segundos |
+| Métrica                     | Valor                      |
+| --------------------------- | -------------------------- |
+| Tamanho PersonaStudio.tsx   | ~450 linhas                |
+| Suporte de vídeos           | 16 (video_01 até video_16) |
+| Transições seguras mapeadas | 16 × 3-6 cada              |
+| Sequências idle             | 3 (calm, engaged, reading) |
+| Cooldown entre gatilhos     | 2 segundos                 |
+| Tempo de transição          | 0.5 segundos               |
 
 ---
 

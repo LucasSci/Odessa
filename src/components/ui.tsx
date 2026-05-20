@@ -22,14 +22,17 @@ export function Button({
         size === 'sm' && 'h-8 px-3 text-xs',
         size === 'md' && 'h-[38px] px-4 text-[13px]',
         size === 'icon' && 'h-9 w-9 px-0',
-        variant === 'default' && 'border-[var(--border2)] bg-[var(--bg3)] text-[var(--t1)] hover:bg-[var(--bg4)]',
+        variant === 'default' &&
+          'border-[var(--border2)] bg-[var(--bg3)] text-[var(--t1)] hover:bg-[var(--bg4)]',
         variant === 'primary' &&
           'border-transparent bg-[image:var(--grad-live)] text-[#051018] shadow-[var(--shadow-live)] hover:brightness-105',
         variant === 'secondary' &&
           'border-[var(--border2)] bg-[var(--bg2)] text-[var(--t1)] hover:border-[var(--gold)]/45',
-        variant === 'ghost' && 'border-transparent bg-transparent text-[var(--t2)] hover:bg-[var(--bg3)] hover:text-[var(--t1)]',
+        variant === 'ghost' &&
+          'border-transparent bg-transparent text-[var(--t2)] hover:bg-[var(--bg3)] hover:text-[var(--t1)]',
         variant === 'danger' && 'border-red-400/25 bg-red-500/10 text-red-300 hover:bg-red-500/15',
-        variant === 'success' && 'border-emerald-400/25 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15',
+        variant === 'success' &&
+          'border-emerald-400/25 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15',
         className,
       )}
       disabled={disabled || loading}

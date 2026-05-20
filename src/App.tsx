@@ -152,7 +152,9 @@ export default function App() {
         try {
           const parsed = new URL(settings.websocketUrl || 'ws://localhost:4455');
           port = parsed.port || '4455';
-        } catch { /* use default */ }
+        } catch {
+          /* use default */
+        }
         // Always connect via localhost (browser is on same machine as OBS)
         const directUrl = `ws://localhost:${port}`;
         connectObs(directUrl, settings.websocketPassword || '');
@@ -174,10 +176,8 @@ export default function App() {
 
   const runtime = useAutopilotRuntime({ capturedText, setCapturedText });
 
-
   // Agent polling removed — no longer needed with direct OBS connection
   const refreshAgentStatus = useCallback(async () => {}, []);
-
 
   useEffect(() => {
     try {
@@ -209,8 +209,12 @@ export default function App() {
     // 2. Start capture if configured
     if (liveConfig.startCapture) {
       try {
-        window.dispatchEvent(new CustomEvent('odessa:start-live', { detail: { prefer: 'monitor' } }));
-      } catch { /* Capture can still be started manually. */ }
+        window.dispatchEvent(
+          new CustomEvent('odessa:start-live', { detail: { prefer: 'monitor' } }),
+        );
+      } catch {
+        /* Capture can still be started manually. */
+      }
     }
 
     // 3. OBS preparation + transmission — runs in background, never blocks
@@ -241,7 +245,15 @@ export default function App() {
 
   if (authenticated === null) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg, #0a0a0f)' }}>
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'var(--bg, #0a0a0f)',
+        }}
+      >
         <p style={{ color: 'var(--t3, #888)', fontSize: 14 }}>Carregando...</p>
       </div>
     );
@@ -280,4 +292,3 @@ export default function App() {
     />
   );
 }
-

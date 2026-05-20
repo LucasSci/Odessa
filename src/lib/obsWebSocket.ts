@@ -41,7 +41,9 @@ let connectedPassword = '';
 
 function notify() {
   for (const fn of listeners) {
-    try { fn({ ...state }); } catch {}
+    try {
+      fn({ ...state });
+    } catch {}
   }
 }
 
@@ -53,7 +55,9 @@ function setState(patch: Partial<ObsDirectStatus>) {
 export function onObsStatus(fn: Listener): () => void {
   listeners.add(fn);
   fn({ ...state });
-  return () => { listeners.delete(fn); };
+  return () => {
+    listeners.delete(fn);
+  };
 }
 
 export function getObsStatus(): ObsDirectStatus {
@@ -80,16 +84,30 @@ export async function connectObs(url: string, password?: string): Promise<boolea
 }
 
 export function disconnectObs() {
-  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-  try { obs.disconnect(); } catch {}
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  try {
+    obs.disconnect();
+  } catch {}
   connectedUrl = '';
   connectedPassword = '';
-  setState({ state: 'disconnected', error: null, scenes: [], currentScene: null, streaming: false, recording: false });
+  setState({
+    state: 'disconnected',
+    error: null,
+    scenes: [],
+    currentScene: null,
+    streaming: false,
+    recording: false,
+  });
 }
 
 function scheduleReconnect(url: string, password?: string) {
   if (reconnectTimer) clearTimeout(reconnectTimer);
-  reconnectTimer = setTimeout(() => { connectObs(url, password); }, 10_000);
+  reconnectTimer = setTimeout(() => {
+    connectObs(url, password);
+  }, 10_000);
 }
 
 obs.on('ConnectionClosed', () => {
@@ -111,7 +129,9 @@ obs.on('RecordStateChanged', (ev) => {
   setState({ recording: ev.outputActive });
 });
 
-obs.on('SceneListChanged', () => { refreshScenes(); });
+obs.on('SceneListChanged', () => {
+  refreshScenes();
+});
 
 async function refreshScenes() {
   try {
@@ -179,7 +199,9 @@ export async function obsStartTransmission(mode: string = 'stream'): Promise<Obs
       try {
         const vcStatus = await obs.call('GetVirtualCamStatus');
         if (vcStatus.outputActive) return { ok: true }; // Already active
-      } catch { /* proceed to start */ }
+      } catch {
+        /* proceed to start */
+      }
       await obs.call('StartVirtualCam');
       return { ok: true };
     }
@@ -191,7 +213,9 @@ export async function obsStartTransmission(mode: string = 'stream'): Promise<Obs
         setState({ streaming: true });
         return { ok: true }; // Already streaming, skip
       }
-    } catch { /* proceed to start */ }
+    } catch {
+      /* proceed to start */
+    }
     await obs.call('StartStream');
     return { ok: true };
   } catch (err) {
@@ -215,7 +239,9 @@ export async function obsStopTransmission(mode: string = 'stream'): Promise<ObsR
 
 // --- Setup live scene (port of agent.mjs obs.setup_live_scene) ---
 
-export async function obsSetupLiveScene(settings: ObsSetupSettings): Promise<ObsResult & { created?: string[]; warnings?: string[]; skipped?: boolean }> {
+export async function obsSetupLiveScene(
+  settings: ObsSetupSettings,
+): Promise<ObsResult & { created?: string[]; warnings?: string[]; skipped?: boolean }> {
   const startScene = settings.startupSceneName || 'Odessa START';
   const liveScene = settings.liveSceneName || 'Odessa LIVE';
   const stageUrl = settings.stageUrl || '';
@@ -231,9 +257,18 @@ export async function obsSetupLiveScene(settings: ObsSetupSettings): Promise<Obs
     try {
       const streamStatus = await obs.call('GetStreamStatus');
       if (streamStatus.outputActive) {
-        return { ok: true, skipped: true, created: [], warnings: ['Setup ignorado: OBS esta transmitindo. Parar a transmissao antes de reconfigurar.'] };
+        return {
+          ok: true,
+          skipped: true,
+          created: [],
+          warnings: [
+            'Setup ignorado: OBS esta transmitindo. Parar a transmissao antes de reconfigurar.',
+          ],
+        };
       }
-    } catch { /* not connected or error — proceed with setup */ }
+    } catch {
+      /* not connected or error — proceed with setup */
+    }
 
     // 1. Set canvas resolution — only if different (SetVideoSettings restarts encoder)
     try {
@@ -262,13 +297,17 @@ export async function obsSetupLiveScene(settings: ObsSetupSettings): Promise<Obs
       try {
         await obs.call('CreateScene', { sceneName: startScene });
         created.push(`scene:${startScene}`);
-      } catch (err) { warnings.push(`Cena ${startScene}: ${err instanceof Error ? err.message : String(err)}`); }
+      } catch (err) {
+        warnings.push(`Cena ${startScene}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
     if (!currentScenes.includes(liveScene)) {
       try {
         await obs.call('CreateScene', { sceneName: liveScene });
         created.push(`scene:${liveScene}`);
-      } catch (err) { warnings.push(`Cena ${liveScene}: ${err instanceof Error ? err.message : String(err)}`); }
+      } catch (err) {
+        warnings.push(`Cena ${liveScene}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
 
     // 4. Ensure browser sources in scenes
@@ -291,7 +330,12 @@ export async function obsSetupLiveScene(settings: ObsSetupSettings): Promise<Obs
     await refreshScenes();
     return { ok: true, created, warnings };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err), created, warnings };
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      created,
+      warnings,
+    };
   }
 }
 
@@ -303,8 +347,9 @@ async function ensureBrowserSource(
   canvasH: number,
 ) {
   const { sceneItems } = await obs.call('GetSceneItemList', { sceneName });
-  const existing = (sceneItems as Array<{ sourceName: string; sceneItemId: number }>)
-    .find((item) => item.sourceName === sourceName);
+  const existing = (sceneItems as Array<{ sourceName: string; sceneItemId: number }>).find(
+    (item) => item.sourceName === sourceName,
+  );
 
   if (existing) {
     // Only update settings if the URL actually changed — SetInputSettings reloads
@@ -315,7 +360,9 @@ async function ensureBrowserSource(
       const currentSettings = await obs.call('GetInputSettings', { inputName: sourceName });
       const currentUrl = (currentSettings.inputSettings as Record<string, unknown>)?.url;
       if (currentUrl === url) needsUpdate = false;
-    } catch { /* can't read settings, update anyway */ }
+    } catch {
+      /* can't read settings, update anyway */
+    }
 
     if (needsUpdate) {
       await obs.call('SetInputSettings', {
@@ -328,12 +375,19 @@ async function ensureBrowserSource(
       sceneName,
       sceneItemId: existing.sceneItemId,
       sceneItemTransform: {
-        positionX: 0, positionY: 0,
+        positionX: 0,
+        positionY: 0,
         boundsType: 'OBS_BOUNDS_STRETCH',
-        boundsWidth: canvasW, boundsHeight: canvasH,
-        boundsAlignment: 0, rotation: 0,
-        scaleX: 1, scaleY: 1,
-        cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0,
+        boundsWidth: canvasW,
+        boundsHeight: canvasH,
+        boundsAlignment: 0,
+        rotation: 0,
+        scaleX: 1,
+        scaleY: 1,
+        cropLeft: 0,
+        cropRight: 0,
+        cropTop: 0,
+        cropBottom: 0,
       },
     });
     return;
@@ -358,10 +412,13 @@ async function ensureBrowserSource(
     sceneName,
     sceneItemId: result.sceneItemId,
     sceneItemTransform: {
-      positionX: 0, positionY: 0,
+      positionX: 0,
+      positionY: 0,
       boundsType: 'OBS_BOUNDS_STRETCH',
-      boundsWidth: canvasW, boundsHeight: canvasH,
-      boundsAlignment: 0, rotation: 0,
+      boundsWidth: canvasW,
+      boundsHeight: canvasH,
+      boundsAlignment: 0,
+      rotation: 0,
     },
   });
 }
@@ -381,8 +438,14 @@ export async function obsLiveHealth(settings?: ObsSetupSettings): Promise<{
 }> {
   if (state.state !== 'connected') {
     return {
-      ok: false, connected: false, sourceReady: false, screenshotReady: false,
-      currentScene: null, availableScenes: [], streaming: false, recording: false,
+      ok: false,
+      connected: false,
+      sourceReady: false,
+      screenshotReady: false,
+      currentScene: null,
+      availableScenes: [],
+      streaming: false,
+      recording: false,
       error: state.error || 'OBS nao conectado',
     };
   }
@@ -393,7 +456,9 @@ export async function obsLiveHealth(settings?: ObsSetupSettings): Promise<{
   try {
     const { sceneItems } = await obs.call('GetSceneItemList', { sceneName: liveScene });
     sourceReady = (sceneItems as Array<{ sourceName: string }>).length > 0;
-  } catch { /* scene might not exist yet */ }
+  } catch {
+    /* scene might not exist yet */
+  }
 
   return {
     ok: true,

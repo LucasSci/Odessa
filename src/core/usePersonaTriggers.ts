@@ -37,9 +37,15 @@ export function usePersonaTriggers(
   const triggerCooldownRef = useRef<number>(0);
   const COOLDOWN_MS = 2000; // Prevent spam, min 2s between triggers
 
-  const giftKeywordsLower = useMemo(() => giftKeywords.map(k => k.toLowerCase()), [giftKeywords]);
-  const reactionKeywordsLower = useMemo(() => reactionKeywords.map(k => k.toLowerCase()), [reactionKeywords]);
-  const messageKeywordsLower = useMemo(() => messageKeywords.map(k => k.toLowerCase()), [messageKeywords]);
+  const giftKeywordsLower = useMemo(() => giftKeywords.map((k) => k.toLowerCase()), [giftKeywords]);
+  const reactionKeywordsLower = useMemo(
+    () => reactionKeywords.map((k) => k.toLowerCase()),
+    [reactionKeywords],
+  );
+  const messageKeywordsLower = useMemo(
+    () => messageKeywords.map((k) => k.toLowerCase()),
+    [messageKeywords],
+  );
 
   // Detect gift mentions
   const detectGift = useCallback(
@@ -85,7 +91,8 @@ export function usePersonaTriggers(
     const messageText = latestMessage.text || '';
 
     // Prefer explicit classification
-    const isExplicitGift = latestMessage.kind === 'gift' || Boolean(latestMessage.metadata?.giftName);
+    const isExplicitGift =
+      latestMessage.kind === 'gift' || Boolean(latestMessage.metadata?.giftName);
 
     if (enableGiftTrigger && (isExplicitGift || detectGift(messageText))) {
       onTrigger?.('gift', {
@@ -105,13 +112,22 @@ export function usePersonaTriggers(
 
     if (enableMessageTrigger) {
       const lowerText = messageText.toLowerCase();
-      const hasMessageKeyword = messageKeywordsLower.length > 0 && messageKeywordsLower.some((kw) => lowerText.includes(kw));
+      const hasMessageKeyword =
+        messageKeywordsLower.length > 0 &&
+        messageKeywordsLower.some((kw) => lowerText.includes(kw));
 
       if (hasMessageKeyword || messageText.length > 25) {
         onTrigger?.('message', { text: messageText, event: latestMessage });
       }
     }
-  }, [capturedText, detectGift, detectReaction, enableMessageTrigger, messageKeywordsLower, onTrigger]);
+  }, [
+    capturedText,
+    detectGift,
+    detectReaction,
+    enableMessageTrigger,
+    messageKeywordsLower,
+    onTrigger,
+  ]);
 
   return {
     triggerVideoTransition: (trigger: 'gift' | 'message' | 'reaction', data?: any) => {

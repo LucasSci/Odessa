@@ -41,7 +41,7 @@
           system-ui,
           -apple-system,
           BlinkMacSystemFont,
-          "Segoe UI",
+          'Segoe UI',
           sans-serif;
         letter-spacing: 0;
       }
@@ -298,7 +298,7 @@
         border: 1px solid rgba(53, 183, 255, 0.18);
         border-radius: 6px;
         padding: 4px 6px;
-        font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+        font-family: 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
         font-size: 10.5px;
       }
 
@@ -321,7 +321,7 @@
         height: 7px;
         border-radius: 50%;
         background: currentColor;
-        content: "";
+        content: '';
       }
 
       .tag-main {
@@ -507,15 +507,20 @@
           <h1>Fluxograma da lógica do Odessa</h1>
           <p class="subtitle">
             Mapa visual do que é executado quando a live gera texto ou eventos: da tela de captura,
-            passando pelo OCR e pela ingestão, até gatilhos, fila, vídeos, OBS, TTS, webhooks e logs.
+            passando pelo OCR e pela ingestão, até gatilhos, fila, vídeos, OBS, TTS, webhooks e
+            logs.
           </p>
         </div>
         <aside class="summary-card">
           <h2>Leitura rápida</h2>
           <ul class="summary-list">
-            <li><b>Rota principal:</b> janela/OBS -> OCR -> ingestão -> parser -> gatilho -> executor.</li>
+            <li>
+              <b>Rota principal:</b> janela/OBS -> OCR -> ingestão -> parser -> gatilho -> executor.
+            </li>
             <li><b>Rota paralela:</b> Event Bus local alimenta Autopilot/Persona Runtime.</li>
-            <li><b>Ajuste crítico:</b> qualidade OCR + classificação por zona + gatilhos salvos.</li>
+            <li>
+              <b>Ajuste crítico:</b> qualidade OCR + classificação por zona + gatilhos salvos.
+            </li>
             <li><b>Risco atual:</b> TTS desabilitado e teste de cena com payload divergente.</li>
           </ul>
         </aside>
@@ -543,48 +548,168 @@
 
             <svg class="links" viewBox="0 0 1720 1280" aria-hidden="true">
               <defs>
-                <marker id="arrow-main" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                <marker
+                  id="arrow-main"
+                  markerWidth="12"
+                  markerHeight="12"
+                  refX="10"
+                  refY="6"
+                  orient="auto"
+                >
                   <path d="M2,2 L10,6 L2,10 Z" fill="#35e0d0"></path>
                 </marker>
-                <marker id="arrow-secondary" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                <marker
+                  id="arrow-secondary"
+                  markerWidth="12"
+                  markerHeight="12"
+                  refX="10"
+                  refY="6"
+                  orient="auto"
+                >
                   <path d="M2,2 L10,6 L2,10 Z" fill="#a78bfa"></path>
                 </marker>
-                <marker id="arrow-config" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                <marker
+                  id="arrow-config"
+                  markerWidth="12"
+                  markerHeight="12"
+                  refX="10"
+                  refY="6"
+                  orient="auto"
+                >
                   <path d="M2,2 L10,6 L2,10 Z" fill="#f2b84b"></path>
                 </marker>
-                <marker id="arrow-risk" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                <marker
+                  id="arrow-risk"
+                  markerWidth="12"
+                  markerHeight="12"
+                  refX="10"
+                  refY="6"
+                  orient="auto"
+                >
                   <path d="M2,2 L10,6 L2,10 Z" fill="#ff8a3d"></path>
                 </marker>
               </defs>
 
-              <path class="link-main flow-main" d="M160 132 C160 168 172 184 172 210" marker-end="url(#arrow-main)"></path>
-              <path class="link-main flow-main" d="M282 232 C342 232 350 232 410 232" marker-end="url(#arrow-main)"></path>
-              <path class="link-main flow-main" d="M632 232 C708 232 720 232 790 232" marker-end="url(#arrow-main)"></path>
-              <path class="link-main flow-main" d="M902 284 C902 320 902 330 902 360" marker-end="url(#arrow-main)"></path>
-              <path class="link-main flow-main" d="M1011 412 C1048 434 1070 448 1112 504" marker-end="url(#arrow-main)"></path>
-              <path class="link-main flow-main" d="M1230 560 C1230 594 1230 602 1230 638" marker-end="url(#arrow-main)"></path>
-              <path class="link-main flow-main" d="M1325 692 C1366 710 1388 728 1420 790" marker-end="url(#arrow-main)"></path>
+              <path
+                class="link-main flow-main"
+                d="M160 132 C160 168 172 184 172 210"
+                marker-end="url(#arrow-main)"
+              ></path>
+              <path
+                class="link-main flow-main"
+                d="M282 232 C342 232 350 232 410 232"
+                marker-end="url(#arrow-main)"
+              ></path>
+              <path
+                class="link-main flow-main"
+                d="M632 232 C708 232 720 232 790 232"
+                marker-end="url(#arrow-main)"
+              ></path>
+              <path
+                class="link-main flow-main"
+                d="M902 284 C902 320 902 330 902 360"
+                marker-end="url(#arrow-main)"
+              ></path>
+              <path
+                class="link-main flow-main"
+                d="M1011 412 C1048 434 1070 448 1112 504"
+                marker-end="url(#arrow-main)"
+              ></path>
+              <path
+                class="link-main flow-main"
+                d="M1230 560 C1230 594 1230 602 1230 638"
+                marker-end="url(#arrow-main)"
+              ></path>
+              <path
+                class="link-main flow-main"
+                d="M1325 692 C1366 710 1388 728 1420 790"
+                marker-end="url(#arrow-main)"
+              ></path>
 
-              <path class="link-main flow-main" d="M606 412 C640 435 666 450 706 504" marker-end="url(#arrow-main)"></path>
-              <path class="link-main flow-main" d="M815 560 C850 588 875 604 912 638" marker-end="url(#arrow-main)"></path>
-              <path class="link-main flow-main" d="M1030 692 C1078 718 1116 736 1190 792" marker-end="url(#arrow-main)"></path>
+              <path
+                class="link-main flow-main"
+                d="M606 412 C640 435 666 450 706 504"
+                marker-end="url(#arrow-main)"
+              ></path>
+              <path
+                class="link-main flow-main"
+                d="M815 560 C850 588 875 604 912 638"
+                marker-end="url(#arrow-main)"
+              ></path>
+              <path
+                class="link-main flow-main"
+                d="M1030 692 C1078 718 1116 736 1190 792"
+                marker-end="url(#arrow-main)"
+              ></path>
 
-              <path class="link-secondary flow-manual" d="M1454 132 C1454 300 1454 402 1324 500" marker-end="url(#arrow-secondary)"></path>
-              <path class="link-secondary flow-manual" d="M1340 556 C1340 590 1340 604 1340 638" marker-end="url(#arrow-secondary)"></path>
+              <path
+                class="link-secondary flow-manual"
+                d="M1454 132 C1454 300 1454 402 1324 500"
+                marker-end="url(#arrow-secondary)"
+              ></path>
+              <path
+                class="link-secondary flow-manual"
+                d="M1340 556 C1340 590 1340 604 1340 638"
+                marker-end="url(#arrow-secondary)"
+              ></path>
 
-              <path class="link-secondary flow-autopilot" d="M562 560 C480 600 430 642 420 790" marker-end="url(#arrow-secondary)"></path>
-              <path class="link-secondary flow-autopilot" d="M530 838 C640 864 760 870 900 838" marker-end="url(#arrow-secondary)"></path>
-              <path class="link-secondary flow-autopilot" d="M1015 838 C1090 838 1122 838 1190 838" marker-end="url(#arrow-secondary)"></path>
+              <path
+                class="link-secondary flow-autopilot"
+                d="M562 560 C480 600 430 642 420 790"
+                marker-end="url(#arrow-secondary)"
+              ></path>
+              <path
+                class="link-secondary flow-autopilot"
+                d="M530 838 C640 864 760 870 900 838"
+                marker-end="url(#arrow-secondary)"
+              ></path>
+              <path
+                class="link-secondary flow-autopilot"
+                d="M1015 838 C1090 838 1122 838 1190 838"
+                marker-end="url(#arrow-secondary)"
+              ></path>
 
-              <path class="link-config flow-config" d="M220 1052 C260 978 280 914 310 838" marker-end="url(#arrow-config)"></path>
-              <path class="link-config flow-config" d="M440 1052 C520 982 590 918 682 842" marker-end="url(#arrow-config)"></path>
-              <path class="link-config flow-config" d="M648 1052 C742 960 850 880 1024 696" marker-end="url(#arrow-config)"></path>
-              <path class="link-config flow-config" d="M860 1052 C974 974 1090 888 1260 696" marker-end="url(#arrow-config)"></path>
+              <path
+                class="link-config flow-config"
+                d="M220 1052 C260 978 280 914 310 838"
+                marker-end="url(#arrow-config)"
+              ></path>
+              <path
+                class="link-config flow-config"
+                d="M440 1052 C520 982 590 918 682 842"
+                marker-end="url(#arrow-config)"
+              ></path>
+              <path
+                class="link-config flow-config"
+                d="M648 1052 C742 960 850 880 1024 696"
+                marker-end="url(#arrow-config)"
+              ></path>
+              <path
+                class="link-config flow-config"
+                d="M860 1052 C974 974 1090 888 1260 696"
+                marker-end="url(#arrow-config)"
+              ></path>
 
-              <path class="link-risk flow-risk" d="M606 1052 C650 914 678 766 725 560" marker-end="url(#arrow-risk)"></path>
-              <path class="link-risk flow-risk" d="M816 1052 C900 924 980 780 1120 560" marker-end="url(#arrow-risk)"></path>
-              <path class="link-risk flow-risk" d="M1024 1052 C1110 930 1216 808 1430 844" marker-end="url(#arrow-risk)"></path>
-              <path class="link-risk flow-risk" d="M1234 1052 C1300 970 1368 916 1502 844" marker-end="url(#arrow-risk)"></path>
+              <path
+                class="link-risk flow-risk"
+                d="M606 1052 C650 914 678 766 725 560"
+                marker-end="url(#arrow-risk)"
+              ></path>
+              <path
+                class="link-risk flow-risk"
+                d="M816 1052 C900 924 980 780 1120 560"
+                marker-end="url(#arrow-risk)"
+              ></path>
+              <path
+                class="link-risk flow-risk"
+                d="M1024 1052 C1110 930 1216 808 1430 844"
+                marker-end="url(#arrow-risk)"
+              ></path>
+              <path
+                class="link-risk flow-risk"
+                d="M1234 1052 C1300 970 1368 916 1502 844"
+                marker-end="url(#arrow-risk)"
+              ></path>
             </svg>
 
             <article class="node pin" data-flow="main" style="left: 52px; top: 70px">
@@ -654,21 +779,33 @@
               <code>POST /automation/ingest</code>
             </article>
 
-            <article class="node hotspot" data-flow="main manual risk" style="left: 892px; top: 500px">
+            <article
+              class="node hotspot"
+              data-flow="main manual risk"
+              style="left: 892px; top: 500px"
+            >
               <span class="tag tag-risk">Ajuste A4</span>
               <h3>AutomationService</h3>
               <p>Passa hints ao parser, registra logs, mede evento e prepara resumo.</p>
               <code>process_raw_text()</code>
             </article>
 
-            <article class="node hotspot" data-flow="main manual risk" style="left: 1214px; top: 500px">
+            <article
+              class="node hotspot"
+              data-flow="main manual risk"
+              style="left: 1214px; top: 500px"
+            >
               <span class="tag tag-risk">Ajuste A5</span>
               <h3>EventParser</h3>
               <p>Classifica chat, gift, alert, moderation e usa zona quando OCR vem curto.</p>
               <code>parse_text(event_hint)</code>
             </article>
 
-            <article class="node hotspot" data-flow="main manual config risk" style="left: 672px; top: 648px">
+            <article
+              class="node hotspot"
+              data-flow="main manual config risk"
+              style="left: 672px; top: 648px"
+            >
               <span class="tag tag-risk">Ajuste A6</span>
               <h3>TriggerEngine</h3>
               <p>Compara evento normalizado com triggers: giftKey, keyword, quantidade.</p>
@@ -681,7 +818,11 @@
               <p>Enfileira ações e bloqueia repetição por cooldown quando necessário.</p>
             </article>
 
-            <article class="node hotspot" data-flow="main manual autopilot risk" style="left: 1340px; top: 648px">
+            <article
+              class="node hotspot"
+              data-flow="main manual autopilot risk"
+              style="left: 1340px; top: 648px"
+            >
               <span class="tag tag-risk">Ajuste A7</span>
               <h3>ActionExecutor</h3>
               <p>Executa play_video, switch_scene, webhook, TTS ou bloqueia por segurança.</p>
@@ -702,7 +843,11 @@
               <code>runPersonaRound()</code>
             </article>
 
-            <article class="node" data-flow="main manual autopilot" style="left: 1120px; top: 790px">
+            <article
+              class="node"
+              data-flow="main manual autopilot"
+              style="left: 1120px; top: 790px"
+            >
               <span class="tag tag-out">Vídeo</span>
               <h3>Video Service</h3>
               <p>Atualiza estado ACTION/IDLE e entrega mídia para palco/overlay.</p>
@@ -755,16 +900,18 @@
 
             <article class="note" style="left: 70px; top: 1166px">
               <strong>Contrato essencial:</strong> o frontend deve sempre enviar texto + contexto
-              (<code>source</code>, <code>zoneName</code>, <code>kind</code>, <code>metadata</code>).
+              (<code>source</code>, <code>zoneName</code>, <code>kind</code>,
+              <code>metadata</code>).
             </article>
 
             <article class="note" style="left: 420px; top: 1166px">
-              <strong>Melhor lugar para diagnosticar:</strong> compare texto bruto OCR, evento parseado,
-              matchedTriggers, queuedActions, executions e videoState.
+              <strong>Melhor lugar para diagnosticar:</strong> compare texto bruto OCR, evento
+              parseado, matchedTriggers, queuedActions, executions e videoState.
             </article>
 
             <article class="note" style="left: 770px; top: 1166px">
-              <strong>Rotas montadas:</strong> backend expõe <code>/api/v1/*</code>, <code>/api/*</code>
+              <strong>Rotas montadas:</strong> backend expõe <code>/api/v1/*</code>,
+              <code>/api/*</code>
               e algumas rotas raiz de compatibilidade para OBS/OCR/Webhooks.
             </article>
           </div>
@@ -791,39 +938,71 @@
             </div>
             <div class="legend-row">
               <span class="dot dot-bug"></span>
-              <span><b>Pendência:</b> falhas vistas em testes completos, fora da captura principal.</span>
+              <span
+                ><b>Pendência:</b> falhas vistas em testes completos, fora da captura
+                principal.</span
+              >
             </div>
           </section>
 
           <section class="index">
             <h2>Rotas-chave</h2>
             <ul>
-              <li><b><code>/health</code></b>Status geral do backend, OCR, IA e TTS.</li>
-              <li><b><code>/api/v1/ocr/process</code></b>OCR de uma zona já recortada pela tela.</li>
-              <li><b><code>/api/v1/ocr/obs-cycle</code></b>OCR de múltiplas zonas a partir da source OBS.</li>
-              <li><b><code>/api/v1/automation/ingest</code></b>Entrada única para texto OCR/manual virar evento e ação.</li>
-              <li><b><code>/api/v1/automation/logs</code></b>Rastro de parser, trigger, fila e executor.</li>
-              <li><b><code>/api/v1/video/state</code></b>Estado atual que palco/overlay devem refletir.</li>
-              <li><b><code>/obs/switch-scene</code></b>Saída para troca de cena OBS.</li>
+              <li>
+                <b><code>/health</code></b
+                >Status geral do backend, OCR, IA e TTS.
+              </li>
+              <li>
+                <b><code>/api/v1/ocr/process</code></b
+                >OCR de uma zona já recortada pela tela.
+              </li>
+              <li>
+                <b><code>/api/v1/ocr/obs-cycle</code></b
+                >OCR de múltiplas zonas a partir da source OBS.
+              </li>
+              <li>
+                <b><code>/api/v1/automation/ingest</code></b
+                >Entrada única para texto OCR/manual virar evento e ação.
+              </li>
+              <li>
+                <b><code>/api/v1/automation/logs</code></b
+                >Rastro de parser, trigger, fila e executor.
+              </li>
+              <li>
+                <b><code>/api/v1/video/state</code></b
+                >Estado atual que palco/overlay devem refletir.
+              </li>
+              <li>
+                <b><code>/obs/switch-scene</code></b
+                >Saída para troca de cena OBS.
+              </li>
             </ul>
           </section>
 
           <section class="index">
             <h2>Checklist de ajuste</h2>
             <ul>
-              <li><b>1. A tela detecta frames?</b>Verificar preview, frameHash e aviso de frame repetido.</li>
+              <li>
+                <b>1. A tela detecta frames?</b>Verificar preview, frameHash e aviso de frame
+                repetido.
+              </li>
               <li><b>2. O OCR vê texto bruto?</b>Conferir painel "Texto bruto" por zona.</li>
-              <li><b>3. O evento foi classificado certo?</b>Conferir summary.events em /automation/logs.</li>
+              <li>
+                <b>3. O evento foi classificado certo?</b>Conferir summary.events em
+                /automation/logs.
+              </li>
               <li><b>4. Algum trigger casou?</b>Conferir matchedTriggers e cooldown.</li>
-              <li><b>5. A ação executou?</b>Conferir executions, videoState, OBS, TTS ou webhook.</li>
+              <li>
+                <b>5. A ação executou?</b>Conferir executions, videoState, OBS, TTS ou webhook.
+              </li>
             </ul>
           </section>
         </aside>
       </div>
 
       <p class="foot">
-        Arquivo gerado para orientar depuração do Odessa. Ele é estático: pode ser aberto direto no navegador e atualizado
-        conforme o software evoluir.
+        Arquivo gerado para orientar depuração do Odessa. Ele é estático: pode ser aberto direto no
+        navegador e atualizado conforme o software evoluir.
       </p>
     </main>
 

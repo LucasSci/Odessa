@@ -96,7 +96,10 @@ export default function PersonaOverlay() {
       setIsTransitioning(true);
       endedRef.current = '';
       setSlotClips((current) => {
-        const next: [VideoClip | null, VideoClip | null] = [...current] as [VideoClip | null, VideoClip | null];
+        const next: [VideoClip | null, VideoClip | null] = [...current] as [
+          VideoClip | null,
+          VideoClip | null,
+        ];
         next[nextSlot] = clip;
         return next;
       });
@@ -108,13 +111,19 @@ export default function PersonaOverlay() {
 
       const play = async () => {
         const elapsed =
-          state?.server_time && state?.start_ts ? Math.max(0, state.server_time - state.start_ts) : 0;
+          state?.server_time && state?.start_ts
+            ? Math.max(0, state.server_time - state.start_ts)
+            : 0;
         const startSec = Math.max(0, clip.startSec || 0);
         const endSec = clip.endSec ?? Number.POSITIVE_INFINITY;
         const duration = Number.isFinite(nextElement.duration) ? nextElement.duration : 0;
         const loopDuration = Math.max(0, Math.min(endSec, duration || endSec) - startSec);
         const naturalEndSec = Number.isFinite(endSec) ? endSec : duration;
-        if (!shouldLoopClip(clip) && naturalEndSec > 0 && startSec + elapsed >= naturalEndSec - 0.1) {
+        if (
+          !shouldLoopClip(clip) &&
+          naturalEndSec > 0 &&
+          startSec + elapsed >= naturalEndSec - 0.1
+        ) {
           setIsTransitioning(false);
           await advanceAndRefresh();
           return;
@@ -226,14 +235,17 @@ export default function PersonaOverlay() {
             height: '104%',
             transitionDuration: `${slotClip?.transitionMs ?? 220}ms`,
             willChange: 'opacity, transform',
-            transform: 'translateZ(0)'
+            transform: 'translateZ(0)',
           }}
         />
       ))}
 
       <audio ref={audioRef} />
 
-      <div className="absolute bottom-2 right-2 opacity-0 transition hover:opacity-100" style={{ zIndex: 11 }}>
+      <div
+        className="absolute bottom-2 right-2 opacity-0 transition hover:opacity-100"
+        style={{ zIndex: 11 }}
+      >
         <span className="font-mono text-[10px] text-white/20">ODESSA_OVERLAY_SYNC_ACTIVE</span>
       </div>
     </div>

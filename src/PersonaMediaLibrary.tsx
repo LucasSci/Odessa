@@ -9,7 +9,7 @@ import {
   X,
   CheckCircle2,
   AlertCircle,
-  Loader2
+  Loader2,
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { apiUrl } from './lib/api';
@@ -47,8 +47,13 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
   const [trashedVideos, setTrashedVideos] = useState<VideoConfig[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'videos' | 'actions' | 'triggers' | 'upload' | 'trash'>('videos');
-  const [uploadStatus, setUploadStatus] = useState<{ type: 'success' | 'error' | 'none', message: string }>({ type: 'none', message: '' });
+  const [activeTab, setActiveTab] = useState<
+    'videos' | 'actions' | 'triggers' | 'upload' | 'trash'
+  >('videos');
+  const [uploadStatus, setUploadStatus] = useState<{
+    type: 'success' | 'error' | 'none';
+    message: string;
+  }>({ type: 'none', message: '' });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [isUploading, setIsUploading] = useState(false);
@@ -92,11 +97,15 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
   };
 
   const toggleVideoSelectionForNew = (id: string) => {
-    setNewGiftSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    setNewGiftSelected((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
   };
 
   const toggleVideoSelectionForEdit = (id: string) => {
-    setEditingGiftSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    setEditingGiftSelected((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
   };
 
   const fetchConfig = useCallback(async () => {
@@ -136,10 +145,10 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
     const newActionMap: Record<string, string[]> = {
       gift: [],
       message: [],
-      idle: []
+      idle: [],
     };
 
-    config.videos.forEach(v => {
+    config.videos.forEach((v) => {
       if (v.action_trigger && v.action_trigger !== 'none' && newActionMap[v.action_trigger]) {
         newActionMap[v.action_trigger].push(v.id);
       }
@@ -147,7 +156,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
 
     const configToSave = {
       ...config,
-      action_map: newActionMap
+      action_map: newActionMap,
     };
 
     setIsSaving(true);
@@ -202,7 +211,10 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
       if (successCount === selectedIds.length) {
         setUploadStatus({ type: 'success', message: `${successCount} vídeos removidos!` });
       } else {
-        setUploadStatus({ type: 'error', message: `Removidos ${successCount} de ${selectedIds.length} vídeos.` });
+        setUploadStatus({
+          type: 'error',
+          message: `Removidos ${successCount} de ${selectedIds.length} vídeos.`,
+        });
       }
       setSelectedIds([]);
       fetchConfig();
@@ -216,7 +228,12 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
   };
 
   const handleClearAll = async () => {
-    if (!window.confirm('CUIDADO: Isso irá EXCLUIR TODOS os vídeos da biblioteca e do disco. Tem certeza?')) return;
+    if (
+      !window.confirm(
+        'CUIDADO: Isso irá EXCLUIR TODOS os vídeos da biblioteca e do disco. Tem certeza?',
+      )
+    )
+      return;
 
     setIsSaving(true);
     try {
@@ -268,7 +285,10 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
 
     setIsUploading(true);
     setUploadProgress(0);
-    setUploadStatus({ type: 'none', message: `Preparando upload de ${files.length} arquivo(s)...` });
+    setUploadStatus({
+      type: 'none',
+      message: `Preparando upload de ${files.length} arquivo(s)...`,
+    });
 
     let successCount = 0;
 
@@ -285,7 +305,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
           xhr.upload.onprogress = (event) => {
             if (event.lengthComputable) {
               const fileProgress = (event.loaded / event.total) * 100;
-              const totalProgress = ((i / files.length) * 100) + (fileProgress / files.length);
+              const totalProgress = (i / files.length) * 100 + fileProgress / files.length;
               setUploadProgress(Math.round(totalProgress));
             }
           };
@@ -311,7 +331,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
     setUploadProgress(100);
     setUploadStatus({
       type: successCount === files.length ? 'success' : 'error',
-      message: `Upload concluído: ${successCount}/${files.length} arquivos enviados.`
+      message: `Upload concluído: ${successCount}/${files.length} arquivos enviados.`,
     });
 
     fetchConfig();
@@ -323,7 +343,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
     if (!config) return;
     setConfig({
       ...config,
-      videos: config.videos.map(v => v.id === id ? { ...v, ...patch } : v)
+      videos: config.videos.map((v) => (v.id === id ? { ...v, ...patch } : v)),
     });
   };
 
@@ -333,8 +353,8 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
       ...config,
       transitions: {
         ...config.transitions,
-        [id]: { safe_next: safeNext }
-      }
+        [id]: { safe_next: safeNext },
+      },
     });
   };
 
@@ -366,10 +386,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
             {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
             Salvar
           </button>
-          <button
-            onClick={onClose}
-            className="p-1.5 hover:bg-slate-800 rounded-lg transition"
-          >
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-800 rounded-lg transition">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -380,8 +397,10 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
         <button
           onClick={() => setActiveTab('videos')}
           className={cn(
-            "flex-1 py-2 text-xs font-bold rounded-md transition",
-            activeTab === 'videos' ? "bg-slate-800 text-blue-400" : "text-slate-500 hover:text-slate-300"
+            'flex-1 py-2 text-xs font-bold rounded-md transition',
+            activeTab === 'videos'
+              ? 'bg-slate-800 text-blue-400'
+              : 'text-slate-500 hover:text-slate-300',
           )}
         >
           Vídeos
@@ -389,8 +408,10 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
         <button
           onClick={() => setActiveTab('actions')}
           className={cn(
-            "flex-1 py-2 text-xs font-bold rounded-md transition",
-            activeTab === 'actions' ? "bg-slate-800 text-blue-400" : "text-slate-500 hover:text-slate-300"
+            'flex-1 py-2 text-xs font-bold rounded-md transition',
+            activeTab === 'actions'
+              ? 'bg-slate-800 text-blue-400'
+              : 'text-slate-500 hover:text-slate-300',
           )}
         >
           Ações
@@ -398,8 +419,10 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
         <button
           onClick={() => setActiveTab('triggers')}
           className={cn(
-            "flex-1 py-2 text-xs font-bold rounded-md transition",
-            activeTab === 'triggers' ? "bg-slate-800 text-blue-400" : "text-slate-500 hover:text-slate-300"
+            'flex-1 py-2 text-xs font-bold rounded-md transition',
+            activeTab === 'triggers'
+              ? 'bg-slate-800 text-blue-400'
+              : 'text-slate-500 hover:text-slate-300',
           )}
         >
           Gatilhos
@@ -407,8 +430,10 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
         <button
           onClick={() => setActiveTab('upload')}
           className={cn(
-            "flex-1 py-2 text-xs font-bold rounded-md transition",
-            activeTab === 'upload' ? "bg-slate-800 text-blue-400" : "text-slate-500 hover:text-slate-300"
+            'flex-1 py-2 text-xs font-bold rounded-md transition',
+            activeTab === 'upload'
+              ? 'bg-slate-800 text-blue-400'
+              : 'text-slate-500 hover:text-slate-300',
           )}
         >
           Upload
@@ -416,8 +441,10 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
         <button
           onClick={() => setActiveTab('trash')}
           className={cn(
-            "flex-1 py-2 text-xs font-bold rounded-md transition",
-            activeTab === 'trash' ? "bg-slate-800 text-blue-400" : "text-slate-500 hover:text-slate-300"
+            'flex-1 py-2 text-xs font-bold rounded-md transition',
+            activeTab === 'trash'
+              ? 'bg-slate-800 text-blue-400'
+              : 'text-slate-500 hover:text-slate-300',
           )}
         >
           Lixeira
@@ -427,11 +454,19 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
         {uploadStatus.type !== 'none' && (
-          <div className={cn(
-            "mb-4 p-3 rounded-lg flex items-center gap-2 text-xs font-medium animate-in fade-in slide-in-from-top-2",
-            uploadStatus.type === 'success' ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
-          )}>
-            {uploadStatus.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+          <div
+            className={cn(
+              'mb-4 p-3 rounded-lg flex items-center gap-2 text-xs font-medium animate-in fade-in slide-in-from-top-2',
+              uploadStatus.type === 'success'
+                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                : 'bg-rose-500/10 text-rose-400 border border-rose-500/20',
+            )}
+          >
+            {uploadStatus.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4" />
+            ) : (
+              <AlertCircle className="w-4 h-4" />
+            )}
             {uploadStatus.message}
           </div>
         )}
@@ -443,10 +478,13 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                 <label className="flex items-center gap-2 text-[10px] text-slate-500 cursor-pointer hover:text-slate-300 transition">
                   <input
                     type="checkbox"
-                    checked={(config?.videos?.length ?? 0) > 0 && selectedIds.length === (config?.videos?.length || 0)}
+                    checked={
+                      (config?.videos?.length ?? 0) > 0 &&
+                      selectedIds.length === (config?.videos?.length || 0)
+                    }
                     onChange={(e) => {
                       if (e.target.checked) {
-                        setSelectedIds(config?.videos.map(v => v.id) || []);
+                        setSelectedIds(config?.videos.map((v) => v.id) || []);
                       } else {
                         setSelectedIds([]);
                       }
@@ -456,7 +494,9 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                   Selecionar Tudo
                 </label>
                 {selectedIds.length > 0 && (
-                  <span className="text-[10px] text-blue-400 font-bold">{selectedIds.length} selecionados</span>
+                  <span className="text-[10px] text-blue-400 font-bold">
+                    {selectedIds.length} selecionados
+                  </span>
                 )}
               </div>
               <div className="flex items-center gap-2">
@@ -485,8 +525,10 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                 <div
                   key={video.id}
                   className={cn(
-                    "group p-4 bg-slate-800/40 rounded-xl border transition",
-                    selectedIds.includes(video.id) ? "border-blue-500/50 bg-blue-500/5 shadow-[0_0_15px_rgba(59,130,246,0.1)]" : "border-slate-700/50 hover:border-slate-600"
+                    'group p-4 bg-slate-800/40 rounded-xl border transition',
+                    selectedIds.includes(video.id)
+                      ? 'border-blue-500/50 bg-blue-500/5 shadow-[0_0_15px_rgba(59,130,246,0.1)]'
+                      : 'border-slate-700/50 hover:border-slate-600',
                   )}
                 >
                   <div className="flex gap-4">
@@ -498,7 +540,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                           if (e.target.checked) {
                             setSelectedIds([...selectedIds, video.id]);
                           } else {
-                            setSelectedIds(selectedIds.filter(id => id !== video.id));
+                            setSelectedIds(selectedIds.filter((id) => id !== video.id));
                           }
                         }}
                         className="absolute -top-1 -left-1 z-10 w-4 h-4 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-0 opacity-0 group-hover:opacity-100 checked:opacity-100 transition"
@@ -511,8 +553,11 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                           src={apiUrl(`/api/video/play/${video.id}`)}
                           className="w-full h-full object-cover opacity-60 group-hover/thumb:opacity-100 transition"
                           muted
-                          onMouseOver={e => (e.target as HTMLVideoElement).play()}
-                          onMouseOut={e => { (e.target as HTMLVideoElement).pause(); (e.target as HTMLVideoElement).currentTime = 0; }}
+                          onMouseOver={(e) => (e.target as HTMLVideoElement).play()}
+                          onMouseOut={(e) => {
+                            (e.target as HTMLVideoElement).pause();
+                            (e.target as HTMLVideoElement).currentTime = 0;
+                          }}
                         />
                         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition bg-black/40">
                           <Play className="w-6 h-6 text-white drop-shadow-lg" />
@@ -564,7 +609,9 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
 
                         <select
                           value={video.action_trigger || 'none'}
-                          onChange={(e) => updateVideo(video.id, { action_trigger: e.target.value })}
+                          onChange={(e) =>
+                            updateVideo(video.id, { action_trigger: e.target.value })
+                          }
                           className="bg-slate-900 border-slate-700 text-[10px] rounded px-2 py-1 outline-none text-blue-400 focus:border-blue-500/50 transition"
                         >
                           <option value="none">Sem Ação</option>
@@ -581,32 +628,41 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                             className="w-3 h-3 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-0"
                             id={`loop-${video.id}`}
                           />
-                          <label htmlFor={`loop-${video.id}`} className="text-[10px] text-slate-500 cursor-pointer">Loop</label>
+                          <label
+                            htmlFor={`loop-${video.id}`}
+                            className="text-[10px] text-slate-500 cursor-pointer"
+                          >
+                            Loop
+                          </label>
                         </div>
                       </div>
 
                       <div className="mt-2 pt-2 border-t border-slate-700/30">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Recomendar Transição para:</span>
-                          <span className="text-[8px] text-slate-600 font-mono">{config.transitions?.[video.id]?.safe_next?.length || 0} vinculados</span>
+                          <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">
+                            Recomendar Transição para:
+                          </span>
+                          <span className="text-[8px] text-slate-600 font-mono">
+                            {config.transitions?.[video.id]?.safe_next?.length || 0} vinculados
+                          </span>
                         </div>
                         <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto custom-scrollbar pr-1 py-1">
-                          {config?.videos.map(v => (
+                          {config?.videos.map((v) => (
                             <button
                               key={v.id}
                               type="button"
                               onClick={() => {
                                 const currentSafe = config.transitions?.[video.id]?.safe_next || [];
                                 const newSafe = currentSafe.includes(v.id)
-                                  ? currentSafe.filter(sid => sid !== v.id)
+                                  ? currentSafe.filter((sid) => sid !== v.id)
                                   : [...currentSafe, v.id];
                                 updateTransitions(video.id, newSafe);
                               }}
                               className={cn(
-                                "px-2 py-0.5 rounded text-[8px] font-bold transition border",
+                                'px-2 py-0.5 rounded text-[8px] font-bold transition border',
                                 (config.transitions?.[video.id]?.safe_next || []).includes(v.id)
-                                  ? "bg-blue-600/30 text-blue-300 border-blue-500/50 shadow-[0_0_8px_rgba(59,130,246,0.15)]"
-                                  : "bg-slate-900/50 text-slate-500 border-slate-800 hover:border-slate-700"
+                                  ? 'bg-blue-600/30 text-blue-300 border-blue-500/50 shadow-[0_0_8px_rgba(59,130,246,0.15)]'
+                                  : 'bg-slate-900/50 text-slate-500 border-slate-800 hover:border-slate-700',
                               )}
                             >
                               {v.label}
@@ -629,19 +685,29 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                 <div className="flex items-center justify-between px-1">
                   <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 flex items-center gap-2">
                     <LinkIcon className="w-3 h-3" />
-                    Ação: {action === 'idle' ? 'Loop de Repouso' : action === 'gift' ? 'Reação a Gifts' : 'Reação a Chat'}
+                    Ação:{' '}
+                    {action === 'idle'
+                      ? 'Loop de Repouso'
+                      : action === 'gift'
+                        ? 'Reação a Gifts'
+                        : 'Reação a Chat'}
                   </h3>
                 </div>
                 <div className="p-4 bg-slate-950/30 rounded-xl border border-slate-800 flex flex-wrap gap-2">
                   {config?.videos
-                    .filter(v => v.action_trigger === action)
-                    .map(v => (
-                      <span key={v.id} className="px-2 py-1 bg-blue-500/10 text-blue-400 rounded-md text-[10px] font-bold border border-blue-500/20">
+                    .filter((v) => v.action_trigger === action)
+                    .map((v) => (
+                      <span
+                        key={v.id}
+                        className="px-2 py-1 bg-blue-500/10 text-blue-400 rounded-md text-[10px] font-bold border border-blue-500/20"
+                      >
                         {v.label} ({v.id})
                       </span>
                     ))}
-                  {config?.videos.filter(v => v.action_trigger === action).length === 0 && (
-                    <span className="text-[10px] text-slate-600 italic">Nenhum vídeo vinculado</span>
+                  {config?.videos.filter((v) => v.action_trigger === action).length === 0 && (
+                    <span className="text-[10px] text-slate-600 italic">
+                      Nenhum vídeo vinculado
+                    </span>
                   )}
                 </div>
               </div>
@@ -652,24 +718,35 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
         {activeTab === 'triggers' && (
           <div className="space-y-6">
             <div className="p-4 bg-blue-500/5 rounded-xl border border-blue-500/20 text-xs text-blue-300 leading-relaxed">
-              <p>Configure aqui as palavras que o <strong>OCR</strong> irá capturar no chat para acionar automaticamente as reações da persona.</p>
+              <p>
+                Configure aqui as palavras que o <strong>OCR</strong> irá capturar no chat para
+                acionar automaticamente as reações da persona.
+              </p>
             </div>
 
             <div className="space-y-4">
               {/* Gift Keywords */}
               <div className="space-y-2">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Gatilhos para Gifts (Presentes)</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">
+                  Gatilhos para Gifts (Presentes)
+                </label>
                 <div className="p-4 bg-slate-950/30 rounded-xl border border-slate-800 space-y-3">
                   <div className="flex flex-wrap gap-2">
                     {config?.triggers?.gift_keywords.map((kw, idx) => (
-                      <div key={idx} className="flex items-center gap-1.5 px-2 py-1 bg-rose-500/10 text-rose-400 rounded border border-rose-500/20 text-[10px] font-bold">
+                      <div
+                        key={idx}
+                        className="flex items-center gap-1.5 px-2 py-1 bg-rose-500/10 text-rose-400 rounded border border-rose-500/20 text-[10px] font-bold"
+                      >
                         {kw}
                         <button
                           onClick={() => {
                             if (!config) return;
                             const newKws = [...(config.triggers?.gift_keywords || [])];
                             newKws.splice(idx, 1);
-                            setConfig({ ...config, triggers: { ...config.triggers!, gift_keywords: newKws } });
+                            setConfig({
+                              ...config,
+                              triggers: { ...config.triggers!, gift_keywords: newKws },
+                            });
                           }}
                           className="hover:text-rose-300"
                         >
@@ -688,7 +765,10 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                           const val = e.currentTarget.value.trim();
                           if (val && config) {
                             const newKws = [...(config.triggers?.gift_keywords || []), val];
-                            setConfig({ ...config, triggers: { ...config.triggers!, gift_keywords: newKws } });
+                            setConfig({
+                              ...config,
+                              triggers: { ...config.triggers!, gift_keywords: newKws },
+                            });
                             e.currentTarget.value = '';
                           }
                         }
@@ -700,18 +780,26 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
 
               {/* Message Keywords */}
               <div className="space-y-2">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Gatilhos para Chat (Ações)</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">
+                  Gatilhos para Chat (Ações)
+                </label>
                 <div className="p-4 bg-slate-950/30 rounded-xl border border-slate-800 space-y-3">
                   <div className="flex flex-wrap gap-2">
                     {config?.triggers?.message_keywords.map((kw, idx) => (
-                      <div key={idx} className="flex items-center gap-1.5 px-2 py-1 bg-blue-500/10 text-blue-400 rounded border border-blue-500/20 text-[10px] font-bold">
+                      <div
+                        key={idx}
+                        className="flex items-center gap-1.5 px-2 py-1 bg-blue-500/10 text-blue-400 rounded border border-blue-500/20 text-[10px] font-bold"
+                      >
                         {kw}
                         <button
                           onClick={() => {
                             if (!config) return;
                             const newKws = [...(config.triggers?.message_keywords || [])];
                             newKws.splice(idx, 1);
-                            setConfig({ ...config, triggers: { ...config.triggers!, message_keywords: newKws } });
+                            setConfig({
+                              ...config,
+                              triggers: { ...config.triggers!, message_keywords: newKws },
+                            });
                           }}
                           className="hover:text-blue-300"
                         >
@@ -730,7 +818,10 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                           const val = e.currentTarget.value.trim();
                           if (val && config) {
                             const newKws = [...(config.triggers?.message_keywords || []), val];
-                            setConfig({ ...config, triggers: { ...config.triggers!, message_keywords: newKws } });
+                            setConfig({
+                              ...config,
+                              triggers: { ...config.triggers!, message_keywords: newKws },
+                            });
                             e.currentTarget.value = '';
                           }
                         }
@@ -742,30 +833,60 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
 
               {/* Gift -> Video Mapping */}
               <div className="space-y-2">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Mapeamento de Gifts → Vídeos</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">
+                  Mapeamento de Gifts → Vídeos
+                </label>
                 <div className="p-4 bg-slate-950/30 rounded-xl border border-slate-800 space-y-3">
                   <div className="flex flex-col gap-2">
-                    {(config?.gift_map && Object.keys(config.gift_map).length > 0) ? (
+                    {config?.gift_map && Object.keys(config.gift_map).length > 0 ? (
                       Object.keys(config!.gift_map!).map((key) => (
-                        <div key={key} className="flex items-center justify-between bg-slate-900/50 rounded px-3 py-2">
+                        <div
+                          key={key}
+                          className="flex items-center justify-between bg-slate-900/50 rounded px-3 py-2"
+                        >
                           <div className="flex items-center gap-3">
                             <strong className="text-[11px] text-rose-300">{key}</strong>
                             <div className="flex gap-1 flex-wrap">
-                              {(config!.gift_map![key] || []).map(vId => (
-                                <span key={vId} className="text-[10px] bg-blue-500/10 text-blue-300 px-2 py-0.5 rounded border border-blue-500/20">{config?.videos.find(v => v.id === vId)?.label || vId}</span>
+                              {(config!.gift_map![key] || []).map((vId) => (
+                                <span
+                                  key={vId}
+                                  className="text-[10px] bg-blue-500/10 text-blue-300 px-2 py-0.5 rounded border border-blue-500/20"
+                                >
+                                  {config?.videos.find((v) => v.id === vId)?.label || vId}
+                                </span>
                               ))}
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
                             {editingGiftKey === key ? (
                               <>
-                                <button onClick={saveEditedGift} className="px-2 py-1 bg-emerald-600/20 text-emerald-300 rounded text-[10px]">Salvar</button>
-                                <button onClick={() => setEditingGiftKey(null)} className="px-2 py-1 bg-slate-800/60 text-slate-300 rounded text-[10px]">Cancelar</button>
+                                <button
+                                  onClick={saveEditedGift}
+                                  className="px-2 py-1 bg-emerald-600/20 text-emerald-300 rounded text-[10px]"
+                                >
+                                  Salvar
+                                </button>
+                                <button
+                                  onClick={() => setEditingGiftKey(null)}
+                                  className="px-2 py-1 bg-slate-800/60 text-slate-300 rounded text-[10px]"
+                                >
+                                  Cancelar
+                                </button>
                               </>
                             ) : (
                               <>
-                                <button onClick={() => startEditGift(key)} className="px-2 py-1 bg-blue-600/20 text-blue-300 rounded text-[10px]">Editar</button>
-                                <button onClick={() => deleteGiftMapping(key)} className="px-2 py-1 bg-rose-600/20 text-rose-300 rounded text-[10px]">Remover</button>
+                                <button
+                                  onClick={() => startEditGift(key)}
+                                  className="px-2 py-1 bg-blue-600/20 text-blue-300 rounded text-[10px]"
+                                >
+                                  Editar
+                                </button>
+                                <button
+                                  onClick={() => deleteGiftMapping(key)}
+                                  className="px-2 py-1 bg-rose-600/20 text-rose-300 rounded text-[10px]"
+                                >
+                                  Remover
+                                </button>
                               </>
                             )}
                           </div>
@@ -773,9 +894,13 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                           {/* Edit mode inline */}
                           {editingGiftKey === key && (
                             <div className="w-full mt-2 grid grid-cols-3 gap-2">
-                              {config?.videos.map(v => (
+                              {config?.videos.map((v) => (
                                 <label key={v.id} className="flex items-center gap-2 text-[10px]">
-                                  <input type="checkbox" checked={editingGiftSelected.includes(v.id)} onChange={() => toggleVideoSelectionForEdit(v.id)} />
+                                  <input
+                                    type="checkbox"
+                                    checked={editingGiftSelected.includes(v.id)}
+                                    onChange={() => toggleVideoSelectionForEdit(v.id)}
+                                  />
                                   <span className="truncate">{v.label}</span>
                                 </label>
                               ))}
@@ -784,19 +909,43 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
                         </div>
                       ))
                     ) : (
-                      <div className="text-[10px] text-slate-600 italic">Nenhum mapeamento de gifts configurado.</div>
+                      <div className="text-[10px] text-slate-600 italic">
+                        Nenhum mapeamento de gifts configurado.
+                      </div>
                     )}
                   </div>
 
                   <div className="pt-2 border-t border-slate-800/40">
                     <div className="flex gap-2 items-center">
-                      <input value={newGiftName} onChange={(e) => setNewGiftName(e.target.value)} placeholder="Nome do presente (ex: Rosa)" className="flex-1 bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-xs outline-none" />
-                      <button onClick={addGiftMapping} className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs">Adicionar mapeamento</button>
+                      <input
+                        value={newGiftName}
+                        onChange={(e) => setNewGiftName(e.target.value)}
+                        placeholder="Nome do presente (ex: Rosa)"
+                        className="flex-1 bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-xs outline-none"
+                      />
+                      <button
+                        onClick={addGiftMapping}
+                        className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs"
+                      >
+                        Adicionar mapeamento
+                      </button>
                     </div>
 
                     <div className="mt-2 grid grid-cols-3 gap-2 max-h-40 overflow-y-auto pr-1">
-                      {config?.videos.map(v => (
-                        <button key={v.id} type="button" onClick={() => toggleVideoSelectionForNew(v.id)} className={cn("text-[10px] px-2 py-1 rounded border", newGiftSelected.includes(v.id) ? "bg-blue-600/30 text-blue-300 border-blue-500/40" : "bg-slate-900/40 text-slate-400 border-slate-800")}>{v.label}</button>
+                      {config?.videos.map((v) => (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={() => toggleVideoSelectionForNew(v.id)}
+                          className={cn(
+                            'text-[10px] px-2 py-1 rounded border',
+                            newGiftSelected.includes(v.id)
+                              ? 'bg-blue-600/30 text-blue-300 border-blue-500/40'
+                              : 'bg-slate-900/40 text-slate-400 border-slate-800',
+                          )}
+                        >
+                          {v.label}
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -829,8 +978,12 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
             ) : (
               <>
                 <Upload className="w-12 h-12 text-slate-700 mb-4" />
-                <p className="text-sm font-medium text-slate-400 mb-1">Arraste ou clique para upload</p>
-                <p className="text-[10px] text-slate-600 mb-6">Formatos aceitos: MP4 (múltiplos permitidos)</p>
+                <p className="text-sm font-medium text-slate-400 mb-1">
+                  Arraste ou clique para upload
+                </p>
+                <p className="text-[10px] text-slate-600 mb-6">
+                  Formatos aceitos: MP4 (múltiplos permitidos)
+                </p>
                 <input
                   type="file"
                   accept="video/mp4"
@@ -858,10 +1011,17 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
               </div>
             ) : (
               trashedVideos.map((video) => (
-                <div key={video.id} className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                <div
+                  key={video.id}
+                  className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/40 p-3"
+                >
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-bold text-white">{video.label || video.id}</div>
-                    <div className="truncate text-[10px] text-slate-500">{video.archivedAt || 'arquivado'}</div>
+                    <div className="truncate text-sm font-bold text-white">
+                      {video.label || video.id}
+                    </div>
+                    <div className="truncate text-[10px] text-slate-500">
+                      {video.archivedAt || 'arquivado'}
+                    </div>
                   </div>
                   <button
                     onClick={() => handleRestore(video.id)}
@@ -878,9 +1038,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
 
       {/* Footer */}
       <div className="p-4 bg-slate-950/50 border-t border-slate-800 flex items-center justify-between">
-        <p className="text-[10px] text-slate-500 font-mono">
-          ODESSA_MEDIA_CORE_V1.0
-        </p>
+        <p className="text-[10px] text-slate-500 font-mono">ODESSA_MEDIA_CORE_V1.0</p>
         <div className="flex items-center gap-4 text-[10px] text-slate-500">
           <span>{config?.videos.length || 0} vídeos</span>
           <div className="w-1 h-1 bg-slate-700 rounded-full" />
@@ -896,7 +1054,7 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
         >
           <div
             className="relative w-full max-w-4xl aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/10"
-            onClick={e => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
           >
             <video
               src={apiUrl(`/api/video/play/${previewVideoId}`)}
@@ -906,7 +1064,9 @@ export default function PersonaMediaLibrary({ onClose, onConfigChange }: Persona
             />
             <div className="absolute top-4 left-4 bg-black/60 px-3 py-1.5 rounded-full backdrop-blur-md border border-white/10 flex items-center gap-2">
               <Film className="w-4 h-4 text-blue-400" />
-              <span className="text-xs font-bold">{config?.videos.find(v => v.id === previewVideoId)?.label} ({previewVideoId})</span>
+              <span className="text-xs font-bold">
+                {config?.videos.find((v) => v.id === previewVideoId)?.label} ({previewVideoId})
+              </span>
             </div>
             <button
               onClick={() => setPreviewVideoId(null)}

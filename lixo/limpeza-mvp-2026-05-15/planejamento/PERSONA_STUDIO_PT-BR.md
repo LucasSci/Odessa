@@ -13,6 +13,7 @@
 **Problema:** Captura de tela parava quando você alternava entre abas do navegador.
 
 **Solução:** Substituir `pyautogui.screenshot()` por `PIL.ImageGrab.grab()`
+
 - Funciona mesmo sem foco na janela
 - Captura a tela via Windows API (mais robusto)
 
@@ -27,6 +28,7 @@ Novo componente React que **alterna vídeos de forma natural e automática**.
 **Arquivo:** `src/PersonaStudio.tsx` (~450 linhas)
 
 **Recursos:**
+
 - 🎬 Exibe vídeos da persona (video_01.mp4 a video_16.mp4)
 - 🔄 Transições suaves com crossfade (0.5 segundos)
 - 🎁 Botão "Gift Recebido" → Toca agradecimentos
@@ -50,6 +52,7 @@ Mensagem normal → Detecta chat → Toca video_07
 ```
 
 **Características:**
+
 - Detecta gifts, reações e mensagens normais
 - Cooldown de 2 segundos (evita spam)
 - Se mapeado em keywords customizáveis
@@ -59,10 +62,12 @@ Mensagem normal → Detecta chat → Toca video_07
 ### 4. ✅ Backend para Servir Vídeos
 
 **Arquivos criados:**
+
 - `server/routes/video.py` - Endpoints da API
 - `server/core/video_files.py` - Lógica de auto-descoberta
 
 **Endpoints disponíveis:**
+
 ```bash
 GET /api/video/available      # Lista todos os vídeos
 GET /api/video/play/{id}      # Serve vídeo (ex: /api/video/play/04)
@@ -70,6 +75,7 @@ GET /api/video/health         # Status do sistema
 ```
 
 **Auto-descoberta de vídeos em:**
+
 1. `C:\Users\{Você}\OneDrive\Videos\Captures\` (recomendado)
 2. `C:\Users\{Você}\Videos\Odessa\`
 3. `C:\Users\{Você}\Downloads\Videos\`
@@ -91,12 +97,14 @@ Adicionado novo tab **"Studio Video"** (🎬) na interface principal.
 ### Passo 1: Preparar Vídeos
 
 Coloque seus arquivos em uma dessas pastas:
+
 ```
 C:\Users\{SeuUsuário}\OneDrive\Videos\Captures\
 C:\Users\{SeuUsuário}\Videos\Odessa\
 ```
 
 Renomeie para:
+
 ```
 video_01.mp4
 video_02.mp4
@@ -107,12 +115,14 @@ video_16.mp4
 ### Passo 2: Iniciar o Sistema
 
 **Terminal 1 (Backend):**
+
 ```bash
 cd server
 python main.py
 ```
 
 **Terminal 2 (Frontend):**
+
 ```bash
 npm run dev
 ```
@@ -171,15 +181,15 @@ Menu Lateral → Studio Video (ícone 🎬)
 
 ## 📂 Arquivos Criados/Modificados
 
-| Arquivo | Ação | O que mudou |
-|---------|------|-----------|
-| `src/PersonaStudio.tsx` | 🆕 Novo | Componente principal |
-| `src/core/usePersonaTriggers.ts` | 🆕 Novo | Hook de detecção |
-| `server/routes/video.py` | 🆕 Novo | API de vídeos |
-| `server/core/video_files.py` | 🆕 Novo | Auto-descoberta |
-| `server/services/ocr_service.py` | ✏️ Modificado | PIL.ImageGrab |
-| `src/OdessaLiveCenter.tsx` | ✏️ Modificado | Novo tab |
-| `server/main.py` | ✏️ Modificado | Registrou rota |
+| Arquivo                          | Ação          | O que mudou          |
+| -------------------------------- | ------------- | -------------------- |
+| `src/PersonaStudio.tsx`          | 🆕 Novo       | Componente principal |
+| `src/core/usePersonaTriggers.ts` | 🆕 Novo       | Hook de detecção     |
+| `server/routes/video.py`         | 🆕 Novo       | API de vídeos        |
+| `server/core/video_files.py`     | 🆕 Novo       | Auto-descoberta      |
+| `server/services/ocr_service.py` | ✏️ Modificado | PIL.ImageGrab        |
+| `src/OdessaLiveCenter.tsx`       | ✏️ Modificado | Novo tab             |
+| `server/main.py`                 | ✏️ Modificado | Registrou rota       |
 
 ---
 
@@ -262,18 +272,18 @@ A: Verificar se está em `http://localhost:3000/#persona-studio`
 
 ## 📞 Resumo Técnico
 
-| Item | Detalhes |
-|------|----------|
-| **Linguagem Frontend** | TypeScript + React |
-| **Linguagem Backend** | Python + FastAPI |
-| **Total de linhas de código** | ~600 (novo) |
-| **Vídeos suportados** | 16 (video_01 a video_16) |
-| **Transições mapeadas** | 16 × 3-6 cada |
-| **Tempo de transição** | 0.5 segundos |
-| **Cycle de idle** | 8 segundos |
-| **Cooldown trigger** | 2 segundos |
-| **Resolução vídeo** | 720 × 1280 |
-| **FPS** | 24 |
+| Item                          | Detalhes                 |
+| ----------------------------- | ------------------------ |
+| **Linguagem Frontend**        | TypeScript + React       |
+| **Linguagem Backend**         | Python + FastAPI         |
+| **Total de linhas de código** | ~600 (novo)              |
+| **Vídeos suportados**         | 16 (video_01 a video_16) |
+| **Transições mapeadas**       | 16 × 3-6 cada            |
+| **Tempo de transição**        | 0.5 segundos             |
+| **Cycle de idle**             | 8 segundos               |
+| **Cooldown trigger**          | 2 segundos               |
+| **Resolução vídeo**           | 720 × 1280               |
+| **FPS**                       | 24                       |
 
 ---
 
@@ -293,6 +303,7 @@ A: Verificar se está em `http://localhost:3000/#persona-studio`
 **Sistema pronto para produção! 🚀**
 
 Para mais detalhes técnicos, consulte:
+
 - `PERSONA_STUDIO_SETUP.md` - Guia de configuração
 - `PERSONA_STUDIO_ARQUITETURA.md` - Diagrama técnico
 - `PERSONA_STUDIO_IMPLEMENTACAO.md` - Detalhes completos

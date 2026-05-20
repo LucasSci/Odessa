@@ -167,7 +167,9 @@
   border: 1px solid rgba(125, 211, 252, 0.25);
   border-radius: 14px;
   background: linear-gradient(135deg, #111827, #07111f);
-  box-shadow: 0 0 24px rgba(125, 211, 252, 0.22), inset 0 0 0 1px rgba(125, 211, 252, 0.18);
+  box-shadow:
+    0 0 24px rgba(125, 211, 252, 0.22),
+    inset 0 0 0 1px rgba(125, 211, 252, 0.18);
 }
 
 .odessa-brand-mark img {
@@ -263,7 +265,9 @@
 
 .odessa-flow-node-active {
   animation: pulse-node 1.8s ease-in-out infinite;
-  box-shadow: 0 0 0 1px rgba(190, 242, 100, 0.38), 0 0 34px rgba(190, 242, 100, 0.18);
+  box-shadow:
+    0 0 0 1px rgba(190, 242, 100, 0.38),
+    0 0 34px rgba(190, 242, 100, 0.18);
 }
 
 @keyframes odessa-edge-flow {

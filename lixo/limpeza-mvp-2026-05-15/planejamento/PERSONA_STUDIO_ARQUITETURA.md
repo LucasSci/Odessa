@@ -320,7 +320,7 @@
 
 ## Backend Routes
 
-### /api/video/* Endpoints
+### /api/video/\* Endpoints
 
 ```
 GET /api/video/available
@@ -359,9 +359,9 @@ GET /api/video/health
 
 ```typescript
 interface VideoState {
-  id: string;        // '01' to '16'
+  id: string; // '01' to '16'
   group: 'base_idle' | 'look_side' | 'hair_motion' | 'thank_you' | 'read_screen';
-  label: string;     // "Âncora Principal"
+  label: string; // "Âncora Principal"
   description: string; // "Idle base frontal"
 }
 ```

@@ -228,7 +228,8 @@ export function useAutopilotRuntime({
     return {
       completedCycles: completed,
       failedCycles: failed,
-      averageConfidence: decisionCount === 0 ? 0 : Math.round((confidenceSum / decisionCount) * 100)
+      averageConfidence:
+        decisionCount === 0 ? 0 : Math.round((confidenceSum / decisionCount) * 100),
     };
   }, [cycles]);
 
@@ -426,24 +427,27 @@ export function useAutopilotRuntime({
     };
   }, []);
 
-  const start = useCallback((opts?: StartOptions) => {
-    setLastError(null);
-    if (opts?.voiceEnabled !== undefined) {
-      setVoiceEnabled(opts.voiceEnabled);
-    }
-    if (opts?.toolPatches && opts.toolPatches.length) {
-      setTools((current) => {
-        let next = current;
-        for (const p of opts.toolPatches || []) {
-          next = updateToolRegistry(next, p.capability as any, p.patch as any);
-        }
-        return next;
-      });
-    }
-    lastEventAtRef.current = Date.now();
-    setAutopilotEnabled(true);
-    getRecentEvents().forEach(enqueueEvent);
-  }, [enqueueEvent]);
+  const start = useCallback(
+    (opts?: StartOptions) => {
+      setLastError(null);
+      if (opts?.voiceEnabled !== undefined) {
+        setVoiceEnabled(opts.voiceEnabled);
+      }
+      if (opts?.toolPatches && opts.toolPatches.length) {
+        setTools((current) => {
+          let next = current;
+          for (const p of opts.toolPatches || []) {
+            next = updateToolRegistry(next, p.capability as any, p.patch as any);
+          }
+          return next;
+        });
+      }
+      lastEventAtRef.current = Date.now();
+      setAutopilotEnabled(true);
+      getRecentEvents().forEach(enqueueEvent);
+    },
+    [enqueueEvent],
+  );
 
   const pause = useCallback(() => {
     setAutopilotEnabled(false);

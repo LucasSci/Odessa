@@ -3,6 +3,7 @@
 Movido em 2026-05-13 para manter a limpeza reversivel. Nada nesta pasta foi apagado permanentemente.
 
 ## Movidos
+
 - `dist`
 - `dist-electron`
 - `coverage`
@@ -25,4 +26,5 @@ Movido em 2026-05-13 para manter a limpeza reversivel. Nada nesta pasta foi apag
 - `eslint_unix.txt`
 
 ## Observacao
+
 Arquivos de codigo fonte ativos e configuracoes runtime criticas foram preservados. Para restaurar qualquer item, mover de volta mantendo o mesmo caminho relativo.

@@ -69,8 +69,20 @@ interface CaptureSettings {
 
 type CaptureSourceMode = 'screen' | 'obs' | 'direct';
 type DirectPageMode = 'interact' | 'crop';
-type DirectRenderer = 'none' | 'iframe' | 'proxy-preview' | 'electron-webview' | 'electron-webcontentsview';
-type DirectPageState = 'none' | 'loading' | 'dom-ready' | 'rendered' | 'failed' | 'blocked' | 'empty';
+type DirectRenderer =
+  | 'none'
+  | 'iframe'
+  | 'proxy-preview'
+  | 'electron-webview'
+  | 'electron-webcontentsview';
+type DirectPageState =
+  | 'none'
+  | 'loading'
+  | 'dom-ready'
+  | 'rendered'
+  | 'failed'
+  | 'blocked'
+  | 'empty';
 type DirectCaptureState = 'unavailable' | 'available' | 'tested' | 'failed';
 
 interface ElectronImage {
@@ -514,7 +526,10 @@ const CaptureStudio = React.memo(function CaptureStudio({
   );
   const [directCaptureState, setDirectCaptureState] = useState<DirectCaptureState>('unavailable');
   const [directCapturePreview, setDirectCapturePreview] = useState<string | null>(null);
-  const [directCaptureSize, setDirectCaptureSize] = useState<{ width: number; height: number } | null>(null);
+  const [directCaptureSize, setDirectCaptureSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
   const [directCaptureError, setDirectCaptureError] = useState<string | null>(null);
   const [presets, setPresets] = useState<CapturePreset[]>(
     storedState?.presets?.length ? storedState.presets : clonePresets(DEFAULT_PRESETS),
@@ -575,18 +590,34 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const activeZone = zones[activeZoneIndex] || zones[0];
 
   const lastEvent = captureEvents[captureEvents.length - 1];
-  const successfulEvents = useMemo(
-    () => captureEvents.filter((event) => event.routeStatus !== 'error'),
-    [captureEvents],
-  );
-  const averageConfidence = useMemo(() =>
-    successfulEvents.reduce((sum, event) => sum + (event.confidence ?? 0), 0) /
-    Math.max(1, successfulEvents.filter((event) => event.confidence !== null).length)
-  , [successfulEvents]);
-  const averageLatency = useMemo(() =>
-    successfulEvents.reduce((sum, event) => sum + (event.latencyMs ?? 0), 0) /
-    Math.max(1, successfulEvents.filter((event) => event.latencyMs !== null).length)
-  , [successfulEvents]);
+  const { successfulEvents, averageConfidence, averageLatency } = useMemo(() => {
+    const success = [];
+    let confSum = 0;
+    let confCount = 0;
+    let latSum = 0;
+    let latCount = 0;
+
+    for (let i = 0; i < captureEvents.length; i++) {
+      const event = captureEvents[i];
+      if (event.routeStatus !== 'error') {
+        success.push(event);
+        if (event.confidence !== null && event.confidence !== undefined) {
+          confSum += event.confidence;
+          confCount++;
+        }
+        if (event.latencyMs !== null && event.latencyMs !== undefined) {
+          latSum += event.latencyMs;
+          latCount++;
+        }
+      }
+    }
+
+    return {
+      successfulEvents: success,
+      averageConfidence: confCount > 0 ? confSum / confCount : 0,
+      averageLatency: latCount > 0 ? latSum / latCount : 0,
+    };
+  }, [captureEvents]);
   const desktopRuntime = (window as ElectronRuntimeWindow).odessaDesktop;
   const isElectronRuntime = Boolean(desktopRuntime?.isElectron);
   const canUseDirectWebCapture = Boolean(desktopRuntime?.canUseDirectWebCapture);
@@ -624,10 +655,10 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const screenReady = Boolean(screenStream?.active);
   const directReady = Boolean(
     directPageUrl &&
-      isElectronRuntime &&
-      directRenderer === 'electron-webview' &&
-      directPageReady &&
-      directPageState === 'rendered',
+    isElectronRuntime &&
+    directRenderer === 'electron-webview' &&
+    directPageReady &&
+    directPageState === 'rendered',
   );
   const directCaptureTested = directCaptureState === 'tested' && Boolean(directCapturePreview);
   const sourceReady =
@@ -652,7 +683,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
     addDirectLog(`[Runtime] isElectron=${isElectronRuntime}`);
     addDirectLog(`[Runtime] canUseDirectWebCapture=${canUseDirectWebCapture}`);
     addDirectLog(`[Runtime] renderer=${runtimeRenderer}`);
-    addDirectLog(`[LinkDireto] webviewTag habilitado: ${Boolean(desktopRuntime?.webviewTagEnabled)}`);
+    addDirectLog(
+      `[LinkDireto] webviewTag habilitado: ${Boolean(desktopRuntime?.webviewTagEnabled)}`,
+    );
   }, [
     addDirectLog,
     canUseDirectWebCapture,
@@ -773,7 +806,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
       setPreviewImage(data.image);
       if (data.width && data.height) setPreviewSize({ width: data.width, height: data.height });
       noteFrameMetadata(data.frameHash, data.capturedAt);
-      setStatus((current) => (current === CaptureStatus.CAPTURING ? current : CaptureStatus.SELECTING));
+      setStatus((current) =>
+        current === CaptureStatus.CAPTURING ? current : CaptureStatus.SELECTING,
+      );
       setError(null);
       return data;
     } catch (err) {
@@ -971,8 +1006,8 @@ const CaptureStudio = React.memo(function CaptureStudio({
       if (details.isMainFrame === false) return;
       addLog(
         `did-fail-load: errorCode=${details.errorCode ?? '?'}, ` +
-        `errorDescription=${details.errorDescription ?? '?'}, ` +
-        `validatedURL=${details.validatedURL ?? '?'}`,
+          `errorDescription=${details.errorDescription ?? '?'}, ` +
+          `validatedURL=${details.validatedURL ?? '?'}`,
       );
       setDirectPageState('failed');
       setDirectPageReady(false);
@@ -1030,8 +1065,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
           }, 250)
         : null;
     const interval = window.setInterval(refreshHealth, 15000);
-    const obsInterval =
-      captureMode === 'obs' ? window.setInterval(refreshObsHealth, 15000) : null;
+    const obsInterval = captureMode === 'obs' ? window.setInterval(refreshObsHealth, 15000) : null;
     return () => {
       window.clearTimeout(firstRun);
       if (obsFirstRun) window.clearTimeout(obsFirstRun);
@@ -1039,7 +1073,6 @@ const CaptureStudio = React.memo(function CaptureStudio({
       if (obsInterval) window.clearInterval(obsInterval);
     };
   }, [captureMode, refreshHealth, refreshObsHealth, refreshObsPreview]);
-
 
   const pauseCapture = useCallback(() => {
     setStatus(CaptureStatus.IDLE);
@@ -1293,7 +1326,12 @@ const CaptureStudio = React.memo(function CaptureStudio({
     const video = livePreviewRef.current;
     const sourceWidth = video?.videoWidth || 0;
     const sourceHeight = video?.videoHeight || 0;
-    if (!video || !sourceWidth || !sourceHeight || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+    if (
+      !video ||
+      !sourceWidth ||
+      !sourceHeight ||
+      video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+    ) {
       return null;
     }
 
@@ -1367,7 +1405,8 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const testDirectCapture = useCallback(async () => {
     const webview = directWebviewRef.current;
     if (!isElectronRuntime || directRenderer !== 'electron-webview') {
-      const msg = 'Captura direta de pagina externa indisponivel no modo web. Use captura de tela do navegador, OBS ou proxy/iframe de preview.';
+      const msg =
+        'Captura direta de pagina externa indisponivel no modo web. Use captura de tela do navegador, OBS ou proxy/iframe de preview.';
       setDirectCaptureState('unavailable');
       setDirectCaptureError(msg);
       addDirectLog(`[LinkDireto] capturePage disponivel: false`);
@@ -1402,14 +1441,14 @@ const CaptureStudio = React.memo(function CaptureStudio({
       const zone = activeZone;
       const zoneInside = Boolean(
         zone &&
-          width > 0 &&
-          height > 0 &&
-          zone.x >= 0 &&
-          zone.y >= 0 &&
-          zone.width > 0 &&
-          zone.height > 0 &&
-          zone.x + zone.width <= width &&
-          zone.y + zone.height <= height,
+        width > 0 &&
+        height > 0 &&
+        zone.x >= 0 &&
+        zone.y >= 0 &&
+        zone.width > 0 &&
+        zone.height > 0 &&
+        zone.x + zone.width <= width &&
+        zone.y + zone.height <= height,
       );
       addDirectLog(
         `[LinkDireto] zona ativa: ${Math.round(zone?.x || 0)}, ${Math.round(zone?.y || 0)}, ${Math.round(
@@ -1453,7 +1492,11 @@ const CaptureStudio = React.memo(function CaptureStudio({
 
   const runScreenOcrCycle = useCallback(async () => {
     const video = livePreviewRef.current;
-    if (!video?.videoWidth || !video.videoHeight || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+    if (
+      !video?.videoWidth ||
+      !video.videoHeight ||
+      video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+    ) {
       setCurrentRawText('Aguardando frames da janela...');
       return { waiting: true, width: 0, height: 0, results: [] as OcrResponse[] };
     }
@@ -1496,7 +1539,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const runDirectPageOcrCycle = useCallback(async () => {
     // --- Task 6: Validate Electron + webview before OCR ---
     if (!isElectronRuntime) {
-      setCurrentRawText('No modo web, use captura de tela do navegador, OBS ou proxy/iframe para OCR.');
+      setCurrentRawText(
+        'No modo web, use captura de tela do navegador, OBS ou proxy/iframe para OCR.',
+      );
       return { waiting: true, width: 0, height: 0, results: [] as OcrResponse[] };
     }
     const webview = directWebviewRef.current;
@@ -1507,7 +1552,10 @@ const CaptureStudio = React.memo(function CaptureStudio({
     if (typeof webview.capturePage !== 'function') {
       const msg = 'capturePage nao esta disponivel neste webview. Verifique a versao do Electron.';
       setCurrentRawText(msg);
-      setWebviewLogs((prev) => [...prev.slice(-60), `[${formatClock()}] [LinkDireto] ERRO: ${msg}`]);
+      setWebviewLogs((prev) => [
+        ...prev.slice(-60),
+        `[${formatClock()}] [LinkDireto] ERRO: ${msg}`,
+      ]);
       return { waiting: true, width: 0, height: 0, results: [] as OcrResponse[] };
     }
     if (!directPageReady) {
@@ -1531,7 +1579,10 @@ const CaptureStudio = React.memo(function CaptureStudio({
     } catch (err) {
       const msg = `capturePage falhou: ${err instanceof Error ? err.message : 'erro desconhecido'}`;
       setCurrentRawText(msg);
-      setWebviewLogs((prev) => [...prev.slice(-60), `[${formatClock()}] [LinkDireto] ERRO: ${msg}`]);
+      setWebviewLogs((prev) => [
+        ...prev.slice(-60),
+        `[${formatClock()}] [LinkDireto] ERRO: ${msg}`,
+      ]);
       return { waiting: true, width: 0, height: 0, results: [] as OcrResponse[] };
     }
     const frameDataUrl = captured.toDataURL();
@@ -1736,7 +1787,10 @@ const CaptureStudio = React.memo(function CaptureStudio({
                   },
                 }),
               });
-              ingestResult = (await ingestResponse.json().catch(() => ({}))) as Record<string, unknown>;
+              ingestResult = (await ingestResponse.json().catch(() => ({}))) as Record<
+                string,
+                unknown
+              >;
               if (!ingestResponse.ok || ingestResult?.error) {
                 throw new Error(String(ingestResult?.error || `HTTP ${ingestResponse.status}`));
               }
@@ -1863,7 +1917,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
     setDirectLinkStatus('Carregando pagina...');
     setDirectPageReady(false);
     setDirectPageState('loading');
-    setDirectCaptureState(isElectronRuntime && canUseDirectWebCapture ? 'available' : 'unavailable');
+    setDirectCaptureState(
+      isElectronRuntime && canUseDirectWebCapture ? 'available' : 'unavailable',
+    );
     setDirectCapturePreview(null);
     setDirectCaptureSize(null);
     setDirectCaptureError(null);
@@ -1894,14 +1950,23 @@ const CaptureStudio = React.memo(function CaptureStudio({
       updateDirectPageSize();
       setIsOpeningDirectLink(false);
     }, 0);
-    setStatus((current) => (current === CaptureStatus.CAPTURING ? current : CaptureStatus.SELECTING));
+    setStatus((current) =>
+      current === CaptureStatus.CAPTURING ? current : CaptureStatus.SELECTING,
+    );
     setError(
       isElectronRuntime
         ? null
         : 'Modo web ativo: para OCR use captura de tela do navegador, OBS ou uma zona de captura configurada.',
     );
     return true;
-  }, [addDirectLog, backendOnline, canUseDirectWebCapture, directUrl, isElectronRuntime, updateDirectPageSize]);
+  }, [
+    addDirectLog,
+    backendOnline,
+    canUseDirectWebCapture,
+    directUrl,
+    isElectronRuntime,
+    updateDirectPageSize,
+  ]);
 
   const startCapture = useCallback(async () => {
     lastFrameHashRef.current = null;
@@ -1918,7 +1983,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
         setError(null);
       } catch (err) {
         setStatus(CaptureStatus.ERROR);
-        setError(err instanceof Error ? err.message : 'Nao foi possivel iniciar a captura da janela.');
+        setError(
+          err instanceof Error ? err.message : 'Nao foi possivel iniciar a captura da janela.',
+        );
       }
       return;
     }
@@ -1957,7 +2024,13 @@ const CaptureStudio = React.memo(function CaptureStudio({
 
     let health = await refreshObsHealth();
     const sourceNotRendering = health.sourceActive === false || health.sourceShowing === false;
-    if (!health.ok || !health.connected || !health.sourceReady || !health.screenshotReady || sourceNotRendering) {
+    if (
+      !health.ok ||
+      !health.connected ||
+      !health.sourceReady ||
+      !health.screenshotReady ||
+      sourceNotRendering
+    ) {
       try {
         setError(`Preparando a source "${sourceName}" no OBS...`);
         const repairResponse = await fetch(apiUrl('/obs/prepare-capture'), {
@@ -1995,7 +2068,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
       return;
     }
     if (health.sourceActive === false || health.sourceShowing === false) {
-      setFrameWarning('A source OBS ainda nao reportou renderizacao ativa; o OCR vai tentar usar o frame disponivel.');
+      setFrameWarning(
+        'A source OBS ainda nao reportou renderizacao ativa; o OCR vai tentar usar o frame disponivel.',
+      );
     }
     const preview = await refreshObsPreview();
     if (!preview) return;
@@ -2114,7 +2189,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
 
           <section className="space-y-3 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--t3)]">Fonte</h3>
+              <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--t3)]">
+                Fonte
+              </h3>
               <button
                 onClick={() => {
                   void refreshHealth();
@@ -2177,7 +2254,8 @@ const CaptureStudio = React.memo(function CaptureStudio({
                     Captura em tempo real
                   </p>
                   <p className="mt-2 text-xs leading-5 text-[var(--t3)]">
-                    Selecione a janela do TikTok/Live Studio para recortar o chat direto do video ao vivo.
+                    Selecione a janela do TikTok/Live Studio para recortar o chat direto do video ao
+                    vivo.
                   </p>
                   <button
                     type="button"
@@ -2247,7 +2325,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
                     <button
                       type="button"
                       onClick={() => void testDirectCapture()}
-                      disabled={!isElectronRuntime || !directPageUrl || directPageState !== 'rendered'}
+                      disabled={
+                        !isElectronRuntime || !directPageUrl || directPageState !== 'rendered'
+                      }
                       className="inline-flex items-center justify-center gap-2 rounded-md bg-sky-500 px-3 py-2 text-xs font-black text-slate-950 transition hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <ScanText className="h-4 w-4" />
@@ -2264,7 +2344,11 @@ const CaptureStudio = React.memo(function CaptureStudio({
               <div className="grid grid-cols-2 gap-2 text-[10px] font-bold uppercase tracking-wide">
                 <div className="rounded-md border border-[var(--border)] bg-[var(--bg1)]/50 p-2 text-[var(--t3)]">
                   <p>
-                    {captureMode === 'screen' ? 'Janela' : captureMode === 'direct' ? 'Link' : 'OBS'}
+                    {captureMode === 'screen'
+                      ? 'Janela'
+                      : captureMode === 'direct'
+                        ? 'Link'
+                        : 'OBS'}
                   </p>
                   <p
                     className={cn(
@@ -2279,11 +2363,11 @@ const CaptureStudio = React.memo(function CaptureStudio({
                               ? 'text-emerald-300'
                               : 'text-amber-300'
                             : 'text-[var(--t3)]'
-                        : sourceReady
-                          ? 'text-emerald-300'
-                          : obsHealth?.connected
-                            ? 'text-amber-300'
-                            : 'text-rose-300',
+                          : sourceReady
+                            ? 'text-emerald-300'
+                            : obsHealth?.connected
+                              ? 'text-amber-300'
+                              : 'text-rose-300',
                     )}
                   >
                     {captureMode === 'screen'
@@ -2296,11 +2380,11 @@ const CaptureStudio = React.memo(function CaptureStudio({
                             ? 'aberto'
                             : 'carregando'
                           : 'pendente'
-                      : sourceReady
-                        ? 'pronto'
-                        : obsHealth?.connected
-                          ? 'conectado'
-                          : 'offline'}
+                        : sourceReady
+                          ? 'pronto'
+                          : obsHealth?.connected
+                            ? 'conectado'
+                            : 'offline'}
                   </p>
                 </div>
                 <div className="rounded-md border border-[var(--border)] bg-[var(--bg1)]/50 p-2 text-[var(--t3)]">
@@ -2328,7 +2412,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 </div>
               </div>
               {captureMode === 'obs' && obsHealth?.currentScene && (
-                <p className="truncate text-xs text-[var(--t3)]">Cena atual: {obsHealth.currentScene}</p>
+                <p className="truncate text-xs text-[var(--t3)]">
+                  Cena atual: {obsHealth.currentScene}
+                </p>
               )}
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -2398,7 +2484,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
 
           <section className="mt-4 space-y-3 rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--t3)]">Zonas</h3>
+              <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--t3)]">
+                Zonas
+              </h3>
               <button
                 onClick={addZone}
                 disabled={zones.length >= MAX_ZONES}
@@ -2428,7 +2516,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
                         className="h-2.5 w-2.5 rounded-full"
                         style={{ backgroundColor: zone.color }}
                       />
-                      <span className="truncate text-sm font-bold text-[var(--t1)]">{zone.name}</span>
+                      <span className="truncate text-sm font-bold text-[var(--t1)]">
+                        {zone.name}
+                      </span>
                     </span>
                     <span className="mt-1 block font-mono text-[10px] text-[var(--t3)]">
                       {Math.round(zone.width)}x{Math.round(zone.height)} px
@@ -2602,10 +2692,10 @@ const CaptureStudio = React.memo(function CaptureStudio({
                     {directRenderer === 'electron-webview'
                       ? 'Electron WebView legado'
                       : directRenderer === 'proxy-preview'
-                          ? 'Proxy preview'
-                          : directRenderer === 'iframe'
-                            ? 'Iframe'
-                            : 'Nenhum'}
+                        ? 'Proxy preview'
+                        : directRenderer === 'iframe'
+                          ? 'Iframe'
+                          : 'Nenhum'}
                   </span>
                 </div>
                 <div className="bg-[#0B1018] px-3 py-2 text-[var(--t3)]">
@@ -2646,7 +2736,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
                     <button
                       type="button"
                       onClick={() => {
-                        setDirectPageMode((current) => (current === 'interact' ? 'crop' : 'interact'));
+                        setDirectPageMode((current) =>
+                          current === 'interact' ? 'crop' : 'interact',
+                        );
                         setIsSelectingRegion(false);
                         setCurrentSelection(null);
                       }}
@@ -2728,7 +2820,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
                           useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
                           webpreferences="contextIsolation=yes,nodeIntegration=no,javascript=yes"
                           onError={() => {
-                            addDirectLog('[LinkDireto] did-fail-load: code=?, description=webview error, url=?');
+                            addDirectLog(
+                              '[LinkDireto] did-fail-load: code=?, description=webview error, url=?',
+                            );
                             setDirectPageState('failed');
                             setDirectPageReady(false);
                             setDirectCaptureState('unavailable');
@@ -2754,7 +2848,8 @@ const CaptureStudio = React.memo(function CaptureStudio({
                             <div className="flex items-center gap-2 border-b border-amber-400/30 bg-amber-500/10 px-4 py-2.5 text-xs font-bold text-amber-100">
                               <AlertCircle className="h-4 w-4 shrink-0" />
                               <span>
-                                Backend offline — o proxy nao esta disponivel. Inicie o servidor para carregar a pagina ou use captura de tela/OBS.
+                                Backend offline — o proxy nao esta disponivel. Inicie o servidor
+                                para carregar a pagina ou use captura de tela/OBS.
                               </span>
                             </div>
                           )}
@@ -2767,7 +2862,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
                               setDirectPageReady(false);
                               setDirectPageState('dom-ready');
                               setDirectCaptureState('unavailable');
-                              setDirectLinkStatus('Preview limitado carregado; OCR direto indisponivel no navegador comum.');
+                              setDirectLinkStatus(
+                                'Preview limitado carregado; OCR direto indisponivel no navegador comum.',
+                              );
                               addDirectLog('[LinkDireto] iframe/proxy preview carregado');
                               updateDirectPageSize();
                             }}
@@ -2775,7 +2872,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
                               setDirectPageReady(false);
                               setDirectPageState('failed');
                               setDirectCaptureState('unavailable');
-                              addDirectLog('[LinkDireto] did-fail-load: iframe/proxy preview falhou');
+                              addDirectLog(
+                                '[LinkDireto] did-fail-load: iframe/proxy preview falhou',
+                              );
                               setError(
                                 backendOnline
                                   ? 'O proxy nao conseguiu carregar a pagina. Tente o app desktop.'
@@ -2809,7 +2908,10 @@ const CaptureStudio = React.memo(function CaptureStudio({
                         onLoad={(event) => {
                           const image = event.currentTarget;
                           if (image.naturalWidth && image.naturalHeight) {
-                            setPreviewSize({ width: image.naturalWidth, height: image.naturalHeight });
+                            setPreviewSize({
+                              width: image.naturalWidth,
+                              height: image.naturalHeight,
+                            });
                           }
                         }}
                       />
@@ -2917,7 +3019,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 <Clock3 className="h-4 w-4" />
                 Ultima captura
               </div>
-              <p className="mt-2 font-mono text-lg font-black text-[var(--t1)]">{lastCaptureTime}</p>
+              <p className="mt-2 font-mono text-lg font-black text-[var(--t1)]">
+                {lastCaptureTime}
+              </p>
             </div>
             <div className="bg-[#0B1018] p-4">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[var(--t3)]">
@@ -3101,7 +3205,8 @@ const CaptureStudio = React.memo(function CaptureStudio({
                       className="h-28 w-full rounded-md border border-[var(--border)] bg-black object-contain"
                     />
                     <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-300">
-                      Captura testada: {directCaptureSize?.width || 0}x{directCaptureSize?.height || 0}
+                      Captura testada: {directCaptureSize?.width || 0}x
+                      {directCaptureSize?.height || 0}
                     </p>
                   </div>
                 )}

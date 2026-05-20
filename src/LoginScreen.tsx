@@ -100,7 +100,15 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
         )}
 
         <label style={{ display: 'block', marginBottom: 14 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--t2, #aaa)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: 'var(--t2, #aaa)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+            }}
+          >
             Email
           </span>
           <input
@@ -128,7 +136,15 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
         </label>
 
         <label style={{ display: 'block', marginBottom: 22 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--t2, #aaa)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: 'var(--t2, #aaa)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+            }}
+          >
             Senha
           </span>
           <input

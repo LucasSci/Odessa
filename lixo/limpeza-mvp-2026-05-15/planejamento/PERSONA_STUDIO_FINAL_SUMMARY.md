@@ -9,6 +9,7 @@
 ## 🎯 O QUE FOI REALIZADO
 
 ### ✅ 1. CORRIGIDA FALHA CRÍTICA DE OCR
+
 ```
 ANTES:  OCR parava ao mudar de aba (dependência de foco)
 DEPOIS: OCR funciona 24/7 em background (Windows API)
@@ -18,6 +19,7 @@ Mudança: pyautogui.screenshot() → PIL.ImageGrab.grab()
 ```
 
 ### ✅ 2. PERSONA STUDIO COMPLETO
+
 ```
 Novo Componente React: src/PersonaStudio.tsx (450 linhas)
 
@@ -33,6 +35,7 @@ Funcionalidades:
 ```
 
 ### ✅ 3. SISTEMA DE GATILHOS INTELIGENTES
+
 ```
 Hook React: src/core/usePersonaTriggers.ts (100 linhas)
 
@@ -46,6 +49,7 @@ Palavras-chave: Customizáveis
 ```
 
 ### ✅ 4. BACKEND PARA VÍDEOS
+
 ```
 Rotas FastAPI: server/routes/video.py
 Gerenciador: server/core/video_files.py
@@ -62,6 +66,7 @@ Auto-descoberta em:
 ```
 
 ### ✅ 5. INTEGRAÇÃO UI
+
 ```
 Novo Tab: "Studio Video" (🎬)
 Localização: Menu de tabs (ao lado de "Odessa")
@@ -151,6 +156,7 @@ Status: Pronto para uso imediato
 ## 🚀 COMO COMEÇAR
 
 ### Passo 1: Preparar Vídeos
+
 ```bash
 # Copiar para:
 C:\Users\{Seu Usuário}\OneDrive\Videos\Captures\
@@ -163,6 +169,7 @@ video_16.mp4
 ```
 
 ### Passo 2: Iniciar Sistema
+
 ```bash
 # Terminal 1 - Backend
 cd server && python main.py
@@ -172,11 +179,13 @@ npm run dev
 ```
 
 ### Passo 3: Acessar
+
 ```
 http://localhost:3000 → Menu → Studio Video (🎬)
 ```
 
 ### Passo 4: Usar
+
 ```
 🎁 Clique "Gift Recebido"  → Toca agradecimento
 💬 Clique "Chat Ativo"     → Toca reação
@@ -187,14 +196,14 @@ http://localhost:3000 → Menu → Studio Video (🎬)
 
 ## 📚 DOCUMENTAÇÃO
 
-| Documento | Tempo | Conteúdo |
-|-----------|-------|----------|
-| **PERSONA_STUDIO_PT-BR.md** | 5 min | Resumo executivo em PT-BR |
-| **PERSONA_STUDIO_SETUP.md** | 15 min | Instalação e configuração |
-| **PERSONA_STUDIO_ARQUITETURA.md** | 20 min | Diagramas técnicos |
-| **PERSONA_STUDIO_IMPLEMENTACAO.md** | 30 min | Detalhes completos |
-| **PERSONA_STUDIO_INDICE.md** | 5 min | Guia de navegação |
-| **CHANGELOG_PERSONA_STUDIO.md** | 10 min | Histórico de mudanças |
+| Documento                           | Tempo  | Conteúdo                  |
+| ----------------------------------- | ------ | ------------------------- |
+| **PERSONA_STUDIO_PT-BR.md**         | 5 min  | Resumo executivo em PT-BR |
+| **PERSONA_STUDIO_SETUP.md**         | 15 min | Instalação e configuração |
+| **PERSONA_STUDIO_ARQUITETURA.md**   | 20 min | Diagramas técnicos        |
+| **PERSONA_STUDIO_IMPLEMENTACAO.md** | 30 min | Detalhes completos        |
+| **PERSONA_STUDIO_INDICE.md**        | 5 min  | Guia de navegação         |
+| **CHANGELOG_PERSONA_STUDIO.md**     | 10 min | Histórico de mudanças     |
 
 👉 **Comece por:** `PERSONA_STUDIO_INDICE.md`
 
@@ -203,6 +212,7 @@ http://localhost:3000 → Menu → Studio Video (🎬)
 ## 💡 DESTAQUES TÉCNICOS
 
 ### OCR Robusto
+
 ```python
 # Antes (quebrava quando mudava de aba):
 screenshot = pyautogui.screenshot(region=(x, y, w, h))
@@ -212,6 +222,7 @@ screenshot = ImageGrab.grab(bbox=(x, y, x+w, y+h))
 ```
 
 ### Transições Seguras
+
 ```typescript
 // Valida cada transição antes de executar
 if (!SAFE_TRANSITIONS[currentVideoId].includes(targetVideoId)) {
@@ -221,11 +232,12 @@ if (!SAFE_TRANSITIONS[currentVideoId].includes(targetVideoId)) {
 ```
 
 ### Idle Sequences Naturais
+
 ```typescript
 const IDLE_SEQUENCES = {
-  calm: ['04', '14', '16', '05', '04'],        // Relaxado
+  calm: ['04', '14', '16', '05', '04'], // Relaxado
   engaged: ['16', '09', '05', '04', '14', '16'], // Animado
-  reading: ['04', '07', '06', '05', '16'],     // Lendo
+  reading: ['04', '07', '06', '05', '16'], // Lendo
 };
 ```
 
@@ -261,11 +273,13 @@ const IDLE_SEQUENCES = {
 ## 🎬 PRÓXIMAS FASES
 
 ### Fase 2 (Recomendado)
+
 - WebSocket sync com OBS (real-time)
 - Integração n8n para eventos de live
 - Gravação de sequências custom
 
 ### Fase 3 (Futuro)
+
 - Mobile preview
 - Stream Deck support
 - ML-based transitions automáticas
@@ -274,12 +288,12 @@ const IDLE_SEQUENCES = {
 
 ## 🆘 SUPORTE RÁPIDO
 
-| Problema | Solução |
-|----------|---------|
-| Vídeos não carregam | Colocar em `OneDrive\Videos\Captures` |
-| OCR não funciona | `pip install --upgrade Pillow` |
-| OBS não vê página | Usar URL `http://localhost:3000/#persona-studio` |
-| Vídeo em preto | Verificar codec (H.264) e resolução (720x1280) |
+| Problema            | Solução                                          |
+| ------------------- | ------------------------------------------------ |
+| Vídeos não carregam | Colocar em `OneDrive\Videos\Captures`            |
+| OCR não funciona    | `pip install --upgrade Pillow`                   |
+| OBS não vê página   | Usar URL `http://localhost:3000/#persona-studio` |
+| Vídeo em preto      | Verificar codec (H.264) e resolução (720x1280)   |
 
 Para mais: Ver [PERSONA_STUDIO_SETUP.md](./PERSONA_STUDIO_SETUP.md)
 
@@ -290,6 +304,7 @@ Para mais: Ver [PERSONA_STUDIO_SETUP.md](./PERSONA_STUDIO_SETUP.md)
 **PersonaStudio está 100% implementado, documentado e pronto para uso em produção.**
 
 ### Resumo:
+
 1. ✅ Falha OCR corrigida
 2. ✅ Componente PersonaStudio criado
 3. ✅ Sistema de gatilhos implementado
@@ -298,6 +313,7 @@ Para mais: Ver [PERSONA_STUDIO_SETUP.md](./PERSONA_STUDIO_SETUP.md)
 6. ✅ Documentação abrangente
 
 ### Próximas ações:
+
 1. Colocar vídeos na pasta `OneDrive\Videos\Captures`
 2. Executar `npm run dev` + `python main.py`
 3. Acessar `http://localhost:3000`

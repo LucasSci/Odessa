@@ -65,7 +65,9 @@ function extractUser(text: string): string | null {
 }
 
 function extractScene(text: string): string | undefined {
-  const colonMatch = text.match(/(?:trocar\s+cena|troca\s+de\s+cena|cena)\s*:\s*([A-Za-z0-9 _-]{3,50})/i);
+  const colonMatch = text.match(
+    /(?:trocar\s+cena|troca\s+de\s+cena|cena)\s*:\s*([A-Za-z0-9 _-]{3,50})/i,
+  );
   if (colonMatch) return colonMatch[1].trim();
   if (/gameplay\s+focus/i.test(text)) return 'Gameplay Focus';
   if (/cena\s+just\s+chatting/i.test(text)) return 'Cena Just Chatting';
@@ -135,8 +137,8 @@ export function classifyEventDeterministic(event: LiveEvent): LiveEvent {
     const mappedAction: ToolCapability | undefined = SCENE_RE.test(text)
       ? 'obs.switch_scene'
       : MUSIC_RE.test(text)
-      ? 'media.play_music'
-      : undefined;
+        ? 'media.play_music'
+        : undefined;
     const requestedScene = mappedAction === 'obs.switch_scene' ? extractScene(text) : undefined;
     const requestedTrack = mappedAction === 'media.play_music' ? extractTrack(text) : undefined;
 

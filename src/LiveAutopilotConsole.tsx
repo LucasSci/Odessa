@@ -578,7 +578,9 @@ export default function LiveAutopilotConsole({ capturedText, runtime }: LiveAuto
                     <IconComp className="h-4 w-4" />
                     {label as React.ReactNode}
                   </div>
-                  <p className="mt-2 font-mono text-lg font-black text-white">{value as React.ReactNode}</p>
+                  <p className="mt-2 font-mono text-lg font-black text-white">
+                    {value as React.ReactNode}
+                  </p>
                 </div>
               );
             })}

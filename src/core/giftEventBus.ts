@@ -27,7 +27,10 @@ export interface GiftLedgerState {
   totalGiftEvents: number;
   totalGiftQuantity: number;
   totalByGiftName: Record<string, number>;
-  totalBySender: Record<string, { totalGiftEvents: number; totalGiftQuantity: number; gifts: Record<string, number> }>;
+  totalBySender: Record<
+    string,
+    { totalGiftEvents: number; totalGiftQuantity: number; gifts: Record<string, number> }
+  >;
   recentGifts: GiftLedgerEntry[];
 }
 
@@ -36,13 +39,13 @@ export interface GiftRule {
   enabled: boolean;
   name: string;
   when: {
-    giftName?: string | string[];  // '*' = any, or specific name(s)
+    giftName?: string | string[]; // '*' = any, or specific name(s)
     minQuantity?: number;
     senderSessionTotalMin?: number;
   };
   action: {
     type: 'flow.play_video';
-    videoId: string;  // matches video IDs in persona_config.json
+    videoId: string; // matches video IDs in persona_config.json
   };
   cooldownMs: number;
 }
@@ -204,7 +207,12 @@ export function resetCooldowns() {
 
 // ─── Rule Engine ───────────────────────────────────────────────────────────────
 
-function ruleMatchesGift(rule: GiftRule, giftName: string, quantity: number, senderTotal: number): boolean {
+function ruleMatchesGift(
+  rule: GiftRule,
+  giftName: string,
+  quantity: number,
+  senderTotal: number,
+): boolean {
   if (!rule.enabled) return false;
 
   const { when } = rule;
@@ -262,7 +270,10 @@ function makeStep(step: string, status: PipelineStep['status'], detail: string):
  * The main pipeline entry point.
  * Call this whenever a raw text event is received (OCR, test injector, etc.).
  */
-export function processRawEvent(rawText: string, source: LiveEvent['source'] = 'test'): GiftPipelineResult {
+export function processRawEvent(
+  rawText: string,
+  source: LiveEvent['source'] = 'test',
+): GiftPipelineResult {
   const tempEvent: LiveEvent = {
     id: `evt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     source,
@@ -278,11 +289,13 @@ export function processRawEvent(rawText: string, source: LiveEvent['source'] = '
 
   // 1. Deterministic classification
   const classified = classifyEventDeterministic(tempEvent);
-  steps.push(makeStep(
-    'classified',
-    classified.kind === 'gift' ? 'ok' : 'blocked',
-    `kind=${classified.kind}, giftName=${classified.metadata?.giftName ?? 'n/a'}, qty=${classified.metadata?.quantity ?? 'n/a'}`,
-  ));
+  steps.push(
+    makeStep(
+      'classified',
+      classified.kind === 'gift' ? 'ok' : 'blocked',
+      `kind=${classified.kind}, giftName=${classified.metadata?.giftName ?? 'n/a'}, qty=${classified.metadata?.quantity ?? 'n/a'}`,
+    ),
+  );
 
   if (classified.kind !== 'gift') {
     const result: GiftPipelineResult = {
@@ -307,11 +320,13 @@ export function processRawEvent(rawText: string, source: LiveEvent['source'] = '
   updateLedger(giftName, sender, quantity);
   const senderTotal = ledger.totalBySender[sender]?.totalGiftQuantity ?? quantity;
 
-  steps.push(makeStep(
-    'ledger_updated',
-    'ok',
-    `sender=${sender}, giftName=${giftName}, qty=${quantity}, senderTotal=${senderTotal}, sessionTotal=${ledger.totalGiftQuantity}`,
-  ));
+  steps.push(
+    makeStep(
+      'ledger_updated',
+      'ok',
+      `sender=${sender}, giftName=${giftName}, qty=${quantity}, senderTotal=${senderTotal}, sessionTotal=${ledger.totalGiftQuantity}`,
+    ),
+  );
 
   // 3. Evaluate rules
   const { rule, blocked, blockedReason } = evaluateRules(giftName, quantity, senderTotal);

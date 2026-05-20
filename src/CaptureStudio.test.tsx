@@ -129,7 +129,9 @@ function setupDirectLinkFetchMock() {
 }
 
 function renderCaptureStudio() {
-  const setCapturedText = vi.fn() as unknown as React.Dispatch<React.SetStateAction<CapturedMessage[]>>;
+  const setCapturedText = vi.fn() as unknown as React.Dispatch<
+    React.SetStateAction<CapturedMessage[]>
+  >;
   return render(<CaptureStudio capturedText={[]} setCapturedText={setCapturedText} />);
 }
 
@@ -157,7 +159,12 @@ function mockImageLoad(width = 1280, height = 720) {
 
 function attachWebviewCapture(
   webview: Element,
-  options: { width?: number; height?: number; dataUrl?: string; capturePage?: ReturnType<typeof vi.fn> } = {},
+  options: {
+    width?: number;
+    height?: number;
+    dataUrl?: string;
+    capturePage?: ReturnType<typeof vi.fn>;
+  } = {},
 ) {
   const width = options.width ?? 1280;
   const height = options.height ?? 720;
@@ -237,15 +244,22 @@ describe('CaptureStudio screen capture', () => {
 
     fireEvent.click(startButton);
 
-    await waitFor(() => expect(getDisplayMedia).toHaveBeenCalledWith({ video: true, audio: false }));
+    await waitFor(() =>
+      expect(getDisplayMedia).toHaveBeenCalledWith({ video: true, audio: false }),
+    );
     await screen.findByText('Janela ao vivo');
     await waitFor(() => {
       expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ocr/process'))).toBe(true);
     });
 
-    const ingestCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/automation/ingest'));
+    const ingestCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes('/automation/ingest'),
+    );
     expect(ingestCall).toBeTruthy();
-    const body = JSON.parse(String(ingestCall?.[1]?.body || '{}')) as { execute?: boolean; text?: string };
+    const body = JSON.parse(String(ingestCall?.[1]?.body || '{}')) as {
+      execute?: boolean;
+      text?: string;
+    };
     expect(body.execute).toBe(true);
     expect(body.text).toContain('Lucas enviou Rosa');
   });
@@ -292,9 +306,9 @@ describe('CaptureStudio screen capture', () => {
     fireEvent.load(frame as Element);
 
     await screen.findByText(/Preview limitado carregado/i);
-    expect((await screen.findByRole('button', { name: /iniciar/i }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    expect(
+      ((await screen.findByRole('button', { name: /iniciar/i })) as HTMLButtonElement).disabled,
+    ).toBe(true);
     expect(
       fetchMock.mock.calls.some(([url]) => String(url).includes('/obs/ensure-ocr-source')),
     ).toBe(false);
@@ -341,10 +355,14 @@ describe('CaptureStudio Link Direto', () => {
     // Clean up window overrides
     try {
       Object.defineProperty(window, 'odessaDesktop', { configurable: true, value: undefined });
-    } catch { /* ok */ }
+    } catch {
+      /* ok */
+    }
     try {
       Object.defineProperty(window, 'electronAPI', { configurable: true, value: undefined });
-    } catch { /* ok */ }
+    } catch {
+      /* ok */
+    }
   });
 
   it('shows legacy Electron indicator when odessaDesktop is set', async () => {
@@ -533,7 +551,9 @@ describe('CaptureStudio Link Direto', () => {
   it('logs did-fail-load and does not mark the direct page rendered', async () => {
     const source = readFileSync('src/CaptureStudio.tsx', 'utf8');
     expect(source).toContain("webview.addEventListener('did-fail-load', onFailLoad)");
-    expect(source).toContain("addDirectLog('[LinkDireto] did-fail-load: iframe/proxy preview falhou')");
+    expect(source.replace(/\s+/g, ' ')).toContain(
+      "addDirectLog( '[LinkDireto] did-fail-load: iframe/proxy preview falhou', )",
+    );
     expect(source).toContain("setDirectPageState('failed')");
     expect(source).not.toContain('Pagina interativa pronta');
   });
@@ -564,10 +584,12 @@ describe('CaptureStudio Link Direto', () => {
     await waitFor(() => expect((testButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(testButton);
 
-    expect((await screen.findAllByText(/captura retornou imagem vazia/i)).length).toBeGreaterThan(0);
-    expect((await screen.findByRole('button', { name: /iniciar/i }) as HTMLButtonElement).disabled).toBe(
-      true,
+    expect((await screen.findAllByText(/captura retornou imagem vazia/i)).length).toBeGreaterThan(
+      0,
     );
+    expect(
+      ((await screen.findByRole('button', { name: /iniciar/i })) as HTMLButtonElement).disabled,
+    ).toBe(true);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ocr/process'))).toBe(false);
   });
 

@@ -548,176 +548,95 @@
       "29_TRANSICAO_ajuste_gola_roupa",
       "13_FLUXO_idle_sorriso_leve_var2"
     ],
-    "idle": [
-      "01_FLUXO_idle_sorriso_leve"
-    ]
+    "idle": ["01_FLUXO_idle_sorriso_leve"]
   },
   "idleVideoId": "01_FLUXO_idle_sorriso_leve",
   "gift_map": {
-    "/ros.*/i": [
-      "grok-36d81c34-d3c6-4602-8a14-0b966b7c8176-720p"
-    ],
-    "Rosa": [
-      "grok-36d81c34-d3c6-4602-8a14-0b966b7c8176-720p"
-    ],
-    "coração": [
-      "grok-5ca32a97-ef1e-41bf-9c69-b4108a44e1f8-720p"
-    ],
-    "flores": [
-      "grok-855849df-aab8-4ec5-8845-132732e358c7-720p"
-    ],
-    "💖": [
-      "grok-5ca32a97-ef1e-41bf-9c69-b4108a44e1f8-720p"
-    ],
-    "default": [
-      "grok-36d81c34-d3c6-4602-8a14-0b966b7c8176-720p"
-    ]
+    "/ros.*/i": ["grok-36d81c34-d3c6-4602-8a14-0b966b7c8176-720p"],
+    "Rosa": ["grok-36d81c34-d3c6-4602-8a14-0b966b7c8176-720p"],
+    "coração": ["grok-5ca32a97-ef1e-41bf-9c69-b4108a44e1f8-720p"],
+    "flores": ["grok-855849df-aab8-4ec5-8845-132732e358c7-720p"],
+    "💖": ["grok-5ca32a97-ef1e-41bf-9c69-b4108a44e1f8-720p"],
+    "default": ["grok-36d81c34-d3c6-4602-8a14-0b966b7c8176-720p"]
   },
   "transitions": {
     "01_FLUXO_idle_sorriso_leve": {
-      "safe_next": [
-        "02_FLUXO_sorriso_charmoso_lento"
-      ]
+      "safe_next": ["02_FLUXO_sorriso_charmoso_lento"]
     },
     "02_FLUXO_sorriso_charmoso_lento": {
-      "safe_next": [
-        "03_FLUXO_olha_chat_direita_leve",
-        "01_FLUXO_idle_sorriso_leve"
-      ]
+      "safe_next": ["03_FLUXO_olha_chat_direita_leve", "01_FLUXO_idle_sorriso_leve"]
     },
     "03_FLUXO_olha_chat_direita_leve": {
-      "safe_next": [
-        "04_FLUXO_olha_chat_lateral_forte",
-        "01_FLUXO_idle_sorriso_leve"
-      ]
+      "safe_next": ["04_FLUXO_olha_chat_lateral_forte", "01_FLUXO_idle_sorriso_leve"]
     },
     "04_FLUXO_olha_chat_lateral_forte": {
-      "safe_next": [
-        "05_FLUXO_idle_neutro_suave",
-        "01_FLUXO_idle_sorriso_leve"
-      ]
+      "safe_next": ["05_FLUXO_idle_neutro_suave", "01_FLUXO_idle_sorriso_leve"]
     },
     "06_ESPECIAL_alongamento_bracos": {
-      "safe_next": [
-        "01_FLUXO_idle_sorriso_leve"
-      ]
+      "safe_next": ["01_FLUXO_idle_sorriso_leve"]
     },
     "07_FLUXO_sorriso_timido_camera": {
-      "safe_next": [
-        "01_FLUXO_idle_sorriso_leve",
-        "08_TRANSICAO_ajuste_ombro_roupa"
-      ]
+      "safe_next": ["01_FLUXO_idle_sorriso_leve", "08_TRANSICAO_ajuste_ombro_roupa"]
     },
     "09_GATILHO_beijo_discreto_1": {
-      "safe_next": [
-        "01_FLUXO_idle_sorriso_leve",
-        "11_FLUXO_idle_base_neutro"
-      ]
+      "safe_next": ["01_FLUXO_idle_sorriso_leve", "11_FLUXO_idle_base_neutro"]
     },
     "10_GATILHO_beijo_discreto_2": {
-      "safe_next": [
-        "01_FLUXO_idle_sorriso_leve",
-        "11_FLUXO_idle_base_neutro"
-      ]
+      "safe_next": ["01_FLUXO_idle_sorriso_leve", "11_FLUXO_idle_base_neutro"]
     },
     "08_TRANSICAO_ajuste_ombro_roupa": {
-      "safe_next": [
-        "11_FLUXO_idle_base_neutro"
-      ]
+      "safe_next": ["11_FLUXO_idle_base_neutro"]
     },
     "05_FLUXO_idle_neutro_suave": {
-      "safe_next": [
-        "01_FLUXO_idle_sorriso_leve"
-      ]
+      "safe_next": ["01_FLUXO_idle_sorriso_leve"]
     },
     "11_FLUXO_idle_base_neutro": {
-      "safe_next": [
-        "12_FLUXO_sorriso_inclinacao_leve"
-      ]
+      "safe_next": ["12_FLUXO_sorriso_inclinacao_leve"]
     },
     "12_FLUXO_sorriso_inclinacao_leve": {
-      "safe_next": [
-        "13_FLUXO_idle_sorriso_leve_var2"
-      ]
+      "safe_next": ["13_FLUXO_idle_sorriso_leve_var2"]
     },
     "13_FLUXO_idle_sorriso_leve_var2": {
-      "safe_next": [
-        "14_FLUXO_olha_chat_lateral_var2",
-        "01_FLUXO_idle_sorriso_leve"
-      ]
+      "safe_next": ["14_FLUXO_olha_chat_lateral_var2", "01_FLUXO_idle_sorriso_leve"]
     },
     "14_FLUXO_olha_chat_lateral_var2": {
-      "safe_next": [
-        "15_FLUXO_olha_chat_direita_var2"
-      ]
+      "safe_next": ["15_FLUXO_olha_chat_direita_var2"]
     },
     "15_FLUXO_olha_chat_direita_var2": {
-      "safe_next": [
-        "16_FLUXO_olha_chat_baixo_lateral"
-      ]
+      "safe_next": ["16_FLUXO_olha_chat_baixo_lateral"]
     },
     "17_GATILHO_reacao_chat_lateral_com_overlay": {
-      "safe_next": [
-        "01_FLUXO_idle_sorriso_leve",
-        "13_FLUXO_idle_sorriso_leve_var2"
-      ]
+      "safe_next": ["01_FLUXO_idle_sorriso_leve", "13_FLUXO_idle_sorriso_leve_var2"]
     },
     "19_FLUXO_sorriso_charmoso_var2": {
-      "safe_next": [
-        "01_FLUXO_idle_sorriso_leve",
-        "22_TRANSICAO_ajuste_ombros_roupa"
-      ]
+      "safe_next": ["01_FLUXO_idle_sorriso_leve", "22_TRANSICAO_ajuste_ombros_roupa"]
     },
     "20_GATILHO_beijo_discreto_var3": {
-      "safe_next": [
-        "01_FLUXO_idle_sorriso_leve",
-        "22_TRANSICAO_ajuste_ombros_roupa"
-      ]
+      "safe_next": ["01_FLUXO_idle_sorriso_leve", "22_TRANSICAO_ajuste_ombros_roupa"]
     },
     "21_GATILHO_beijo_discreto_var4": {
-      "safe_next": [
-        "01_FLUXO_idle_sorriso_leve",
-        "13_FLUXO_idle_sorriso_leve_var2"
-      ]
+      "safe_next": ["01_FLUXO_idle_sorriso_leve", "13_FLUXO_idle_sorriso_leve_var2"]
     },
     "30_GATILHO_beijo_aceno_discreto": {
-      "safe_next": [
-        "01_FLUXO_idle_sorriso_leve",
-        "27_ESPECIAL_mexendo_cabelo"
-      ]
+      "safe_next": ["01_FLUXO_idle_sorriso_leve", "27_ESPECIAL_mexendo_cabelo"]
     },
     "27_ESPECIAL_mexendo_cabelo": {
-      "safe_next": [
-        "25_GATILHO_revirando_olhos_sutil",
-        "01_FLUXO_idle_sorriso_leve"
-      ]
+      "safe_next": ["25_GATILHO_revirando_olhos_sutil", "01_FLUXO_idle_sorriso_leve"]
     },
     "25_GATILHO_revirando_olhos_sutil": {
-      "safe_next": [
-        "04_FLUXO_olha_chat_lateral_forte"
-      ]
+      "safe_next": ["04_FLUXO_olha_chat_lateral_forte"]
     },
     "16_FLUXO_olha_chat_baixo_lateral": {
-      "safe_next": [
-        "06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos"
-      ]
+      "safe_next": ["06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos"]
     },
     "06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos": {
-      "safe_next": [
-        "22_TRANSICAO_ajuste_ombros_roupa"
-      ]
+      "safe_next": ["22_TRANSICAO_ajuste_ombros_roupa"]
     },
     "23_FLUXO_reacao_chat_sorriso_lateral": {
-      "safe_next": [
-        "01_FLUXO_idle_sorriso_leve",
-        "02_FLUXO_sorriso_charmoso_lento"
-      ]
+      "safe_next": ["01_FLUXO_idle_sorriso_leve", "02_FLUXO_sorriso_charmoso_lento"]
     },
     "29_TRANSICAO_ajuste_gola_roupa": {
-      "safe_next": [
-        "01_FLUXO_idle_sorriso_leve",
-        "17_GATILHO_reacao_chat_lateral_com_overlay"
-      ]
+      "safe_next": ["01_FLUXO_idle_sorriso_leve", "17_GATILHO_reacao_chat_lateral_com_overlay"]
     }
   },
   "flowConnections": [
@@ -7756,149 +7675,82 @@
     "mediaTracks": [],
     "transitions": {
       "01_FLUXO_idle_sorriso_leve": {
-        "safe_next": [
-          "02_FLUXO_sorriso_charmoso_lento"
-        ]
+        "safe_next": ["02_FLUXO_sorriso_charmoso_lento"]
       },
       "02_FLUXO_sorriso_charmoso_lento": {
-        "safe_next": [
-          "03_FLUXO_olha_chat_direita_leve",
-          "01_FLUXO_idle_sorriso_leve"
-        ]
+        "safe_next": ["03_FLUXO_olha_chat_direita_leve", "01_FLUXO_idle_sorriso_leve"]
       },
       "03_FLUXO_olha_chat_direita_leve": {
-        "safe_next": [
-          "04_FLUXO_olha_chat_lateral_forte",
-          "01_FLUXO_idle_sorriso_leve"
-        ]
+        "safe_next": ["04_FLUXO_olha_chat_lateral_forte", "01_FLUXO_idle_sorriso_leve"]
       },
       "04_FLUXO_olha_chat_lateral_forte": {
-        "safe_next": [
-          "05_FLUXO_idle_neutro_suave",
-          "01_FLUXO_idle_sorriso_leve"
-        ]
+        "safe_next": ["05_FLUXO_idle_neutro_suave", "01_FLUXO_idle_sorriso_leve"]
       },
       "06_ESPECIAL_alongamento_bracos": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve"]
       },
       "07_FLUXO_sorriso_timido_camera": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "08_TRANSICAO_ajuste_ombro_roupa"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "08_TRANSICAO_ajuste_ombro_roupa"]
       },
       "09_GATILHO_beijo_discreto_1": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "11_FLUXO_idle_base_neutro"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "11_FLUXO_idle_base_neutro"]
       },
       "10_GATILHO_beijo_discreto_2": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "11_FLUXO_idle_base_neutro"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "11_FLUXO_idle_base_neutro"]
       },
       "08_TRANSICAO_ajuste_ombro_roupa": {
-        "safe_next": [
-          "11_FLUXO_idle_base_neutro"
-        ]
+        "safe_next": ["11_FLUXO_idle_base_neutro"]
       },
       "05_FLUXO_idle_neutro_suave": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve"]
       },
       "11_FLUXO_idle_base_neutro": {
-        "safe_next": [
-          "12_FLUXO_sorriso_inclinacao_leve"
-        ]
+        "safe_next": ["12_FLUXO_sorriso_inclinacao_leve"]
       },
       "12_FLUXO_sorriso_inclinacao_leve": {
-        "safe_next": [
-          "13_FLUXO_idle_sorriso_leve_var2"
-        ]
+        "safe_next": ["13_FLUXO_idle_sorriso_leve_var2"]
       },
       "13_FLUXO_idle_sorriso_leve_var2": {
-        "safe_next": [
-          "14_FLUXO_olha_chat_lateral_var2",
-          "01_FLUXO_idle_sorriso_leve"
-        ]
+        "safe_next": ["14_FLUXO_olha_chat_lateral_var2", "01_FLUXO_idle_sorriso_leve"]
       },
       "14_FLUXO_olha_chat_lateral_var2": {
-        "safe_next": [
-          "15_FLUXO_olha_chat_direita_var2"
-        ]
+        "safe_next": ["15_FLUXO_olha_chat_direita_var2"]
       },
       "15_FLUXO_olha_chat_direita_var2": {
-        "safe_next": [
-          "16_FLUXO_olha_chat_baixo_lateral"
-        ]
+        "safe_next": ["16_FLUXO_olha_chat_baixo_lateral"]
       },
       "17_GATILHO_reacao_chat_lateral_com_overlay": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "13_FLUXO_idle_sorriso_leve_var2"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "13_FLUXO_idle_sorriso_leve_var2"]
       },
       "19_FLUXO_sorriso_charmoso_var2": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "22_TRANSICAO_ajuste_ombros_roupa"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "22_TRANSICAO_ajuste_ombros_roupa"]
       },
       "20_GATILHO_beijo_discreto_var3": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "22_TRANSICAO_ajuste_ombros_roupa"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "22_TRANSICAO_ajuste_ombros_roupa"]
       },
       "21_GATILHO_beijo_discreto_var4": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "13_FLUXO_idle_sorriso_leve_var2"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "13_FLUXO_idle_sorriso_leve_var2"]
       },
       "30_GATILHO_beijo_aceno_discreto": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "27_ESPECIAL_mexendo_cabelo"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "27_ESPECIAL_mexendo_cabelo"]
       },
       "27_ESPECIAL_mexendo_cabelo": {
-        "safe_next": [
-          "25_GATILHO_revirando_olhos_sutil",
-          "01_FLUXO_idle_sorriso_leve"
-        ]
+        "safe_next": ["25_GATILHO_revirando_olhos_sutil", "01_FLUXO_idle_sorriso_leve"]
       },
       "25_GATILHO_revirando_olhos_sutil": {
-        "safe_next": [
-          "04_FLUXO_olha_chat_lateral_forte"
-        ]
+        "safe_next": ["04_FLUXO_olha_chat_lateral_forte"]
       },
       "16_FLUXO_olha_chat_baixo_lateral": {
-        "safe_next": [
-          "06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos"
-        ]
+        "safe_next": ["06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos"]
       },
       "06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos": {
-        "safe_next": [
-          "22_TRANSICAO_ajuste_ombros_roupa"
-        ]
+        "safe_next": ["22_TRANSICAO_ajuste_ombros_roupa"]
       },
       "23_FLUXO_reacao_chat_sorriso_lateral": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "02_FLUXO_sorriso_charmoso_lento"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "02_FLUXO_sorriso_charmoso_lento"]
       },
       "29_TRANSICAO_ajuste_gola_roupa": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "17_GATILHO_reacao_chat_lateral_com_overlay"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "17_GATILHO_reacao_chat_lateral_com_overlay"]
       }
     },
     "schemaVersion": "odessa.workflow.v1",
@@ -8057,9 +7909,7 @@
         "duplicateNodeIds": [],
         "duplicateTriggerIds": []
       },
-      "warnings": [
-        "existing_ids_will_be_remapped"
-      ]
+      "warnings": ["existing_ids_will_be_remapped"]
     }
   },
   "draftWorkflow": {
@@ -11458,149 +11308,82 @@
     "mediaTracks": [],
     "transitions": {
       "01_FLUXO_idle_sorriso_leve": {
-        "safe_next": [
-          "02_FLUXO_sorriso_charmoso_lento"
-        ]
+        "safe_next": ["02_FLUXO_sorriso_charmoso_lento"]
       },
       "02_FLUXO_sorriso_charmoso_lento": {
-        "safe_next": [
-          "03_FLUXO_olha_chat_direita_leve",
-          "01_FLUXO_idle_sorriso_leve"
-        ]
+        "safe_next": ["03_FLUXO_olha_chat_direita_leve", "01_FLUXO_idle_sorriso_leve"]
       },
       "03_FLUXO_olha_chat_direita_leve": {
-        "safe_next": [
-          "04_FLUXO_olha_chat_lateral_forte",
-          "01_FLUXO_idle_sorriso_leve"
-        ]
+        "safe_next": ["04_FLUXO_olha_chat_lateral_forte", "01_FLUXO_idle_sorriso_leve"]
       },
       "04_FLUXO_olha_chat_lateral_forte": {
-        "safe_next": [
-          "05_FLUXO_idle_neutro_suave",
-          "01_FLUXO_idle_sorriso_leve"
-        ]
+        "safe_next": ["05_FLUXO_idle_neutro_suave", "01_FLUXO_idle_sorriso_leve"]
       },
       "06_ESPECIAL_alongamento_bracos": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve"]
       },
       "07_FLUXO_sorriso_timido_camera": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "08_TRANSICAO_ajuste_ombro_roupa"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "08_TRANSICAO_ajuste_ombro_roupa"]
       },
       "09_GATILHO_beijo_discreto_1": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "11_FLUXO_idle_base_neutro"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "11_FLUXO_idle_base_neutro"]
       },
       "10_GATILHO_beijo_discreto_2": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "11_FLUXO_idle_base_neutro"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "11_FLUXO_idle_base_neutro"]
       },
       "08_TRANSICAO_ajuste_ombro_roupa": {
-        "safe_next": [
-          "11_FLUXO_idle_base_neutro"
-        ]
+        "safe_next": ["11_FLUXO_idle_base_neutro"]
       },
       "05_FLUXO_idle_neutro_suave": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve"]
       },
       "11_FLUXO_idle_base_neutro": {
-        "safe_next": [
-          "12_FLUXO_sorriso_inclinacao_leve"
-        ]
+        "safe_next": ["12_FLUXO_sorriso_inclinacao_leve"]
       },
       "12_FLUXO_sorriso_inclinacao_leve": {
-        "safe_next": [
-          "13_FLUXO_idle_sorriso_leve_var2"
-        ]
+        "safe_next": ["13_FLUXO_idle_sorriso_leve_var2"]
       },
       "13_FLUXO_idle_sorriso_leve_var2": {
-        "safe_next": [
-          "14_FLUXO_olha_chat_lateral_var2",
-          "01_FLUXO_idle_sorriso_leve"
-        ]
+        "safe_next": ["14_FLUXO_olha_chat_lateral_var2", "01_FLUXO_idle_sorriso_leve"]
       },
       "14_FLUXO_olha_chat_lateral_var2": {
-        "safe_next": [
-          "15_FLUXO_olha_chat_direita_var2"
-        ]
+        "safe_next": ["15_FLUXO_olha_chat_direita_var2"]
       },
       "15_FLUXO_olha_chat_direita_var2": {
-        "safe_next": [
-          "16_FLUXO_olha_chat_baixo_lateral"
-        ]
+        "safe_next": ["16_FLUXO_olha_chat_baixo_lateral"]
       },
       "17_GATILHO_reacao_chat_lateral_com_overlay": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "13_FLUXO_idle_sorriso_leve_var2"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "13_FLUXO_idle_sorriso_leve_var2"]
       },
       "19_FLUXO_sorriso_charmoso_var2": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "22_TRANSICAO_ajuste_ombros_roupa"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "22_TRANSICAO_ajuste_ombros_roupa"]
       },
       "20_GATILHO_beijo_discreto_var3": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "22_TRANSICAO_ajuste_ombros_roupa"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "22_TRANSICAO_ajuste_ombros_roupa"]
       },
       "21_GATILHO_beijo_discreto_var4": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "13_FLUXO_idle_sorriso_leve_var2"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "13_FLUXO_idle_sorriso_leve_var2"]
       },
       "30_GATILHO_beijo_aceno_discreto": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "27_ESPECIAL_mexendo_cabelo"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "27_ESPECIAL_mexendo_cabelo"]
       },
       "27_ESPECIAL_mexendo_cabelo": {
-        "safe_next": [
-          "25_GATILHO_revirando_olhos_sutil",
-          "01_FLUXO_idle_sorriso_leve"
-        ]
+        "safe_next": ["25_GATILHO_revirando_olhos_sutil", "01_FLUXO_idle_sorriso_leve"]
       },
       "25_GATILHO_revirando_olhos_sutil": {
-        "safe_next": [
-          "04_FLUXO_olha_chat_lateral_forte"
-        ]
+        "safe_next": ["04_FLUXO_olha_chat_lateral_forte"]
       },
       "16_FLUXO_olha_chat_baixo_lateral": {
-        "safe_next": [
-          "06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos"
-        ]
+        "safe_next": ["06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos"]
       },
       "06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos": {
-        "safe_next": [
-          "22_TRANSICAO_ajuste_ombros_roupa"
-        ]
+        "safe_next": ["22_TRANSICAO_ajuste_ombros_roupa"]
       },
       "23_FLUXO_reacao_chat_sorriso_lateral": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "02_FLUXO_sorriso_charmoso_lento"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "02_FLUXO_sorriso_charmoso_lento"]
       },
       "29_TRANSICAO_ajuste_gola_roupa": {
-        "safe_next": [
-          "01_FLUXO_idle_sorriso_leve",
-          "17_GATILHO_reacao_chat_lateral_com_overlay"
-        ]
+        "safe_next": ["01_FLUXO_idle_sorriso_leve", "17_GATILHO_reacao_chat_lateral_com_overlay"]
       }
     },
     "schemaVersion": "odessa.workflow.v1",
@@ -11759,9 +11542,7 @@
         "duplicateNodeIds": [],
         "duplicateTriggerIds": []
       },
-      "warnings": [
-        "existing_ids_will_be_remapped"
-      ]
+      "warnings": ["existing_ids_will_be_remapped"]
     }
   },
   "workflowPublishMeta": {
@@ -11949,9 +11730,7 @@
         "duplicateNodeIds": [],
         "duplicateTriggerIds": []
       },
-      "warnings": [
-        "existing_ids_will_be_remapped"
-      ]
+      "warnings": ["existing_ids_will_be_remapped"]
     }
   }
 }

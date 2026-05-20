@@ -23,10 +23,12 @@ Odessa é um ecossistema de **Persona AI Orchestration** projetado especificamen
 ## 🚀 Quickstart (Desenvolvedor)
 
 ### 1. Requisitos
+
 - Python 3.10+
 - Node.js 18+
 
 ### 2. Instalação
+
 ```bash
 # Clone o repositório
 git clone https://github.com/LucasSci/Odessa.git
@@ -42,6 +44,7 @@ npm run dev
 ```
 
 ### 3. Acesso
+
 - **Dashboard**: `http://localhost:5173`
 - **Modo Captura**: Ative o ícone de raio no topo do Dashboard para limpar a tela para o OBS.
 
@@ -50,6 +53,7 @@ npm run dev
 ## 🏗️ Arquitetura
 
 O projeto é dividido em dois núcleos principais:
+
 1.  **Odessa Server (Python/FastAPI)**: Gerencia o OCR, a lógica de decisão da IA e o streaming de vídeo.
 2.  **Odessa Studio (React/TS)**: Interface de alta performance para monitoramento e visualização da persona.
 
@@ -81,4 +85,5 @@ Contribuições são o que fazem a comunidade open source um lugar incrível par
 Distribuído sob a licença MIT. Veja `LICENSE` para mais informações.
 
 ---
-*Odessa: Sua persona de IA que realmente entende sua live.*
+
+_Odessa: Sua persona de IA que realmente entende sua live._

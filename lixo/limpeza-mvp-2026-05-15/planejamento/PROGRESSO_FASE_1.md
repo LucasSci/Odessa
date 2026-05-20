@@ -75,6 +75,7 @@ Agora que temos uma rede de segurança de ~85 testes automatizados cobrindo os f
 ---
 
 ## 🎨 Atualização de Identidade Visual (04/05)
+
 - ✅ **Persona Odessa:** Definição de 16 estados comportamentais e arquitetura Hub-and-Spoke.
 - ✅ **Automação:** Script de organização de assets e Player HTML para OBS com crossfade.
 - ✅ **Lógica:** Implementação do `video_logic.py` com mapa de transições seguras.

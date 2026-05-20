@@ -1,7 +1,7 @@
 // timer-worker.js
 let timerId = null;
 
-self.onmessage = function(e) {
+self.onmessage = function (e) {
   if (e.data.action === 'start') {
     const interval = e.data.interval || 1000;
     if (timerId) clearInterval(timerId);

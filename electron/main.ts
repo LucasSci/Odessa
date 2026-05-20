@@ -44,7 +44,10 @@ function userLogDir() {
 
 function desktopLogFile() {
   if (!desktopBootLogFile) {
-    desktopBootLogFile = path.join(userLogDir(), `desktop-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
+    desktopBootLogFile = path.join(
+      userLogDir(),
+      `desktop-${new Date().toISOString().replace(/[:.]/g, '-')}.log`,
+    );
   }
   return desktopBootLogFile;
 }
@@ -62,9 +65,10 @@ function logDesktopBoot(message: string, metadata: Record<string, unknown> = {})
 function runtimePaths() {
   const root = rootDir();
   const pythonBase = app.isPackaged ? path.join(root, 'python') : path.join(root, 'venv');
-  const pythonExe = process.platform === 'win32'
-    ? path.join(pythonBase, 'Scripts', 'python.exe')
-    : path.join(pythonBase, 'bin', 'python');
+  const pythonExe =
+    process.platform === 'win32'
+      ? path.join(pythonBase, 'Scripts', 'python.exe')
+      : path.join(pythonBase, 'bin', 'python');
   return {
     root,
     serverDir: path.join(root, 'server'),
@@ -145,20 +149,20 @@ async function getCompatibleRuntimeStatus(timeoutMs = 1000) {
   if (!runtimeRoot && !app.isPackaged) {
     return status;
   }
-  logDesktopBoot('ignoring-incompatible-runtime', { runtimeRoot, expectedRoot: rootDir(), pid: status.pid });
+  logDesktopBoot('ignoring-incompatible-runtime', {
+    runtimeRoot,
+    expectedRoot: rootDir(),
+    pid: status.pid,
+  });
   return null;
 }
 
 function postJson(pathname: string, timeoutMs = 1500): Promise<boolean> {
   return new Promise((resolve) => {
-    const req = http.request(
-      `${API_ORIGIN}${pathname}`,
-      { method: 'POST' },
-      (res) => {
-        res.resume();
-        resolve(Boolean(res.statusCode && res.statusCode >= 200 && res.statusCode < 300));
-      },
-    );
+    const req = http.request(`${API_ORIGIN}${pathname}`, { method: 'POST' }, (res) => {
+      res.resume();
+      resolve(Boolean(res.statusCode && res.statusCode >= 200 && res.statusCode < 300));
+    });
     req.on('error', () => resolve(false));
     req.setTimeout(timeoutMs, () => {
       req.destroy();
@@ -172,13 +176,19 @@ async function ensureBackend() {
   const compatibleRuntime = await getCompatibleRuntimeStatus(800);
   if (compatibleRuntime) {
     backendReady = true;
-    logDesktopBoot('backend-reused', { pid: compatibleRuntime.pid, uptimeMs: compatibleRuntime.uptimeMs });
+    logDesktopBoot('backend-reused', {
+      pid: compatibleRuntime.pid,
+      uptimeMs: compatibleRuntime.uptimeMs,
+    });
     return true;
   }
   if (backendProcess) return waitForHealth(3000);
 
   const paths = runtimePaths();
-  backendLogFile = path.join(paths.logDir, `backend-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
+  backendLogFile = path.join(
+    paths.logDir,
+    `backend-${new Date().toISOString().replace(/[:.]/g, '-')}.log`,
+  );
 
   if (!fs.existsSync(paths.pythonExe)) {
     appendBackendLog(`[desktop] Python runtime not found: ${paths.pythonExe}\n`);
@@ -210,12 +220,18 @@ async function ensureBackend() {
   backendProcess.stderr.on('data', (data) => {
     const text = String(data);
     appendBackendLog(text);
-    if (text.includes('Controle de Aplicativo') || text.includes('App Control') || text.includes('DLL load failed')) {
+    if (
+      text.includes('Controle de Aplicativo') ||
+      text.includes('App Control') ||
+      text.includes('DLL load failed')
+    ) {
       lastBackendFailure = text.slice(0, 1000);
     }
   });
   backendProcess.on('exit', (code, signal) => {
-    appendBackendLog(`[desktop] Backend exited code=${code ?? 'null'} signal=${signal ?? 'null'}\n`);
+    appendBackendLog(
+      `[desktop] Backend exited code=${code ?? 'null'} signal=${signal ?? 'null'}\n`,
+    );
     if (code !== 0 && !lastBackendFailure) {
       lastBackendFailure = `Backend saiu antes de ficar pronto. code=${code ?? 'null'} signal=${signal ?? 'null'}`;
     }
@@ -317,7 +333,10 @@ async function createWindow(options: { show?: boolean } = {}) {
   const preloadPath = path.join(__dirname, 'preload.mjs');
   const shouldShow = options.show !== false;
 
-  logDesktopBoot('window-create-start', { show: shouldShow, backgroundRuntime: IS_BACKGROUND_RUNTIME });
+  logDesktopBoot('window-create-start', {
+    show: shouldShow,
+    backgroundRuntime: IS_BACKGROUND_RUNTIME,
+  });
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -346,7 +365,11 @@ async function createWindow(options: { show?: boolean } = {}) {
 
   mainWindow.webContents.on('did-finish-load', () => {
     logDesktopBoot('window-did-finish-load', { show: shouldShow });
-    mainWindow?.webContents.send('odessa:backend-status', { ok: backendReady, apiOrigin: API_ORIGIN, logFile: backendLogFile });
+    mainWindow?.webContents.send('odessa:backend-status', {
+      ok: backendReady,
+      apiOrigin: API_ORIGIN,
+      logFile: backendLogFile,
+    });
     if (shouldShow) {
       mainWindow?.show();
     }
@@ -377,7 +400,11 @@ async function createWindow(options: { show?: boolean } = {}) {
 
 async function ensureRuntimeWarm(level: 'core' | 'heavy' = 'core') {
   const ready = await ensureBackend();
-  mainWindow?.webContents.send('odessa:backend-status', { ok: ready, apiOrigin: API_ORIGIN, logFile: backendLogFile });
+  mainWindow?.webContents.send('odessa:backend-status', {
+    ok: ready,
+    apiOrigin: API_ORIGIN,
+    logFile: backendLogFile,
+  });
   if (ready) {
     logDesktopBoot('warmup-request', { level });
     void postJson(`/desktop/warmup?level=${level}`, 2500);
@@ -385,7 +412,10 @@ async function ensureRuntimeWarm(level: 'core' | 'heavy' = 'core') {
 }
 
 app.whenReady().then(() => {
-  logDesktopBoot('app-ready', { packaged: app.isPackaged, backgroundRuntime: IS_BACKGROUND_RUNTIME });
+  logDesktopBoot('app-ready', {
+    packaged: app.isPackaged,
+    backgroundRuntime: IS_BACKGROUND_RUNTIME,
+  });
   registerDesktopIpc();
   if (app.isPackaged) {
     app.setLoginItemSettings({
@@ -396,9 +426,12 @@ app.whenReady().then(() => {
   }
   createTray();
   session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
-    desktopCapturer.getSources({ types: ['screen', 'window'] }).then((sources) => {
-      callback({ video: sources[0] });
-    }).catch(() => callback({}));
+    desktopCapturer
+      .getSources({ types: ['screen', 'window'] })
+      .then((sources) => {
+        callback({ video: sources[0] });
+      })
+      .catch(() => callback({}));
   });
   void createWindow({ show: !IS_BACKGROUND_RUNTIME });
   void ensureRuntimeWarm(IS_BACKGROUND_RUNTIME ? 'heavy' : 'core');

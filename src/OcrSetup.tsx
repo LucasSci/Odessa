@@ -15,7 +15,7 @@ export default function OcrSetup() {
     width: 400,
     height: 600,
     interval_ms: 2000,
-    enabled: false
+    enabled: false,
   });
   const [isSaving, setIsSaving] = useState(false);
 
@@ -39,7 +39,7 @@ export default function OcrSetup() {
       await fetch(apiUrl('/api/ocr/config'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(ocrConfig)
+        body: JSON.stringify(ocrConfig),
       });
       setTimeout(() => setIsSaving(false), 500);
     } catch (err) {
@@ -55,7 +55,7 @@ export default function OcrSetup() {
       await fetch(apiUrl('/api/ocr/config'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newConfig)
+        body: JSON.stringify(newConfig),
       });
     } catch (err) {
       console.error('Failed to toggle OCR engine:', err);
@@ -86,9 +86,12 @@ export default function OcrSetup() {
   const handleTestText = async () => {
     if (!testText.trim()) return;
     try {
-      const res = await fetch(apiUrl(`/api/automation/test-trigger?text=${encodeURIComponent(testText)}`), {
-        method: 'POST'
-      });
+      const res = await fetch(
+        apiUrl(`/api/automation/test-trigger?text=${encodeURIComponent(testText)}`),
+        {
+          method: 'POST',
+        },
+      );
       const data = await res.json();
       setTestResult({ status: 'success', data });
       setTestText('');
@@ -125,7 +128,6 @@ export default function OcrSetup() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 grid grid-cols-2 gap-6">
-
         {/* Left Column: Live OCR Reading & Config */}
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-sm font-bold text-slate-300 uppercase tracking-wider">
@@ -136,11 +138,13 @@ export default function OcrSetup() {
           <div className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-4 space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">X (Esquerda)</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase">
+                  X (Esquerda)
+                </label>
                 <input
                   type="number"
                   value={ocrConfig.x}
-                  onChange={(e) => setOcrConfig({...ocrConfig, x: parseInt(e.target.value) || 0})}
+                  onChange={(e) => setOcrConfig({ ...ocrConfig, x: parseInt(e.target.value) || 0 })}
                   className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-200 outline-none focus:border-blue-500"
                 />
               </div>
@@ -149,7 +153,7 @@ export default function OcrSetup() {
                 <input
                   type="number"
                   value={ocrConfig.y}
-                  onChange={(e) => setOcrConfig({...ocrConfig, y: parseInt(e.target.value) || 0})}
+                  onChange={(e) => setOcrConfig({ ...ocrConfig, y: parseInt(e.target.value) || 0 })}
                   className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-200 outline-none focus:border-blue-500"
                 />
               </div>
@@ -158,7 +162,9 @@ export default function OcrSetup() {
                 <input
                   type="number"
                   value={ocrConfig.width}
-                  onChange={(e) => setOcrConfig({...ocrConfig, width: parseInt(e.target.value) || 0})}
+                  onChange={(e) =>
+                    setOcrConfig({ ...ocrConfig, width: parseInt(e.target.value) || 0 })
+                  }
                   className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-200 outline-none focus:border-blue-500"
                 />
               </div>
@@ -167,7 +173,9 @@ export default function OcrSetup() {
                 <input
                   type="number"
                   value={ocrConfig.height}
-                  onChange={(e) => setOcrConfig({...ocrConfig, height: parseInt(e.target.value) || 0})}
+                  onChange={(e) =>
+                    setOcrConfig({ ...ocrConfig, height: parseInt(e.target.value) || 0 })
+                  }
                   className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-200 outline-none focus:border-blue-500"
                 />
               </div>
@@ -194,8 +202,13 @@ export default function OcrSetup() {
               </div>
             ) : (
               Object.entries(zones).map(([zoneId, text]) => (
-                <div key={zoneId} className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
-                  <div className="text-[10px] text-blue-400 font-bold uppercase mb-1">Zona: {zoneId}</div>
+                <div
+                  key={zoneId}
+                  className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50"
+                >
+                  <div className="text-[10px] text-blue-400 font-bold uppercase mb-1">
+                    Zona: {zoneId}
+                  </div>
                   <div className="font-mono text-sm text-emerald-300 whitespace-pre-wrap break-words">
                     {text || <span className="text-slate-600 italic">Vazio...</span>}
                   </div>
@@ -214,7 +227,8 @@ export default function OcrSetup() {
 
           <div className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-5 space-y-4">
             <p className="text-sm text-slate-400">
-              Digite um texto para testar se os seus gatilhos estão configurados corretamente. Isso ignora o OCR e injeta o texto direto no Parser.
+              Digite um texto para testar se os seus gatilhos estão configurados corretamente. Isso
+              ignora o OCR e injeta o texto direto no Parser.
             </p>
 
             <div className="space-y-2">
@@ -234,8 +248,12 @@ export default function OcrSetup() {
             </div>
 
             {testResult && (
-              <div className={`p-3 rounded-lg text-sm font-mono ${testResult.status === 'success' ? 'bg-emerald-900/30 text-emerald-400 border border-emerald-800' : 'bg-red-900/30 text-red-400 border border-red-800'}`}>
-                {testResult.status === 'success' ? 'Texto processado pelo Motor de Automação!' : testResult.message}
+              <div
+                className={`p-3 rounded-lg text-sm font-mono ${testResult.status === 'success' ? 'bg-emerald-900/30 text-emerald-400 border border-emerald-800' : 'bg-red-900/30 text-red-400 border border-red-800'}`}
+              >
+                {testResult.status === 'success'
+                  ? 'Texto processado pelo Motor de Automação!'
+                  : testResult.message}
               </div>
             )}
           </div>
@@ -244,12 +262,23 @@ export default function OcrSetup() {
           <div className="bg-blue-900/10 border border-blue-900/30 rounded-xl p-5">
             <h3 className="text-sm font-bold text-blue-400 mb-2">Como o Parser Funciona?</h3>
             <ul className="text-xs text-slate-400 space-y-2 list-disc pl-4">
-              <li>Padrão Gift: <code className="bg-slate-800 px-1 py-0.5 rounded text-amber-200">[Usuário] enviou [Presente]</code></li>
-              <li>Padrão Comment: <code className="bg-slate-800 px-1 py-0.5 rounded text-amber-200">[Usuário]: [Mensagem]</code></li>
-              <li>O Parser ignora maiúsculas e minúsculas e mapeia sinônimos (ex: 🌹 vira gift.rosa).</li>
+              <li>
+                Padrão Gift:{' '}
+                <code className="bg-slate-800 px-1 py-0.5 rounded text-amber-200">
+                  [Usuário] enviou [Presente]
+                </code>
+              </li>
+              <li>
+                Padrão Comment:{' '}
+                <code className="bg-slate-800 px-1 py-0.5 rounded text-amber-200">
+                  [Usuário]: [Mensagem]
+                </code>
+              </li>
+              <li>
+                O Parser ignora maiúsculas e minúsculas e mapeia sinônimos (ex: 🌹 vira gift.rosa).
+              </li>
             </ul>
           </div>
-
         </div>
       </div>
     </div>

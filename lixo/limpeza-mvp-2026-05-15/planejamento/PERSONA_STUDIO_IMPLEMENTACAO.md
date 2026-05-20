@@ -13,11 +13,13 @@
 **Problema Identificado:** A captura OCR parava de funcionar quando o usuário alternava entre abas do navegador (perdia o foco da janela).
 
 **Solução Implementada:**
+
 - Substituída captura via `pyautogui.screenshot()` por `PIL.ImageGrab.grab()`
 - `PIL.ImageGrab` funciona com Windows API de baixo nível e **não depende do foco da janela**
 - Adicionado fallback para captura de tela inteira se a região falhar
 
 **Arquivo modificado:**
+
 ```
 server/services/ocr_service.py
 - Importação: pyautogui → PIL.ImageGrab
@@ -46,9 +48,9 @@ Um novo componente React completo que oferece:
 ```typescript
 // Sequências de Idle predefinidas
 const IDLE_SEQUENCES = {
-  calm: ['04', '14', '16', '05', '04'],      // Relaxado
+  calm: ['04', '14', '16', '05', '04'], // Relaxado
   engaged: ['16', '09', '05', '04', '14', '16'], // Engajado
-  reading: ['04', '07', '06', '05', '16'],   // Lendo chat
+  reading: ['04', '07', '06', '05', '16'], // Lendo chat
 };
 
 // Mapa de transições seguras (Hub-and-Spoke)
@@ -68,18 +70,23 @@ const SAFE_TRANSITIONS = {
 Monitora as mensagens capturadas e aciona transições automáticas:
 
 ```typescript
-usePersonaTriggers(capturedText, {
-  enableGiftTrigger: true,
-  enableMessageTrigger: true,
-  enableReactionTrigger: true,
-  giftKeywords: ['gift', 'doação', 'presente'],
-  reactionKeywords: ['wow', 'legal', 'top'],
-}, (trigger) => {
-  // Acionar transição de vídeo
-});
+usePersonaTriggers(
+  capturedText,
+  {
+    enableGiftTrigger: true,
+    enableMessageTrigger: true,
+    enableReactionTrigger: true,
+    giftKeywords: ['gift', 'doação', 'presente'],
+    reactionKeywords: ['wow', 'legal', 'top'],
+  },
+  (trigger) => {
+    // Acionar transição de vídeo
+  },
+);
 ```
 
 **Comportamento:**
+
 - Detecta menções de gifts → Toca vídeos de agradecimento (01, 02, 03)
 - Detecta mensagens de reação → Toca movimentos naturais (07, 08, 09)
 - Detecta mensagens normais → Toca movimentos de leitura/atenção
@@ -106,6 +113,7 @@ GET /api/video/health
 ```
 
 **Recurso de Auto-descoberta:**
+
 - Procura vídeos em múltiplos locais (em ordem de preferência):
   1. OneDrive Videos/Captures
   2. Videos/Odessa (local)
@@ -175,6 +183,7 @@ O PersonaStudio agora aparece na interface principal ao lado de "Odessa" (traine
 ### 1. **Preparar os Vídeos**
 
 Coloque seus arquivos de vídeo (video_01.mp4 até video_16.mp4) em uma destas pastas:
+
 - `C:\Users\{SeuUsuário}\OneDrive\Videos\Captures\`
 - `C:\Users\{SeuUsuário}\Videos\Odessa\`
 - `C:\Users\{SeuUsuário}\Downloads\Videos\`
@@ -182,6 +191,7 @@ Coloque seus arquivos de vídeo (video_01.mp4 até video_16.mp4) em uma destas p
 ### 2. **Acessar o Studio**
 
 Na interface Odessa:
+
 ```
 Sidebar → Studio Video (tab com ícone 🎬)
 ```
@@ -211,6 +221,7 @@ Refresh: 60 FPS
 ## 🎯 Sequências de Comportamento
 
 ### **Modo Calm (Relaxado)**
+
 ```
 video_04 (âncora) →
 video_14 (piscada) →
@@ -220,6 +231,7 @@ video_05 (soft) →
 ```
 
 ### **Modo Engaged (Engajado)**
+
 ```
 video_16 (close) →
 video_09 (sorriso) →
@@ -230,6 +242,7 @@ video_14 (piscada) →
 ```
 
 ### **Modo Reading (Lendo Chat)**
+
 ```
 video_04 (âncora) →
 video_07 (olhar lateral) →
@@ -240,6 +253,7 @@ video_16 (close) →
 ```
 
 ### **Reação a Gift**
+
 ```
 [Estado atual] →
 video_14 (transição segura) →

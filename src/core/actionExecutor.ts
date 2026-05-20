@@ -335,10 +335,9 @@ export async function executeAction(
         ...base,
         status: 'done',
         simulated: false,
-        result:
-          webhookResult.statusCode
-            ? `Webhook executado (${webhookResult.statusCode}): ${String(base.payload?.webhookId)}`
-            : `Webhook executado: ${String(base.payload?.webhookId)}`,
+        result: webhookResult.statusCode
+          ? `Webhook executado (${webhookResult.statusCode}): ${String(base.payload?.webhookId)}`
+          : `Webhook executado: ${String(base.payload?.webhookId)}`,
       };
     } catch (err) {
       return {

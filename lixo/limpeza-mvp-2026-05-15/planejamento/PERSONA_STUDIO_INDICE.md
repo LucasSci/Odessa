@@ -8,9 +8,11 @@
 ## 🚀 Comece por Aqui
 
 ### 1️⃣ **Para Entender Rapidamente** (5 min)
+
 👉 [PERSONA_STUDIO_PT-BR.md](./PERSONA_STUDIO_PT-BR.md)
 
 Resumo executivo em português. Ideal se você quer saber:
+
 - O que foi feito
 - Como usar
 - Benefícios principais
@@ -18,9 +20,11 @@ Resumo executivo em português. Ideal se você quer saber:
 ---
 
 ### 2️⃣ **Para Configurar e Usar** (15 min)
+
 👉 [PERSONA_STUDIO_SETUP.md](./PERSONA_STUDIO_SETUP.md)
 
 Guia passo a passo de instalação. Cobrindo:
+
 - Instalação (Backend + Frontend)
 - Preparação de vídeos
 - Como iniciar
@@ -29,9 +33,11 @@ Guia passo a passo de instalação. Cobrindo:
 ---
 
 ### 3️⃣ **Para Entender a Arquitetura** (20 min)
+
 👉 [PERSONA_STUDIO_ARQUITETURA.md](./PERSONA_STUDIO_ARQUITETURA.md)
 
 Diagramas e especificações técnicas. Incluindo:
+
 - Visão geral do sistema
 - Fluxo de dados
 - Componentes React
@@ -41,9 +47,11 @@ Diagramas e especificações técnicas. Incluindo:
 ---
 
 ### 4️⃣ **Para Detalhes Completos** (30 min)
+
 👉 [PERSONA_STUDIO_IMPLEMENTACAO.md](./PERSONA_STUDIO_IMPLEMENTACAO.md)
 
 Documentação técnica completa. Com:
+
 - Descrição de mudanças
 - Features implementadas
 - Código de exemplo
@@ -75,15 +83,15 @@ INÍCIO
 
 ## 🎯 Matriz de Referência
 
-| Pergunta | Documento |
-|----------|-----------|
-| O que foi feito? | PT-BR |
-| Como faço para usar? | SETUP |
-| Como funciona internamente? | ARQUITETURA |
-| Quais exatamente foram as mudanças? | IMPLEMENTAÇÃO |
-| Qual arquivo preciso editar? | ARQUITETURA + IMPLEMENTAÇÃO |
-| Como debugar problemas? | SETUP (Troubleshooting) |
-| Qual é o próximo passo? | IMPLEMENTAÇÃO (Próximos Passos) |
+| Pergunta                            | Documento                       |
+| ----------------------------------- | ------------------------------- |
+| O que foi feito?                    | PT-BR                           |
+| Como faço para usar?                | SETUP                           |
+| Como funciona internamente?         | ARQUITETURA                     |
+| Quais exatamente foram as mudanças? | IMPLEMENTAÇÃO                   |
+| Qual arquivo preciso editar?        | ARQUITETURA + IMPLEMENTAÇÃO     |
+| Como debugar problemas?             | SETUP (Troubleshooting)         |
+| Qual é o próximo passo?             | IMPLEMENTAÇÃO (Próximos Passos) |
 
 ---
 
@@ -118,6 +126,7 @@ Odessa/
 ## 🔧 Arquivos Alterados Resumidamente
 
 ### Criados (4 arquivos)
+
 ```
 ✅ src/PersonaStudio.tsx
 ✅ src/core/usePersonaTriggers.ts
@@ -126,6 +135,7 @@ Odessa/
 ```
 
 ### Modificados (3 arquivos)
+
 ```
 ✏️ server/services/ocr_service.py
    └─ Substituir pyautogui por PIL.ImageGrab
@@ -141,20 +151,21 @@ Odessa/
 
 ## 🎯 Objetivos Alcançados
 
-| Objetivo | Status | Doc |
-|----------|--------|-----|
-| ✅ Corrigir falha OCR | Completo | IMPLEMENTAÇÃO |
-| ✅ Criar PersonaStudio | Completo | ARQUITETURA |
-| ✅ Sistema de gatilhos | Completo | ARQUITETURA |
+| Objetivo               | Status   | Doc           |
+| ---------------------- | -------- | ------------- |
+| ✅ Corrigir falha OCR  | Completo | IMPLEMENTAÇÃO |
+| ✅ Criar PersonaStudio | Completo | ARQUITETURA   |
+| ✅ Sistema de gatilhos | Completo | ARQUITETURA   |
 | ✅ Backend para vídeos | Completo | IMPLEMENTAÇÃO |
-| ✅ Integração UI | Completo | ARQUITETURA |
-| ✅ Documentação | Completo | Este arquivo |
+| ✅ Integração UI       | Completo | ARQUITETURA   |
+| ✅ Documentação        | Completo | Este arquivo  |
 
 ---
 
 ## 💡 Quick Links (Copiar/Colar)
 
 ### Código
+
 ```typescript
 // Import PersonaStudio
 import PersonaStudio from './PersonaStudio';
@@ -168,6 +179,7 @@ import PersonaStudio from './PersonaStudio';
 ```
 
 ### API
+
 ```bash
 # Listar vídeos
 curl http://localhost:8000/api/video/available
@@ -180,6 +192,7 @@ curl http://localhost:8000/api/video/health
 ```
 
 ### Rotas
+
 ```
 Frontend: http://localhost:3000/#persona-studio
 Backend: http://localhost:8000/api/video/*
@@ -191,6 +204,7 @@ OBS: http://localhost:3000/#persona-studio
 ## 🧪 Testes Recomendados
 
 ### Teste 1: OCR Robustez
+
 ```
 1. Abrir http://localhost:3000
 2. Ir para aba "Sinais"
@@ -199,6 +213,7 @@ OBS: http://localhost:3000/#persona-studio
 ```
 
 ### Teste 2: PersonaStudio
+
 ```
 1. Ir para aba "Studio Video"
 2. ✅ Vídeo deve carregar (video_04)
@@ -208,6 +223,7 @@ OBS: http://localhost:3000/#persona-studio
 ```
 
 ### Teste 3: Integração OBS
+
 ```
 1. OBS → Adicionar Browser Source
 2. URL: http://localhost:3000/#persona-studio
@@ -234,6 +250,7 @@ Compatibilidade:    Windows 10+ (PIL.ImageGrab)
 ## ⚡ Atalhos Úteis
 
 ### Para desenvolvedores
+
 ```bash
 # Limpar e reinstalar
 npm install && pip install -r requirements.txt
@@ -246,6 +263,7 @@ npm run build
 ```
 
 ### Para usuários
+
 ```bash
 # Iniciar sistema
 npm run dev    # Terminal 1
@@ -261,18 +279,23 @@ http://localhost:8000/api/video/available
 ## 🎓 Conceitos-Chave
 
 ### PersonaStudio
+
 Componente React que gerencia exibição e transição de vídeos com segurança e naturalidade.
 
 ### usePersonaTriggers
+
 Hook que monitora chat e aciona transições automáticas de vídeo.
 
 ### SAFE_TRANSITIONS
+
 Mapa que define quais transições são "naturais" (não causam saltos visuais).
 
 ### IDLE_SEQUENCES
+
 Sequências pré-programadas de idles (relaxado, engajado, lendo).
 
 ### PIL.ImageGrab
+
 Função que captura tela sem depender de foco da janela (mais robusto).
 
 ---
@@ -280,11 +303,13 @@ Função que captura tela sem depender de foco da janela (mais robusto).
 ## 🚀 Próximas Fases
 
 ### Fase 2 (Próxima)
+
 - [ ] WebSocket sync com OBS
 - [ ] Integração n8n
 - [ ] Gravação de sequências custom
 
 ### Fase 3 (Depois)
+
 - [ ] Mobile preview
 - [ ] Stream Deck support
 - [ ] ML-based transitions
@@ -308,9 +333,9 @@ Para mais, ver [PERSONA_STUDIO_SETUP.md](./PERSONA_STUDIO_SETUP.md#-troubleshoot
 
 ## 📝 Histórico de Mudanças
 
-| Data | Versão | Mudança |
-|------|--------|---------|
-| 04/05/2026 | 1.0 | Versão inicial, pronta para produção |
+| Data       | Versão | Mudança                              |
+| ---------- | ------ | ------------------------------------ |
+| 04/05/2026 | 1.0    | Versão inicial, pronta para produção |
 
 ---
 

@@ -71,14 +71,16 @@ async function serveStatic(req, res, pathname) {
     if (!stat.isFile()) throw new Error('Not a file');
     const ext = path.extname(filePath).toLowerCase();
     const immutable = requestedPath.startsWith('/assets/');
-    const cacheControl = immutable ? 'public, max-age=31536000, immutable' : 'public, max-age=0, must-revalidate';
+    const cacheControl = immutable
+      ? 'public, max-age=31536000, immutable'
+      : 'public, max-age=0, must-revalidate';
     const encoding = chooseEncoding(req, ext);
     const raw = await fs.readFile(filePath);
     const body = encoding ? await compress(raw, encoding) : raw;
     send(res, 200, body, {
       'Content-Type': contentTypes[ext] || 'application/octet-stream',
       'Cache-Control': cacheControl,
-      'Vary': 'Accept-Encoding',
+      Vary: 'Accept-Encoding',
       ...(encoding ? { 'Content-Encoding': encoding } : {}),
     });
   } catch {
@@ -89,7 +91,7 @@ async function serveStatic(req, res, pathname) {
     send(res, 200, body, {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'public, max-age=0, must-revalidate',
-      'Vary': 'Accept-Encoding',
+      Vary: 'Accept-Encoding',
       ...(encoding ? { 'Content-Encoding': encoding } : {}),
     });
   }
@@ -112,9 +114,14 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname.startsWith('/uploads/')) {
       const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-      const persistentDir = homeDir && !homeDir.includes('Windows') ? path.join(homeDir, 'odessa-data') : '';
-      const uploadsDir = process.env.ODESSA_UPLOADS_DIR || (persistentDir ? path.join(persistentDir, 'uploads') : path.join(__dirname, 'uploads'));
-      const filePath = path.normalize(path.join(uploadsDir, url.pathname.replace(/^\/uploads\//, '')));
+      const persistentDir =
+        homeDir && !homeDir.includes('Windows') ? path.join(homeDir, 'odessa-data') : '';
+      const uploadsDir =
+        process.env.ODESSA_UPLOADS_DIR ||
+        (persistentDir ? path.join(persistentDir, 'uploads') : path.join(__dirname, 'uploads'));
+      const filePath = path.normalize(
+        path.join(uploadsDir, url.pathname.replace(/^\/uploads\//, '')),
+      );
       if (!filePath.startsWith(uploadsDir)) {
         send(res, 403, 'Forbidden', { 'Content-Type': 'text/plain' });
         return;
@@ -123,9 +130,17 @@ const server = http.createServer(async (req, res) => {
         const stat = await fs.stat(filePath);
         if (!stat.isFile()) throw new Error('not a file');
         const ext = path.extname(filePath).toLowerCase();
-        const mime = { '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.m4v': 'video/mp4' };
+        const mime = {
+          '.mp4': 'video/mp4',
+          '.webm': 'video/webm',
+          '.mov': 'video/quicktime',
+          '.m4v': 'video/mp4',
+        };
         const raw = await fs.readFile(filePath);
-        send(res, 200, raw, { 'Content-Type': mime[ext] || 'application/octet-stream', 'Cache-Control': 'public, max-age=3600' });
+        send(res, 200, raw, {
+          'Content-Type': mime[ext] || 'application/octet-stream',
+          'Cache-Control': 'public, max-age=3600',
+        });
       } catch {
         send(res, 404, 'Not found', { 'Content-Type': 'text/plain' });
       }
