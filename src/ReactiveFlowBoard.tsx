@@ -705,13 +705,22 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
       const response = await fetch(apiUrl('/video/state'));
       if (!response.ok) return;
       const data = await response.json();
-      setFlowState({
+      const next: FlowRuntimeState = {
         activeNodeId: data.activeNodeId || data.currentClip?.nodeId || null,
         activeConnectionId: data.activeConnectionId || null,
         nextConnectionIds: Array.isArray(data.nextConnectionIds) ? data.nextConnectionIds : [],
         blockedConnectionIds: Array.isArray(data.blockedConnectionIds) ? data.blockedConnectionIds : [],
         executionMode: data.executionMode || 'live',
         lastTransitionAt: data.lastTransitionAt || data.start_ts || null,
+      };
+      // Skip the state update (and the ReactFlow re-render) when nothing
+      // that affects the canvas changed.
+      setFlowState((prev) => {
+        const sig = (s: FlowRuntimeState | null) =>
+          s
+            ? `${s.activeNodeId || ''}|${s.activeConnectionId || ''}|${(s.nextConnectionIds || []).join(',')}|${(s.blockedConnectionIds || []).join(',')}`
+            : '';
+        return sig(prev) === sig(next) ? prev : next;
       });
     } catch {
       // Flow animation is best-effort; editing must keep working offline.
@@ -720,7 +729,8 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
 
   useEffect(() => {
     void refreshFlowState();
-    const interval = window.setInterval(refreshFlowState, 1500);
+    // Keep the canvas in sync with the live playback in near real time.
+    const interval = window.setInterval(refreshFlowState, 600);
     return () => window.clearInterval(interval);
   }, [refreshFlowState]);
 

@@ -423,7 +423,16 @@ export default function OdessaLiveCenter({
     try {
       const response = await fetch(apiUrl('/api/video/state'));
       if (!response.ok) return;
-      setVideoState((await response.json()) as VideoState);
+      const next = (await response.json()) as VideoState;
+      // Only update when something visible changed — the response includes a
+      // volatile server_time that would otherwise re-render every poll.
+      setVideoState((prev) => {
+        const sig = (s: VideoState | null) =>
+          s
+            ? `${s.current_video_id || ''}|${s.state || ''}|${s.activeNodeId || ''}|${s.activeConnectionId || ''}|${JSON.stringify(s.currentClip || null)}`
+            : '';
+        return sig(prev) === sig(next) ? prev : next;
+      });
     } catch {
       // The shell keeps working when the backend is offline.
     }
@@ -536,14 +545,11 @@ export default function OdessaLiveCenter({
       void refreshAutomationLogs();
     }, 0);
 
-    const shouldPollVideoState =
-      activeTab === 'home' || activeTab === 'stage' || runtime.autopilotEnabled;
-    const videoIntervalMs = activeTab === 'stage' ? 1200 : runtime.autopilotEnabled ? 1500 : 3000;
-    const videoTimer = shouldPollVideoState
-      ? window.setInterval(() => {
-          void refreshVideoState();
-        }, videoIntervalMs)
-      : null;
+    // Poll video state continuously, on every tab, so Início, Palco e Fluxo
+    // Reativo refletem a mesma reproducao em tempo real.
+    const videoTimer = window.setInterval(() => {
+      void refreshVideoState();
+    }, 600);
     const logsTimer =
       activeTab === 'logs'
         ? window.setInterval(() => {
@@ -553,10 +559,10 @@ export default function OdessaLiveCenter({
 
     return () => {
       window.clearTimeout(initialLoadTimer);
-      if (videoTimer !== null) window.clearInterval(videoTimer);
+      window.clearInterval(videoTimer);
       if (logsTimer !== null) window.clearInterval(logsTimer);
     };
-  }, [activeTab, loadConfig, refreshAutomationLogs, refreshVideoState, runtime.autopilotEnabled]);
+  }, [activeTab, loadConfig, refreshAutomationLogs, refreshVideoState]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -953,7 +959,21 @@ export default function OdessaLiveCenter({
           </Suspense>
         )}
         {activeTab === 'library' && <VideoLibraryPanel config={config} onChanged={loadConfig} />}
-        {activeTab === 'sources' && (
+        {/*
+          CaptureStudio stays mounted on every tab so screen capture / OCR
+          keeps running when the user navigates away from "Fontes / OCR".
+          When inactive it is moved off-screen (NOT display:none) so the
+          <video> element keeps decoding frames for the OCR pipeline.
+        */}
+        <div
+          className={cn(
+            'flex min-h-0 flex-col',
+            activeTab === 'sources'
+              ? 'flex-1'
+              : 'pointer-events-none fixed -left-[9999px] top-0 h-px w-px overflow-hidden opacity-0',
+          )}
+          aria-hidden={activeTab !== 'sources'}
+        >
           <PageSurface
             icon={<Camera className="h-4 w-4" />}
             title="Fontes e OCR"
@@ -970,7 +990,7 @@ export default function OdessaLiveCenter({
               />
             </Suspense>
           </PageSurface>
-        )}
+        </div>
         {activeTab === 'logs' && (
           <PageSurface
             icon={<ListVideo className="h-4 w-4" />}
