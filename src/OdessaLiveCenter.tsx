@@ -3173,9 +3173,13 @@ export function ContinuityPlayer({
   const slotClipRef = useRef<[VideoClip | null, VideoClip | null]>([null, null]);
   const endedRef = useRef('');
 
-  useEffect(() => {
-    activeSlotRef.current = activeSlot;
-  }, [activeSlot]);
+  // Switch the active slot. activeSlotRef MUST update synchronously here —
+  // a deferred (useEffect) update lets a preload effect compute the wrong
+  // idle slot and overwrite the src of the video that just started playing.
+  const activateSlot = useCallback((slot: 0 | 1) => {
+    activeSlotRef.current = slot;
+    setActiveSlot(slot);
+  }, []);
 
   const primeElement = useCallback((element: HTMLVideoElement, slotClip: VideoClip) => {
     element.muted = (slotClip.audio?.mode || 'muted') !== 'original';
@@ -3206,7 +3210,7 @@ export function ContinuityPlayer({
         primeElement(element, slotClip);
         if (autoplay) {
           void element.play().catch(() => undefined);
-          setActiveSlot(slot);
+          activateSlot(slot);
         } else {
           element.pause();
         }
@@ -3214,12 +3218,15 @@ export function ContinuityPlayer({
       if (element.readyState >= 1) ready();
       else element.addEventListener('loadedmetadata', ready, { once: true });
     },
-    [primeElement, refs],
+    [activateSlot, primeElement, refs],
   );
 
   // Instant hard-cut to a slot whose clip is already buffered. No fade.
   const cutToSlot = useCallback(
     (slot: 0 | 1) => {
+      // Cutting to the slot that is already active would re-seek a video
+      // mid-playback and visibly restart/jump it — never do that.
+      if (activeSlotRef.current === slot) return;
       const element = refs[slot].current;
       const slotClip = slotClipRef.current[slot];
       if (!element || !slotClip) return;
@@ -3227,9 +3234,9 @@ export function ContinuityPlayer({
       void element.play().catch(() => undefined);
       const other = refs[slot === 0 ? 1 : 0].current;
       if (other) other.pause();
-      setActiveSlot(slot);
+      activateSlot(slot);
     },
-    [primeElement, refs],
+    [activateSlot, primeElement, refs],
   );
 
   // Keep the active slot playing the current clip.
