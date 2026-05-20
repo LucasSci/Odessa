@@ -10,6 +10,7 @@ type VideoClip = {
   endSec: number | null;
   transitionMs: number;
   returnToIdle?: boolean;
+  loop?: boolean;
   audio?: {
     mode?: 'muted' | 'original' | 'track';
     volume?: number;
@@ -48,7 +49,10 @@ function clipKey(clip: VideoClip | null | undefined) {
 
 function shouldLoopClip(clip: VideoClip | null | undefined) {
   if (!clip?.videoId || clip.endSec) return false;
-  return clip.returnToIdle === false || /(^|[_-])idle([_-]|$)/i.test(clip.videoId);
+  // Loop is driven purely by explicit state: the idle clip is marked with
+  // loop:true / returnToIdle:false. Never infer loop from the video's name —
+  // clips named "01_IDLE_..." are sequence steps, not the idle loop.
+  return clip.loop === true || clip.returnToIdle === false;
 }
 
 export default function PersonaOverlay() {

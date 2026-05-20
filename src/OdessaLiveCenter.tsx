@@ -1249,12 +1249,21 @@ function SettingsPanel({
     setSaving(true);
     setMessage(null);
     try {
+      // Build the snapshot from the LIVE form state (obsConnection holds the
+      // host/port the user typed; passwordInput holds a freshly typed password).
+      // obsSettings.websocketUrl can be stale until "Salvar OBS" is clicked.
+      const snapshot: ObsSettings = {
+        ...obsSettings,
+        websocketUrl: buildObsWebsocketUrl(obsConnection),
+        passwordConfigured: obsConnection.authenticationEnabled,
+        websocketPassword: passwordInput.trim() || obsSettings.websocketPassword || '',
+      };
       const existing = readObsProfilesFromStorage();
       const existingIdx = existing.findIndex((p) => p.name === name);
       const profile = {
         id: existingIdx >= 0 ? existing[existingIdx].id : `obs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         name,
-        settings: obsSettings,
+        settings: snapshot,
         createdAt: existingIdx >= 0 ? existing[existingIdx].createdAt : new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -1263,7 +1272,12 @@ function SettingsPanel({
       setObsProfiles(next);
       setActiveObsProfileId(profile.id);
       setObsProfileName('');
-      setMessage(`Perfil "${name}" salvo (local).`);
+      const hasPwd = Boolean(snapshot.websocketPassword);
+      setMessage(
+        snapshot.passwordConfigured && !hasPwd
+          ? `Perfil "${name}" salvo. Dica: digite a senha do OBS antes de salvar para guarda-la no perfil.`
+          : `Perfil "${name}" salvo (local).`,
+      );
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Falha ao salvar perfil');
     } finally {
@@ -1280,12 +1294,20 @@ function SettingsPanel({
     setSaving(true);
     setMessage(null);
     try {
+      // Only fill the form — never reconnect here. Reconnecting with a profile
+      // that has no stored password would drop the OBS connection. The user
+      // reviews the form and clicks "Salvar OBS" to apply + reconnect safely.
       const normalized = normalizeObsSettings(profile.settings);
       setObsSettings(normalized);
       setObsConnection(parseObsConnection(normalized));
       setActiveObsProfileId(id);
-      setMessage(`Perfil "${profile.name}" aplicado. Clique em "Salvar OBS" para persistir.`);
-      if (onObsSettingsChanged) onObsSettingsChanged(profile.settings as Record<string, unknown>);
+      const storedPwd = (profile.settings as Partial<ObsSettings>).websocketPassword || '';
+      if (storedPwd) setPasswordInput(storedPwd);
+      setMessage(
+        storedPwd
+          ? `Perfil "${profile.name}" carregado. Clique em "Salvar OBS" para conectar.`
+          : `Perfil "${profile.name}" carregado. Confira a senha do OBS e clique em "Salvar OBS".`,
+      );
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Falha ao aplicar perfil');
     } finally {
