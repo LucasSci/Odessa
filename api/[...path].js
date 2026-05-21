@@ -32,6 +32,7 @@ const cloudStore = (globalThis.__ODESSA_CLOUD_STORE ||= {
   agentStatus: null,
   commandQueue: [],
   events: [],
+  pendingTriggerQueue: [],
 });
 
 function json(res, statusCode, body, headers = {}) {
@@ -381,6 +382,57 @@ function recentAgentEvents() {
   return cloudStore.events.slice(-20);
 }
 
+// ── Trigger queue helpers ──────────────────────────────────────────────────
+// Triggers are no longer fired immediately. Instead they go into a persistent
+// KV queue. When idle finishes and /video/advance is called, the first entry
+// is popped and played. The idle video stays loop:false while the queue has
+// items so the player knows to call advance instead of restarting the loop.
+
+function loadTriggerQueue() {
+  try {
+    const stored = getCloudValue('trigger_queue');
+    return Array.isArray(stored?.value) ? stored.value : [];
+  } catch { return []; }
+}
+
+function saveTriggerQueue(queue) {
+  setCloudValue('trigger_queue', queue);
+  cloudStore.pendingTriggerQueue = queue;
+}
+
+function enqueueTriggerAction(entry) {
+  const queue = loadTriggerQueue();
+  const normalized = {
+    id: entry.id || crypto.randomUUID(),
+    triggerId: entry.triggerId || null,
+    triggerName: entry.triggerName || null,
+    eventType: entry.eventType || null,
+    targetVideoId: entry.targetVideoId || null,
+    targetNodeId: entry.targetNodeId || null,
+    connectionId: entry.connectionId || null,
+    currentClip: entry.currentClip || null,
+    enqueuedAt: entry.enqueuedAt || new Date().toISOString(),
+  };
+  queue.push(normalized);
+  saveTriggerQueue(queue);
+  return { entry: normalized, queueSize: queue.length };
+}
+
+function dequeueTriggerAction() {
+  const queue = loadTriggerQueue();
+  if (!queue.length) return { entry: null, queueSize: 0 };
+  const [entry, ...rest] = queue;
+  saveTriggerQueue(rest);
+  return { entry, queueSize: rest.length };
+}
+
+function getTriggerQueueSize() {
+  try {
+    const stored = getCloudValue('trigger_queue');
+    return Array.isArray(stored?.value) ? stored.value.length : 0;
+  } catch { return 0; }
+}
+
 function videoIdFromPath(pathname) {
   const name = pathname.split('/').pop() || '';
   return name.replace(/\.(mp4|webm|mov|m4v)$/i, '');
@@ -470,6 +522,8 @@ function resolveClipLoop(videoId, nodeId) {
   const node = nodeId ? flowNodes.find((n) => n.nodeId === nodeId) : null;
   if (node?.playback?.loop) return true;
   const isIdle = Boolean(idleVideoId && videoId === idleVideoId);
+  // If idle but trigger queue has pending items → don't loop so player calls /advance
+  if (isIdle && getTriggerQueueSize() > 0) return false;
   return isIdle && !nodeHasNaturalNext(nodeId);
 }
 
@@ -591,6 +645,29 @@ function resolveNextClip(currentNodeId, currentVideoId) {
     nodeId = flowNodes.find((n) => n.videoId === currentVideoId)?.nodeId || null;
   }
   if (!nodeId) return null;
+
+  // If currently idle and trigger queue has items, next clip is the first queued trigger
+  const isCurrentlyIdle = Boolean(idleVideoId && currentVideoId === idleVideoId);
+  if (isCurrentlyIdle) {
+    const queue = loadTriggerQueue();
+    if (queue.length > 0) {
+      const pending = queue[0];
+      if (pending.targetVideoId) {
+        const targetNode = pending.targetNodeId ? flowNodes.find((n) => n.nodeId === pending.targetNodeId) : null;
+        const pb = targetNode?.playback || {};
+        return {
+          nodeId: pending.targetNodeId,
+          videoId: pending.targetVideoId,
+          startSec: pb.startSec || 0,
+          endSec: pb.endSec ?? null,
+          transitionMs: pb.transitionMs || 220,
+          loop: Boolean(pb.loop),
+          returnToIdle: true,
+          audio: targetNode?.audio || { mode: 'muted', volume: 1 },
+        };
+      }
+    }
+  }
 
   const outConnections = flowConnections.filter((c) => c.fromNodeId === nodeId);
   const endConnection =
@@ -968,6 +1045,7 @@ async function protectedResponse(req, res, rawPath) {
   if (path === '/video/state' || path.endsWith('/video/state')) {
     return json(res, 200, {
       ...(loadCloudVideoState()),
+      triggerQueueSize: getTriggerQueueSize(),
       ...cloudState(),
     });
   }
@@ -1007,6 +1085,46 @@ async function protectedResponse(req, res, rawPath) {
         ...currentState,
         ...cloudState(),
       });
+    }
+
+    // ── Trigger queue: if we're advancing FROM idle and queue has items, pop ──
+    // The idle video just finished its play-through (loop was false because the
+    // queue was non-empty). Fire the first pending trigger instead of returning
+    // to idle normally.
+    const isAdvancingFromIdle = Boolean(idleVideoId && currentVideoId === idleVideoId);
+    if (isAdvancingFromIdle) {
+      const { entry: queuedTrigger, queueSize: remainingQueueSize } = dequeueTriggerAction();
+      if (queuedTrigger && queuedTrigger.targetVideoId) {
+        const targetFlowNodeQ = flowNodes.find((n) => n.nodeId === queuedTrigger.targetNodeId);
+        const pbQ = targetFlowNodeQ?.playback || {};
+        const clipQ = queuedTrigger.currentClip || {
+          nodeId: queuedTrigger.targetNodeId,
+          videoId: queuedTrigger.targetVideoId,
+          startSec: pbQ.startSec || 0,
+          endSec: pbQ.endSec ?? null,
+          transitionMs: pbQ.transitionMs || 220,
+          loop: Boolean(pbQ.loop),
+          returnToIdle: true,
+          audio: targetFlowNodeQ?.audio || { mode: 'muted', volume: 1 },
+        };
+        console.log('[Odessa] /video/advance: popping trigger from queue →', queuedTrigger.targetVideoId, 'remaining:', remainingQueueSize);
+        const savedQ = saveCloudVideoState(queuedTrigger.targetVideoId, {
+          activeNodeId: queuedTrigger.targetNodeId,
+          activeConnectionId: queuedTrigger.connectionId || null,
+          currentClip: clipQ,
+        });
+        return json(res, 200, {
+          ok: true,
+          advanced: true,
+          fromNodeId: activeNodeId,
+          toNodeId: queuedTrigger.targetNodeId,
+          triggeredFromQueue: true,
+          triggerQueueSize: remainingQueueSize,
+          trigger: { id: queuedTrigger.triggerId, name: queuedTrigger.triggerName, eventType: queuedTrigger.eventType },
+          ...savedQ,
+          ...cloudState(),
+        });
+      }
     }
 
     // Find the next node via the "natural / ao finalizar" connection.
@@ -1170,29 +1288,57 @@ async function protectedResponse(req, res, rawPath) {
 
     const isIdle = Boolean(targetVideoId === idleVideoId);
     const pb = targetNode?.playback || action?.playback || {};
-    const currentClip = {
+    const triggerClip = {
       nodeId: targetNodeId,
       videoId: targetVideoId,
       startSec: pb.startSec || 0,
-      endSec: pb.endSec || null,
+      endSec: pb.endSec ?? null,
       transitionMs: pb.transitionMs || 220,
       loop: isIdle || Boolean(pb.loop),
       returnToIdle: connection?.returnToIdle !== false,
       audio: targetNode?.audio || action?.audio || { mode: 'muted', volume: 1 },
     };
-    const saved = saveCloudVideoState(targetVideoId, {
-      activeNodeId: targetNodeId,
-      activeConnectionId: connection?.id || null,
-      currentClip,
+
+    // ── Enqueue the trigger instead of firing immediately ──
+    // The trigger will fire the next time the IDLE clip finishes and
+    // /video/advance is called. This lets multiple triggers queue up and
+    // play one-after-another, all starting/ending cleanly on the idle boundary.
+    const { entry, queueSize } = enqueueTriggerAction({
+      triggerId: matchedTrigger.id,
+      triggerName: matchedTrigger.name,
+      eventType: matchedTrigger.eventType,
+      targetVideoId,
+      targetNodeId,
+      connectionId: connection?.id || null,
+      currentClip: triggerClip,
     });
+
+    // If IDLE is playing right now and its loop flag is still true, break it
+    // immediately in the KV so the player sees loop:false on the next poll
+    // and knows to call /advance when the current play-through finishes.
+    // (currentState was already fetched above to resolve currentNodeId)
+    const currentVideoId = currentState.current_video_id || null;
+    const isCurrentlyIdle = Boolean(idleVideoId && currentVideoId === idleVideoId);
+    if (isCurrentlyIdle && currentState.currentClip?.loop !== false) {
+      const patchedState = {
+        ...currentState,
+        server_time: Date.now() / 1000,
+        currentClip: { ...(currentState.currentClip || {}), loop: false },
+        nextClip: resolveNextClip(currentState.activeNodeId, currentVideoId),
+      };
+      setCloudValue('video_state', patchedState);
+    }
+
     return json(res, 200, {
       ok: true,
       matched: true,
-      triggered: true,
+      triggered: false,
+      queued: true,
+      queueSize,
+      queueEntryId: entry.id,
       trigger: { id: matchedTrigger.id, name: matchedTrigger.name, eventType: matchedTrigger.eventType },
       targetVideoId,
       targetNodeId,
-      ...saved,
       ...cloudState(),
     });
   }

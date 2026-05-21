@@ -1,11 +1,36 @@
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import zlib from 'node:zlib';
-import apiHandler from './api/[...path].js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// ── Hot-reloadable API handler ─────────────────────────────────────────────
+// Instead of a static ES-module import (which is permanently cached), we
+// track the mtime of api/[...path].js and re-import with a fresh URL whenever
+// the file changes on disk. This lets a zip deploy take effect on the VERY
+// NEXT request without requiring a full server restart.
+const API_HANDLER_FILE = path.join(__dirname, 'api', '[...path].js');
+let _apiHandler = null;
+let _apiHandlerMtime = 0;
+
+async function getApiHandler() {
+  try {
+    const mtime = fsSync.statSync(API_HANDLER_FILE).mtimeMs;
+    if (!_apiHandler || mtime !== _apiHandlerMtime) {
+      const freshUrl = pathToFileURL(API_HANDLER_FILE).href + `?v=${mtime}`;
+      const mod = await import(freshUrl);
+      _apiHandler = mod.default;
+      _apiHandlerMtime = mtime;
+      console.log(`[hostinger-server] API handler loaded (mtime ${mtime})`);
+    }
+  } catch (err) {
+    console.error('[hostinger-server] Failed to load API handler:', err);
+  }
+  return _apiHandler;
+}
 const distDir = path.join(__dirname, 'dist');
 const port = Number(process.env.PORT || process.env.HOSTINGER_PORT || 3000);
 const host = process.env.HOST || '0.0.0.0';
@@ -107,7 +132,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
       applyApiPath(req, url.pathname);
-      await apiHandler(req, res);
+      const handler = await getApiHandler();
+      if (handler) await handler(req, res);
       return;
     }
     if (url.pathname.startsWith('/uploads/')) {
