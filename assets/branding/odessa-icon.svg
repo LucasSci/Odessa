@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Odessa">
+  <defs>
+    <linearGradient id="bg" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#111827"/>
+      <stop offset="0.55" stop-color="#07111f"/>
+      <stop offset="1" stop-color="#020617"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="256" y1="208" x2="792" y2="832" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="0.38" stop-color="#93c5fd"/>
+      <stop offset="0.72" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#38bdf8"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="28" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.125 0 0 0 0 0.827 0 0 0 0 0.933 0 0 0 0.55 0"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="232" fill="url(#bg)"/>
+  <circle cx="512" cy="512" r="326" fill="none" stroke="#0f172a" stroke-width="46"/>
+  <circle cx="512" cy="512" r="278" fill="none" stroke="url(#ring)" stroke-width="118" filter="url(#glow)"/>
+  <circle cx="512" cy="512" r="168" fill="#07111f"/>
+  <path d="M704 286c36 26 66 59 88 98" fill="none" stroke="#e0f2fe" stroke-width="34" stroke-linecap="round" opacity="0.86"/>
+  <circle cx="742" cy="284" r="34" fill="#67e8f9"/>
+  <circle cx="742" cy="284" r="58" fill="none" stroke="#22d3ee" stroke-width="14" opacity="0.35"/>
+  <path d="M342 760c-50-31-88-76-111-131" fill="none" stroke="#38bdf8" stroke-width="26" stroke-linecap="round" opacity="0.55"/>
+</svg>

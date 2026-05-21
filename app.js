@@ -1,0 +1,1 @@
+import('./hostinger-server.mjs');

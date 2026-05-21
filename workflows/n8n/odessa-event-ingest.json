@@ -1,0 +1,86 @@
+{
+  "name": "Odessa - Event Ingest",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "odessa/event-ingest",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "external-event-webhook",
+      "name": "External Event Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "odessa-event-ingest-webhook",
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nconst rawEvents = Array.isArray(body.events) ? body.events : [body.event || body];\nconst events = rawEvents.map((event, index) => ({\n  id: event.id || `n8n-${Date.now()}-${index}`,\n  source: event.source || 'n8n',\n  zoneName: event.zoneName || event.zone_name || 'n8n ingest',\n  kind: event.kind || event.type || 'chat',\n  text: event.text || event.message || JSON.stringify(event),\n  createdAt: event.createdAt || new Date().toISOString(),\n  time: event.time || new Date().toLocaleTimeString(),\n  metadata: { ...(event.metadata || {}), n8nWorkflow: 'odessa-event-ingest' }\n}));\nreturn [{ json: { events } }];"
+      },
+      "id": "normalize-event",
+      "name": "Normalize Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/n8n/events",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Odessa-Secret",
+              "value": "={{ $env.N8N_WEBHOOK_SECRET || 'change-me-local-secret' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ events: $json.events }) }}",
+        "options": {}
+      },
+      "id": "send-to-odessa",
+      "name": "Send To Odessa",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, odessa: $json } }}",
+        "options": {}
+      },
+      "id": "ingest-response",
+      "name": "Ingest Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [980, 300]
+    }
+  ],
+  "connections": {
+    "External Event Webhook": {
+      "main": [[{ "node": "Normalize Event", "type": "main", "index": 0 }]]
+    },
+    "Normalize Event": {
+      "main": [[{ "node": "Send To Odessa", "type": "main", "index": 0 }]]
+    },
+    "Send To Odessa": {
+      "main": [[{ "node": "Ingest Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-05-01T00:00:00.000Z",
+  "versionId": "odessa-event-ingest-v1"
+}

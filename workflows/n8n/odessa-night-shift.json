@@ -1,0 +1,116 @@
+{
+  "name": "Odessa - Night Shift Safe Advances",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "odessa/night-shift",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "night-shift-webhook",
+      "name": "Night Shift Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "odessa-night-shift-webhook",
+      "position": [180, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json || {};\nconst clean = (value, fallback = '') => String(value ?? fallback).trim();\nconst numeric = (value, fallback, min, max) => Math.max(min, Math.min(max, Number(value ?? fallback) || fallback));\nconst focusAreas = Array.isArray(body.focusAreas) && body.focusAreas.length\n  ? body.focusAreas.map((item) => clean(item)).filter(Boolean)\n  : ['runtime', 'automacao', 'qa', 'docs'];\nconst constraints = Array.isArray(body.constraints)\n  ? body.constraints.map((item) => clean(item)).filter(Boolean)\n  : ['safe-mode', 'sem edicao automatica de codigo', 'Slack + JSON como saida'];\nreturn [{ json: {\n  objective: clean(body.objective, 'Preparar avancos seguros para o proximo ciclo do Odessa enquanto Lucas descansa'),\n  durationMinutes: numeric(body.durationMinutes, 90, 15, 480),\n  focusAreas,\n  maxAdvancements: numeric(body.maxAdvancements, 4, 1, 8),\n  requestedBy: clean(body.requestedBy, 'Lucas'),\n  constraints,\n  targetChannel: clean(body.targetChannel, 'odessa-roadmap').replace(/^#/, '')\n} }];"
+      },
+      "id": "normalize-night-shift",
+      "name": "Code - Normalize Night Shift",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/project/night-shift",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "odessa-night-shift-ai",
+      "name": "HTTP Request - Odessa Night Shift",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $json;\nconst nightShift = response.nightShift || {};\nconst channel = String(nightShift.slackRoute || 'odessa-roadmap').replace(/^#/, '');\nconst advancements = Array.isArray(nightShift.advancements) ? nightShift.advancements : [];\nconst advancementText = advancements.length\n  ? advancements.map((item) => `- *${item.id || 'ODS-NS'}* ${item.title || 'Avanco'} (${item.area || 'produto'})\\n  ${item.why || ''}\\n  Handoff: ${item.handoffPrompt || 'Revisar e executar com supervisao.'}`).join('\\n')\n  : '- Nenhum avanco gerado';\nconst risks = Array.isArray(nightShift.risks) ? nightShift.risks.map((risk) => `- ${risk}`).join('\\n') : '- Sem riscos listados';\nconst text = `*${nightShift.title || 'Odessa Night Shift'}*\\n${nightShift.summary || ''}\\n\\n*Avancos preparados*\\n${advancementText}\\n\\n*Riscos*\\n${risks}\\n\\n*Briefing de retorno*\\n${nightShift.morningBrief || 'Revisar pacote e escolher a primeira tarefa.'}`;\nconst slackMessage = {\n  channel: `#${channel}`,\n  text,\n  blocks: [\n    { type: 'section', text: { type: 'mrkdwn', text: `*${nightShift.title || 'Odessa Night Shift'}*\\n${nightShift.summary || ''}` } },\n    { type: 'section', text: { type: 'mrkdwn', text: `*Avancos preparados*\\n${advancementText}` } },\n    { type: 'section', text: { type: 'mrkdwn', text: `*Briefing de retorno*\\n${nightShift.morningBrief || 'Revisar pacote e escolher a primeira tarefa.'}` } }\n  ]\n};\nreturn [{ json: { ok: response.ok !== false, nightShift, slackMessage } }];"
+      },
+      "id": "build-night-shift-slack",
+      "name": "Code - Build Slack Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhookUrl = String($env.N8N_SLACK_WEBHOOK_URL || $env.SLACK_WEBHOOK_URL || '').trim();\nconst slackDispatch = { configured: Boolean(webhookUrl), sent: false, status: null, error: null };\nif (webhookUrl) {\n  try {\n    const response = await fetch(webhookUrl, {\n      method: 'POST',\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify({ text: $json.slackMessage.text, blocks: $json.slackMessage.blocks })\n    });\n    slackDispatch.sent = response.ok;\n    slackDispatch.status = response.status;\n    if (!response.ok) slackDispatch.error = await response.text();\n  } catch (error) {\n    slackDispatch.error = error.message || 'Slack webhook failed';\n  }\n}\nreturn [{ json: { ...$json, slackDispatch } }];"
+      },
+      "id": "optional-night-shift-slack",
+      "name": "Code - Optional Slack Send",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1220, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const nightShift = $json.nightShift || {};\nconst createdAt = new Date().toISOString();\nconst idDate = createdAt.slice(0, 19).replace(/[:T]/g, '-');\nconst artifact = {\n  nightShiftId: `ods-night-shift-${idDate}`,\n  createdAt,\n  mode: 'safe_advances',\n  nightShift,\n  slack: $json.slackMessage,\n  slackDispatch: $json.slackDispatch || { configured: false, sent: false },\n  resumeChecklist: [\n    'Ler o morningBrief',\n    'Escolher um avanco ODS-NS para executar',\n    'Validar riscos antes de editar codigo',\n    'Registrar resultado no Slack/QA'\n  ]\n};\nreturn [{ json: { ok: true, nightShift, slackMessage: $json.slackMessage, slackDispatch: $json.slackDispatch, artifact } }];"
+      },
+      "id": "build-night-shift-artifact",
+      "name": "Code - Build JSON Artifact",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1480, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: $json.ok, nightShift: $json.nightShift, slackMessage: $json.slackMessage, slackDispatch: $json.slackDispatch, artifact: $json.artifact } }}",
+        "options": {}
+      },
+      "id": "night-shift-response",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1740, 300]
+    }
+  ],
+  "connections": {
+    "Night Shift Webhook": {
+      "main": [[{ "node": "Code - Normalize Night Shift", "type": "main", "index": 0 }]]
+    },
+    "Code - Normalize Night Shift": {
+      "main": [[{ "node": "HTTP Request - Odessa Night Shift", "type": "main", "index": 0 }]]
+    },
+    "HTTP Request - Odessa Night Shift": {
+      "main": [[{ "node": "Code - Build Slack Report", "type": "main", "index": 0 }]]
+    },
+    "Code - Build Slack Report": {
+      "main": [[{ "node": "Code - Optional Slack Send", "type": "main", "index": 0 }]]
+    },
+    "Code - Optional Slack Send": {
+      "main": [[{ "node": "Code - Build JSON Artifact", "type": "main", "index": 0 }]]
+    },
+    "Code - Build JSON Artifact": {
+      "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-05-01T00:00:00.000Z",
+  "versionId": "odessa-night-shift-v1"
+}

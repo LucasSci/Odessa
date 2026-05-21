@@ -1,0 +1,129 @@
+{
+  "name": "Odessa - Continuous Project Organizer",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "continuous-organizer-schedule",
+      "name": "Every 30 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [180, 220]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "odessa/continuous-organizer",
+        "responseMode": "onReceived",
+        "options": {
+          "responseData": "{\"ok\":true,\"accepted\":true,\"workflow\":\"Odessa - Continuous Project Organizer\"}"
+        }
+      },
+      "id": "continuous-organizer-webhook",
+      "name": "Continuous Organizer Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "odessa-continuous-organizer-webhook",
+      "position": [180, 420]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || {};\nconst fromSchedule = Boolean($json.timestamp || $json['Readable date']);\nconst list = (value, fallback) => Array.isArray(value) && value.length ? value : fallback;\nreturn [{ json: {\n  objective: body.objective || 'Organizar continuamente as tarefas necessarias para levar o Odessa ate o produto final.',\n  cadence: body.cadence || (fromSchedule ? 'scheduled_30m' : 'manual_webhook'),\n  focusAreas: list(body.focusAreas, ['runtime', 'automacao', 'qa', 'docs']),\n  maxTasks: Number(body.maxTasks || 8),\n  requestedBy: body.requestedBy || 'n8n continuous organizer',\n  constraints: list(body.constraints, ['local-first', 'sem edicao automatica de codigo', 'organizar tarefas ate o produto final']),\n  targetChannel: String(body.targetChannel || 'odessa-roadmap').replace(/^#/, '')\n} }];"
+      },
+      "id": "build-organizer-request",
+      "name": "Code - Build Organizer Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/project/continuous-organizer",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "odessa-continuous-organizer",
+      "name": "HTTP Request - Odessa Organizer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [740, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhookUrl = String($env.N8N_SLACK_WEBHOOK_URL || $env.SLACK_WEBHOOK_URL || '').trim();\nconst slackMessage = $json.slackMessage || {};\nconst slackDispatch = { configured: Boolean(webhookUrl), sent: false, status: null, error: null };\nif (webhookUrl && slackMessage.text) {\n  try {\n    const response = await fetch(webhookUrl, {\n      method: 'POST',\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify({ text: slackMessage.text, blocks: slackMessage.blocks })\n    });\n    slackDispatch.sent = response.ok;\n    slackDispatch.status = response.status;\n    if (!response.ok) slackDispatch.error = await response.text();\n  } catch (error) {\n    slackDispatch.error = error.message || 'Slack webhook failed';\n  }\n}\nreturn [{ json: { ...$json, slackDispatch } }];"
+      },
+      "id": "optional-continuous-slack",
+      "name": "Code - Optional Slack Send",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1020, 320]
+    }
+  ],
+  "connections": {
+    "Every 30 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Organizer Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Continuous Organizer Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Organizer Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Organizer Request": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Odessa Organizer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Odessa Organizer": {
+      "main": [
+        [
+          {
+            "node": "Code - Optional Slack Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-05-01T00:00:00.000Z",
+  "versionId": "odessa-continuous-organizer-v1",
+  "active": false
+}

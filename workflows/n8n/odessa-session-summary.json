@@ -1,0 +1,52 @@
+{
+  "name": "Odessa - Session Summary",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://127.0.0.1:8000/n8n/audit/recent?limit=100",
+        "options": {}
+      },
+      "id": "fetch-audit",
+      "name": "Fetch Odessa Audit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $json.items || [];\nconst counts = items.reduce((acc, item) => {\n  const kind = item.kind || 'unknown';\n  acc[kind] = (acc[kind] || 0) + 1;\n  return acc;\n}, {});\nconst last = items.slice(-10).map((item) => ({ kind: item.kind, createdAt: item.createdAt, outcome: item.outcome }));\nreturn [{ json: { title: 'Odessa session summary', generatedAt: new Date().toISOString(), total: items.length, counts, last } }];"
+      },
+      "id": "build-summary",
+      "name": "Build Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [760, 300]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{ "node": "Fetch Odessa Audit", "type": "main", "index": 0 }]]
+    },
+    "Fetch Odessa Audit": {
+      "main": [[{ "node": "Build Summary", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-05-01T00:00:00.000Z",
+  "versionId": "odessa-session-summary-v1"
+}
