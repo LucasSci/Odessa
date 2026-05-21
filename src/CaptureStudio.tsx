@@ -160,6 +160,13 @@ interface BackendHealth {
   openai_tts_configured: boolean;
 }
 
+interface OcrIngestResult {
+  triggered: Array<{ triggerId: string; triggerName: string; targetVideoId: string; queueSize: number; line: string; eventType: string; kind: string; giftKey?: string; sender?: string; ocrRaw?: string }>;
+  noMatch: Array<{ eventType: string; kind: string; line: string; reason?: string; giftKey?: string; sender?: string; ocrRaw?: string }>;
+  linesProcessed: number;
+  triggerQueueSize?: number;
+}
+
 interface CaptureEvent {
   id: string;
   zoneId: string;
@@ -175,6 +182,11 @@ interface CaptureEvent {
   duplicateReason?: string | null;
   captureMode?: string;
   sourceHealth?: Record<string, unknown>;
+  // Trigger routing result
+  triggersFired?: number;
+  triggerName?: string;
+  triggeredVideoId?: string;
+  noMatchCount?: number;
 }
 
 interface OcrResponse {
@@ -348,6 +360,198 @@ function kindFromZoneRole(role: CaptureZone['role']): LiveEventKind {
   if (role === 'gifts') return 'gift';
   if (role === 'alerts') return 'alert';
   return 'chat';
+}
+
+/**
+ * Normalises an OCR line for deduplication comparison.
+ * Handles common Tesseract character-confusion errors (0/O, 1/l/|, etc.)
+ * and strips punctuation so that "Hello!" and "Hel1o." compare equal.
+ */
+function normForDedup(line: string): string {
+  return line
+    .toLowerCase()
+    .replace(/0/g, 'o')      // 0 → o  (OCR confusion)
+    .replace(/[1|]/g, 'l')   // 1 / | → l
+    .replace(/[^a-z\s]/g, '') // drop digits + punctuation
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Lightweight image fingerprint used to skip OCR when the zone pixels
+ * haven't changed between cycles. Samples key positions in the base64
+ * PNG data URL — same pixels always produce the same fingerprint.
+ */
+function zoneImgFingerprint(dataUrl: string): string {
+  const L = dataUrl.length;
+  if (L < 200) return dataUrl;
+  // Sample: length + chars at 8 evenly-spaced positions (each 24 chars wide)
+  let fp = String(L);
+  const step = Math.floor(L / 8);
+  for (let i = 1; i <= 8; i++) fp += '|' + dataUrl.substring(i * step, i * step + 24);
+  return fp;
+}
+
+/**
+ * Given a single OCR line from a gifts zone, return a clean gift key
+ * (the gift name as it will be matched against trigger conditions).
+ * Returns null if the line doesn't look like a gift name.
+ *
+ * Handles patterns:
+ *   "Follow"              → "Follow"
+ *   "Follow x2"           → "Follow"
+ *   "@user Follow x1"     → "Follow"
+ *   "user: Follow"        → "Follow"
+ *   "user enviou Follow"  → "Follow"
+ */
+function extractGiftKey(line: string): string | null {
+  // Strip trailing count: "x2", "× 3", "x 10"
+  let text = line.replace(/\s*[x×]\s*\d+\s*$/i, '').trim();
+
+  // Full format with Portuguese/English verb: "sender enviou/sent giftName"
+  const fullGiftRe = /^.{1,40}?\s+(?:enviou|mandou|presenteou\s+com|sent)\s+(.+)$/i;
+  const fullMatch = fullGiftRe.exec(text);
+  if (fullMatch) {
+    text = fullMatch[1].trim();
+  } else {
+    // Strip "user: " prefix
+    text = text.replace(/^@?[^\s:]{1,40}:\s*/, '').trim();
+    // Strip "@user " prefix
+    text = text.replace(/^@[^\s]+\s+/, '').trim();
+  }
+
+  if (text.length < 2 || text.length > 50) return null;
+  if (text.startsWith('@')) return null;
+  // Reject if it looks like a regular chat sentence (too many words)
+  if (text.trim().split(/\s+/).length > 5) return null;
+  return text;
+}
+
+// ─── Client-side OCR→trigger fallback ────────────────────────────────────────
+//
+// Used when the server returns the old format (simulated: true) — i.e. the
+// Node.js process hasn't been restarted yet to load the new /ocr/ingest handler.
+// In that case we parse each OCR line here in the browser and call the
+// /video/trigger endpoint that already exists in the old server.
+
+const GIFT_VERB_RE_CLIENT =
+  /^([^@\s][^:]{1,40}?)\s+(?:enviou|mandou|presenteou\s+com|sent)\s+(.+?)(?:\s+[x×]\s*(\d+))?\s*$/i;
+
+const GIFT_TIKTOK_RE_CLIENT =
+  /^(.{2,40}?)\s+([^\s]{1,12})\s+[x×]\s*(\d+)\s*$/i;
+
+const OCR_EMOJI_MAP_CLIENT: Record<string, string> = {
+  o: 'heart', '0': 'heart',
+  d: 'diamond',
+  r: 'rose',
+  f: 'follow',
+  l: 'like',
+};
+
+function normaliseGiftKeyClient(raw: string): string {
+  const s = raw.trim();
+  if (s.length === 1) return OCR_EMOJI_MAP_CLIENT[s.toLowerCase()] ?? s;
+  return s;
+}
+
+/**
+ * Parses a single OCR line and returns trigger-ready event data,
+ * or null if it looks like a plain chat message.
+ */
+function parseOcrLineForTrigger(
+  line: string,
+  zoneRole: string,
+): { eventType: 'gift' | 'comment'; giftKey?: string; text?: string; sender?: string; ocrRaw?: string } | null {
+  const verbMatch = GIFT_VERB_RE_CLIENT.exec(line);
+  if (verbMatch) {
+    return {
+      eventType: 'gift',
+      giftKey: normaliseGiftKeyClient(verbMatch[2]),
+      sender: verbMatch[1].trim(),
+    };
+  }
+  const tiktokMatch =
+    (zoneRole === 'gifts' || line.length < 55) ? GIFT_TIKTOK_RE_CLIENT.exec(line) : null;
+  if (tiktokMatch) {
+    return {
+      eventType: 'gift',
+      giftKey: normaliseGiftKeyClient(tiktokMatch[2]),
+      sender: tiktokMatch[1].trim(),
+      ocrRaw: tiktokMatch[2],
+    };
+  }
+  if (zoneRole === 'gifts') {
+    const clean = line.replace(/\s*[x×]\s*\d+\s*$/i, '').replace(/^@?[^\s:]{1,40}:\s*/, '').trim();
+    if (clean.length >= 2 && clean.length <= 50 && clean.split(/\s+/).length <= 5) {
+      return { eventType: 'gift', giftKey: normaliseGiftKeyClient(clean) };
+    }
+  }
+  return { eventType: 'comment', text: line };
+}
+
+/**
+ * Fallback for when the server is running the old API handler (no /ocr/ingest).
+ * Parses lines client-side and fires each event via POST /video/trigger,
+ * which exists in the old server and does trigger matching + video state update.
+ */
+async function clientSideIngestFallback(
+  freshLines: string[],
+  zoneRole: string,
+  apiUrlFn: (path: string) => string,
+): Promise<OcrIngestResult> {
+  const triggered: OcrIngestResult['triggered'] = [];
+  const noMatch: OcrIngestResult['noMatch'] = [];
+
+  for (const line of freshLines) {
+    const parsed = parseOcrLineForTrigger(line, zoneRole);
+    if (!parsed) continue;
+
+    try {
+      const payload =
+        parsed.eventType === 'gift'
+          ? { eventType: 'gift', giftKey: parsed.giftKey, gift_key: parsed.giftKey }
+          : { eventType: 'comment', text: parsed.text, message: parsed.text };
+
+      const res = await fetch(apiUrlFn('/video/trigger'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        ok?: boolean; matched?: boolean; triggered?: boolean;
+        trigger?: { id: string; name: string }; targetVideoId?: string;
+      } | null;
+
+      if (data?.matched && data?.triggered && data?.targetVideoId) {
+        triggered.push({
+          triggerId: data.trigger?.id ?? '',
+          triggerName: data.trigger?.name ?? '',
+          targetVideoId: data.targetVideoId,
+          queueSize: 1,
+          line,
+          eventType: parsed.eventType,
+          kind: parsed.eventType === 'gift' ? 'gift' : 'chat',
+          giftKey: parsed.giftKey,
+          sender: parsed.sender,
+          ocrRaw: parsed.ocrRaw,
+        });
+      } else {
+        noMatch.push({
+          eventType: parsed.eventType,
+          kind: parsed.eventType === 'gift' ? 'gift' : 'chat',
+          line,
+          giftKey: parsed.giftKey,
+          sender: parsed.sender,
+          ocrRaw: parsed.ocrRaw,
+          reason: data?.matched === false ? 'no_trigger_match' : 'no_video_configured',
+        });
+      }
+    } catch {
+      noMatch.push({ eventType: parsed.eventType, kind: 'chat', line, reason: 'request_failed' });
+    }
+  }
+
+  return { triggered, noMatch, linesProcessed: freshLines.length };
 }
 
 function normalizeDirectUrl(value: string) {
@@ -566,6 +770,28 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const repeatedFrameCountRef = useRef(0);
   const lastOpenedDirectUrlRef = useRef<string | null>(storedState?.directUrl || null);
   const runCaptureCycleRef = useRef<(() => Promise<void>) | null>(null);
+
+  // OCR engine for screen-capture mode.
+  // Unified interface so TextDetector and Tesseract.js are interchangeable.
+  const ocrWorkerRef = useRef<{
+    recognize: (img: string) => Promise<{ data: { text: string } }>;
+    terminate?: () => Promise<void>;
+  } | null>(null);
+  const ocrInitStartedRef = useRef(false);
+  const ocrLoadingRef = useRef(false);
+  const ocrErrorRef = useRef<string | null>(null);
+
+  // Per-zone deduplication: zoneId → Map<normalizedLine, timestampMs>
+  const lineSeenRef = useRef<Map<string, Map<string, number>>>(new Map());
+  // Per-zone last image fingerprint — skip OCR entirely if pixels haven't changed
+  const lastZoneImgFpRef = useRef<Map<string, string>>(new Map());
+  // Per-gift-key last fired timestamp — prevents same sticker from firing twice
+  const lastGiftFiredRef = useRef<Map<string, number>>(new Map());
+
+  // Recently detected gift stickers
+  const [recentGifts, setRecentGifts] = useState<
+    Array<{ id: string; name: string; count: number; time: string; triggered: boolean }>
+  >([]);
 
   const activePreset = useMemo(
     () => presets.find((preset) => preset.id === activePresetId) || presets[0],
@@ -865,6 +1091,55 @@ const CaptureStudio = React.memo(function CaptureStudio({
   useEffect(() => {
     return () => {
       screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  // Initialise OCR engine when screen capture mode is active.
+  // Tries window.TextDetector first (instant, no download — Chrome/Edge when OS supports it).
+  // Falls back to Tesseract.js (~10 MB download on first use, works in ALL browsers).
+  useEffect(() => {
+    if (captureMode !== 'screen' || ocrInitStartedRef.current) return;
+    ocrInitStartedRef.current = true;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const TD = typeof (window as any).TextDetector === 'function' ? (window as any).TextDetector : null;
+    if (TD) {
+      try {
+        const td = new TD() as { detect: (img: HTMLImageElement) => Promise<Array<{ rawValue: string }>> };
+        ocrWorkerRef.current = {
+          recognize: async (imageDataUrl: string) => {
+            const img = await loadImageElement(imageDataUrl);
+            const texts = await td.detect(img);
+            return { data: { text: texts.map((t) => t.rawValue).join('\n') } };
+          },
+        };
+        return; // TextDetector ready — no Tesseract needed
+      } catch {
+        // TextDetector instantiation failed — fall through to Tesseract.js
+      }
+    }
+
+    ocrLoadingRef.current = true;
+    import('tesseract.js')
+      .then(({ createWorker }) => createWorker('por', 1, { logger: () => undefined }))
+      .then((worker) => {
+        ocrWorkerRef.current = {
+          recognize: (img: string) => worker.recognize(img) as Promise<{ data: { text: string } }>,
+          terminate: () => worker.terminate(),
+        };
+        ocrLoadingRef.current = false;
+      })
+      .catch((err: unknown) => {
+        ocrLoadingRef.current = false;
+        ocrErrorRef.current = err instanceof Error ? err.message : 'Falha ao carregar OCR';
+        ocrInitStartedRef.current = false; // allow retry on next mount
+      });
+  }, [captureMode]);
+
+  // Terminate Tesseract worker when component unmounts
+  useEffect(() => {
+    return () => {
+      void ocrWorkerRef.current?.terminate?.();
     };
   }, []);
 
@@ -1458,31 +1733,59 @@ const CaptureStudio = React.memo(function CaptureStudio({
       return { waiting: true, width: 0, height: 0, results: [] as OcrResponse[] };
     }
 
+    // Wait for OCR engine to be ready (Tesseract.js may still be downloading)
+    const engine = ocrWorkerRef.current;
+    if (!engine) {
+      if (ocrErrorRef.current) {
+        setCurrentRawText(`Erro ao inicializar OCR: ${ocrErrorRef.current}`);
+      } else if (ocrLoadingRef.current) {
+        setCurrentRawText('Motor OCR carregando (~10 MB na primeira vez), aguarde...');
+      } else {
+        setCurrentRawText('Inicializando OCR...');
+      }
+      return { waiting: true, width: 0, height: 0, results: [] as OcrResponse[] };
+    }
+
     setPreviewSize({ width: video.videoWidth, height: video.videoHeight });
     const results: OcrResponse[] = [];
+
     for (const zone of zonesRef.current) {
-      const image = captureZoneFromLiveVideo(zone);
-      if (!image) continue;
-      const response = await fetch(apiUrl('/ocr/process'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const imageDataUrl = captureZoneFromLiveVideo(zone);
+      if (!imageDataUrl) continue;
+
+      // ── Layer-1 dedup: skip OCR entirely if pixels haven't changed ──────
+      // Same pixels → same fingerprint → Tesseract would return the exact same
+      // text, so there is nothing new to process.
+      const fp = zoneImgFingerprint(imageDataUrl);
+      if (lastZoneImgFpRef.current.get(zone.id) === fp) continue;
+      lastZoneImgFpRef.current.set(zone.id, fp);
+
+      const startMs = performance.now();
+      try {
+        const { data } = await engine.recognize(imageDataUrl);
+        const text = data.text.trim();
+        results.push({
+          text,
+          full_text: text,
+          error: null,
           zone_id: zone.id,
           zone_name: zone.name,
-          x: zone.x,
-          y: zone.y,
-          width: zone.width,
-          height: zone.height,
-          image,
-        }),
-      });
-      const result = (await response.json().catch(() => ({}))) as OcrResponse;
-      results.push({
-        ...result,
-        error: response.ok ? result.error : result.error || `HTTP ${response.status}`,
-        zone_id: result.zone_id || zone.id,
-        zone_name: result.zone_name || zone.name,
-      });
+          confidence: null,
+          latency_ms: Math.round(performance.now() - startMs),
+          captureMode: 'screen',
+        });
+      } catch (err) {
+        results.push({
+          text: '',
+          full_text: '',
+          error: err instanceof Error ? err.message : 'Erro OCR',
+          zone_id: zone.id,
+          zone_name: zone.name,
+          confidence: null,
+          latency_ms: Math.round(performance.now() - startMs),
+          captureMode: 'screen',
+        });
+      }
     }
 
     return {
@@ -1713,60 +2016,89 @@ const CaptureStudio = React.memo(function CaptureStudio({
             continue;
           }
 
-          if (newText.length > 0) {
-            const ingestText = `${result.zone_name || zone.name}: ${newText}`;
-            let ingestResult: Record<string, unknown> | null = null;
+          // ── Layer-2 dedup: normalised per-line comparison (TTL = 30 s) ─────
+          // normForDedup() collapses common Tesseract OCR confusions so that
+          // "Follow", "Fo11ow", "F0llow" all map to the same key and are
+          // treated as already-seen within the cooldown window.
+          const DEDUP_TTL_MS = 30_000;
+          const nowMs = Date.now();
+          if (!lineSeenRef.current.has(zone.id)) lineSeenRef.current.set(zone.id, new Map());
+          const seenMap = lineSeenRef.current.get(zone.id)!;
+          // Expire old entries
+          for (const [ln, ts] of seenMap.entries()) if (nowMs - ts > DEDUP_TTL_MS) seenMap.delete(ln);
+          const allTextLines = newText.split('\n').map((l) => l.trim()).filter((l) => l.length > 1);
+          const freshLines = allTextLines.filter((l) => {
+            const key = normForDedup(l);
+            return key.length > 0 && !seenMap.has(key);
+          });
+          if (freshLines.length === 0) continue; // nothing new — skip ingest entirely
+          for (const l of freshLines) seenMap.set(normForDedup(l), nowMs);
+          const processText = freshLines.join('\n');
+
+          // Gift stickers are now detected server-side in /ocr/ingest for ALL zone
+          // roles (including 'gifts'). The result comes back in ingestResult.triggered
+          // and is shown in the events panel. No client-side gift firing needed here.
+
+          if (processText.length > 0) {
+            // ── Route to /ocr/ingest — the central trigger routing engine ──────
+            // Sends fresh lines (not combined text) so the server can parse each
+            // one independently and fire matching triggers for gifts, keywords, etc.
+            let ingestResult: OcrIngestResult | null = null;
             try {
-              const ingestResponse = await fetch(apiUrl('/automation/ingest'), {
+              const ingestResponse = await fetch(apiUrl('/ocr/ingest'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  text: ingestText,
+                  lines: freshLines,          // array of individual new lines
+                  text: processText,          // joined fallback
                   source: 'ocr',
                   zoneName: result.zone_name || zone.name,
-                  kind: kindFromZoneRole(zone.role),
-                  execute: true,
-                  maxActions: 6,
-                  metadata: {
-                    zoneId: result.zone_id || zone.id,
-                    zoneRole: zone.role,
-                    rawText: fullText,
-                    confidence: result.confidence ?? null,
-                    latencyMs,
-                  },
+                  zoneRole: zone.role,        // 'chat' | 'gifts' | 'alerts' | 'custom'
+                  zoneId: result.zone_id || zone.id,
                 }),
               });
-              ingestResult = (await ingestResponse.json().catch(() => ({}))) as Record<string, unknown>;
-              if (!ingestResponse.ok || ingestResult?.error) {
-                throw new Error(String(ingestResult?.error || `HTTP ${ingestResponse.status}`));
+              ingestResult = (await ingestResponse.json().catch(() => null)) as OcrIngestResult | null;
+              if (!ingestResponse.ok) {
+                throw new Error(`HTTP ${ingestResponse.status}`);
+              }
+
+              // ── Old-server fallback ─────────────────────────────────────
+              // If the running Node.js process hasn't been restarted yet,
+              // /ocr/ingest returns the legacy {simulated: true} format with
+              // no triggered/noMatch arrays. In that case, parse lines here
+              // in the browser and call the /video/trigger endpoint (which
+              // exists in the old server and does trigger matching correctly).
+              if ((ingestResult as Record<string, unknown> | null)?.['simulated'] === true) {
+                ingestResult = await clientSideIngestFallback(freshLines, zone.role, apiUrl);
               }
             } catch (err) {
-              const message = err instanceof Error ? err.message : 'Falha ao ingerir evento';
+              const message = err instanceof Error ? err.message : 'Falha ao rotear evento';
               addCaptureEvent({
                 id: makeEventId(),
                 zoneId: result.zone_id || zone.id,
                 zoneName: result.zone_name || zone.name,
-                text: newText,
+                text: processText,
                 rawText: fullText,
                 time,
                 routeStatus: 'error',
                 confidence: result.confidence ?? null,
                 latencyMs,
-                error: `Automation ingest: ${message}`,
+                error: `OCR ingest: ${message}`,
                 deduped: result.deduped,
                 duplicateReason: result.duplicateReason,
                 captureMode: result.captureMode,
                 sourceHealth: result.sourceHealth,
               });
-              setError(`Automation ingest: ${message}`);
+              setError(`OCR ingest: ${message}`);
               continue;
             }
 
+            const firstTrigger = ingestResult?.triggered?.[0] ?? null;
             const captureEvent: CaptureEvent = {
               id: makeEventId(),
               zoneId: result.zone_id || zone.id,
               zoneName: result.zone_name || zone.name,
-              text: newText,
+              text: processText,
               rawText: fullText,
               time,
               routeStatus: 'sent',
@@ -1776,6 +2108,11 @@ const CaptureStudio = React.memo(function CaptureStudio({
               duplicateReason: result.duplicateReason,
               captureMode: result.captureMode,
               sourceHealth: result.sourceHealth,
+              // Trigger routing result
+              triggersFired: ingestResult?.triggered?.length ?? 0,
+              triggerName: firstTrigger?.triggerName ?? undefined,
+              triggeredVideoId: firstTrigger?.targetVideoId ?? undefined,
+              noMatchCount: ingestResult?.noMatch?.length ?? 0,
             };
             addCaptureEvent(captureEvent);
             const liveEvent = emitEvent({
@@ -1792,8 +2129,9 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 rawText: captureEvent.rawText,
                 confidence: captureEvent.confidence,
                 latencyMs: captureEvent.latencyMs,
-                backendIngested: true,
-                automation: ingestResult,
+                triggersFired: captureEvent.triggersFired,
+                triggerName: captureEvent.triggerName,
+                triggeredVideoId: captureEvent.triggeredVideoId,
               },
             });
             setCapturedText((current) =>
@@ -1801,7 +2139,30 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 MAX_PERSONA_MESSAGES * -1,
               ),
             );
-            setError(null);
+            // Show trigger feedback in the error bar
+            if ((captureEvent.triggersFired ?? 0) > 0) {
+              setError(null);
+            }
+
+            // Update "Presentes detectados" panel from server-side gift detections.
+            // Shows BOTH triggered gifts (green) AND gifts with no trigger configured
+            // (amber) so the user knows exactly what giftKey to configure.
+            if (ingestResult) {
+              const giftItems: Array<{ id: string; name: string; count: number; time: string; triggered: boolean; ocrRaw?: string; sender?: string }> = [];
+              for (const t of ingestResult.triggered ?? []) {
+                if (t.kind === 'gift') {
+                  giftItems.push({ id: makeEventId(), name: t.giftKey || t.line, count: 1, time, triggered: true, ocrRaw: t.ocrRaw, sender: t.sender });
+                }
+              }
+              for (const nm of ingestResult.noMatch ?? []) {
+                if (nm.kind === 'gift' && nm.giftKey) {
+                  giftItems.push({ id: makeEventId(), name: nm.giftKey, count: 1, time, triggered: false, ocrRaw: nm.ocrRaw, sender: nm.sender });
+                }
+              }
+              if (giftItems.length > 0) {
+                setRecentGifts((prev) => [...giftItems, ...prev].slice(0, 20));
+              }
+            }
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : 'Erro desconhecido';
@@ -3071,8 +3432,97 @@ const CaptureStudio = React.memo(function CaptureStudio({
                         {event.deduped && <span>dedup: {event.duplicateReason || 'repetido'}</span>}
                         {event.captureMode && <span>{event.captureMode}</span>}
                       </div>
+                      {/* Trigger routing result */}
+                      {event.routeStatus === 'sent' && (
+                        <div className="mt-2 font-sans text-[10px]">
+                          {(event.triggersFired ?? 0) > 0 ? (
+                            <span className="flex items-center gap-1.5 text-emerald-300">
+                              <Zap className="h-3 w-3" />
+                              <span className="font-bold">
+                                {event.triggersFired} gatilho{(event.triggersFired ?? 0) > 1 ? 's' : ''} disparado{(event.triggersFired ?? 0) > 1 ? 's' : ''}
+                              </span>
+                              {event.triggerName && (
+                                <span className="text-emerald-400/80">— {event.triggerName}</span>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-[var(--t4)]">sem gatilho correspondente</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))
+                )}
+              </div>
+            </section>
+
+            {/* ── Presentes detectados ───────────────────────────────────── */}
+            <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)]">
+              <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
+                <div>
+                  <h3 className="text-sm font-black text-[var(--t1)]">Presentes detectados</h3>
+                  <p className="mt-1 text-xs text-[var(--t3)]">
+                    Figurinhas capturadas pelo OCR na zona de Presentes
+                  </p>
+                </div>
+                {recentGifts.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setRecentGifts([])}
+                    className="rounded-md p-1.5 text-[var(--t3)] transition hover:bg-[var(--bg3)] hover:text-[var(--t1)]"
+                    title="Limpar lista"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              <div className="p-4">
+                {recentGifts.length === 0 ? (
+                  <div className="space-y-2 text-xs text-[var(--t3)]">
+                    <p className="py-3 text-center">Nenhum presente detectado ainda.</p>
+                    <p className="rounded-md border border-[var(--border)] bg-[var(--bg1)]/50 px-3 py-2 leading-5">
+                      <strong className="text-[var(--t2)]">Como configurar:</strong> crie uma zona
+                      com papel <span className="font-mono text-amber-300">Presentes</span>, aponte
+                      para a área de figurinhas da live. Quando uma figurinha aparecer, o nome é
+                      detectado aqui e dispara um gatilho configurado em{' '}
+                      <span className="font-mono text-sky-300">Fluxo Reativo</span> com tipo{' '}
+                      <span className="font-mono text-emerald-300">gift</span> e condição{' '}
+                      <span className="font-mono text-emerald-300">giftKey = NomeDaFigurinha</span>.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {recentGifts.map((gift) => (
+                      <div
+                        key={gift.id}
+                        className="flex items-center justify-between gap-3 rounded-md border border-[var(--border)] bg-[var(--bg1)]/50 px-3 py-2"
+                      >
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="text-base">🎁</span>
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-bold text-[var(--t1)]">{gift.name}</p>
+                            <p className="text-[10px] text-[var(--t3)]">{gift.time}</p>
+                          </div>
+                        </div>
+                        <span
+                          className={cn(
+                            'shrink-0 rounded px-2 py-0.5 text-[10px] font-bold uppercase',
+                            gift.triggered
+                              ? 'bg-emerald-500/20 text-emerald-300'
+                              : 'bg-[var(--bg2)] text-[var(--t3)]',
+                          )}
+                        >
+                          {gift.triggered ? 'disparado' : 'sem gatilho'}
+                        </span>
+                      </div>
+                    ))}
+                    <p className="pt-1 text-[10px] text-[var(--t4)]">
+                      Configure gatilhos em{' '}
+                      <span className="font-mono text-sky-400">Fluxo Reativo</span> → tipo{' '}
+                      <span className="font-mono text-emerald-400">gift</span> → condição{' '}
+                      <span className="font-mono text-emerald-400">giftKey</span>.
+                    </p>
+                  </div>
                 )}
               </div>
             </section>

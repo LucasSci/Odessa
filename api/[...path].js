@@ -1900,6 +1900,212 @@ async function protectedResponse(req, res, rawPath) {
     return json(res, 200, { ok: true, simulated: true, actions: [], ...cloudState() });
   }
 
+  // ── OCR Ingest — central routing engine for all captured OCR text ──────
+  //
+  // This is the bridge between the Capture Studio and the trigger/video system.
+  //
+  // Flow:
+  //   CaptureStudio (fresh OCR lines)
+  //     → POST /ocr/ingest  { lines, zoneRole, zoneName }
+  //       → parse each line  (gift pattern OR comment keyword)
+  //       → find matching trigger in active workflow
+  //       → enqueueTriggerAction  (same queue used by /video/trigger)
+  //       → return { triggered[], noMatch[], linesProcessed }
+  //
+  // The client uses the response to show "→ gatilho: X" or "sem gatilho"
+  // for each captured event, giving full visibility into what fired.
+  if (path === '/ocr/ingest' && req.method === 'POST') {
+    const body = await readBody(req);
+    const rawLines = Array.isArray(body.lines)
+      ? body.lines.map((l) => String(l).trim()).filter((l) => l.length > 1)
+      : String(body.text || '').split('\n').map((l) => l.trim()).filter((l) => l.length > 1);
+    const zoneRole = body.zoneRole || 'chat'; // 'chat' | 'gifts' | 'alerts' | 'custom'
+    const zoneName = body.zoneName || '';
+
+    if (rawLines.length === 0) {
+      return json(res, 200, { ok: true, linesProcessed: 0, triggered: [], noMatch: [] });
+    }
+
+    const config = loadCloudConfig() || {};
+    const activeWorkflow = config.draftWorkflow || config.publishedWorkflow || config;
+    const flowNodes = activeWorkflow.flowNodes || config.flowNodes || [];
+    const flowConnections = activeWorkflow.flowConnections || config.flowConnections || [];
+    const triggers = activeWorkflow.triggers || config.triggers || [];
+    const idleVideoId = activeWorkflow.idleVideoId || config.idleVideoId || null;
+    const currentState = getCloudValue('video_state')?.value || {};
+    const currentNodeId = currentState.activeNodeId || null;
+    const currentVideoId = currentState.current_video_id || null;
+
+    // ── Gift recognition patterns ───────────────────────────────────────
+    //
+    // Pattern A — verb format (Portuguese / English):
+    //   "Sender enviou|mandou|sent GiftName [xN]"
+    const GIFT_VERB_RE = /^([^@\s][^:]{1,40}?)\s+(?:enviou|mandou|presenteou\s+com|sent)\s+(.+?)(?:\s+[x×]\s*(\d+))?\s*$/i;
+    //
+    // Pattern B — TikTok notification format (no verb):
+    //   "Username [emoji/short-word] x[N]"
+    //   e.g. "Slaanesh O x2" where O = ❤ OCR artifact
+    //   Applied when line is short (< 55 chars) OR zone role is gifts.
+    const GIFT_TIKTOK_RE = /^(.{2,40}?)\s+([^\s]{1,12})\s+[x×]\s*(\d+)\s*$/i;
+    //
+    // OCR artifacts → canonical gift key mapping.
+    // Tesseract commonly substitutes emoji with these chars.
+    const OCR_EMOJI_MAP = {
+      'o': 'heart', '0': 'heart',       // ❤ / ♥
+      'd': 'diamond', '@': 'at',         // 💎
+      'r': 'rose',                        // 🌹 (if single letter)
+      'f': 'follow',                      // Follow sticker
+      'l': 'like',                        // 👍
+    };
+    function normaliseGiftKey(raw) {
+      const s = raw.trim();
+      if (s.length === 1) return OCR_EMOJI_MAP[s.toLowerCase()] || s;
+      return s;
+    }
+
+    const triggered = [];
+    const noMatch = [];
+    let idleAlreadyBroken = false;
+
+    for (const line of rawLines) {
+      // ── Step 1: parse the line ────────────────────────────────────────
+      let eventType, eventData, parsedKind;
+
+      const giftVerbMatch = GIFT_VERB_RE.exec(line);
+      const tiktokMatch = !giftVerbMatch && (zoneRole === 'gifts' || line.length < 55)
+        ? GIFT_TIKTOK_RE.exec(line)
+        : null;
+
+      if (giftVerbMatch) {
+        // Pattern A: "Sender enviou GiftName x2"
+        const giftKey = normaliseGiftKey(giftVerbMatch[2]);
+        eventType = 'gift';
+        parsedKind = 'gift';
+        eventData = { giftKey, gift_key: giftKey, sender: giftVerbMatch[1].trim(), count: giftVerbMatch[3] ? parseInt(giftVerbMatch[3]) : 1 };
+      } else if (tiktokMatch) {
+        // Pattern B: "Slaanesh O x2" (TikTok notification, no verb)
+        const giftKey = normaliseGiftKey(tiktokMatch[2]);
+        eventType = 'gift';
+        parsedKind = 'gift';
+        eventData = { giftKey, gift_key: giftKey, sender: tiktokMatch[1].trim(), count: parseInt(tiktokMatch[3]), ocrRaw: tiktokMatch[2] };
+      } else if (zoneRole === 'gifts') {
+        // Gift zone fallback: bare gift name (no count suffix)
+        const cleanKey = line.replace(/\s*[x×]\s*\d+\s*$/i, '').replace(/^@?[^\s:]{1,40}:\s*/, '').trim();
+        if (cleanKey.length >= 2 && cleanKey.length <= 50 && cleanKey.split(/\s+/).length <= 5) {
+          eventType = 'gift';
+          parsedKind = 'gift';
+          eventData = { giftKey: normaliseGiftKey(cleanKey), gift_key: normaliseGiftKey(cleanKey) };
+        } else {
+          eventType = 'comment';
+          parsedKind = 'chat';
+          eventData = { text: line, message: line };
+        }
+      } else {
+        // Chat / alerts zone: comment event
+        eventType = 'comment';
+        parsedKind = 'chat';
+        eventData = { text: line, message: line };
+      }
+
+      // ── Step 2: find matching trigger ────────────────────────────────
+      const matchedTrigger = triggers.find((t) => {
+        if (t.enabled === false) return false;
+        const tType = (t.eventType || t.type || '').toLowerCase();
+        if (tType !== eventType) return false;
+        if (eventType === 'gift') {
+          const gKey = (eventData.giftKey || '').toLowerCase();
+          const condKey = (t.conditions?.giftKey || '').toLowerCase();
+          return !condKey || condKey === gKey || condKey === '*';
+        }
+        if (eventType === 'comment') {
+          const text = (eventData.text || '').toLowerCase();
+          const keyword = (t.conditions?.keyword || '').toLowerCase();
+          return !keyword || text.includes(keyword);
+        }
+        return true;
+      });
+
+      if (!matchedTrigger) {
+        noMatch.push({ eventType, kind: parsedKind, line, giftKey: eventData.giftKey, ocrRaw: eventData.ocrRaw, sender: eventData.sender });
+        continue;
+      }
+
+      // ── Step 3: resolve target video ─────────────────────────────────
+      const connection =
+        flowConnections.find((c) => c.triggerId === matchedTrigger.id && c.fromNodeId === currentNodeId) ||
+        flowConnections.find((c) => c.triggerId === matchedTrigger.id);
+      const action = matchedTrigger.actions?.find((a) => a.type === 'play_video');
+      const targetNodeId = connection?.toNodeId || action?.nodeId || null;
+      const targetNode = targetNodeId ? flowNodes.find((n) => n.nodeId === targetNodeId) : null;
+      const targetVideoId = targetNode?.videoId || action?.videoId || null;
+
+      if (!targetVideoId) {
+        noMatch.push({ eventType, kind: parsedKind, line, triggerId: matchedTrigger.id, reason: 'no_video_configured' });
+        continue;
+      }
+
+      // ── Step 4: enqueue trigger ───────────────────────────────────────
+      const isIdle = Boolean(targetVideoId === idleVideoId);
+      const pb = targetNode?.playback || action?.playback || {};
+      const triggerClip = {
+        nodeId: targetNodeId,
+        videoId: targetVideoId,
+        startSec: pb.startSec || 0,
+        endSec: pb.endSec ?? null,
+        transitionMs: pb.transitionMs || 220,
+        loop: isIdle || Boolean(pb.loop),
+        returnToIdle: connection?.returnToIdle !== false,
+        audio: targetNode?.audio || action?.audio || { mode: 'muted', volume: 1 },
+      };
+
+      const { entry, queueSize } = enqueueTriggerAction({
+        triggerId: matchedTrigger.id,
+        triggerName: matchedTrigger.name,
+        eventType,
+        targetVideoId,
+        targetNodeId,
+        connectionId: connection?.id || null,
+        currentClip: triggerClip,
+      });
+
+      // Break idle loop once per batch
+      if (!idleAlreadyBroken && idleVideoId && currentVideoId === idleVideoId && currentState.currentClip?.loop !== false) {
+        const patchedState = {
+          ...currentState,
+          server_time: Date.now() / 1000,
+          currentClip: { ...(currentState.currentClip || {}), loop: false },
+          nextClip: resolveNextClip(currentNodeId, currentVideoId),
+        };
+        setCloudValue('video_state', patchedState);
+        idleAlreadyBroken = true;
+      }
+
+      triggered.push({
+        triggerId: matchedTrigger.id,
+        triggerName: matchedTrigger.name,
+        eventType,
+        kind: parsedKind,
+        targetVideoId,
+        queueSize,
+        queued: true,
+        line,
+        giftKey: eventData.giftKey,
+        queueEntryId: entry.id,
+      });
+    }
+
+    return json(res, 200, {
+      ok: true,
+      linesProcessed: rawLines.length,
+      triggered,
+      noMatch,
+      triggerQueueSize: getTriggerQueueSize(),
+      zoneName,
+      zoneRole,
+      ...cloudState(),
+    });
+  }
+
   if (path.startsWith('/ocr/')) {
     return json(res, 202, { ok: false, simulated: true, text: '', lines: [], ...cloudState() });
   }
