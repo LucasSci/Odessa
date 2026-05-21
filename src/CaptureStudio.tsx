@@ -575,18 +575,37 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const activeZone = zones[activeZoneIndex] || zones[0];
 
   const lastEvent = captureEvents[captureEvents.length - 1];
-  const successfulEvents = useMemo(
-    () => captureEvents.filter((event) => event.routeStatus !== 'error'),
-    [captureEvents],
-  );
-  const averageConfidence = useMemo(() =>
-    successfulEvents.reduce((sum, event) => sum + (event.confidence ?? 0), 0) /
-    Math.max(1, successfulEvents.filter((event) => event.confidence !== null).length)
-  , [successfulEvents]);
-  const averageLatency = useMemo(() =>
-    successfulEvents.reduce((sum, event) => sum + (event.latencyMs ?? 0), 0) /
-    Math.max(1, successfulEvents.filter((event) => event.latencyMs !== null).length)
-  , [successfulEvents]);
+
+  // ⚡ Bolt: Combine O(N) operations into a single pass to avoid multiple array iterations
+  // and temporary array creations on high-frequency state updates.
+  const { successfulEvents, averageConfidence, averageLatency } = useMemo(() => {
+    const success: typeof captureEvents = [];
+    let confSum = 0;
+    let confCount = 0;
+    let latSum = 0;
+    let latCount = 0;
+
+    for (const event of captureEvents) {
+      if (event.routeStatus !== 'error') {
+        success.push(event);
+        if (event.confidence !== null) {
+          confSum += event.confidence;
+          confCount++;
+        }
+        if (event.latencyMs !== null) {
+          latSum += event.latencyMs;
+          latCount++;
+        }
+      }
+    }
+
+    return {
+      successfulEvents: success,
+      averageConfidence: confCount > 0 ? confSum / confCount : 0,
+      averageLatency: latCount > 0 ? latSum / latCount : 0,
+    };
+  }, [captureEvents]);
+
   const desktopRuntime = (window as ElectronRuntimeWindow).odessaDesktop;
   const isElectronRuntime = Boolean(desktopRuntime?.isElectron);
   const canUseDirectWebCapture = Boolean(desktopRuntime?.canUseDirectWebCapture);

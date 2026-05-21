@@ -79,8 +79,9 @@ describe('ContinuityPlayer', () => {
     playSpy.mockClear();
 
     vi.spyOn(HTMLMediaElement.prototype, 'paused', 'get').mockReturnValue(true);
+    vi.spyOn(HTMLMediaElement.prototype, 'readyState', 'get').mockReturnValue(4); // need readyState >= 2 for watchdog to play
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(1600); // interval is 1500
     });
 
     expect(playSpy).toHaveBeenCalled();
