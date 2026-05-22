@@ -44,6 +44,10 @@ function clipKey(clip: VideoClip | null | undefined) {
     clip.startSec || 0,
     clip.endSec ?? 'end',
     clip.transitionMs || 0,
+    // Include loop so the client re-transitions when the server breaks the idle
+    // loop (trigger queued) — without this the video.loop attribute never updates
+    // and handleEnded never fires, so triggers stay stuck in the queue forever.
+    clip.loop ? 'loop' : 'once',
   ].join(':');
 }
 
@@ -136,7 +140,11 @@ export default function PersonaOverlay() {
         const targetTime =
           shouldLoopClip(clip) && loopDuration > 0
             ? startSec + (elapsed % loopDuration)
-            : startSec + elapsed;
+            // Non-looping clips (reactions, sequences) always start from startSec so
+            // the viewer sees the complete video. The elapsed check above already
+            // handles skipping truly stale clips; here we don't seek forward on a
+            // small polling lag so a 200–500 ms delay no longer eats the beginning.
+            : startSec;
         try {
           nextElement.currentTime = Math.min(targetTime, Math.max(0, endSec - 0.05));
         } catch {
