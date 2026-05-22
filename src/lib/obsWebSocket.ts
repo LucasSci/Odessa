@@ -235,23 +235,10 @@ export async function obsSetupLiveScene(settings: ObsSetupSettings): Promise<Obs
       }
     } catch { /* not connected or error — proceed with setup */ }
 
-    // 1. Set canvas resolution — only if different (SetVideoSettings restarts encoder)
-    try {
-      const videoSettings = await obs.call('GetVideoSettings');
-      if (videoSettings.baseWidth !== canvasW || videoSettings.baseHeight !== canvasH) {
-        await obs.call('SetVideoSettings', {
-          baseWidth: canvasW,
-          baseHeight: canvasH,
-          outputWidth: canvasW,
-          outputHeight: canvasH,
-          fpsNumerator: videoSettings.fpsNumerator || 30,
-          fpsDenominator: videoSettings.fpsDenominator || 1,
-        });
-        created.push(`canvas:${canvasW}x${canvasH}`);
-      }
-    } catch (err) {
-      warnings.push(`Canvas: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    // NOTE: SetVideoSettings is intentionally NOT called here.
+    // OBS canvas/output resolution is a per-profile setting managed by the user.
+    // Calling SetVideoSettings would corrupt the active profile (e.g. Tango Profile)
+    // every time "Iniciar Live" is triggered.
 
     // 2. Get current scenes
     await refreshScenes();
