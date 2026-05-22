@@ -3,7 +3,11 @@ import fs from 'node:fs';
 import nodePath from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const __dirname = nodePath.dirname(fileURLToPath(import.meta.url));
+// Strip any query string from import.meta.url before passing to fileURLToPath.
+// The old hot-reload mechanism appends ?v=mtime to force a new cache entry;
+// fileURLToPath throws if the URL contains a query string.
+const _metaUrl = import.meta.url.includes('?') ? import.meta.url.split('?')[0] : import.meta.url;
+const __dirname = nodePath.dirname(fileURLToPath(_metaUrl));
 
 const SESSION_COOKIE_NAME = 'odessa_admin_session';
 const PERSONA_CONFIG_KEY = 'persona_config';
@@ -433,6 +437,71 @@ function getTriggerQueueSize() {
   } catch { return 0; }
 }
 
+// ── Time-based schedule engine ─────────────────────────────────────────────
+// Schedules live inside the workflow config as `schedules[]`. On every
+// /video/state poll this function is called to enqueue any schedule whose
+// interval has elapsed. Writing lastFiredAt BEFORE enqueueing is safe because
+// Node.js is single-threaded — no two requests can check the same schedule
+// simultaneously within the same process.
+
+function getScheduleState() {
+  try { return getCloudValue('schedule_state')?.value || {}; } catch { return {}; }
+}
+
+function checkAndFireDueSchedules() {
+  try {
+    const config = loadCloudConfig() || {};
+    const wf = config.draftWorkflow || config.publishedWorkflow || config;
+    const schedules = wf.schedules || config.schedules || [];
+    if (!schedules.length) return;
+
+    const now = Date.now() / 1000;
+    const stored = getScheduleState();
+    const flowNodes = wf.flowNodes || config.flowNodes || [];
+
+    for (const schedule of schedules) {
+      if (schedule.enabled === false || !schedule.intervalMinutes || !schedule.videoId) continue;
+      const intervalSec = Number(schedule.intervalMinutes) * 60;
+      if (intervalSec <= 0) continue;
+
+      const lastFired = stored[schedule.id] || 0;
+      if (now - lastFired < intervalSec) continue;
+
+      // Mark fired FIRST — prevents a second concurrent request from also firing
+      setCloudValue('schedule_state', { ...stored, [schedule.id]: now });
+
+      // Resolve playback settings from the matching flow node (if any)
+      const targetNode = schedule.nodeId
+        ? flowNodes.find((n) => n.nodeId === schedule.nodeId)
+        : flowNodes.find((n) => n.videoId === schedule.videoId);
+      const pb = targetNode?.playback || {};
+
+      enqueueTriggerAction({
+        triggerId: `schedule:${schedule.id}`,
+        triggerName: schedule.name || `Automacao ${schedule.intervalMinutes}min`,
+        eventType: 'schedule',
+        targetVideoId: schedule.videoId,
+        targetNodeId: targetNode?.nodeId || schedule.nodeId || null,
+        currentClip: {
+          nodeId: targetNode?.nodeId || null,
+          videoId: schedule.videoId,
+          startSec: pb.startSec || 0,
+          endSec: pb.endSec ?? null,
+          transitionMs: pb.transitionMs || 220,
+          loop: false,
+          returnToIdle: true,
+          audio: targetNode?.audio || { mode: 'muted', volume: 1 },
+        },
+      });
+
+      console.log(`[Odessa] Schedule fired: "${schedule.name || schedule.id}" -> ${schedule.videoId}`);
+      break; // Fire at most one schedule per poll to avoid flooding
+    }
+  } catch (err) {
+    console.error('[Odessa] checkAndFireDueSchedules error:', err);
+  }
+}
+
 function videoIdFromPath(pathname) {
   const name = pathname.split('/').pop() || '';
   return name.replace(/\.(mp4|webm|mov|m4v)$/i, '');
@@ -829,6 +898,11 @@ async function protectedResponse(req, res, rawPath) {
     return json(res, 200, {
       status: 'ok',
       service: 'odessa-cloud-api',
+      _serverBuild: 'schedule-v2-2026-05-22',
+      _hasSchedules: typeof checkAndFireDueSchedules === 'function',
+      _triggerQueueSize: getTriggerQueueSize(),
+      _scheduleState: getScheduleState(),
+      _kvKeys: Object.keys(readKv()),
       ...cloudCapabilities(),
       ...cloudState(),
     });
@@ -1043,10 +1117,39 @@ async function protectedResponse(req, res, rawPath) {
   }
 
   if (path === '/video/state' || path.endsWith('/video/state')) {
+    // Fire any time-based schedules that are due (at most one per poll)
+    checkAndFireDueSchedules();
     return json(res, 200, {
       ...(loadCloudVideoState()),
       triggerQueueSize: getTriggerQueueSize(),
       ...cloudState(),
+    });
+  }
+
+  // Schedule status — used by the UI to show "fires in Xmin / last fired at"
+  if (path === '/video/schedule/state' || path.endsWith('/video/schedule/state')) {
+    const config = loadCloudConfig() || {};
+    const wf = config.draftWorkflow || config.publishedWorkflow || config;
+    const schedules = wf.schedules || config.schedules || [];
+    const stored = getScheduleState();
+    const now = Date.now() / 1000;
+    return json(res, 200, {
+      schedules: schedules
+        .filter((s) => s.id)
+        .map((s) => {
+          const lastFiredAt = stored[s.id] || null;
+          const intervalSec = (Number(s.intervalMinutes) || 0) * 60;
+          const nextFireAt = lastFiredAt ? lastFiredAt + intervalSec : now;
+          return {
+            id: s.id,
+            name: s.name || '',
+            enabled: s.enabled !== false,
+            intervalMinutes: s.intervalMinutes || 0,
+            lastFiredAt,
+            nextFireAt,
+            secondsUntilNext: Math.max(0, nextFireAt - now),
+          };
+        }),
     });
   }
 
@@ -2123,6 +2226,14 @@ async function protectedResponse(req, res, rawPath) {
   }
 
   if (path.startsWith('/webhooks')) return json(res, 200, { webhooks: [], ...cloudState() });
+
+  // Force-restart the server process so a fresh deploy takes effect immediately.
+  // The process manager (PM2 / Hostinger) will restart it automatically.
+  if (path === '/admin/restart' && hasAgentAccess(req)) {
+    json(res, 200, { ok: true, message: 'Restarting server...' });
+    setTimeout(() => process.exit(0), 200);
+    return;
+  }
 
   return json(res, 501, {
     detail: 'Endpoint ainda nao implementado no Odessa Cloud.',

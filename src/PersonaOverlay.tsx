@@ -132,7 +132,13 @@ export default function PersonaOverlay() {
         const duration = Number.isFinite(nextElement.duration) ? nextElement.duration : 0;
         const loopDuration = Math.max(0, Math.min(endSec, duration || endSec) - startSec);
         const naturalEndSec = Number.isFinite(endSec) ? endSec : duration;
-        if (!shouldLoopClip(clip) && naturalEndSec > 0 && startSec + elapsed >= naturalEndSec - 0.1) {
+        // Idle whose loop was broken by a queued trigger: the idle may have been
+        // looping for minutes, so `elapsed` >> `duration`. Use elapsed % duration to
+        // find the position within the *current* cycle rather than skipping it.
+        // returnToIdle === false is the reliable idle identifier (reactions have true).
+        const isIdleLoopBreak = !shouldLoopClip(clip) && clip.returnToIdle === false && duration > 0;
+        const effectiveElapsed = isIdleLoopBreak && loopDuration > 0 ? elapsed % loopDuration : elapsed;
+        if (!shouldLoopClip(clip) && naturalEndSec > 0 && startSec + effectiveElapsed >= naturalEndSec - 0.1) {
           setIsTransitioning(false);
           await advanceAndRefresh(clip);
           return;
@@ -140,11 +146,12 @@ export default function PersonaOverlay() {
         const targetTime =
           shouldLoopClip(clip) && loopDuration > 0
             ? startSec + (elapsed % loopDuration)
-            // Non-looping clips (reactions, sequences) always start from startSec so
-            // the viewer sees the complete video. The elapsed check above already
-            // handles skipping truly stale clips; here we don't seek forward on a
-            // small polling lag so a 200–500 ms delay no longer eats the beginning.
-            : startSec;
+            : isIdleLoopBreak && loopDuration > 0
+              // Resume idle at the current cycle position so the viewer sees the
+              // rest of this cycle before the queued video plays.
+              ? startSec + effectiveElapsed
+              // Reactions / sequence clips always start from the beginning.
+              : startSec;
         try {
           nextElement.currentTime = Math.min(targetTime, Math.max(0, endSec - 0.05));
         } catch {

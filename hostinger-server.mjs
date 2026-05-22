@@ -8,11 +8,12 @@ import zlib from 'node:zlib';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ── Hot-reloadable API handler ─────────────────────────────────────────────
-// Instead of a static ES-module import (which is permanently cached), we
-// track the mtime of api/[...path].js and re-import with a fresh URL whenever
-// the file changes on disk. This lets a zip deploy take effect on the VERY
-// NEXT request without requiring a full server restart.
+// We copy api/[...path].js to a temp file with a plain name (no brackets)
+// before each import. This avoids Node.js ESM issues with special characters
+// ([, ]) and URL query strings in file:// URLs, while still allowing the
+// handler to reload on each deploy without a full server restart.
 const API_HANDLER_FILE = path.join(__dirname, 'api', '[...path].js');
+const API_HANDLER_TMP_DIR = path.join(__dirname, 'api');
 let _apiHandler = null;
 let _apiHandlerMtime = 0;
 
@@ -20,11 +21,27 @@ async function getApiHandler() {
   try {
     const mtime = fsSync.statSync(API_HANDLER_FILE).mtimeMs;
     if (!_apiHandler || mtime !== _apiHandlerMtime) {
-      const freshUrl = pathToFileURL(API_HANDLER_FILE).href + `?v=${mtime}`;
+      // Copy to a tmp file without special characters so Node.js ESM can
+      // resolve it reliably via file:// URL (no URL-encoding issues).
+      const tmpName = `_odessa_handler_${mtime}.mjs`;
+      const tmpFile = path.join(API_HANDLER_TMP_DIR, tmpName);
+      if (!fsSync.existsSync(tmpFile)) {
+        fsSync.copyFileSync(API_HANDLER_FILE, tmpFile);
+      }
+      const freshUrl = pathToFileURL(tmpFile).href;
       const mod = await import(freshUrl);
       _apiHandler = mod.default;
       _apiHandlerMtime = mtime;
-      console.log(`[hostinger-server] API handler loaded (mtime ${mtime})`);
+      console.log(`[hostinger-server] API handler loaded from ${tmpName}`);
+      // Clean up old tmp files (all _odessa_handler_*.mjs except the current one)
+      try {
+        const files = fsSync.readdirSync(API_HANDLER_TMP_DIR);
+        for (const f of files) {
+          if (f.startsWith('_odessa_handler_') && f !== tmpName) {
+            fsSync.unlinkSync(path.join(API_HANDLER_TMP_DIR, f));
+          }
+        }
+      } catch {}
     }
   } catch (err) {
     console.error('[hostinger-server] Failed to load API handler:', err);
