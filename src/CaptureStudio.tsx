@@ -368,13 +368,19 @@ function kindFromZoneRole(role: CaptureZone['role']): LiveEventKind {
  * and strips punctuation so that "Hello!" and "Hel1o." compare equal.
  */
 function normForDedup(line: string): string {
-  return line
+  const base = line
     .toLowerCase()
     .replace(/0/g, 'o')      // 0 → o  (OCR confusion)
     .replace(/[1|]/g, 'l')   // 1 / | → l
     .replace(/[^a-z\s]/g, '') // drop digits + punctuation
     .replace(/\s+/g, ' ')
     .trim();
+  // For gift verb patterns, strip the gift NAME so OCR noise in the name
+  // ("lucas enviou v", "lucas enviou e", "lucas enviou heart") all collapse
+  // to the same key and only the first fires within the TTL window.
+  const giftVerb = /^(.{1,40})\s+(enviou|mandou|sent|presenteou com)\b/.exec(base);
+  if (giftVerb) return `${giftVerb[1]} ${giftVerb[2]}`;
+  return base;
 }
 
 /**
@@ -442,15 +448,42 @@ const GIFT_TIKTOK_RE_CLIENT =
 
 const OCR_EMOJI_MAP_CLIENT: Record<string, string> = {
   o: 'heart', '0': 'heart',
+  v: 'heart',  // ❤ V-shape OCR artifact
+  e: 'heart',  // ❤ E-shape OCR artifact
+  j: 'heart',  // ❤ J-shape OCR artifact
+  '"': 'heart', // ❤ quote OCR artifact (Tesseract reads curved heart as ")
+  "'": 'heart', // ❤ single-quote OCR artifact
   d: 'diamond',
   r: 'rose',
   f: 'follow',
   l: 'like',
 };
 
-function normaliseGiftKeyClient(raw: string): string {
+/** Maps a canonical giftKey to a display emoji for the Presentes panel. */
+const GIFT_KEY_EMOJI: Record<string, string> = {
+  heart: '❤️',
+  diamond: '💎',
+  rose: '🌹',
+  follow: '➕',
+  like: '👍',
+  star: '⭐',
+  crown: '👑',
+  fire: '🔥',
+  music: '🎵',
+  cake: '🎂',
+};
+function giftKeyToEmoji(key: string): string {
+  return GIFT_KEY_EMOJI[(key ?? '').toLowerCase()] ?? '🎁';
+}
+
+function normaliseGiftKeyClient(raw: string, fromVerbPattern = false): string {
   const s = raw.trim();
-  if (s.length === 1) return OCR_EMOJI_MAP_CLIENT[s.toLowerCase()] ?? s;
+  if (s.length === 1) {
+    // For single-char OCR artifacts from verb patterns ("Lucas enviou V/E/"/J"),
+    // default to 'heart' if not explicitly in the map — the heart emoji is by far
+    // the most common gift and all these artifacts come from its curved glyph.
+    return OCR_EMOJI_MAP_CLIENT[s.toLowerCase()] ?? (fromVerbPattern ? 'heart' : s);
+  }
   return s;
 }
 
@@ -466,12 +499,18 @@ function parseOcrLineForTrigger(
   if (verbMatch) {
     return {
       eventType: 'gift',
-      giftKey: normaliseGiftKeyClient(verbMatch[2]),
+      // fromVerbPattern=true so unknown single-char OCR artifacts (", J, E…)
+      // default to 'heart' instead of being passed through as raw garbage.
+      giftKey: normaliseGiftKeyClient(verbMatch[2], true),
       sender: verbMatch[1].trim(),
     };
   }
-  const tiktokMatch =
-    (zoneRole === 'gifts' || line.length < 55) ? GIFT_TIKTOK_RE_CLIENT.exec(line) : null;
+  // Pattern B — TikTok "Username [emoji/short-token] x[N]"
+  // Requires an explicit count suffix (x1, x2, ×3…) which is the strong
+  // signal that this is a gift notification and NOT a chat message.
+  // We never fall back to "everything in a gifts zone = gift" because chat
+  // and gifts share the same on-screen area on TikTok.
+  const tiktokMatch = GIFT_TIKTOK_RE_CLIENT.exec(line);
   if (tiktokMatch) {
     return {
       eventType: 'gift',
@@ -480,12 +519,7 @@ function parseOcrLineForTrigger(
       ocrRaw: tiktokMatch[2],
     };
   }
-  if (zoneRole === 'gifts') {
-    const clean = line.replace(/\s*[x×]\s*\d+\s*$/i, '').replace(/^@?[^\s:]{1,40}:\s*/, '').trim();
-    if (clean.length >= 2 && clean.length <= 50 && clean.split(/\s+/).length <= 5) {
-      return { eventType: 'gift', giftKey: normaliseGiftKeyClient(clean) };
-    }
-  }
+  // Nothing matched → treat as plain chat, no trigger
   return { eventType: 'comment', text: line };
 }
 
@@ -790,7 +824,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
 
   // Recently detected gift stickers
   const [recentGifts, setRecentGifts] = useState<
-    Array<{ id: string; name: string; count: number; time: string; triggered: boolean }>
+    Array<{ id: string; name: string; emoji: string; count: number; time: string; triggered: boolean; sender?: string; ocrRaw?: string }>
   >([]);
 
   const activePreset = useMemo(
@@ -2031,9 +2065,26 @@ const CaptureStudio = React.memo(function CaptureStudio({
             const key = normForDedup(l);
             return key.length > 0 && !seenMap.has(key);
           });
-          if (freshLines.length === 0) continue; // nothing new — skip ingest entirely
+          // Mark ALL fresh lines in this zone's dedup map right away so that
+          // even cross-zone-dropped lines don't re-fire from this zone later.
           for (const l of freshLines) seenMap.set(normForDedup(l), nowMs);
-          const processText = freshLines.join('\n');
+
+          // ── Layer-3: cross-zone gift dedup ────────────────────────────────
+          // lineSeenRef is keyed per-zone, so two overlapping zones (e.g. "Zona 2"
+          // and "Chat") both see the same gift line as fresh. lastGiftFiredRef is
+          // shared across all zones: if zone A already fired a gift this cycle,
+          // zone B silently drops the same line.
+          const ingestLines = freshLines.filter((l) => {
+            const isGift = GIFT_VERB_RE_CLIENT.test(l) || GIFT_TIKTOK_RE_CLIENT.test(l);
+            if (!isGift) return true; // chat lines always pass
+            const key = normForDedup(l);
+            const lastFired = lastGiftFiredRef.current.get(key) ?? 0;
+            if (nowMs - lastFired < DEDUP_TTL_MS) return false; // already fired by another zone
+            lastGiftFiredRef.current.set(key, nowMs);
+            return true;
+          });
+          if (ingestLines.length === 0) continue; // nothing to ingest after all dedup layers
+          const processText = ingestLines.join('\n');
 
           // Gift stickers are now detected server-side in /ocr/ingest for ALL zone
           // roles (including 'gifts'). The result comes back in ingestResult.triggered
@@ -2049,7 +2100,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  lines: freshLines,          // array of individual new lines
+                  lines: ingestLines,         // array of individual new lines (cross-zone deduped)
                   text: processText,          // joined fallback
                   source: 'ocr',
                   zoneName: result.zone_name || zone.name,
@@ -2069,7 +2120,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
               // in the browser and call the /video/trigger endpoint (which
               // exists in the old server and does trigger matching correctly).
               if ((ingestResult as Record<string, unknown> | null)?.['simulated'] === true) {
-                ingestResult = await clientSideIngestFallback(freshLines, zone.role, apiUrl);
+                ingestResult = await clientSideIngestFallback(ingestLines, zone.role, apiUrl);
               }
             } catch (err) {
               const message = err instanceof Error ? err.message : 'Falha ao rotear evento';
@@ -2148,15 +2199,16 @@ const CaptureStudio = React.memo(function CaptureStudio({
             // Shows BOTH triggered gifts (green) AND gifts with no trigger configured
             // (amber) so the user knows exactly what giftKey to configure.
             if (ingestResult) {
-              const giftItems: Array<{ id: string; name: string; count: number; time: string; triggered: boolean; ocrRaw?: string; sender?: string }> = [];
+              const giftItems: typeof recentGifts = [];
               for (const t of ingestResult.triggered ?? []) {
                 if (t.kind === 'gift') {
-                  giftItems.push({ id: makeEventId(), name: t.giftKey || t.line, count: 1, time, triggered: true, ocrRaw: t.ocrRaw, sender: t.sender });
+                  const giftKey = t.giftKey || t.line;
+                  giftItems.push({ id: makeEventId(), name: giftKey, emoji: giftKeyToEmoji(giftKey), count: 1, time, triggered: true, ocrRaw: t.ocrRaw, sender: t.sender });
                 }
               }
               for (const nm of ingestResult.noMatch ?? []) {
                 if (nm.kind === 'gift' && nm.giftKey) {
-                  giftItems.push({ id: makeEventId(), name: nm.giftKey, count: 1, time, triggered: false, ocrRaw: nm.ocrRaw, sender: nm.sender });
+                  giftItems.push({ id: makeEventId(), name: nm.giftKey, emoji: giftKeyToEmoji(nm.giftKey), count: 1, time, triggered: false, ocrRaw: nm.ocrRaw, sender: nm.sender });
                 }
               }
               if (giftItems.length > 0) {
@@ -3498,10 +3550,18 @@ const CaptureStudio = React.memo(function CaptureStudio({
                         className="flex items-center justify-between gap-3 rounded-md border border-[var(--border)] bg-[var(--bg1)]/50 px-3 py-2"
                       >
                         <div className="flex min-w-0 items-center gap-2">
-                          <span className="text-base">🎁</span>
+                          <span className="text-lg leading-none" title={gift.name}>{gift.emoji}</span>
                           <div className="min-w-0">
-                            <p className="truncate text-xs font-bold text-[var(--t1)]">{gift.name}</p>
-                            <p className="text-[10px] text-[var(--t3)]">{gift.time}</p>
+                            <p className="truncate text-xs font-bold text-[var(--t1)]">
+                              {gift.name}
+                              {gift.sender && <span className="ml-1 font-normal text-[var(--t3)]">de {gift.sender}</span>}
+                            </p>
+                            <p className="text-[10px] text-[var(--t3)]">
+                              {gift.time}
+                              {gift.ocrRaw && gift.ocrRaw !== gift.name && (
+                                <span className="ml-1 font-mono opacity-50">(OCR: {gift.ocrRaw})</span>
+                              )}
+                            </p>
                           </div>
                         </div>
                         <span

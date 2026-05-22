@@ -1952,14 +1952,19 @@ async function protectedResponse(req, res, rawPath) {
     // Tesseract commonly substitutes emoji with these chars.
     const OCR_EMOJI_MAP = {
       'o': 'heart', '0': 'heart',       // ❤ / ♥
-      'd': 'diamond', '@': 'at',         // 💎
-      'r': 'rose',                        // 🌹 (if single letter)
-      'f': 'follow',                      // Follow sticker
-      'l': 'like',                        // 👍
+      'v': 'heart',                      // ❤ V-shape artifact
+      'e': 'heart',                      // ❤ E-shape artifact
+      'j': 'heart',                      // ❤ J-shape artifact
+      '"': 'heart',                      // ❤ curved-glyph reads as double-quote
+      "'": 'heart',                      // ❤ single-quote artifact
+      'd': 'diamond',                    // 💎
+      'r': 'rose',                       // 🌹 (if single letter)
+      'f': 'follow',                     // Follow sticker
+      'l': 'like',                       // 👍
     };
-    function normaliseGiftKey(raw) {
+    function normaliseGiftKey(raw, fromVerbPattern = false) {
       const s = raw.trim();
-      if (s.length === 1) return OCR_EMOJI_MAP[s.toLowerCase()] || s;
+      if (s.length === 1) return OCR_EMOJI_MAP[s.toLowerCase()] ?? (fromVerbPattern ? 'heart' : s);
       return s;
     }
 
@@ -1978,30 +1983,21 @@ async function protectedResponse(req, res, rawPath) {
 
       if (giftVerbMatch) {
         // Pattern A: "Sender enviou GiftName x2"
-        const giftKey = normaliseGiftKey(giftVerbMatch[2]);
+        const giftKey = normaliseGiftKey(giftVerbMatch[2], true); // fromVerbPattern → unknown single-char → 'heart'
         eventType = 'gift';
         parsedKind = 'gift';
         eventData = { giftKey, gift_key: giftKey, sender: giftVerbMatch[1].trim(), count: giftVerbMatch[3] ? parseInt(giftVerbMatch[3]) : 1 };
       } else if (tiktokMatch) {
         // Pattern B: "Slaanesh O x2" (TikTok notification, no verb)
+        // Requires explicit count suffix — strong gift signal.
         const giftKey = normaliseGiftKey(tiktokMatch[2]);
         eventType = 'gift';
         parsedKind = 'gift';
         eventData = { giftKey, gift_key: giftKey, sender: tiktokMatch[1].trim(), count: parseInt(tiktokMatch[3]), ocrRaw: tiktokMatch[2] };
-      } else if (zoneRole === 'gifts') {
-        // Gift zone fallback: bare gift name (no count suffix)
-        const cleanKey = line.replace(/\s*[x×]\s*\d+\s*$/i, '').replace(/^@?[^\s:]{1,40}:\s*/, '').trim();
-        if (cleanKey.length >= 2 && cleanKey.length <= 50 && cleanKey.split(/\s+/).length <= 5) {
-          eventType = 'gift';
-          parsedKind = 'gift';
-          eventData = { giftKey: normaliseGiftKey(cleanKey), gift_key: normaliseGiftKey(cleanKey) };
-        } else {
-          eventType = 'comment';
-          parsedKind = 'chat';
-          eventData = { text: line, message: line };
-        }
       } else {
-        // Chat / alerts zone: comment event
+        // No gift pattern matched → chat event.
+        // We do NOT fall back to "everything in gifts zone = gift" because
+        // on TikTok, chat and gift notifications appear in the same area.
         eventType = 'comment';
         parsedKind = 'chat';
         eventData = { text: line, message: line };
