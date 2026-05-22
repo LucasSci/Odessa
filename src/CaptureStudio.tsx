@@ -25,7 +25,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { emitEvent } from './core/eventBus';
-import { type GiftCatalogEntry, loadGiftCatalog } from './core/giftCatalog';
+import { type GiftCatalogEntry, loadGiftCatalog, saveGiftCatalog } from './core/giftCatalog';
 import { apiUrl, API_BASE_URL } from './lib/api';
 import { cn } from './lib/utils';
 import type { CapturedMessage, LiveEventKind } from './types';
@@ -620,12 +620,112 @@ async function extractForegroundRegion(imageDataUrl: string): Promise<string | n
   });
 }
 
+/**
+ * Scans the zone image for the most colorful (highest saturation×value) subregion
+ * using a grid heatmap, then returns a crop of configurable size centered on it.
+ *
+ * Why: gift zones are large (320×190 px). The icon is ~60 px inside that area.
+ * Scaling the full zone to 32×32 for NCC makes the icon ~6 px — useless.
+ * This focuses the comparison on just the icon, which is always the most
+ * colorful element (TikTok card backgrounds and white text are unsaturated).
+ */
+async function findHotspotCrop(
+  imageDataUrl: string,
+  cropSize = 96,
+  gridDivs = 8,
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const W = img.width, H = img.height;
+      const SCAN_W = 64;
+      const SCAN_H = Math.max(1, Math.round((64 * H) / W));
+      const canvas = document.createElement('canvas');
+      canvas.width = SCAN_W; canvas.height = SCAN_H;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, SCAN_W, SCAN_H);
+      const data = ctx.getImageData(0, 0, SCAN_W, SCAN_H).data;
+
+      const cellW = Math.max(1, Math.floor(SCAN_W / gridDivs));
+      const cellH = Math.max(1, Math.floor(SCAN_H / gridDivs));
+      let bestScore = -1, bestCX = SCAN_W / 2, bestCY = SCAN_H / 2;
+
+      for (let gy = 0; gy < gridDivs; gy++) {
+        for (let gx = 0; gx < gridDivs; gx++) {
+          const x0 = gx * cellW, y0 = gy * cellH;
+          let total = 0, count = 0;
+          for (let py = y0; py < y0 + cellH && py < SCAN_H; py++) {
+            for (let px = x0; px < x0 + cellW && px < SCAN_W; px++) {
+              const idx = (py * SCAN_W + px) * 4;
+              const r = data[idx] / 255, g = data[idx + 1] / 255, b = data[idx + 2] / 255;
+              const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+              const sat = mx === 0 ? 0 : (mx - mn) / mx;
+              total += sat * mx; // saturation × brightness
+              count++;
+            }
+          }
+          const score = count > 0 ? total / count : 0;
+          if (score > bestScore) {
+            bestScore = score;
+            bestCX = x0 + cellW / 2;
+            bestCY = y0 + cellH / 2;
+          }
+        }
+      }
+
+      const scaleX = W / SCAN_W, scaleY = H / SCAN_H;
+      const cxOrig = bestCX * scaleX, cyOrig = bestCY * scaleY;
+      const half = cropSize / 2;
+      const sx = Math.max(0, Math.min(W - cropSize, Math.round(cxOrig - half)));
+      const sy = Math.max(0, Math.min(H - cropSize, Math.round(cyOrig - half)));
+      const sw = Math.min(cropSize, W - sx), sh = Math.min(cropSize, H - sy);
+
+      const out = document.createElement('canvas');
+      out.width = sw; out.height = sh;
+      out.getContext('2d')!.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+      resolve(out.toDataURL('image/png'));
+    };
+    img.onerror = () => resolve(null);
+    img.src = imageDataUrl;
+  });
+}
+
+/**
+ * Returns the hardcoded dominant-hue prior [hue°, sat, val] for a known gift key.
+ * Defined as a function (not a module-level const) to guarantee it is fully
+ * available via hoisting and avoid any TDZ issues in the production bundle.
+ */
+function getGiftHuePrior(key: string): [number, number, number] | null {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const p: Record<string, [number, number, number]> = {
+    'gift.rosa':             [340, 0.85, 0.80],  // rose: hot magenta-pink
+    'gift.coracao':          [  5, 0.90, 0.75],  // heart: pure red
+    'gift.beijo':            [353, 0.82, 0.72],  // kiss: red-pink lips
+    'gift.eu_te_amo':        [345, 0.78, 0.80],  // love: pink-red
+    'gift.maozinha_coracao': [338, 0.85, 0.80],  // heart hand: deep pink
+    'gift.urso':             [ 28, 0.65, 0.65],  // bear: warm brown
+    'gift.tiktok':           [188, 0.70, 0.65],  // TikTok logo: cyan-teal
+    'gift.gg':               [125, 0.65, 0.65],  // GG: game-green
+    'gift.sorvete':          [195, 0.60, 0.82],  // ice cream: pastel blue
+    'gift.rosquinha':        [ 22, 0.70, 0.58],  // donut: warm caramel
+    'gift.perfume':          [278, 0.72, 0.65],  // perfume: violet-purple
+    'gift.pirulito':         [357, 0.88, 0.78],  // lollipop: vivid red-pink
+    'gift.estrela':          [ 50, 0.90, 0.86],  // star: bright gold-yellow
+    'gift.coroa':            [ 44, 0.88, 0.82],  // crown: gold
+    'gift.foguete':          [214, 0.82, 0.68],  // rocket: deep blue
+    'gift.leao':             [ 36, 0.80, 0.78],  // lion: golden-orange
+    'gift.universo':         [258, 0.82, 0.58],  // universe: indigo-purple
+  };
+  return p[key] ?? null;
+}
+
 /** Debug info emitted by detectVisualGiftInZone on every call, even with no match. */
 interface VisualGiftDebugInfo {
-  colorRegion: string | null;  // foreground region crop (null if extraction failed)
+  colorRegion: string | null;    // hotspot crop (the icon area found by heatmap)
   allScores: Array<{ strategy: string; key: string; score: number }>;
   bestScore: number;
   bestKey: string;
+  zoneColor: [number, number, number] | null;  // dominant hue/sat/val of the hotspot
 }
 
 /**
@@ -719,7 +819,7 @@ async function computeHueHistogram(imageDataUrl: string, bins = 36): Promise<num
         const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
         const mx = Math.max(r, g, b), mn = Math.min(r, g, b), delta = mx - mn;
         const sat = mx > 0 ? delta / mx : 0;
-        if (sat < 0.06 || mx < 0.06) continue;
+        if (sat < 0.15 || mx < 0.10) continue; // stricter: skip grey/dark background pixels
         let hue = 0;
         if (delta > 0) {
           if (mx === r) hue = 60 * (((g - b) / delta) % 6);
@@ -773,6 +873,111 @@ async function matchGiftByHistogram(
  * key changes (user uploads a new image and saves a new entry).
  */
 const _catalogFgCache = new Map<string, string | null>();
+
+/** Per-session cache for catalog dominant-color vectors. Keyed by entry.key. */
+const _catalogColorCache = new Map<string, [number, number, number] | null>();
+
+/**
+ * Extracts the dominant color of an image as [meanHue°, meanSat, meanVal].
+ * Only considers "colorful" pixels (sat > 0.15, val > 0.10) so backgrounds
+ * and white/grey UI elements are ignored.
+ * Uses circular mean for hue (sin/cos method) to correctly handle 0°/360° wrap.
+ * Returns null if < 3% of pixels are colorful (uniform/dark image).
+ */
+async function extractDominantColor(
+  imageDataUrl: string,
+): Promise<[number, number, number] | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const S = 32;
+      const canvas = document.createElement('canvas');
+      canvas.width = S; canvas.height = S;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, S, S);
+      const data = ctx.getImageData(0, 0, S, S).data;
+      let sinH = 0, cosH = 0, sumS = 0, sumV = 0, n = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] < 20) continue; // skip transparent
+        const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+        const v = mx, s = mx === 0 ? 0 : (mx - mn) / mx;
+        if (s < 0.15 || v < 0.10) continue;
+        let h = 0;
+        if (mx - mn > 0) {
+          if (mx === r) h = ((g - b) / (mx - mn)) % 6 * 60;
+          else if (mx === g) h = ((b - r) / (mx - mn) + 2) * 60;
+          else h = ((r - g) / (mx - mn) + 4) * 60;
+          if (h < 0) h += 360;
+        }
+        const rad = h * Math.PI / 180;
+        sinH += Math.sin(rad); cosH += Math.cos(rad);
+        sumS += s; sumV += v; n++;
+      }
+      if (n < S * S * 0.03) { resolve(null); return; }
+      const meanH = (Math.atan2(sinH / n, cosH / n) * 180 / Math.PI + 360) % 360;
+      resolve([meanH, sumS / n, sumV / n]);
+    };
+    img.onerror = () => resolve(null);
+    img.src = imageDataUrl;
+  });
+}
+
+async function getCatalogColor(entry: GiftCatalogEntry): Promise<[number, number, number] | null> {
+  if (_catalogColorCache.has(entry.key)) return _catalogColorCache.get(entry.key)!;
+  if (!entry.imageUrl) { _catalogColorCache.set(entry.key, null); return null; }
+  const color = await extractDominantColor(entry.imageUrl);
+  _catalogColorCache.set(entry.key, color);
+  return color;
+}
+
+/**
+ * Matches by dominant color: computes the mean hue (circular) of colorful pixels
+ * and compares against catalog. Hue is the single most discriminating feature —
+ * rosa≈0°, beijo≈350°, urso≈30°, TikTok≈195°, universo≈270°, etc.
+ * Score = 1 when hues match exactly, 0 when 90° apart.
+ */
+async function matchGiftByDominantColor(
+  imageDataUrl: string,
+  catalog: GiftCatalogEntry[],
+  minScore = 0,
+): Promise<{ key: string; name: string; emoji?: string; similarity: number } | null> {
+  const zoneColor = await extractDominantColor(imageDataUrl);
+  if (!zoneColor) return null;
+  let best: { key: string; name: string; emoji?: string; similarity: number } | null = null;
+  for (const entry of catalog) {
+    try {
+      // Prefer the catalog image's actual dominant color; fall back to hardcoded prior.
+      let catColor: [number, number, number] | null = null;
+      if (entry.imageUrl) {
+        catColor = await getCatalogColor(entry);
+      }
+      if (!catColor) {
+        catColor = getGiftHuePrior(entry.key);
+      }
+      if (!catColor) continue;
+
+      const dH = Math.min(Math.abs(zoneColor[0] - catColor[0]), 360 - Math.abs(zoneColor[0] - catColor[0]));
+      // Full score at 0°, zero at 90°; saturation difference as secondary signal.
+      const hueScore = Math.max(0, 1 - dH / 90);
+      const satScore = 1 - Math.abs(zoneColor[1] - catColor[1]);
+      const score = Math.max(0, hueScore * 0.80 + satScore * 0.20);
+      if (score >= minScore && (!best || score > best.similarity)) {
+        best = { key: entry.key, name: entry.name, emoji: entry.emoji, similarity: score };
+      }
+    } catch { /* skip */ }
+  }
+  return best;
+}
+
+/**
+ * Convenience wrapper: extract the dominant color of a zone image,
+ * returned as a [hue°, sat, val] triple or null.
+ * Exposed so the debug panel can display the detected zone hue.
+ */
+async function getZoneDominantColor(imageDataUrl: string): Promise<[number, number, number] | null> {
+  return extractDominantColor(imageDataUrl);
+}
 
 /**
  * Extracts the foreground of a catalog PNG using its alpha channel.
@@ -891,20 +1096,32 @@ async function detectVisualGiftInZone(
   imageDataUrl: string,
   catalog: GiftCatalogEntry[],
 ): Promise<{ match: { key: string; name: string; emoji?: string; similarity: number } | null; debugInfo: VisualGiftDebugInfo }> {
-  const noResult = { match: null, debugInfo: { colorRegion: null, allScores: [], bestScore: 0, bestKey: '' } };
-  if (!imageDataUrl || !catalog.some((e) => e.imageUrl)) return noResult;
+  const noResult = { match: null, debugInfo: { colorRegion: null, allScores: [], bestScore: 0, bestKey: '', zoneColor: null } };
+  // Only bail if there's no input or truly no catalog entries to compare against.
+  // Even without imageUrl on catalog entries, S5 uses hardcoded hue priors.
+  if (!imageDataUrl || catalog.length === 0) return noResult;
 
   const candidates: Array<{ key: string; name: string; emoji?: string; similarity: number; strategy: string }> = [];
   const allScores: Array<{ strategy: string; key: string; score: number }> = [];
 
-  // ── S1: NCC full frame @32×32 (noisy — high threshold, consensus-support only) ──
-  const s1 = await matchGiftByNCC(imageDataUrl, catalog, 0, 32);
+  // ── Pre-processing: find the most colorful region (the icon) ─────────────
+  // The gift zone is large (e.g. 320×190). The actual icon is ~60 px inside.
+  // Scaling the full zone to 32–48 px for NCC makes the icon ~6–9 px — useless.
+  // findHotspotCrop scans with a saturation×brightness heatmap and returns
+  // a 96×96 crop centered on the most colorful region (= the gift icon).
+  // Corner-based foreground extraction also works much better on this tight crop
+  // because the corners will be the dark card background, not random UI.
+  const hotspot = await findHotspotCrop(imageDataUrl, 96, 8);
+  const iconImage = hotspot ?? imageDataUrl;
+
+  // ── S1: NCC full icon @32×32 (hotspot replaces full-frame) ───────────────
+  const s1 = await matchGiftByNCC(iconImage, catalog, 0, 32);
   if (s1) {
     allScores.push({ strategy: 'ncc-full', key: s1.key, score: s1.similarity });
-    if (s1.similarity >= 0.78) candidates.push({ ...s1, strategy: 'ncc-full' });
+    if (s1.similarity >= 0.72) candidates.push({ ...s1, strategy: 'ncc-full' });
   }
 
-  // ── S2: NCC center crop @32×32 (noisy — high threshold, consensus-support only) ─
+  // ── S2: NCC center of icon @32×32 ────────────────────────────────────────
   const centerCanvas = document.createElement('canvas');
   await new Promise<void>((res) => {
     const img = new Image();
@@ -917,49 +1134,60 @@ async function detectVisualGiftInZone(
       res();
     };
     img.onerror = () => res();
-    img.src = imageDataUrl;
+    img.src = iconImage;
   });
   if (centerCanvas.width > 0) {
     const centerCrop = centerCanvas.toDataURL('image/png');
     const s2 = await matchGiftByNCC(centerCrop, catalog, 0, 32);
     if (s2) {
       allScores.push({ strategy: 'ncc-center', key: s2.key, score: s2.similarity });
-      if (s2.similarity >= 0.78) candidates.push({ ...s2, strategy: 'ncc-center' });
+      if (s2.similarity >= 0.72) candidates.push({ ...s2, strategy: 'ncc-center' });
     }
   }
 
-  // ── S3: NCC fg-vs-fg @48×48 — PRIMARY STRATEGY ──────────────────────────
-  // Both images are foreground-extracted before comparison, so the NCC
-  // sees only the icon shape/texture with no background on either side.
-  const fgRegion = await extractForegroundRegion(imageDataUrl);
+  // ── S3: NCC fg-vs-fg @48×48 — STRUCTURAL STRATEGY ───────────────────────
+  // Works on the hotspot crop: corners are dark card background → reliable fg extraction
+  const fgRegion = await extractForegroundRegion(iconImage);
   if (fgRegion) {
     const s3 = await matchGiftFgVsFg(fgRegion, catalog, 0, 48);
     if (s3) {
       allScores.push({ strategy: 'ncc-fg', key: s3.key, score: s3.similarity });
-      if (s3.similarity >= 0.65) candidates.push({ ...s3, strategy: 'ncc-fg' });
+      if (s3.similarity >= 0.60) candidates.push({ ...s3, strategy: 'ncc-fg' });
     }
-    // ── S4: histogram on fg — SECONDARY STRATEGY ──────────────────────────
+    // ── S4: hue histogram on fg ────────────────────────────────────────────
     const s4 = await matchGiftByHistogram(fgRegion, catalog, 0);
     if (s4) {
       allScores.push({ strategy: 'histogram', key: s4.key, score: s4.similarity });
-      if (s4.similarity >= 0.62) candidates.push({ ...s4, strategy: 'histogram' });
+      if (s4.similarity >= 0.60) candidates.push({ ...s4, strategy: 'histogram' });
     }
   } else {
-    // No foreground found — fall back to histogram on full frame
-    const s4 = await matchGiftByHistogram(imageDataUrl, catalog, 0);
+    // No foreground found — run histogram on the hotspot directly
+    const s4 = await matchGiftByHistogram(iconImage, catalog, 0);
     if (s4) {
       allScores.push({ strategy: 'histogram-full', key: s4.key, score: s4.similarity });
-      if (s4.similarity >= 0.62) candidates.push({ ...s4, strategy: 'histogram-full' });
+      if (s4.similarity >= 0.60) candidates.push({ ...s4, strategy: 'histogram-full' });
     }
+  }
+
+  // ── S5: dominant color (mean hue of colorful pixels) — COLOR STRATEGY ───
+  // Works even without catalog reference images — uses GIFT_DOMINANT_HUES priors
+  // as fallback. Fast, rotation-invariant, and highly discriminating.
+  // Rosa≈340°, Coracao≈5°, TikTok≈188°, Universo≈258°, Urso≈28°, Coroa≈44°
+  const zoneColor = await getZoneDominantColor(iconImage);
+  const s5 = await matchGiftByDominantColor(iconImage, catalog, 0);
+  if (s5) {
+    allScores.push({ strategy: 'cor-dominante', key: s5.key, score: s5.similarity });
+    if (s5.similarity >= 0.60) candidates.push({ ...s5, strategy: 'cor-dominante' });
   }
 
   const bestScore = allScores.length > 0 ? Math.max(...allScores.map((s) => s.score)) : 0;
   const bestEntry = allScores.find((s) => s.score === bestScore);
   const debugInfo: VisualGiftDebugInfo = {
-    colorRegion: fgRegion ?? null,
+    colorRegion: hotspot ?? fgRegion ?? null,  // show the hotspot crop in debug
     allScores,
     bestScore,
     bestKey: bestEntry?.key ?? '',
+    zoneColor,
   };
 
   if (candidates.length === 0) {
@@ -978,8 +1206,10 @@ async function detectVisualGiftInZone(
     }
   }
 
+  // With the hotspot crop, single-strategy high-confidence fires at 0.82
+  // (was 0.88 when using the noisy full zone).
   const qualified = [...keyCounts.values()]
-    .filter((v) => v.count >= 2 || v.best.similarity >= 0.88)
+    .filter((v) => v.count >= 2 || v.best.similarity >= 0.82)
     .sort((a, b) => b.best.similarity - a.best.similarity);
 
   if (qualified.length === 0) {
@@ -1503,6 +1733,29 @@ const CaptureStudio = React.memo(function CaptureStudio({
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
+  // Selected gift key for the "Salvar como referência" button in the debug panel
+  const [refSaveKey, setRefSaveKey] = useState<string>('');
+  const [refSaved, setRefSaved] = useState(false);
+
+  const handleSaveVisualReference = useCallback(() => {
+    if (!visualDebug?.regionDataUrl || !refSaveKey) return;
+    const imageUrl = visualDebug.regionDataUrl;
+    setGiftCatalog(prev => {
+      const updated = prev.map(e =>
+        e.key === refSaveKey
+          ? { ...e, imageUrl, updatedAt: new Date().toISOString() }
+          : e,
+      );
+      saveGiftCatalog(updated);
+      // Invalidate caches so the new reference takes effect on the next frame
+      _catalogFgCache.delete(refSaveKey);
+      _catalogColorCache.delete(refSaveKey);
+      return updated;
+    });
+    setRefSaved(true);
+    setTimeout(() => setRefSaved(false), 2000);
+  }, [visualDebug, refSaveKey]);
+
   // Per-zone deduplication: zoneId → Map<normalizedLine, timestampMs>
   const lineSeenRef = useRef<Map<string, Map<string, number>>>(new Map());
   // Per-zone last image fingerprint — skip OCR entirely if pixels haven't changed
@@ -1524,6 +1777,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
     fired: boolean;          // whether threshold was exceeded and trigger fired
     time: string;
     allScores: Array<{ strategy: string; key: string; score: number }>;
+    zoneColor: [number, number, number] | null;  // dominant hue/sat/val of hotspot
   } | null>(null);
 
   const activePreset = useMemo(
@@ -2792,6 +3046,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 fired: vMatch !== null,
                 time: formatClock(),
                 allScores: debugInfo.allScores,
+                zoneColor: debugInfo.zoneColor ?? null,
               });
               if (vMatch) {
                 const cooldownKey = `visual:${vMatch.key}`;
@@ -4293,77 +4548,139 @@ const CaptureStudio = React.memo(function CaptureStudio({
                   <span className="text-xs font-bold text-amber-400">🔬 Debug Visual</span>
                   <span className="ml-auto text-[10px] text-[var(--t4)]">{visualDebug.time}</span>
                 </div>
-                <div className="flex gap-3 p-3">
-                  {/* Zone capture + colorful region thumbnails */}
-                  <div className="flex shrink-0 flex-col gap-2">
+                <div className="space-y-3 p-3">
+
+                  {/* Row 1: Zone + Hotspot + result status */}
+                  <div className="flex items-start gap-3">
                     <div>
-                      <p className="mb-1 text-[9px] font-semibold uppercase text-[var(--t4)]">Captura da zona</p>
-                      {visualDebug.zoneImageUrl ? (
-                        <img
-                          src={visualDebug.zoneImageUrl}
-                          alt="zone capture"
-                          className="h-16 w-16 rounded border border-[var(--border)] object-contain"
-                          style={{ background: 'rgba(0,0,0,0.4)' }}
-                        />
-                      ) : (
-                        <div className="flex h-16 w-16 items-center justify-center rounded border border-[var(--border)] bg-[var(--bg1)] text-[9px] text-[var(--t4)]">
-                          sem img
-                        </div>
-                      )}
+                      <p className="mb-1 text-[9px] font-semibold uppercase text-[var(--t4)]">Zona capturada</p>
+                      {visualDebug.zoneImageUrl
+                        ? <img src={visualDebug.zoneImageUrl} alt="zone" className="h-20 w-20 rounded border border-[var(--border)] object-contain" style={{ background: 'rgba(0,0,0,0.5)' }} />
+                        : <div className="flex h-20 w-20 items-center justify-center rounded border border-[var(--border)] bg-[var(--bg1)] text-[9px] text-[var(--t4)]">sem img</div>
+                      }
                     </div>
                     <div>
-                      <p className="mb-1 text-[9px] font-semibold uppercase text-[var(--t4)]">Foreground</p>
-                      {visualDebug.regionDataUrl ? (
-                        <img
-                          src={visualDebug.regionDataUrl}
-                          alt="foreground region"
-                          className="h-16 w-16 rounded border border-amber-500/30 object-contain"
-                          style={{ background: 'rgba(0,0,0,0.4)', imageRendering: 'pixelated' }}
-                        />
-                      ) : (
-                        <div className="flex h-16 w-16 items-center justify-center rounded border border-[var(--border)] bg-[var(--bg1)] text-[9px] text-[var(--t4)]">
-                          nenhuma
+                      <p className="mb-1 text-[9px] font-semibold uppercase text-[var(--t4)]">Hotspot (96×96)</p>
+                      {visualDebug.regionDataUrl
+                        ? <img src={visualDebug.regionDataUrl} alt="hotspot" className="h-20 w-20 rounded border border-amber-500/40 object-contain" style={{ background: 'rgba(0,0,0,0.5)', imageRendering: 'pixelated' }} />
+                        : <div className="flex h-20 w-20 items-center justify-center rounded border border-amber-500/20 bg-[var(--bg1)] text-[9px] text-[var(--t4)]">nenhum</div>
+                      }
+                    </div>
+                    <div className="flex-1 space-y-1.5">
+                      <p className={cn('text-xs font-bold', visualDebug.fired ? 'text-emerald-400' : 'text-amber-400')}>
+                        {visualDebug.fired
+                          ? `✓ Disparado: ${visualDebug.bestKey}`
+                          : `✗ Sem match — melhor: ${(visualDebug.bestScore * 100).toFixed(0)}% (${visualDebug.bestKey || 'nenhum'})`}
+                      </p>
+                      {/* Zone dominant color swatch */}
+                      {visualDebug.zoneColor ? (
+                        <div className="flex items-center gap-1.5">
+                          <div
+                            className="h-4 w-4 shrink-0 rounded-sm border border-white/20"
+                            style={{ background: `hsl(${visualDebug.zoneColor[0].toFixed(0)}deg, ${(visualDebug.zoneColor[1] * 100).toFixed(0)}%, ${(visualDebug.zoneColor[2] * 50).toFixed(0)}%)` }}
+                            title={`Matiz: ${visualDebug.zoneColor[0].toFixed(0)}° | Sat: ${(visualDebug.zoneColor[1] * 100).toFixed(0)}% | Val: ${(visualDebug.zoneColor[2] * 100).toFixed(0)}%`}
+                          />
+                          <span className="font-mono text-[9px] text-[var(--t4)]">
+                            {visualDebug.zoneColor[0].toFixed(0)}° sat:{(visualDebug.zoneColor[1] * 100).toFixed(0)}%
+                          </span>
                         </div>
+                      ) : (
+                        <p className="text-[9px] text-amber-400/70">Sem cor dominante detectada no hotspot</p>
+                      )}
+                      {!giftCatalog.some(e => e.imageUrl) && (
+                        <p className="rounded bg-blue-500/20 px-2 py-1 text-[10px] text-blue-300">
+                          ℹ Usando hues de referência pré-programadas. Salve capturas reais para maior precisão.
+                        </p>
+                      )}
+                      {giftCatalog.some(e => e.imageUrl) && !visualDebug.fired && (
+                        <p className="text-[10px] text-[var(--t4)]">
+                          {giftCatalog.filter(e => e.imageUrl).length} referências no catálogo.
+                          Se o hotspot não mostra o ícone, ajuste a posição da zona.
+                        </p>
                       )}
                     </div>
                   </div>
-                  {/* Scores */}
-                  <div className="min-w-0 flex-1">
+
+                  {/* Row 2: Scores + catalog thumbnails side-by-side */}
+                  <div>
                     <p className="mb-1.5 text-[9px] font-semibold uppercase text-[var(--t4)]">Scores por estratégia</p>
-                    <div className="space-y-1">
-                      {visualDebug.allScores.length === 0 ? (
-                        <p className="text-[10px] text-[var(--t4)]">sem catálogo ou imagem</p>
-                      ) : (
-                        visualDebug.allScores.map((s, i) => (
-                          <div key={i} className="flex items-center gap-2">
-                            <span className="w-24 shrink-0 font-mono text-[10px] text-[var(--t3)]">{s.strategy}</span>
-                            <div className="relative h-3 flex-1 overflow-hidden rounded-full bg-[var(--bg2)]">
-                              <div
-                                className={cn(
-                                  'h-full rounded-full transition-all',
-                                  s.score >= 0.38 ? 'bg-emerald-500' : s.score >= 0.28 ? 'bg-amber-500' : 'bg-red-500/60',
-                                )}
-                                style={{ width: `${Math.round(s.score * 100)}%` }}
-                              />
+                    {visualDebug.allScores.length === 0 ? (
+                      <p className="text-[10px] text-[var(--t4)]">
+                        {visualDebug.zoneColor
+                          ? 'Scores abaixo do limiar — ajuste a zona de captura.'
+                          : 'Zona muito escura ou sem cor — nenhum ícone detectado.'}
+                      </p>
+                    ) : (
+                      <div className="space-y-1">
+                        {visualDebug.allScores.map((s, i) => {
+                          const catEntry = giftCatalog.find(e => e.key === s.key);
+                          return (
+                            <div key={i} className="flex items-center gap-2">
+                              {/* Catalog thumbnail for this match */}
+                              <div className="h-6 w-6 shrink-0 overflow-hidden rounded border border-[var(--border)]" style={{ background: 'rgba(0,0,0,0.4)' }}>
+                                {catEntry?.imageUrl
+                                  ? <img src={catEntry.imageUrl} alt={catEntry.name} className="h-full w-full object-contain" />
+                                  : <span className="flex h-full w-full items-center justify-center text-[10px]">{catEntry?.emoji || '🎁'}</span>
+                                }
+                              </div>
+                              <span className="w-20 shrink-0 font-mono text-[10px] text-[var(--t3)]">{s.strategy}</span>
+                              <div className="relative h-3 flex-1 overflow-hidden rounded-full bg-[var(--bg2)]">
+                                <div
+                                  className={cn('h-full rounded-full transition-all',
+                                    s.score >= 0.72 ? 'bg-emerald-500' : s.score >= 0.55 ? 'bg-amber-500' : 'bg-red-500/60')}
+                                  style={{ width: `${Math.round(s.score * 100)}%` }}
+                                />
+                              </div>
+                              <span className={cn('w-10 shrink-0 text-right font-mono text-[10px]',
+                                s.score >= 0.72 ? 'text-emerald-400' : 'text-[var(--t3)]')}>
+                                {(s.score * 100).toFixed(0)}%
+                              </span>
+                              <span className="w-20 shrink-0 truncate text-[10px] text-[var(--t4)]">{s.key}</span>
                             </div>
-                            <span className={cn(
-                              'w-10 shrink-0 text-right font-mono text-[10px]',
-                              s.score >= 0.38 ? 'text-emerald-400' : 'text-[var(--t3)]',
-                            )}>{(s.score * 100).toFixed(0)}%</span>
-                            <span className="w-20 shrink-0 truncate text-[10px] text-[var(--t4)]">{s.key}</span>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                    <p className={cn(
-                      'mt-2 text-[10px] font-semibold',
-                      visualDebug.fired ? 'text-emerald-400' : 'text-amber-400',
-                    )}>
-                      {visualDebug.fired
-                        ? `✓ Disparado: ${visualDebug.bestKey}`
-                        : `✗ Sem match (melhor: ${(visualDebug.bestScore * 100).toFixed(0)}% — ${visualDebug.bestKey || 'nenhum'})`}
-                    </p>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
+
+                  {/* Row 3: Save hotspot as catalog reference */}
+                  {visualDebug.regionDataUrl && (
+                    <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2.5">
+                      <p className="mb-2 text-[10px] font-semibold text-[var(--t2)]">
+                        💾 Salvar hotspot como referência do catálogo
+                      </p>
+                      <p className="mb-2 text-[9px] text-[var(--t4)]">
+                        Quando um presente aparecer no OBS, clique aqui para associar a imagem capturada ao presente correto.
+                        Isso treina o algoritmo com dados reais da sua live.
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={refSaveKey}
+                          onChange={e => setRefSaveKey(e.target.value)}
+                          className="flex-1 rounded-md border border-[var(--border)] bg-[var(--bg2)] px-2 py-1 text-[11px] text-[var(--t1)]"
+                        >
+                          <option value="">— selecione o presente —</option>
+                          {giftCatalog.map(e => (
+                            <option key={e.key} value={e.key}>
+                              {e.emoji ? `${e.emoji} ` : ''}{e.name} ({e.key}){e.imageUrl ? ' ✓' : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={handleSaveVisualReference}
+                          disabled={!refSaveKey}
+                          className={cn(
+                            'shrink-0 rounded-md px-3 py-1 text-[11px] font-semibold transition-colors',
+                            refSaved
+                              ? 'bg-emerald-500/30 text-emerald-300'
+                              : 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 disabled:cursor-not-allowed disabled:opacity-40',
+                          )}
+                        >
+                          {refSaved ? '✓ Salvo!' : 'Salvar referência'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </section>
             )}
