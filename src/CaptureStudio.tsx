@@ -25,6 +25,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { emitEvent } from './core/eventBus';
+import { type GiftCatalogEntry, loadGiftCatalog } from './core/giftCatalog';
 import { apiUrl, API_BASE_URL } from './lib/api';
 import { cn } from './lib/utils';
 import type { CapturedMessage, LiveEventKind } from './types';
@@ -189,6 +190,13 @@ interface CaptureEvent {
   noMatchCount?: number;
 }
 
+/** Word-level bounding box returned by Tesseract.js */
+interface OcrWord {
+  text: string;
+  bbox: { x0: number; y0: number; x1: number; y1: number };
+  confidence?: number;
+}
+
 interface OcrResponse {
   text?: string;
   full_text?: string;
@@ -204,6 +212,10 @@ interface OcrResponse {
   captureMode?: string;
   sourceHealth?: Record<string, unknown>;
   zone_role?: string | null;
+  /** Raw zone image for visual gift matching (base64 data URL, screen-capture only) */
+  imageDataUrl?: string;
+  /** Word-level bounding boxes from Tesseract (undefined for TextDetector path) */
+  words?: OcrWord[];
 }
 
 enum CaptureStatus {
@@ -383,6 +395,664 @@ function normForDedup(line: string): string {
   return base;
 }
 
+// ─── Visual gift recognition via perceptual hashing ──────────────────────────
+//
+// When the gift catalog contains reference images (imageUrl), we identify gifts
+// by comparing the visual icon in the captured zone against catalog entries.
+// This replaces text-based parsing of OCR artifacts (V, E, ", J, .3, 27…).
+//
+// Algorithm (Average Hash / aHash):
+//   1. Resize to 8×8 pixels using <canvas>
+//   2. Convert to grayscale (luma formula)
+//   3. Build 64-bit hash: 1 if pixel ≥ mean, 0 otherwise
+//   4. Compare two hashes with Hamming distance (XOR + popcount)
+//   Similarity = 1 − distance/64  →  1.0 = identical, 0.0 = completely different
+
+
+const GIFT_VERB_WORD_RE = /^(enviou|mandou|sent|presenteou)$/i;
+
+/**
+ * Find all bounding boxes of verb words (enviou/mandou/sent) in the OCR word list,
+ * sorted by vertical position (top to bottom) so each maps to the correct notification row.
+ */
+function findAllVerbBBoxes(
+  words: OcrWord[],
+): Array<{ x0: number; y0: number; x1: number; y1: number }> {
+  return words
+    .filter((w) => GIFT_VERB_WORD_RE.test(w.text.trim()))
+    .map((w) => w.bbox)
+    .sort((a, b) => a.y0 - b.y0);
+}
+
+/**
+ * Crop the gift icon region: everything to the RIGHT of the verb word bbox.
+ * TikTok notification layout: "[avatar] [username] enviou [🎁 ICON HERE] x2"
+ * The icon is a square graphic immediately after the verb text.
+ * Returns a data URL of the crop, or null if coordinates are out of bounds.
+ */
+async function cropGiftIconRegion(
+  imageDataUrl: string,
+  verbBBox: { x0: number; y0: number; x1: number; y1: number },
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const PAD = 6; // vertical padding around the verb row
+      const x = verbBBox.x1 + 2; // 2px gap between verb text and icon
+      const y = Math.max(0, verbBBox.y0 - PAD);
+      const w = Math.max(1, img.width - x);
+      const h = Math.min(img.height - y, (verbBBox.y1 - verbBBox.y0) + PAD * 2);
+      if (x >= img.width || y >= img.height || w <= 0 || h <= 0) {
+        resolve(null);
+        return;
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d')!.drawImage(img, x, y, w, h, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => resolve(null);
+    img.src = imageDataUrl;
+  });
+}
+
+/**
+ * Cache for catalog image hashes.
+ * Key: `entry.id:entry.updatedAt:size` — recomputed only when catalog entry changes.
+ */
+const _catalogHashCache = new Map<string, number[]>();
+
+/**
+ * Compute Average Hash at any size (default 8×8 = 64 bits, 16×16 = 256 bits).
+ * Returns an array of 32-bit unsigned ints encoding the hash bits.
+ */
+async function computeAHashN(imageDataUrl: string, size = 8): Promise<number[]> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = size; canvas.height = size;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, size, size);
+      const px = ctx.getImageData(0, 0, size, size).data;
+      const gray: number[] = [];
+      for (let i = 0; i < size * size; i++) {
+        gray.push((px[i * 4] * 299 + px[i * 4 + 1] * 587 + px[i * 4 + 2] * 114) / 1000);
+      }
+      const mean = gray.reduce((a, b) => a + b, 0) / gray.length;
+      const words = Math.ceil(size * size / 32);
+      const result = new Array<number>(words).fill(0);
+      for (let i = 0; i < size * size; i++) {
+        if (gray[i] >= mean) result[Math.floor(i / 32)] |= 1 << (i % 32);
+      }
+      resolve(result.map(n => n >>> 0));
+    };
+    img.onerror = () => resolve([]);
+    img.src = imageDataUrl;
+  });
+}
+
+function hammingDistanceN(a: number[], b: number[]): number {
+  const len = Math.min(a.length, b.length);
+  let d = 0;
+  for (let i = 0; i < len; i++) {
+    let x = (a[i] ^ b[i]) >>> 0;
+    while (x) { d += x & 1; x >>>= 1; }
+  }
+  return d;
+}
+
+/**
+ * Compare an image data URL against all catalog entries that have reference images.
+ * Uses the specified hash size (8 = fast/coarse, 16 = slower/accurate).
+ * Returns the best match above `minSimilarity`, or null.
+ */
+async function matchGiftInCatalog(
+  imageDataUrl: string,
+  catalog: GiftCatalogEntry[],
+  minSimilarity = 0.72,
+  hashSize = 8,
+): Promise<{ key: string; name: string; emoji?: string; similarity: number } | null> {
+  const imgHash = await computeAHashN(imageDataUrl, hashSize);
+  if (imgHash.length === 0) return null;
+
+  const totalBits = hashSize * hashSize;
+  let best: { key: string; name: string; emoji?: string; similarity: number } | null = null;
+
+  for (const entry of catalog) {
+    if (!entry.imageUrl) continue;
+    try {
+      const cacheKey = `${entry.id}:${entry.updatedAt ?? ''}:${hashSize}`;
+      let entryHash = _catalogHashCache.get(cacheKey);
+      if (!entryHash) {
+        entryHash = await computeAHashN(entry.imageUrl, hashSize);
+        _catalogHashCache.set(cacheKey, entryHash);
+      }
+      const dist = hammingDistanceN(imgHash, entryHash);
+      const sim = 1 - dist / totalBits;
+      if (!best || sim > best.similarity) {
+        best = { key: entry.key, name: entry.name, emoji: entry.emoji, similarity: sim };
+      }
+    } catch {
+      /* skip unreadable catalog images */
+    }
+  }
+
+  return best && best.similarity >= minSimilarity ? best : null;
+}
+
+/**
+ * Extract the most colorful (saturated) region from an image.
+ *
+ * TikTok uses a dark UI. Gift cards are the most visually saturated element
+ * in the zone — comparing JUST this region against the catalog icon is far
+ * more reliable than comparing the whole frame (which is mostly dark background).
+ *
+ * Algorithm:
+ *   1. Downsample to 32×32 for fast processing
+ *   2. Convert each pixel to HSL — compute saturation = (max-min) channel range
+ *   3. Find bounding box of pixels with saturation > 0.25
+ *   4. Scale bbox back to original dimensions and crop
+ */
+/**
+ * Extracts the foreground region (gift icon) by comparing pixels against the
+ * background color estimated from the four corners of the image.
+ * Works for any icon color — white, grey, pastel — because it uses
+ * contrast-from-background rather than absolute saturation.
+ */
+async function extractForegroundRegion(imageDataUrl: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const S = 48;
+      const canvas = document.createElement('canvas');
+      canvas.width = S; canvas.height = S;
+      const ctx = canvas.getContext('2d')!;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, S, S);
+      ctx.drawImage(img, 0, 0, S, S);
+      const data = ctx.getImageData(0, 0, S, S).data;
+
+      // Estimate background from 2×2 samples at each corner
+      let bgR = 0, bgG = 0, bgB = 0, bgN = 0;
+      for (const [cx, cy] of [[0, 0], [S - 2, 0], [0, S - 2], [S - 2, S - 2]] as [number, number][]) {
+        for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+          const i = ((cy + dy) * S + (cx + dx)) * 4;
+          bgR += data[i]; bgG += data[i + 1]; bgB += data[i + 2]; bgN++;
+        }
+      }
+      bgR /= bgN; bgG /= bgN; bgB /= bgN;
+
+      // Mark pixels whose Euclidean RGB distance from background exceeds threshold
+      const THRESH = 22; // 0–255 scale; lower = more sensitive
+      let minX = S, minY = S, maxX = -1, maxY = -1;
+      for (let y = 0; y < S; y++) {
+        for (let x = 0; x < S; x++) {
+          const i = (y * S + x) * 4;
+          const dr = data[i] - bgR, dg = data[i + 1] - bgG, db = data[i + 2] - bgB;
+          if (Math.sqrt(dr * dr + dg * dg + db * db) > THRESH) {
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+
+      if (maxX < 0 || maxX <= minX || maxY <= minY) { resolve(null); return; }
+
+      const scaleX = img.width / S, scaleY = img.height / S;
+      const PAD = 4;
+      const ox = Math.max(0, Math.round(minX * scaleX) - PAD);
+      const oy = Math.max(0, Math.round(minY * scaleY) - PAD);
+      const ow = Math.min(img.width - ox, Math.round((maxX - minX + 1) * scaleX) + PAD * 2);
+      const oh = Math.min(img.height - oy, Math.round((maxY - minY + 1) * scaleY) + PAD * 2);
+      if (ow < 4 || oh < 4) { resolve(null); return; }
+
+      const crop = document.createElement('canvas');
+      crop.width = ow; crop.height = oh;
+      crop.getContext('2d')!.drawImage(img, ox, oy, ow, oh, 0, 0, ow, oh);
+      resolve(crop.toDataURL('image/png'));
+    };
+    img.onerror = () => resolve(null);
+    img.src = imageDataUrl;
+  });
+}
+
+/** Debug info emitted by detectVisualGiftInZone on every call, even with no match. */
+interface VisualGiftDebugInfo {
+  colorRegion: string | null;  // foreground region crop (null if extraction failed)
+  allScores: Array<{ strategy: string; key: string; score: number }>;
+  bestScore: number;
+  bestKey: string;
+}
+
+/**
+ * Returns per-pixel grayscale values (0–1) for an image at a given resolution.
+ * The canvas is pre-filled black so transparent PNGs composite onto black —
+ * matching TikTok's dark UI background for like-for-like comparison.
+ */
+async function getGrayscalePixels(imageDataUrl: string, size: number): Promise<Float32Array | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = size; canvas.height = size;
+      const ctx = canvas.getContext('2d')!;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, size, size);
+      ctx.drawImage(img, 0, 0, size, size);
+      const { data } = ctx.getImageData(0, 0, size, size);
+      const px = new Float32Array(size * size);
+      for (let i = 0; i < px.length; i++) {
+        const j = i * 4;
+        px[i] = (0.299 * data[j] + 0.587 * data[j + 1] + 0.114 * data[j + 2]) / 255;
+      }
+      resolve(px);
+    };
+    img.onerror = () => resolve(null);
+    img.src = imageDataUrl;
+  });
+}
+
+/**
+ * Normalized cross-correlation (NCC) between two images at `size`×`size`.
+ * Returns a value in [–1, 1]: 1 = identical texture, 0 = uncorrelated,
+ * –1 = inverted. Unlike aHash (64–256 bits), NCC uses 1024 float values
+ * so it captures far more shape detail at the same resolution.
+ */
+async function imageNCC(imgA: string, imgB: string, size = 32): Promise<number> {
+  const [pxA, pxB] = await Promise.all([getGrayscalePixels(imgA, size), getGrayscalePixels(imgB, size)]);
+  if (!pxA || !pxB) return 0;
+  const n = pxA.length;
+  let sumA = 0, sumB = 0;
+  for (let i = 0; i < n; i++) { sumA += pxA[i]; sumB += pxB[i]; }
+  const mA = sumA / n, mB = sumB / n;
+  let num = 0, vA = 0, vB = 0;
+  for (let i = 0; i < n; i++) {
+    const da = pxA[i] - mA, db = pxB[i] - mB;
+    num += da * db; vA += da * da; vB += db * db;
+  }
+  const den = Math.sqrt(vA * vB);
+  return den < 1e-10 ? 0 : num / den;
+}
+
+/** Match zone image against catalog entries using NCC; similarity mapped to [0,1]. */
+async function matchGiftByNCC(
+  imageDataUrl: string,
+  catalog: GiftCatalogEntry[],
+  minScore = 0,
+  size = 32,
+): Promise<{ key: string; name: string; emoji?: string; similarity: number } | null> {
+  let best: { key: string; name: string; emoji?: string; similarity: number } | null = null;
+  for (const entry of catalog) {
+    if (!entry.imageUrl) continue;
+    try {
+      const ncc = await imageNCC(imageDataUrl, entry.imageUrl, size);
+      const sim = (ncc + 1) / 2; // map [–1,1] → [0,1]
+      if (sim >= minScore && (!best || sim > best.similarity)) {
+        best = { key: entry.key, name: entry.name, emoji: entry.emoji, similarity: sim };
+      }
+    } catch { /* skip bad catalog entries */ }
+  }
+  return best;
+}
+
+/**
+ * Computes a normalized hue histogram from colorful pixels of an image.
+ * Used as Strategy 4 (color-distribution fingerprint).
+ */
+async function computeHueHistogram(imageDataUrl: string, bins = 36): Promise<number[] | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const S = 48;
+      const canvas = document.createElement('canvas');
+      canvas.width = S; canvas.height = S;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, S, S);
+      const data = ctx.getImageData(0, 0, S, S).data;
+      const hist = new Array<number>(bins).fill(0);
+      let count = 0;
+      for (let i = 0; i < S * S * 4; i += 4) {
+        const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b), delta = mx - mn;
+        const sat = mx > 0 ? delta / mx : 0;
+        if (sat < 0.06 || mx < 0.06) continue;
+        let hue = 0;
+        if (delta > 0) {
+          if (mx === r) hue = 60 * (((g - b) / delta) % 6);
+          else if (mx === g) hue = 60 * ((b - r) / delta + 2);
+          else hue = 60 * ((r - g) / delta + 4);
+          if (hue < 0) hue += 360;
+        }
+        hist[Math.min(bins - 1, Math.floor(hue / (360 / bins)))]++;
+        count++;
+      }
+      if (count === 0) { resolve(null); return; }
+      resolve(hist.map((v) => v / count));
+    };
+    img.onerror = () => resolve(null);
+    img.src = imageDataUrl;
+  });
+}
+
+function histogramBhattacharyya(a: number[], b: number[]): number {
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) sum += Math.sqrt(a[i] * b[i]);
+  return sum;
+}
+
+async function matchGiftByHistogram(
+  imageDataUrl: string,
+  catalog: GiftCatalogEntry[],
+  minScore = 0,
+): Promise<{ key: string; name: string; emoji?: string; similarity: number } | null> {
+  const zoneHist = await computeHueHistogram(imageDataUrl);
+  if (!zoneHist) return null;
+  let best: { key: string; name: string; emoji?: string; similarity: number } | null = null;
+  for (const entry of catalog) {
+    if (!entry.imageUrl) continue;
+    try {
+      const entryHist = await computeHueHistogram(entry.imageUrl);
+      if (!entryHist) continue;
+      const score = histogramBhattacharyya(zoneHist, entryHist);
+      if (score >= minScore && (!best || score > best.similarity)) {
+        best = { key: entry.key, name: entry.name, emoji: entry.emoji, similarity: score };
+      }
+    } catch { /* skip */ }
+  }
+  return best;
+}
+
+/**
+ * Per-session cache of catalog-image foreground regions.
+ * Avoids re-running extractForegroundRegion on every catalog entry every frame.
+ * Keyed by GiftCatalogEntry.key (stable). Cleared automatically when the catalog
+ * key changes (user uploads a new image and saves a new entry).
+ */
+const _catalogFgCache = new Map<string, string | null>();
+
+/**
+ * Extracts the foreground of a catalog PNG using its alpha channel.
+ * This is far more reliable than corner-based background estimation for
+ * catalog images because TikTok gift icons are PNGs with transparent
+ * backgrounds — alpha = 0 IS the background by definition.
+ *
+ * Falls back to corner-based extractForegroundRegion for JPEGs (no alpha).
+ */
+async function extractForegroundFromAlpha(imageDataUrl: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const S = 64; // higher res for more accurate alpha boundary
+      const canvas = document.createElement('canvas');
+      canvas.width = S; canvas.height = S;
+      const ctx = canvas.getContext('2d')!;
+      ctx.clearRect(0, 0, S, S);
+      ctx.drawImage(img, 0, 0, S, S);
+      const data = ctx.getImageData(0, 0, S, S).data;
+
+      // Count opaque pixels — if too few the image has no real transparency
+      let opaqueCount = 0;
+      let minX = S, minY = S, maxX = -1, maxY = -1;
+      for (let y = 0; y < S; y++) {
+        for (let x = 0; x < S; x++) {
+          const i = (y * S + x) * 4;
+          if (data[i + 3] > 20) { // alpha > 20 = foreground pixel
+            opaqueCount++;
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+
+      // If > 90% pixels are opaque, image has no transparency → corner method
+      if (opaqueCount > S * S * 0.9 || maxX < 0 || maxX <= minX || maxY <= minY) {
+        resolve(null);
+        return;
+      }
+
+      const scaleX = img.width / S, scaleY = img.height / S;
+      const PAD = 2;
+      const ox = Math.max(0, Math.round(minX * scaleX) - PAD);
+      const oy = Math.max(0, Math.round(minY * scaleY) - PAD);
+      const ow = Math.min(img.width - ox, Math.round((maxX - minX + 1) * scaleX) + PAD * 2);
+      const oh = Math.min(img.height - oy, Math.round((maxY - minY + 1) * scaleY) + PAD * 2);
+      if (ow < 4 || oh < 4) { resolve(null); return; }
+
+      // Render cropped portion on black background
+      const crop = document.createElement('canvas');
+      crop.width = ow; crop.height = oh;
+      const cctx = crop.getContext('2d')!;
+      cctx.fillStyle = '#000';
+      cctx.fillRect(0, 0, ow, oh);
+      cctx.drawImage(img, ox, oy, ow, oh, 0, 0, ow, oh);
+      resolve(crop.toDataURL('image/png'));
+    };
+    img.onerror = () => resolve(null);
+    img.src = imageDataUrl;
+  });
+}
+
+async function getCatalogFg(entry: GiftCatalogEntry): Promise<string | null> {
+  if (_catalogFgCache.has(entry.key)) return _catalogFgCache.get(entry.key)!;
+  if (!entry.imageUrl) { _catalogFgCache.set(entry.key, null); return null; }
+  // Alpha-channel extraction is the right method for PNG catalog icons
+  let fg = await extractForegroundFromAlpha(entry.imageUrl);
+  // Fall back to corner-based method for JPEGs (no alpha channel)
+  if (!fg) fg = await extractForegroundRegion(entry.imageUrl);
+  _catalogFgCache.set(entry.key, fg);
+  return fg;
+}
+
+/**
+ * NCC comparison where BOTH the zone image and each catalog image are
+ * foreground-extracted first.  With backgrounds removed on both sides
+ * the comparison focuses purely on the icon's spatial structure and shape.
+ */
+async function matchGiftFgVsFg(
+  zoneFg: string,
+  catalog: GiftCatalogEntry[],
+  minScore = 0,
+  size = 48,
+): Promise<{ key: string; name: string; emoji?: string; similarity: number } | null> {
+  let best: { key: string; name: string; emoji?: string; similarity: number } | null = null;
+  for (const entry of catalog) {
+    if (!entry.imageUrl) continue;
+    try {
+      const catFg = await getCatalogFg(entry);
+      const ncc = await imageNCC(zoneFg, catFg ?? entry.imageUrl, size);
+      const sim = (ncc + 1) / 2;
+      if (sim >= minScore && (!best || sim > best.similarity)) {
+        best = { key: entry.key, name: entry.name, emoji: entry.emoji, similarity: sim };
+      }
+    } catch { /* skip */ }
+  }
+  return best;
+}
+
+/**
+ * Direct visual gift detection — four independent strategies, consensus required.
+ *
+ *   S1  NCC full frame @32×32           threshold 0.78 (high — noisy, used only for consensus)
+ *   S2  NCC center 60% crop @32×32      threshold 0.78 (high — noisy, used only for consensus)
+ *   S3  NCC fg-vs-fg @48×48             threshold 0.65 — PRIMARY STRATEGY
+ *       Both zone image and catalog entry are foreground-extracted before
+ *       comparison, eliminating background noise on both sides.
+ *   S4  Hue-histogram Bhattacharyya on fg  threshold 0.62 — SECONDARY STRATEGY
+ *
+ * Consensus: same key in ≥2 strategies, or single strategy ≥0.88.
+ */
+async function detectVisualGiftInZone(
+  imageDataUrl: string,
+  catalog: GiftCatalogEntry[],
+): Promise<{ match: { key: string; name: string; emoji?: string; similarity: number } | null; debugInfo: VisualGiftDebugInfo }> {
+  const noResult = { match: null, debugInfo: { colorRegion: null, allScores: [], bestScore: 0, bestKey: '' } };
+  if (!imageDataUrl || !catalog.some((e) => e.imageUrl)) return noResult;
+
+  const candidates: Array<{ key: string; name: string; emoji?: string; similarity: number; strategy: string }> = [];
+  const allScores: Array<{ strategy: string; key: string; score: number }> = [];
+
+  // ── S1: NCC full frame @32×32 (noisy — high threshold, consensus-support only) ──
+  const s1 = await matchGiftByNCC(imageDataUrl, catalog, 0, 32);
+  if (s1) {
+    allScores.push({ strategy: 'ncc-full', key: s1.key, score: s1.similarity });
+    if (s1.similarity >= 0.78) candidates.push({ ...s1, strategy: 'ncc-full' });
+  }
+
+  // ── S2: NCC center crop @32×32 (noisy — high threshold, consensus-support only) ─
+  const centerCanvas = document.createElement('canvas');
+  await new Promise<void>((res) => {
+    const img = new Image();
+    img.onload = () => {
+      const f = 0.6;
+      const cw = Math.round(img.width * f), ch = Math.round(img.height * f);
+      const cx = Math.round((img.width - cw) / 2), cy = Math.round((img.height - ch) / 2);
+      centerCanvas.width = cw; centerCanvas.height = ch;
+      centerCanvas.getContext('2d')!.drawImage(img, cx, cy, cw, ch, 0, 0, cw, ch);
+      res();
+    };
+    img.onerror = () => res();
+    img.src = imageDataUrl;
+  });
+  if (centerCanvas.width > 0) {
+    const centerCrop = centerCanvas.toDataURL('image/png');
+    const s2 = await matchGiftByNCC(centerCrop, catalog, 0, 32);
+    if (s2) {
+      allScores.push({ strategy: 'ncc-center', key: s2.key, score: s2.similarity });
+      if (s2.similarity >= 0.78) candidates.push({ ...s2, strategy: 'ncc-center' });
+    }
+  }
+
+  // ── S3: NCC fg-vs-fg @48×48 — PRIMARY STRATEGY ──────────────────────────
+  // Both images are foreground-extracted before comparison, so the NCC
+  // sees only the icon shape/texture with no background on either side.
+  const fgRegion = await extractForegroundRegion(imageDataUrl);
+  if (fgRegion) {
+    const s3 = await matchGiftFgVsFg(fgRegion, catalog, 0, 48);
+    if (s3) {
+      allScores.push({ strategy: 'ncc-fg', key: s3.key, score: s3.similarity });
+      if (s3.similarity >= 0.65) candidates.push({ ...s3, strategy: 'ncc-fg' });
+    }
+    // ── S4: histogram on fg — SECONDARY STRATEGY ──────────────────────────
+    const s4 = await matchGiftByHistogram(fgRegion, catalog, 0);
+    if (s4) {
+      allScores.push({ strategy: 'histogram', key: s4.key, score: s4.similarity });
+      if (s4.similarity >= 0.62) candidates.push({ ...s4, strategy: 'histogram' });
+    }
+  } else {
+    // No foreground found — fall back to histogram on full frame
+    const s4 = await matchGiftByHistogram(imageDataUrl, catalog, 0);
+    if (s4) {
+      allScores.push({ strategy: 'histogram-full', key: s4.key, score: s4.similarity });
+      if (s4.similarity >= 0.62) candidates.push({ ...s4, strategy: 'histogram-full' });
+    }
+  }
+
+  const bestScore = allScores.length > 0 ? Math.max(...allScores.map((s) => s.score)) : 0;
+  const bestEntry = allScores.find((s) => s.score === bestScore);
+  const debugInfo: VisualGiftDebugInfo = {
+    colorRegion: fgRegion ?? null,
+    allScores,
+    bestScore,
+    bestKey: bestEntry?.key ?? '',
+  };
+
+  if (candidates.length === 0) {
+    console.debug('[visual-gift] no match | scores:', allScores.map((s) => `${s.strategy}:${s.score.toFixed(3)}`).join(', '));
+    return { match: null, debugInfo };
+  }
+
+  // ── Consensus: same key in ≥2 strategies, or single strategy ≥0.88 ───────
+  const keyCounts = new Map<string, { count: number; best: typeof candidates[0] }>();
+  for (const c of candidates) {
+    const prev = keyCounts.get(c.key);
+    if (!prev || c.similarity > prev.best.similarity) {
+      keyCounts.set(c.key, { count: (prev?.count ?? 0) + 1, best: c });
+    } else {
+      keyCounts.set(c.key, { count: prev.count + 1, best: prev.best });
+    }
+  }
+
+  const qualified = [...keyCounts.values()]
+    .filter((v) => v.count >= 2 || v.best.similarity >= 0.88)
+    .sort((a, b) => b.best.similarity - a.best.similarity);
+
+  if (qualified.length === 0) {
+    console.debug('[visual-gift] no consensus |', candidates.map((c) => `${c.strategy}:${c.key}:${c.similarity.toFixed(3)}`).join(', '));
+    return { match: null, debugInfo };
+  }
+
+  const winner = qualified[0].best;
+  console.debug('[visual-gift] MATCH:', winner.key, winner.strategy, winner.similarity.toFixed(3));
+  return { match: winner, debugInfo };
+}
+
+/**
+ * Visual gift line resolution.
+ *
+ * For each line in `lines` that matches the gift verb pattern, look up the
+ * corresponding verb bounding box in the OCR word list, crop the icon region
+ * from the zone image, and compare it against catalog reference images.
+ *
+ * On a successful match the ambiguous OCR token (V, E, ", J, .3…) is replaced
+ * with the exact catalog key (gift.coracao, gift.rosa…) so that both the server
+ * and the client fallback can match it cleanly against trigger conditions.
+ *
+ * Falls back to the original line if: no catalog images, no verb bbox found,
+ * crop fails, or similarity is below threshold.
+ */
+async function resolveGiftLinesVisually(
+  lines: string[],
+  words: OcrWord[],
+  imageDataUrl: string,
+  catalog: GiftCatalogEntry[],
+): Promise<string[]> {
+  if (!imageDataUrl || !words.length || !catalog.some((e) => e.imageUrl)) return lines;
+
+  // Find all verb bboxes (one per gift notification row in the capture)
+  const verbBBoxes = findAllVerbBBoxes(words);
+  if (verbBBoxes.length === 0) return lines;
+
+  const resolved: string[] = [];
+  let bboxIndex = 0; // advance through verb bboxes as we process gift lines
+
+  for (const line of lines) {
+    const vm = GIFT_VERB_RE_CLIENT.exec(line);
+    if (!vm) {
+      resolved.push(line);
+      continue;
+    }
+
+    // Pick the verb bbox for this notification row
+    const bbox = verbBBoxes[Math.min(bboxIndex, verbBBoxes.length - 1)];
+    bboxIndex++;
+
+    try {
+      const iconCrop = await cropGiftIconRegion(imageDataUrl, bbox);
+      if (!iconCrop) { resolved.push(line); continue; }
+
+      const match = await matchGiftInCatalog(iconCrop, catalog);
+      if (!match) { resolved.push(line); continue; }
+
+      // Rebuild the line with the confirmed catalog key
+      const sender = vm[1].trim();
+      const countSuffix = vm[3] ? ` x${vm[3]}` : '';
+      resolved.push(`${sender} enviou ${match.key}${countSuffix}`);
+    } catch {
+      resolved.push(line); // any error → keep original
+    }
+  }
+
+  return resolved;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
  * Lightweight image fingerprint used to skip OCR when the zone pixels
  * haven't changed between cycles. Samples key positions in the base64
@@ -474,6 +1144,12 @@ const GIFT_KEY_EMOJI: Record<string, string> = {
 };
 function giftKeyToEmoji(key: string): string {
   return GIFT_KEY_EMOJI[(key ?? '').toLowerCase()] ?? '🎁';
+}
+
+/** Get display emoji for a gift key, checking the live catalog first. */
+function getGiftEmoji(key: string, catalog: GiftCatalogEntry[]): string {
+  const entry = catalog.find((e) => e.key === key);
+  return entry?.emoji || giftKeyToEmoji(key);
 }
 
 function normaliseGiftKeyClient(raw: string, fromVerbPattern = false): string {
@@ -808,12 +1484,24 @@ const CaptureStudio = React.memo(function CaptureStudio({
   // OCR engine for screen-capture mode.
   // Unified interface so TextDetector and Tesseract.js are interchangeable.
   const ocrWorkerRef = useRef<{
-    recognize: (img: string) => Promise<{ data: { text: string } }>;
+    recognize: (img: string) => Promise<{ data: { text: string; words?: OcrWord[] } }>;
     terminate?: () => Promise<void>;
   } | null>(null);
   const ocrInitStartedRef = useRef(false);
   const ocrLoadingRef = useRef(false);
   const ocrErrorRef = useRef<string | null>(null);
+
+  // Gift catalog — kept in sync with localStorage (updated by ReactiveFlowBoard).
+  // Used for visual gift icon matching during the OCR capture loop.
+  const [giftCatalog, setGiftCatalog] = useState<GiftCatalogEntry[]>([]);
+  useEffect(() => {
+    setGiftCatalog(loadGiftCatalog());
+    const onStorage = (e: StorageEvent) => {
+      if (e.key?.includes('gift-catalog')) setGiftCatalog(loadGiftCatalog());
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   // Per-zone deduplication: zoneId → Map<normalizedLine, timestampMs>
   const lineSeenRef = useRef<Map<string, Map<string, number>>>(new Map());
@@ -826,6 +1514,17 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const [recentGifts, setRecentGifts] = useState<
     Array<{ id: string; name: string; emoji: string; count: number; time: string; triggered: boolean; sender?: string; ocrRaw?: string }>
   >([]);
+
+  // Visual detection debug — shows what the algorithm is seeing
+  const [visualDebug, setVisualDebug] = useState<{
+    zoneImageUrl: string;    // full zone capture (what the camera sees)
+    regionDataUrl: string;   // extracted colorful region (or '' if none)
+    bestKey: string;         // best catalog match key
+    bestScore: number;       // best similarity score (0–1) across all strategies
+    fired: boolean;          // whether threshold was exceeded and trigger fired
+    time: string;
+    allScores: Array<{ strategy: string; key: string; score: number }>;
+  } | null>(null);
 
   const activePreset = useMemo(
     () => presets.find((preset) => preset.id === activePresetId) || presets[0],
@@ -1158,8 +1857,24 @@ const CaptureStudio = React.memo(function CaptureStudio({
       .then(({ createWorker }) => createWorker('por', 1, { logger: () => undefined }))
       .then((worker) => {
         ocrWorkerRef.current = {
-          recognize: (img: string) => worker.recognize(img) as Promise<{ data: { text: string } }>,
-          terminate: () => worker.terminate(),
+          recognize: async (img: string) => {
+            const result = await worker.recognize(img);
+            // Flatten the nested blocks→paragraphs→lines→words tree into a flat array.
+            // Each word carries its bounding box (x0,y0,x1,y1) in image-pixel space,
+            // which we use later to locate the gift icon to the right of "enviou".
+            const words: OcrWord[] = [];
+            for (const block of result.data.blocks ?? []) {
+              for (const para of block.paragraphs ?? []) {
+                for (const line of para.lines ?? []) {
+                  for (const word of line.words ?? []) {
+                    words.push({ text: word.text, bbox: word.bbox, confidence: word.confidence });
+                  }
+                }
+              }
+            }
+            return { data: { text: result.data.text, words } };
+          },
+          terminate: () => worker.terminate().then(() => undefined),
         };
         ocrLoadingRef.current = false;
       })
@@ -1807,6 +2522,8 @@ const CaptureStudio = React.memo(function CaptureStudio({
           confidence: null,
           latency_ms: Math.round(performance.now() - startMs),
           captureMode: 'screen',
+          imageDataUrl,          // raw zone capture — used for visual gift matching
+          words: data.words,     // word-level bboxes — used to locate gift icon position
         });
       } catch (err) {
         results.push({
@@ -2050,12 +2767,63 @@ const CaptureStudio = React.memo(function CaptureStudio({
             continue;
           }
 
-          // ── Layer-2 dedup: normalised per-line comparison (TTL = 30 s) ─────
-          // normForDedup() collapses common Tesseract OCR confusions so that
-          // "Follow", "Fo11ow", "F0llow" all map to the same key and are
-          // treated as already-seen within the cooldown window.
+          // ── Direct visual gift detection ───────────────────────────────────
+          // On TikTok, gifts appear as large animated card overlays — the OCR
+          // rarely reads a clean "enviou" sentence from them.  So we compare
+          // the raw zone image against catalog reference images on every frame
+          // change, completely independent of the OCR text.
+          //
+          // Uses two strategies (full frame @threshold 0.60 and center-crop
+          // @threshold 0.65); the higher-confidence result wins.  Cooldown is
+          // shared with text-based dedup via lastGiftFiredRef.
           const DEDUP_TTL_MS = 30_000;
           const nowMs = Date.now();
+
+          if (result.imageDataUrl) {
+            try {
+              const { match: vMatch, debugInfo } = await detectVisualGiftInZone(result.imageDataUrl, giftCatalog);
+              // Always update the debug panel so the user can see what the algorithm found,
+              // even when no threshold is exceeded.
+              setVisualDebug({
+                zoneImageUrl: result.imageDataUrl,
+                regionDataUrl: debugInfo.colorRegion ?? '',
+                bestKey: debugInfo.bestKey,
+                bestScore: debugInfo.bestScore,
+                fired: vMatch !== null,
+                time: formatClock(),
+                allScores: debugInfo.allScores,
+              });
+              if (vMatch) {
+                const cooldownKey = `visual:${vMatch.key}`;
+                const lastFired = lastGiftFiredRef.current.get(cooldownKey) ?? 0;
+                if (nowMs - lastFired >= DEDUP_TTL_MS) {
+                  lastGiftFiredRef.current.set(cooldownKey, nowMs);
+                  // Fire trigger directly via /video/trigger
+                  fetch(apiUrl('/video/trigger'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ eventType: 'gift', giftKey: vMatch.key, gift_key: vMatch.key }),
+                  }).catch(() => undefined);
+                  // Update Presentes panel
+                  setRecentGifts((prev) => [
+                    {
+                      id: makeEventId(),
+                      name: vMatch.key,
+                      emoji: getGiftEmoji(vMatch.key, giftCatalog),
+                      count: 1,
+                      time: formatClock(),
+                      triggered: true,
+                    },
+                    ...prev,
+                  ].slice(0, 20));
+                }
+              }
+            } catch {
+              /* visual detection is best-effort — never block text processing */
+            }
+          }
+
+          // ── Layer-2 dedup: normalised per-line comparison (TTL = 30 s) ─────
           if (!lineSeenRef.current.has(zone.id)) lineSeenRef.current.set(zone.id, new Map());
           const seenMap = lineSeenRef.current.get(zone.id)!;
           // Expire old entries
@@ -2084,27 +2852,37 @@ const CaptureStudio = React.memo(function CaptureStudio({
             return true;
           });
           if (ingestLines.length === 0) continue; // nothing to ingest after all dedup layers
-          const processText = ingestLines.join('\n');
 
-          // Gift stickers are now detected server-side in /ocr/ingest for ALL zone
-          // roles (including 'gifts'). The result comes back in ingestResult.triggered
-          // and is shown in the events panel. No client-side gift firing needed here.
+          // ── Layer-4: visual gift key resolution ───────────────────────────
+          // For lines that match a gift verb pattern, replace the ambiguous OCR
+          // token (V, E, ", J, .3…) with the exact catalog key (gift.coracao,
+          // gift.rosa…) identified by comparing the gift icon pixel region
+          // against catalog reference images via perceptual hashing (aHash).
+          // Falls back to the original line if catalog has no images, the verb
+          // bbox is not found, or similarity is below threshold.
+          const resolvedLines = await resolveGiftLinesVisually(
+            ingestLines,
+            result.words ?? [],
+            result.imageDataUrl ?? '',
+            giftCatalog,
+          );
+          const processText = resolvedLines.join('\n');
 
           if (processText.length > 0) {
             // ── Route to /ocr/ingest — the central trigger routing engine ──────
-            // Sends fresh lines (not combined text) so the server can parse each
-            // one independently and fire matching triggers for gifts, keywords, etc.
+            // Sends resolved lines so the server sees clean gift keys ("gift.coracao")
+            // rather than raw OCR artifacts ("V", "E", """).
             let ingestResult: OcrIngestResult | null = null;
             try {
               const ingestResponse = await fetch(apiUrl('/ocr/ingest'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  lines: ingestLines,         // array of individual new lines (cross-zone deduped)
-                  text: processText,          // joined fallback
+                  lines: resolvedLines,       // visually-resolved lines
+                  text: processText,
                   source: 'ocr',
                   zoneName: result.zone_name || zone.name,
-                  zoneRole: zone.role,        // 'chat' | 'gifts' | 'alerts' | 'custom'
+                  zoneRole: zone.role,
                   zoneId: result.zone_id || zone.id,
                 }),
               });
@@ -2115,12 +2893,11 @@ const CaptureStudio = React.memo(function CaptureStudio({
 
               // ── Old-server fallback ─────────────────────────────────────
               // If the running Node.js process hasn't been restarted yet,
-              // /ocr/ingest returns the legacy {simulated: true} format with
-              // no triggered/noMatch arrays. In that case, parse lines here
-              // in the browser and call the /video/trigger endpoint (which
-              // exists in the old server and does trigger matching correctly).
+              // /ocr/ingest returns the legacy {simulated: true} format.
+              // In that case parse the already-resolved lines here in the browser
+              // and call /video/trigger (which exists in the old server).
               if ((ingestResult as Record<string, unknown> | null)?.['simulated'] === true) {
-                ingestResult = await clientSideIngestFallback(ingestLines, zone.role, apiUrl);
+                ingestResult = await clientSideIngestFallback(resolvedLines, zone.role, apiUrl);
               }
             } catch (err) {
               const message = err instanceof Error ? err.message : 'Falha ao rotear evento';
@@ -3509,6 +4286,88 @@ const CaptureStudio = React.memo(function CaptureStudio({
             </section>
 
             {/* ── Presentes detectados ───────────────────────────────────── */}
+            {/* ── Visual detection debug panel ───────────────────────────────── */}
+            {visualDebug && (
+              <section className="rounded-lg border border-amber-500/30 bg-amber-500/5">
+                <div className="flex items-center gap-2 border-b border-amber-500/20 px-4 py-2.5">
+                  <span className="text-xs font-bold text-amber-400">🔬 Debug Visual</span>
+                  <span className="ml-auto text-[10px] text-[var(--t4)]">{visualDebug.time}</span>
+                </div>
+                <div className="flex gap-3 p-3">
+                  {/* Zone capture + colorful region thumbnails */}
+                  <div className="flex shrink-0 flex-col gap-2">
+                    <div>
+                      <p className="mb-1 text-[9px] font-semibold uppercase text-[var(--t4)]">Captura da zona</p>
+                      {visualDebug.zoneImageUrl ? (
+                        <img
+                          src={visualDebug.zoneImageUrl}
+                          alt="zone capture"
+                          className="h-16 w-16 rounded border border-[var(--border)] object-contain"
+                          style={{ background: 'rgba(0,0,0,0.4)' }}
+                        />
+                      ) : (
+                        <div className="flex h-16 w-16 items-center justify-center rounded border border-[var(--border)] bg-[var(--bg1)] text-[9px] text-[var(--t4)]">
+                          sem img
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[9px] font-semibold uppercase text-[var(--t4)]">Foreground</p>
+                      {visualDebug.regionDataUrl ? (
+                        <img
+                          src={visualDebug.regionDataUrl}
+                          alt="foreground region"
+                          className="h-16 w-16 rounded border border-amber-500/30 object-contain"
+                          style={{ background: 'rgba(0,0,0,0.4)', imageRendering: 'pixelated' }}
+                        />
+                      ) : (
+                        <div className="flex h-16 w-16 items-center justify-center rounded border border-[var(--border)] bg-[var(--bg1)] text-[9px] text-[var(--t4)]">
+                          nenhuma
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {/* Scores */}
+                  <div className="min-w-0 flex-1">
+                    <p className="mb-1.5 text-[9px] font-semibold uppercase text-[var(--t4)]">Scores por estratégia</p>
+                    <div className="space-y-1">
+                      {visualDebug.allScores.length === 0 ? (
+                        <p className="text-[10px] text-[var(--t4)]">sem catálogo ou imagem</p>
+                      ) : (
+                        visualDebug.allScores.map((s, i) => (
+                          <div key={i} className="flex items-center gap-2">
+                            <span className="w-24 shrink-0 font-mono text-[10px] text-[var(--t3)]">{s.strategy}</span>
+                            <div className="relative h-3 flex-1 overflow-hidden rounded-full bg-[var(--bg2)]">
+                              <div
+                                className={cn(
+                                  'h-full rounded-full transition-all',
+                                  s.score >= 0.38 ? 'bg-emerald-500' : s.score >= 0.28 ? 'bg-amber-500' : 'bg-red-500/60',
+                                )}
+                                style={{ width: `${Math.round(s.score * 100)}%` }}
+                              />
+                            </div>
+                            <span className={cn(
+                              'w-10 shrink-0 text-right font-mono text-[10px]',
+                              s.score >= 0.38 ? 'text-emerald-400' : 'text-[var(--t3)]',
+                            )}>{(s.score * 100).toFixed(0)}%</span>
+                            <span className="w-20 shrink-0 truncate text-[10px] text-[var(--t4)]">{s.key}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    <p className={cn(
+                      'mt-2 text-[10px] font-semibold',
+                      visualDebug.fired ? 'text-emerald-400' : 'text-amber-400',
+                    )}>
+                      {visualDebug.fired
+                        ? `✓ Disparado: ${visualDebug.bestKey}`
+                        : `✗ Sem match (melhor: ${(visualDebug.bestScore * 100).toFixed(0)}% — ${visualDebug.bestKey || 'nenhum'})`}
+                    </p>
+                  </div>
+                </div>
+              </section>
+            )}
+
             <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)]">
               <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
                 <div>
