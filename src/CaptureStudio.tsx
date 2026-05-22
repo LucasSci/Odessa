@@ -1733,6 +1733,20 @@ const CaptureStudio = React.memo(function CaptureStudio({
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
+  // Visual detection debug — shows what the algorithm is seeing.
+  // Declared here (before handleSaveVisualReference) so the useCallback
+  // dependency array [visualDebug, ...] does not reference it in TDZ.
+  const [visualDebug, setVisualDebug] = useState<{
+    zoneImageUrl: string;    // full zone capture (what the camera sees)
+    regionDataUrl: string;   // extracted colorful region (or '' if none)
+    bestKey: string;         // best catalog match key
+    bestScore: number;       // best similarity score (0–1) across all strategies
+    fired: boolean;          // whether threshold was exceeded and trigger fired
+    time: string;
+    allScores: Array<{ strategy: string; key: string; score: number }>;
+    zoneColor: [number, number, number] | null;  // dominant hue/sat/val of hotspot
+  } | null>(null);
+
   // Selected gift key for the "Salvar como referência" button in the debug panel
   const [refSaveKey, setRefSaveKey] = useState<string>('');
   const [refSaved, setRefSaved] = useState(false);
@@ -1767,18 +1781,6 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const [recentGifts, setRecentGifts] = useState<
     Array<{ id: string; name: string; emoji: string; count: number; time: string; triggered: boolean; sender?: string; ocrRaw?: string }>
   >([]);
-
-  // Visual detection debug — shows what the algorithm is seeing
-  const [visualDebug, setVisualDebug] = useState<{
-    zoneImageUrl: string;    // full zone capture (what the camera sees)
-    regionDataUrl: string;   // extracted colorful region (or '' if none)
-    bestKey: string;         // best catalog match key
-    bestScore: number;       // best similarity score (0–1) across all strategies
-    fired: boolean;          // whether threshold was exceeded and trigger fired
-    time: string;
-    allScores: Array<{ strategy: string; key: string; score: number }>;
-    zoneColor: [number, number, number] | null;  // dominant hue/sat/val of hotspot
-  } | null>(null);
 
   const activePreset = useMemo(
     () => presets.find((preset) => preset.id === activePresetId) || presets[0],
