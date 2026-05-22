@@ -575,18 +575,37 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const activeZone = zones[activeZoneIndex] || zones[0];
 
   const lastEvent = captureEvents[captureEvents.length - 1];
-  const successfulEvents = useMemo(
-    () => captureEvents.filter((event) => event.routeStatus !== 'error'),
-    [captureEvents],
-  );
-  const averageConfidence = useMemo(() =>
-    successfulEvents.reduce((sum, event) => sum + (event.confidence ?? 0), 0) /
-    Math.max(1, successfulEvents.filter((event) => event.confidence !== null).length)
-  , [successfulEvents]);
-  const averageLatency = useMemo(() =>
-    successfulEvents.reduce((sum, event) => sum + (event.latencyMs ?? 0), 0) /
-    Math.max(1, successfulEvents.filter((event) => event.latencyMs !== null).length)
-  , [successfulEvents]);
+  const { successfulEvents, averageConfidence, averageLatency } = useMemo(() => {
+    // ⚡ Bolt: Single-pass iteration to calculate multiple stats
+    // This replaces multiple filter/reduce O(N) traversals to prevent stutter
+    // during high-frequency live OCR capture updates.
+    const successful: typeof captureEvents = [];
+    let confSum = 0;
+    let confCount = 0;
+    let latSum = 0;
+    let latCount = 0;
+
+    for (let i = 0; i < captureEvents.length; i++) {
+      const event = captureEvents[i];
+      if (event.routeStatus !== 'error') {
+        successful.push(event);
+        if (event.confidence !== null && event.confidence !== undefined) {
+          confSum += event.confidence;
+          confCount++;
+        }
+        if (event.latencyMs !== null && event.latencyMs !== undefined) {
+          latSum += event.latencyMs;
+          latCount++;
+        }
+      }
+    }
+
+    return {
+      successfulEvents: successful,
+      averageConfidence: confCount === 0 ? 0 : confSum / confCount,
+      averageLatency: latCount === 0 ? 0 : latSum / latCount,
+    };
+  }, [captureEvents]);
   const desktopRuntime = (window as ElectronRuntimeWindow).odessaDesktop;
   const isElectronRuntime = Boolean(desktopRuntime?.isElectron);
   const canUseDirectWebCapture = Boolean(desktopRuntime?.canUseDirectWebCapture);

@@ -4216,16 +4216,22 @@ function VideoLibraryPanel({
   >([]);
   const videos = config?.videos || [];
 
-  const uploadSummary = useMemo(
-    () => ({
-      sent: uploadBatch.filter((item) => item.status === 'done').length,
-      failed: uploadBatch.filter((item) => item.status === 'error').length,
-      pending: uploadBatch.filter(
-        (item) => item.status === 'pending' || item.status === 'uploading',
-      ).length,
-    }),
-    [uploadBatch],
-  );
+  const uploadSummary = useMemo(() => {
+    // ⚡ Bolt: Single-pass loop replaces three separate filter() operations
+    // over uploadBatch to derive metrics efficiently.
+    let sent = 0;
+    let failed = 0;
+    let pending = 0;
+
+    for (let i = 0; i < uploadBatch.length; i++) {
+      const status = uploadBatch[i].status;
+      if (status === 'done') sent++;
+      else if (status === 'error') failed++;
+      else if (status === 'pending' || status === 'uploading') pending++;
+    }
+
+    return { sent, failed, pending };
+  }, [uploadBatch]);
 
   const uploadOne = (file: File, index: number, total: number) =>
     new Promise<void>((resolve, reject) => {

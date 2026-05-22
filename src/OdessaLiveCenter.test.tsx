@@ -79,8 +79,9 @@ describe('ContinuityPlayer', () => {
     playSpy.mockClear();
 
     vi.spyOn(HTMLMediaElement.prototype, 'paused', 'get').mockReturnValue(true);
+    vi.spyOn(HTMLMediaElement.prototype, 'readyState', 'get').mockReturnValue(2);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(1600);
     });
 
     expect(playSpy).toHaveBeenCalled();
