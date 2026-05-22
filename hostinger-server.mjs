@@ -149,9 +149,32 @@ const server = http.createServer(async (req, res) => {
         const stat = await fs.stat(filePath);
         if (!stat.isFile()) throw new Error('not a file');
         const ext = path.extname(filePath).toLowerCase();
-        const mime = { '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.m4v': 'video/mp4' };
-        const raw = await fs.readFile(filePath);
-        send(res, 200, raw, { 'Content-Type': mime[ext] || 'application/octet-stream', 'Cache-Control': 'public, max-age=3600' });
+        const mimeTypes = { '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.m4v': 'video/mp4' };
+        const contentType = mimeTypes[ext] || 'application/octet-stream';
+        const fileSize = stat.size;
+        const rangeHeader = req.headers['range'];
+        if (rangeHeader) {
+          const parts = rangeHeader.replace(/bytes=/, '').split('-');
+          const start = parseInt(parts[0], 10);
+          const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+          const chunkSize = end - start + 1;
+          res.writeHead(206, {
+            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': chunkSize,
+            'Content-Type': contentType,
+            'Cache-Control': 'public, max-age=3600',
+          });
+          fsSync.createReadStream(filePath, { start, end }).pipe(res);
+        } else {
+          res.writeHead(200, {
+            'Content-Length': fileSize,
+            'Content-Type': contentType,
+            'Cache-Control': 'public, max-age=3600',
+            'Accept-Ranges': 'bytes',
+          });
+          fsSync.createReadStream(filePath).pipe(res);
+        }
       } catch {
         send(res, 404, 'Not found', { 'Content-Type': 'text/plain' });
       }
