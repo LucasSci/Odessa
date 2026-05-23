@@ -1,0 +1,4 @@
+## 2026-05-23 - Prevent Path Traversal in FastAPI Catch-All Route
+**Vulnerability:** A Local File Inclusion (LFI) / Path Traversal vulnerability existed in `server/main.py` within the `serve_web_app` catch-all route, allowing users to request files outside the intended `dist` directory (e.g., `/../../../etc/passwd`).
+**Learning:** `FileResponse` in FastAPI does not perform directory boundary checks automatically like `StaticFiles` does. When manually serving dynamic paths, relative path normalization can be bypassed if the requested path is simply appended to a base path string without resolving both to check containment.
+**Prevention:** Always use `Path.resolve().is_relative_to(base_dir.resolve())` to guarantee that the requested file resolves securely within the intended root directory before returning it via `FileResponse`.
