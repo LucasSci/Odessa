@@ -36,7 +36,7 @@ describe('ContinuityPlayer', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.spyOn(HTMLMediaElement.prototype, 'readyState', 'get').mockReturnValue(1);
+    vi.spyOn(HTMLMediaElement.prototype, 'readyState', 'get').mockReturnValue(2);
     vi.spyOn(HTMLMediaElement.prototype, 'paused', 'get').mockReturnValue(false);
     vi.spyOn(HTMLMediaElement.prototype, 'ended', 'get').mockReturnValue(false);
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
@@ -80,7 +80,7 @@ describe('ContinuityPlayer', () => {
 
     vi.spyOn(HTMLMediaElement.prototype, 'paused', 'get').mockReturnValue(true);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(3000);
     });
 
     expect(playSpy).toHaveBeenCalled();
