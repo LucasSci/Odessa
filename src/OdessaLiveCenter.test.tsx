@@ -36,7 +36,9 @@ describe('ContinuityPlayer', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.spyOn(HTMLMediaElement.prototype, 'readyState', 'get').mockReturnValue(1);
+    // ⚡ Memory Check: For watchdog test, we mock readyState to a value >= 2
+    // to properly simulate the media player's internal polling intervals.
+    vi.spyOn(HTMLMediaElement.prototype, 'readyState', 'get').mockReturnValue(2);
     vi.spyOn(HTMLMediaElement.prototype, 'paused', 'get').mockReturnValue(false);
     vi.spyOn(HTMLMediaElement.prototype, 'ended', 'get').mockReturnValue(false);
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
@@ -80,7 +82,7 @@ describe('ContinuityPlayer', () => {
 
     vi.spyOn(HTMLMediaElement.prototype, 'paused', 'get').mockReturnValue(true);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(2000); // ⚡ Advance time past the 1500ms watchdog interval
     });
 
     expect(playSpy).toHaveBeenCalled();

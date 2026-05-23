@@ -4217,14 +4217,19 @@ function VideoLibraryPanel({
   const videos = config?.videos || [];
 
   const uploadSummary = useMemo(
-    () => ({
-      sent: uploadBatch.filter((item) => item.status === 'done').length,
-      failed: uploadBatch.filter((item) => item.status === 'error').length,
-      pending: uploadBatch.filter(
-        (item) => item.status === 'pending' || item.status === 'uploading',
-      ).length,
-    }),
-    [uploadBatch],
+    () => {
+      // ⚡ Bolt: Optimize calculation by reducing three O(N) filter operations into a single reduce pass
+      return uploadBatch.reduce(
+        (acc, item) => {
+          if (item.status === 'done') acc.sent++;
+          else if (item.status === 'error') acc.failed++;
+          else if (item.status === 'pending' || item.status === 'uploading') acc.pending++;
+          return acc;
+        },
+        { sent: 0, failed: 0, pending: 0 }
+      );
+    },
+    [uploadBatch]
   );
 
   const uploadOne = (file: File, index: number, total: number) =>

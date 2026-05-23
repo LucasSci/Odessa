@@ -1,0 +1,3 @@
+## 2024-05-23 - Optimize Array Traversals for Derived State
+**Learning:** In highly reactive components like `CaptureStudio.tsx` and `OdessaLiveCenter.tsx` that process continuous streams of live events, chaining multiple O(N) array operations (like `.filter().length` or `.reduce()`) to calculate derived state causes measurable performance degradation as the array grows over the session.
+**Action:** Always combine multiple array passes into a single iteration using `.reduce()` or a standard `for` loop inside a `useMemo` block when computing multiple statistics or subsets from the same fast-growing state array.

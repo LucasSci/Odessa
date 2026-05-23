@@ -579,14 +579,30 @@ const CaptureStudio = React.memo(function CaptureStudio({
     () => captureEvents.filter((event) => event.routeStatus !== 'error'),
     [captureEvents],
   );
-  const averageConfidence = useMemo(() =>
-    successfulEvents.reduce((sum, event) => sum + (event.confidence ?? 0), 0) /
-    Math.max(1, successfulEvents.filter((event) => event.confidence !== null).length)
-  , [successfulEvents]);
-  const averageLatency = useMemo(() =>
-    successfulEvents.reduce((sum, event) => sum + (event.latencyMs ?? 0), 0) /
-    Math.max(1, successfulEvents.filter((event) => event.latencyMs !== null).length)
-  , [successfulEvents]);
+  const { averageConfidence, averageLatency } = useMemo(() => {
+    // ⚡ Bolt: Optimize calculation by merging four O(N) array passes into a single pass
+    // as the successfulEvents array can grow significantly over time.
+    let confidenceSum = 0;
+    let confidenceCount = 0;
+    let latencySum = 0;
+    let latencyCount = 0;
+
+    for (const event of successfulEvents) {
+      if (event.confidence !== null && event.confidence !== undefined) {
+        confidenceSum += event.confidence;
+        confidenceCount++;
+      }
+      if (event.latencyMs !== null && event.latencyMs !== undefined) {
+        latencySum += event.latencyMs;
+        latencyCount++;
+      }
+    }
+
+    return {
+      averageConfidence: confidenceSum / Math.max(1, confidenceCount),
+      averageLatency: latencySum / Math.max(1, latencyCount),
+    };
+  }, [successfulEvents]);
   const desktopRuntime = (window as ElectronRuntimeWindow).odessaDesktop;
   const isElectronRuntime = Boolean(desktopRuntime?.isElectron);
   const canUseDirectWebCapture = Boolean(desktopRuntime?.canUseDirectWebCapture);
