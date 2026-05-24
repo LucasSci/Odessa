@@ -575,18 +575,36 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const activeZone = zones[activeZoneIndex] || zones[0];
 
   const lastEvent = captureEvents[captureEvents.length - 1];
-  const successfulEvents = useMemo(
-    () => captureEvents.filter((event) => event.routeStatus !== 'error'),
-    [captureEvents],
-  );
-  const averageConfidence = useMemo(() =>
-    successfulEvents.reduce((sum, event) => sum + (event.confidence ?? 0), 0) /
-    Math.max(1, successfulEvents.filter((event) => event.confidence !== null).length)
-  , [successfulEvents]);
-  const averageLatency = useMemo(() =>
-    successfulEvents.reduce((sum, event) => sum + (event.latencyMs ?? 0), 0) /
-    Math.max(1, successfulEvents.filter((event) => event.latencyMs !== null).length)
-  , [successfulEvents]);
+  // ⚡ Bolt Optimization: Combine 5 O(N) array traversals (filter/reduce) into a single pass
+  // to avoid rendering bottlenecks on the continuously growing captureEvents array.
+  const { successfulEvents, averageConfidence, averageLatency } = useMemo(() => {
+    const success: CaptureEvent[] = [];
+    let confSum = 0;
+    let confCount = 0;
+    let latSum = 0;
+    let latCount = 0;
+
+    for (let i = 0; i < captureEvents.length; i++) {
+      const event = captureEvents[i];
+      if (event.routeStatus !== 'error') {
+        success.push(event);
+        if (event.confidence !== null && event.confidence !== undefined) {
+          confSum += event.confidence;
+          confCount++;
+        }
+        if (event.latencyMs !== null && event.latencyMs !== undefined) {
+          latSum += event.latencyMs;
+          latCount++;
+        }
+      }
+    }
+
+    return {
+      successfulEvents: success,
+      averageConfidence: confCount > 0 ? confSum / confCount : 0,
+      averageLatency: latCount > 0 ? latSum / latCount : 0,
+    };
+  }, [captureEvents]);
   const desktopRuntime = (window as ElectronRuntimeWindow).odessaDesktop;
   const isElectronRuntime = Boolean(desktopRuntime?.isElectron);
   const canUseDirectWebCapture = Boolean(desktopRuntime?.canUseDirectWebCapture);
