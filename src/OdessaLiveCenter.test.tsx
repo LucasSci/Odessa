@@ -79,8 +79,10 @@ describe('ContinuityPlayer', () => {
     playSpy.mockClear();
 
     vi.spyOn(HTMLMediaElement.prototype, 'paused', 'get').mockReturnValue(true);
+    // Sentinel fix: When testing video playback and watchdogs in Vitest mock HTMLMediaElement.prototype.readyState >= 2 and advance timers sufficiently (e.g. >= 1600ms)
+    vi.spyOn(HTMLMediaElement.prototype, 'readyState', 'get').mockReturnValue(4);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(2000);
     });
 
     expect(playSpy).toHaveBeenCalled();
