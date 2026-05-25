@@ -39,7 +39,7 @@ O OBS aponta uma **Browser Source** para a URL do overlay, e a Odessa gerencia q
 | Frontend | React 19 + Vite + Tailwind CSS 4 |
 | Persistência | KV em disco (`~/odessa-data/data/kv.json`) |
 | Hospedagem | Hostinger Business Web Hosting |
-| Domínio | `darkgrey-shark-457698.hostingersite.com` |
+| Domínio | configurado no hPanel |
 
 **Stack local (dev):**
 
@@ -146,7 +146,7 @@ Compress-Archive -Path dist, api, public, src, workflows, package.json, package-
 
 Use o tool `mcp__hostinger-mcp__hosting_deployJsApplication` com:
 - `archivePath`: caminho absoluto para `deploy.zip`
-- `domain`: `darkgrey-shark-457698.hostingersite.com`
+- `domain`: `SEU-DOMINIO.hostingersite.com`
 
 ### Variáveis de ambiente (hPanel)
 
@@ -154,7 +154,7 @@ Configure em **Websites → Manage → Environment Variables**:
 
 ```env
 NODE_ENV=production
-ODESSA_PUBLIC_URL=https://darkgrey-shark-457698.hostingersite.com
+ODESSA_PUBLIC_URL=https://SEU-DOMINIO.hostingersite.com
 ODESSA_ADMIN_PASSWORD_HASH=<hash bcrypt da senha>
 ODESSA_SESSION_SECRET=<segredo longo e aleatório>
 ODESSA_COOKIE_SECURE=true
@@ -164,21 +164,21 @@ ODESSA_COOKIE_SAMESITE=Lax
 ### Verificar
 
 ```
-https://darkgrey-shark-457698.hostingersite.com/api/health
-https://darkgrey-shark-457698.hostingersite.com/api/v1/video/state
-https://darkgrey-shark-457698.hostingersite.com/#overlay
+https://SEU-DOMINIO.hostingersite.com/api/health
+https://SEU-DOMINIO.hostingersite.com/api/v1/video/state
+https://SEU-DOMINIO.hostingersite.com/#overlay
 ```
 
 ## Configuração do OBS
 
 1. Adicione uma **Browser Source** na cena da live
-2. URL: `https://darkgrey-shark-457698.hostingersite.com/#overlay`
+2. URL: `https://SEU-DOMINIO.hostingersite.com/#overlay`
 3. Resolução: `1920×1080` (ou a resolução da cena)
 4. Marque **"Refresh browser when scene becomes active"**
 
 ## Autenticação (dev/testes)
 
-Login padrão: `lucasbatista.c.l@gmail.com` / `12345678`
+Use o email e a senha configurados em `ODESSA_ADMIN_PASSWORD` (ou `ODESSA_ADMIN_PASSWORD_HASH`) no `.env`.
 
 O token de sessão vem no campo `sessionToken` da resposta de login e vai no header:
 ```

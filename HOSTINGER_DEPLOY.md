@@ -8,7 +8,7 @@ A Odessa roda na Hostinger como um Node.js Web App único:
 ## Domínio atual
 
 ```
-https://darkgrey-shark-457698.hostingersite.com
+https://SEU-DOMINIO.hostingersite.com
 ```
 
 ## Build + deploy (via Claude Code / MCP)
@@ -20,7 +20,7 @@ Compress-Archive -Path dist, api, public, src, workflows, package.json, package-
 
 Depois use o tool `mcp__hostinger-mcp__hosting_deployJsApplication`:
 - `archivePath`: caminho absoluto do `deploy.zip`
-- `domain`: `darkgrey-shark-457698.hostingersite.com`
+- `domain`: `SEU-DOMINIO.hostingersite.com`
 
 ## Variáveis de ambiente (hPanel)
 
@@ -28,14 +28,14 @@ Configure em **Websites → Manage → Environment Variables**:
 
 ```env
 NODE_ENV=production
-ODESSA_PUBLIC_URL=https://darkgrey-shark-457698.hostingersite.com
-ODESSA_ADMIN_PASSWORD_HASH=8b9ddf7394e8055c164f989aac111b17e99fdedff3cc5cb4e34d4b3521f8873d
+ODESSA_PUBLIC_URL=https://SEU-DOMINIO.hostingersite.com
+ODESSA_ADMIN_PASSWORD_HASH=<hash bcrypt gerado com: node -e "require('crypto').createHash('sha256').update('SUA-SENHA').digest('hex')">
 ODESSA_SESSION_SECRET=<segredo longo e aleatório>
 ODESSA_COOKIE_SECURE=true
 ODESSA_COOKIE_SAMESITE=Lax
 ```
 
-O hash acima corresponde à senha `Odessa2026`. Prefira `ODESSA_ADMIN_PASSWORD_HASH` em vez de `ODESSA_ADMIN_PASSWORD` para evitar problemas com caracteres especiais.
+Prefira `ODESSA_ADMIN_PASSWORD_HASH` em vez de `ODESSA_ADMIN_PASSWORD` para evitar problemas com caracteres especiais em painéis ou scripts de deploy. Nunca coloque a senha em texto puro em variáveis de ambiente de produção.
 
 ## Adicionando novos endpoints de API
 
@@ -69,14 +69,14 @@ O processo na Hostinger **não reinicia automaticamente** após deploy estático
 ## Validação pós-deploy
 
 ```
-https://darkgrey-shark-457698.hostingersite.com/healthz
-https://darkgrey-shark-457698.hostingersite.com/api/health
-https://darkgrey-shark-457698.hostingersite.com/api/v1/video/state
-https://darkgrey-shark-457698.hostingersite.com/#overlay
+https://SEU-DOMINIO.hostingersite.com/healthz
+https://SEU-DOMINIO.hostingersite.com/api/health
+https://SEU-DOMINIO.hostingersite.com/api/v1/video/state
+https://SEU-DOMINIO.hostingersite.com/#overlay
 ```
 
 ## OBS (Browser Source)
 
 ```
-https://darkgrey-shark-457698.hostingersite.com/#overlay
+https://SEU-DOMINIO.hostingersite.com/#overlay
 ```

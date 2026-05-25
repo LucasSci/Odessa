@@ -35,5 +35,5 @@ When adding a new endpoint, **always create a dedicated file** with the handler 
 
 ## Auth (for testing endpoints)
 
-Default admin login: `lucasbatista.c.l@gmail.com` / `12345678`.
+Use the admin email and password configured in the server's environment variables (`ODESSA_ADMIN_PASSWORD` / `ODESSA_ADMIN_PASSWORD_HASH`).
 Session token comes back as `sessionToken` in the login response and goes in the `Authorization: Bearer <token>` header.
