@@ -1,74 +1,82 @@
-# Deploy Odessa na Hostinger Business Web Hosting
+# Deploy na Hostinger
 
-Este caminho usa a Hostinger como um Node.js Web App gerenciado. A Odessa roda como um app Node unico:
+A Odessa roda na Hostinger como um Node.js Web App único:
 
-- `npm run build` gera o frontend em `dist/`;
-- `npm start` sobe `hostinger-server.mjs`;
-- `hostinger-server.mjs` serve o painel e encaminha `/api/*` para o handler cloud existente.
+- `npm run build` gera o frontend em `dist/`
+- `hostinger-server.mjs` serve o painel e encaminha `/api/*` para os handlers em `api/`
 
-## Configuracao no hPanel
+## Domínio atual
 
-1. Acesse `Websites`.
-2. Escolha `Add Website`.
-3. Selecione `Node.js Apps`.
-4. Importe o repositorio pelo GitHub ou envie o ZIP do projeto.
-5. Selecione Node.js `22.x` ou `24.x`.
-6. Use:
-   - Build command: `npm run hostinger:build`
-   - Start command: `npm start`
-   - Entry point: `app.js` (ou `hostinger-server.mjs`)
-7. Certifique-se de que o `.htaccess` esta na raiz do projeto — ele garante que requests para `/api/*` sejam encaminhados ao Node.js em vez de retornar 404 pelo LiteSpeed.
+```
+https://darkgrey-shark-457698.hostingersite.com
+```
 
-## Variaveis de ambiente
+## Build + deploy (via Claude Code / MCP)
 
-Configure no hPanel:
+```powershell
+npx vite build
+Compress-Archive -Path dist, api, public, src, workflows, package.json, package-lock.json, hostinger-server.mjs, vite.config.ts, tsconfig.json, .hostinger.json, index.html -DestinationPath deploy.zip -Force
+```
+
+Depois use o tool `mcp__hostinger-mcp__hosting_deployJsApplication`:
+- `archivePath`: caminho absoluto do `deploy.zip`
+- `domain`: `darkgrey-shark-457698.hostingersite.com`
+
+## Variáveis de ambiente (hPanel)
+
+Configure em **Websites → Manage → Environment Variables**:
 
 ```env
 NODE_ENV=production
-ODESSA_PUBLIC_URL=https://SEU-DOMINIO-DA-HOSTINGER
+ODESSA_PUBLIC_URL=https://darkgrey-shark-457698.hostingersite.com
 ODESSA_ADMIN_PASSWORD_HASH=8b9ddf7394e8055c164f989aac111b17e99fdedff3cc5cb4e34d4b3521f8873d
-ODESSA_SESSION_SECRET=troque-por-um-segredo-longo
+ODESSA_SESSION_SECRET=<segredo longo e aleatório>
 ODESSA_COOKIE_SECURE=true
 ODESSA_COOKIE_SAMESITE=Lax
-DATABASE_URL=postgresql://...
-BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...
-ODESSA_AGENT_TOKEN=mesmo-token-do-agent-local
 ```
 
-O hash acima corresponde a senha admin `Odessa2026`. Preferir `ODESSA_ADMIN_PASSWORD_HASH` evita problemas com caracteres especiais em paineis ou scripts de deploy.
+O hash acima corresponde à senha `Odessa2026`. Prefira `ODESSA_ADMIN_PASSWORD_HASH` em vez de `ODESSA_ADMIN_PASSWORD` para evitar problemas com caracteres especiais.
 
-Se quiser manter Neon e Vercel Blob, use os mesmos valores atuais de `DATABASE_URL` e `BLOB_READ_WRITE_TOKEN`.
+## Adicionando novos endpoints de API
 
-## Agent local
+A Hostinger não resolve catch-all (`api/[...path].js`) para rotas sem arquivo físico correspondente. Ao criar um novo endpoint:
 
-No computador da live, aponte o Odessa Agent para a Hostinger:
+1. Crie um arquivo dedicado: `api/v1/meu-endpoint.js`
+2. Coloque toda a lógica dentro do próprio arquivo (sem imports de código compartilhado)
+3. Inclua o novo arquivo no ZIP do deploy
 
-```env
-ODESSA_CLOUD_URL=https://SEU-DOMINIO-DA-HOSTINGER
-ODESSA_AGENT_TOKEN=mesmo-token-configurado-na-hostinger
+## KV store (produção)
+
+A configuração da persona e o estado do vídeo ficam em:
+
+```
+~/odessa-data/data/kv.json
 ```
 
-Depois reinicie o agent local.
+No build, o `odessaSchedulePlugin` no `vite.config.ts` tenta ler esse arquivo para injetar os agendamentos no bundle. Como o build roda em container isolado, essa injeção falha — mas a `PersonaOverlay.tsx` faz fallback e carrega `public/odessa-schedules.json` em tempo de execução.
 
-## Validacao
+Para atualizar os agendamentos após mudanças no workflow:
+1. Configure o workflow no ReactiveFlow
+2. Atualize `public/odessa-schedules.json` manualmente
+3. Faça o deploy
 
-Depois do deploy:
+## Reinício do processo Node.js
 
-```text
-https://SEU-DOMINIO-DA-HOSTINGER/healthz
-https://SEU-DOMINIO-DA-HOSTINGER/api/health
-https://SEU-DOMINIO-DA-HOSTINGER/api/v1/video/state
-https://SEU-DOMINIO-DA-HOSTINGER/#overlay
+O processo na Hostinger **não reinicia automaticamente** após deploy estático. Mudanças na API (`api/*.js`, `hostinger-server.mjs`) só entram em vigor após reinício manual:
+
+**hPanel → Websites → Manage → Restart**
+
+## Validação pós-deploy
+
+```
+https://darkgrey-shark-457698.hostingersite.com/healthz
+https://darkgrey-shark-457698.hostingersite.com/api/health
+https://darkgrey-shark-457698.hostingersite.com/api/v1/video/state
+https://darkgrey-shark-457698.hostingersite.com/#overlay
 ```
 
-No OBS, a fonte `Odessa Stage Overlay` deve apontar para:
+## OBS (Browser Source)
 
-```text
-https://SEU-DOMINIO-DA-HOSTINGER/#overlay
 ```
-
-## Observacoes
-
-- A Hostinger Business Web Hosting nao substitui o computador da live. O OBS ainda precisa do Odessa Agent local para comandos de cena, captura e OCR.
-- O Vercel pode continuar como fallback ate a Hostinger estar validada.
-- Nao suba `.env`, `.env.local` ou arquivos com senhas para o repositorio.
+https://darkgrey-shark-457698.hostingersite.com/#overlay
+```

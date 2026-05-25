@@ -1,39 +1,80 @@
-# Odessa Web Runtime
+# Desenvolvimento local
 
-Odessa agora tem como alvo principal o modo web local/rede.
+## Pré-requisitos
 
-## Variaveis obrigatorias
+- Node.js 22+
+- Python 3.11+
+- (Opcional) OBS Studio para testar o overlay
 
-Crie ou atualize `.env` na raiz do projeto:
+## Instalar dependências
+
+```powershell
+npm install
+python -m venv venv
+venv\Scripts\python.exe -m pip install -r server\requirements.txt
+```
+
+## Configurar variáveis de ambiente
+
+```powershell
+copy .env.example .env
+```
+
+Edite `.env` e configure pelo menos:
 
 ```env
 ODESSA_ADMIN_PASSWORD=troque-esta-senha
 ODESSA_SESSION_SECRET=gere-um-segredo-longo
-ODESSA_COOKIE_SECURE=false
-ODESSA_COOKIE_SAMESITE=lax
-ODESSA_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 ```
 
-Use `ODESSA_COOKIE_SECURE=true` somente quando servir a aplicacao por HTTPS.
-Use `ODESSA_COOKIE_SAMESITE=none` junto com `ODESSA_COOKIE_SECURE=true` quando a interface estiver em um dominio e a API em outro dominio HTTPS.
-
-## Desenvolvimento
+## Rodar em dev
 
 ```powershell
-npm install
-venv\Scripts\python.exe -m pip install -r server\requirements.txt
+# Terminal 1 — API Python (porta 8000)
 npm run dev:api
+
+# Terminal 2 — Frontend Vite (porta 3000)
 npm run dev
 ```
 
-Acesse `http://localhost:3000` e entre com a senha configurada em `ODESSA_ADMIN_PASSWORD`.
+Acesse `http://localhost:3000`.
 
-## Build web local/rede
+O Vite faz proxy de `/api/*` para `http://127.0.0.1:8000` automaticamente (configurado em `vite.config.ts`).
+
+## Overlay no OBS (dev)
+
+Aponte a Browser Source para:
+
+```
+http://localhost:3000/#overlay
+```
+
+## Build local
 
 ```powershell
 npm run build
-venv\Scripts\python.exe -m uvicorn server.main:app --host 0.0.0.0 --port 8000
 ```
 
-Depois do build, o FastAPI serve o frontend em `http://localhost:8000`.
-Para acessar de outro dispositivo na rede, use o IP da maquina host e inclua a origem em `ODESSA_ALLOWED_ORIGINS` quando estiver usando frontend separado em desenvolvimento.
+O frontend compilado fica em `dist/`. Para servir localmente via Node.js:
+
+```powershell
+node hostinger-server.mjs
+```
+
+Acesse `http://localhost:8000`.
+
+## Testes
+
+```powershell
+# Vitest (frontend + core)
+npm test
+
+# pytest (backend Python)
+npm run test:backend
+```
+
+## Notas
+
+- Em dev, o `ODESSA_COOKIE_SECURE` deve ser `false` (HTTP).
+- `ODESSA_ALLOWED_ORIGINS` aceita múltiplas origens separadas por vírgula.
+- O HMR pode ser desabilitado via `DISABLE_HMR=true` (usado pelo Claude Code para evitar flickering durante edições).

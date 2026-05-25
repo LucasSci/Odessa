@@ -33,3 +33,9 @@ uploads/
 # Deploy artifacts
 deploy.zip
 deploy-nodist.zip
+
+# Design mockups / scratch files
+home-design*.png
+home2-design*.png
+import_test.json
+metadata.json
