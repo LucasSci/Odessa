@@ -532,8 +532,12 @@ describe('CaptureStudio Link Direto', () => {
 
   it('logs did-fail-load and does not mark the direct page rendered', async () => {
     const source = readFileSync('src/CaptureStudio.tsx', 'utf8');
+    // Normalize whitespace to prevent prettier format from breaking test assertions
+    const normalizedSource = source.replace(/\s+/g, ' ');
     expect(source).toContain("webview.addEventListener('did-fail-load', onFailLoad)");
-    expect(source).toContain("addDirectLog('[LinkDireto] did-fail-load: iframe/proxy preview falhou')");
+    expect(normalizedSource).toContain(
+      "addDirectLog( '[LinkDireto] did-fail-load: iframe/proxy preview falhou', )",
+    );
     expect(source).toContain("setDirectPageState('failed')");
     expect(source).not.toContain('Pagina interativa pronta');
   });
