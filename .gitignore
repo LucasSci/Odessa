@@ -29,3 +29,7 @@ uploads/
 .vercel
 .env*.local
 .claude/
+
+# Deploy artifacts
+deploy.zip
+deploy-nodist.zip
