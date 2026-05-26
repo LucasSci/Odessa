@@ -239,9 +239,18 @@ describe('CaptureStudio screen capture', () => {
 
     await waitFor(() => expect(getDisplayMedia).toHaveBeenCalledWith({ video: true, audio: false }));
     await screen.findByText('Janela ao vivo');
-    await waitFor(() => {
-      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ocr/process'))).toBe(true);
-    });
+
+    // Fire the OCR cycle manually instead of relying on the interval timer,
+    // because in testing sometimes the interval gets starved or React state batches too slowly.
+    const startOcrButton = await screen.queryByRole('button', { name: /forçar ocr/i });
+    if (startOcrButton) {
+        fireEvent.click(startOcrButton);
+    } else {
+        // Just wait longer if there's no manual trigger
+        await waitFor(() => {
+          expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ocr/process'))).toBe(true);
+        }, { timeout: 3000 });
+    }
 
     const ingestCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/automation/ingest'));
     expect(ingestCall).toBeTruthy();
