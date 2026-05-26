@@ -410,6 +410,12 @@ export default function OdessaLiveCenter({
   const [reactiveError, setReactiveError] = useState<string | null>(null);
   const [reactiveBusy, setReactiveBusy] = useState(false);
 
+  // ── AI Decision — estado compartilhado (alimentado pelo pipeline principal) ──
+  // Threshold abaixo do qual a IA bloqueia o disparo de gatilho.
+  // 0.65 = confiança mínima para play_video; queue_video sempre passa.
+  const AI_CONFIDENCE_THRESHOLD = 0.65;
+  const [aiDecision, setAiDecision] = useState<AiDecision>(EMPTY_AI_DECISION);
+
   const loadConfig = useCallback(async () => {
     try {
       const response = await fetch(apiUrl('/api/video/config'));
@@ -726,22 +732,8 @@ export default function OdessaLiveCenter({
     [config, refreshVideoState],
   );
 
-  // Watch new captured chat/OCR events and send them through the backend flow.
-  useEffect(() => {
-    for (const event of capturedText) {
-      if (processedGiftIdsRef.current.has(event.id)) continue;
-      if (!event.text?.trim()) continue;
-      if (event.metadata?.backendIngested) {
-        processedGiftIdsRef.current.add(event.id);
-        continue;
-      }
-      processedGiftIdsRef.current.add(event.id);
-      queueMicrotask(() => {
-        void runReactiveFlow(event.text, event.source);
-      });
-    }
-  }, [capturedText, runReactiveFlow]);
-
+  // view precisa ser declarado antes do pipeline principal porque o useEffect
+  // referencia view.videos e view.triggers nas dependências.
   const view = useMemo(() => {
     const videos = config?.videos || [];
     const triggers = config?.triggers || [];
@@ -780,6 +772,76 @@ export default function OdessaLiveCenter({
     runtime.health?.status,
     videoState?.current_video_id,
   ]);
+
+  // ── Pipeline principal: OCR event → IA → gatilho (se aprovado) ──────────────
+  // Único ponto de entrada para eventos ao vivo. A IA age como filtro:
+  //   play_video + confidence ≥ threshold  → dispara runReactiveFlow
+  //   queue_video                          → dispara (menor prioridade, sem threshold)
+  //   wait / no_action                     → bloqueia o disparo
+  //   status === 'offline' (sem chave API) → fallback: sempre dispara (regras puras)
+  //
+  // Antes desta refatoração havia dois useEffects processando capturedText em
+  // paralelo (um aqui, outro no StagePanel), resultando em double-ingest.
+  // Agora existe um único pipeline aqui, sempre ativo independente da aba.
+  useEffect(() => {
+    const processEvent = async (event: CapturedMessage) => {
+      if (!event.text?.trim()) return;
+      if (event.metadata?.backendIngested) return;
+
+      // Reutiliza o OcrEvent canônico construído pelo CaptureStudio (se disponível),
+      // preservando giftKey, author e confidence do ingest. Caso contrário, constrói
+      // a partir do texto bruto.
+      const prebuilt = event.metadata?.ocrEvent as OcrEvent | undefined;
+      const srcMap: Record<string, OcrEvent['source']> = { ocr: 'ocr', test: 'test', manual: 'manual' };
+      const kindMap: Record<string, OcrEventType> = { gift: 'gift', chat: 'comment', alert: 'system', system: 'system' };
+      const ocrEvent: OcrEvent = prebuilt ?? buildOcrEvent(event.text, {
+        source: srcMap[event.source] ?? 'manual',
+        eventType: kindMap[event.kind] ?? 'unknown',
+        zoneName: event.zoneName || 'chat',
+        confidence: (event.metadata?.confidence as number | undefined) ?? 0.85,
+        metadata: {
+          giftName: (event.metadata?.giftName as string | null) ?? null,
+          giftKey:  (event.metadata?.giftKey  as string | null) ?? null,
+          giftValue: null,
+        },
+      });
+
+      // Mostra "CONSULTANDO…" no AiDecisionPanel enquanto a chamada está em voo
+      setAiDecision(checkingAiDecision(ocrEvent));
+
+      const decision = await callAiDecision(ocrEvent, {
+        videos:   view.videos,
+        triggers: view.triggers,
+      });
+      setAiDecision(decision);
+
+      // Gate de confiança:
+      //   offline → sempre passa (IA sem chave = sistema de regras puras)
+      //   play_video com confiança suficiente → passa
+      //   queue_video → sempre passa (baixa prioridade, sem threshold)
+      //   wait / no_action → bloqueia
+      const shouldFire =
+        decision.status === 'offline' ||
+        (decision.recommendedAction === 'play_video' && decision.confidence >= AI_CONFIDENCE_THRESHOLD) ||
+        decision.recommendedAction === 'queue_video';
+
+      if (shouldFire) {
+        void runReactiveFlow(event.text, event.source);
+      }
+    };
+
+    for (const event of capturedText) {
+      if (processedGiftIdsRef.current.has(event.id)) continue;
+      if (!event.text?.trim()) continue;
+      if (event.metadata?.backendIngested) {
+        processedGiftIdsRef.current.add(event.id);
+        continue;
+      }
+      processedGiftIdsRef.current.add(event.id);
+      void processEvent(event);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capturedText, runReactiveFlow, view.videos, view.triggers]);
 
   return (
     <main className="odessa-shell flex h-screen w-screen min-h-0 flex-col overflow-hidden text-[var(--t1)]">
@@ -935,6 +997,7 @@ export default function OdessaLiveCenter({
             onPatchFlowConnectionSettings={patchFlowConnectionSettings}
             onStartLive={onStartLive}
             onRunReactiveFlow={runReactiveFlow}
+            aiDecision={aiDecision}
           />
         )}
         {activeTab === 'flow' && (
@@ -3729,7 +3792,10 @@ function StagePanel({
   onPatchFlowNodePlayback,
   onPatchFlowConnectionSettings,
   onStartLive,
-  onRunReactiveFlow,
+  // onRunReactiveFlow mantido na interface pública por compatibilidade futura
+  // (Fase 3 — conversa: a Odessa pode precisar enfileirar respostas via este canal)
+  onRunReactiveFlow: _onRunReactiveFlow,
+  aiDecision: aiDecisionProp,
 }: {
   runtime: AutopilotRuntimeState;
   capturedText: CapturedMessage[];
@@ -3746,6 +3812,10 @@ function StagePanel({
   ) => Promise<void>;
   onStartLive?: () => void | Promise<void>;
   onRunReactiveFlow?: (text: string, source?: string) => Promise<unknown>;
+  /** Decisão da IA vinda do pipeline principal (OdessaLiveCenter).
+   *  O StagePanel mantém um estado local apenas para as simulações manuais —
+   *  o estado externo tem prioridade enquanto houver um evento ao vivo. */
+  aiDecision?: AiDecision;
 }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [manualVideoId, setManualVideoId] = useState('');
@@ -3756,7 +3826,11 @@ function StagePanel({
   const [timelineMode, setTimelineMode] = useState<'sequence' | 'workflow'>('sequence');
   const [timelineZoom, setTimelineZoom] = useState(140);
   // ── AI Decision Panel state ──────────────────────────────────────────────────
-  const [aiDecision, setAiDecision] = useState<AiDecision>(EMPTY_AI_DECISION);
+  // Estado local usado exclusivamente pelas simulações manuais (botão "Simular
+  // presente"). Para eventos ao vivo, o estado vem do pipeline principal via prop.
+  const [aiDecisionLocal, setAiDecisionLocal] = useState<AiDecision>(EMPTY_AI_DECISION);
+  // A prop tem prioridade; fallback para local quando estiver offline/vazio.
+  const aiDecision = aiDecisionProp ?? aiDecisionLocal;
   const [showAiPanel, setShowAiPanel] = useState(false);
   // ── Simulation / event log ───────────────────────────────────────────────────
   const [simLogs, setSimLogs] = useState<LogEntry[]>([]);
@@ -3764,8 +3838,6 @@ function StagePanel({
   const addSimLog = useCallback((entry: LogEntry) => {
     setSimLogs((prev) => [...prev.slice(-99), entry]);
   }, []);
-  // ── Ref to avoid double-processing events through the AI panel ───────────────
-  const seenEventIdsRef = useRef<Set<string>>(new Set());
   // ── Validation panel ────────────────────────────────────────────────────────
   const [showValidation, setShowValidation] = useState(false);
   const [selectedClipId, setSelectedClipId] = useState('');
@@ -3888,43 +3960,39 @@ function StagePanel({
       },
     });
 
-    // Mostra estado de loading imediatamente enquanto a chamada async está em voo
-    setAiDecision(checkingAiDecision(ocrEvent));
+    // Mostra estado de loading no painel de simulação enquanto a chamada está em voo.
+    // Para eventos ao vivo o estado "checking" é controlado pelo pipeline principal
+    // (OdessaLiveCenter) via prop — aqui só atualizamos o estado local de simulação.
+    setAiDecisionLocal(checkingAiDecision(ocrEvent));
     addSimLog(logEntry('ia', 'Consultando motor de decisão…', { status: 'info' }));
 
     const decision = await callAiDecision(ocrEvent, {
       videos: view.videos,
       triggers: view.triggers,
     });
-    setAiDecision(decision);
+    setAiDecisionLocal(decision);
     const iaLabel = decision.status === 'online' ? '🟢 IA real' : '🟡 IA simulada';
     addSimLog(logEntry('ia', `${iaLabel}: ${decision.reasoning}`, {
       detail: `confiança ${Math.round(decision.confidence * 100)}%`,
       status: 'ok',
     }));
+
+    // Simulação: mostra o que a IA decidiu, mas não dispara gatilho real.
+    // O disparo real acontece apenas pelo pipeline principal em OdessaLiveCenter,
+    // que aplica o filtro de confiança e chama runReactiveFlow de forma controlada.
     if (decision.selectedVideoId) {
-      addSimLog(logEntry('gatilho', `Gatilho acionado → ${decision.selectedVideoId}`, { status: 'ok' }));
+      addSimLog(logEntry('gatilho', `Simulação: IA escolheria → ${decision.selectedVideoId}`, { status: 'info' }));
     }
-
-    if (onRunReactiveFlow) {
-      void onRunReactiveFlow(msg.text, msg.source).then(() => {
-        addSimLog(logEntry('palco', 'Transição de vídeo executada', { status: 'ok' }));
-      });
-      return;
-    }
-    runtime.injectEvent(msg.kind === 'gift' ? 'gift' : 'chat', msg.text, msg.source);
-    addSimLog(logEntry('palco', 'Evento injetado no runtime', { status: 'ok' }));
+    const actionLabel: Record<AiDecision['recommendedAction'], string> = {
+      play_video: 'tocar vídeo', queue_video: 'enfileirar', wait: 'aguardar', no_action: 'sem ação',
+    };
+    addSimLog(logEntry('palco', `Simulação concluída (${actionLabel[decision.recommendedAction]}, confiança ${Math.round(decision.confidence * 100)}%)`, { status: 'ok' }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addSimLog, onRunReactiveFlow, runtime, view.videos, view.triggers]);
+  }, [addSimLog, runtime, view.videos, view.triggers]);
 
-  // ── Auto-process real OCR/chat events as they arrive ──────────────────────
-  useEffect(() => {
-    for (const msg of capturedText) {
-      if (seenEventIdsRef.current.has(msg.id)) continue;
-      seenEventIdsRef.current.add(msg.id);
-      void runCapturedEventThroughAi(msg);
-    }
-  }, [capturedText, runCapturedEventThroughAi]);
+  // Nota: o useEffect que processava capturedText aqui foi removido.
+  // O pipeline de eventos ao vivo agora vive inteiramente em OdessaLiveCenter,
+  // garantindo que rode em todas as abas e sem double-ingest.
 
   // ── Simulation shortcut ────────────────────────────────────────────────────
   const simulateGift = () => {
