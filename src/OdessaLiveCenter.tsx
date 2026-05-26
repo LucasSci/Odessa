@@ -55,6 +55,7 @@ import type { AiDecision } from './core/aiDecisionContract';
 import { EMPTY_AI_DECISION, mockAiDecision } from './core/aiDecisionContract';
 import type { LogEntry } from './components/DebugLogPanel';
 import { buildOcrEvent } from './core/ocrEventContract';
+import type { OcrEvent, OcrEventType } from './core/ocrEventContract';
 
 const CaptureStudio = lazy(() => import('./CaptureStudio'));
 const ReactiveFlowBoard = lazy(() => import('./ReactiveFlowBoard'));
@@ -3757,10 +3758,14 @@ function StagePanel({
   // ── AI Decision Panel state ──────────────────────────────────────────────────
   const [aiDecision, setAiDecision] = useState<AiDecision>(EMPTY_AI_DECISION);
   const [showAiPanel, setShowAiPanel] = useState(false);
-  // ── Simulation log ───────────────────────────────────────────────────────────
+  // ── Simulation / event log ───────────────────────────────────────────────────
   const [simLogs, setSimLogs] = useState<LogEntry[]>([]);
   const [showSimLog, setShowSimLog] = useState(false);
-  const addSimLog = (entry: LogEntry) => setSimLogs((prev) => [...prev.slice(-99), entry]);
+  const addSimLog = useCallback((entry: LogEntry) => {
+    setSimLogs((prev) => [...prev.slice(-99), entry]);
+  }, []);
+  // ── Ref to avoid double-processing events through the AI panel ───────────────
+  const seenEventIdsRef = useRef<Set<string>>(new Set());
   // ── Validation panel ────────────────────────────────────────────────────────
   const [showValidation, setShowValidation] = useState(false);
   const [selectedClipId, setSelectedClipId] = useState('');
@@ -3838,25 +3843,85 @@ function StagePanel({
     }
   };
 
-  const simulateGift = (text = 'Lucas enviou Rosa') => {
-    addSimLog(logEntry('captura', 'Texto capturado (simulação)', { detail: text, status: 'info' }));
-    addSimLog(logEntry('parser', 'Texto parseado como evento de presente', { detail: text, status: 'ok' }));
-    // Build a mock OcrEvent and run it through the AI mock
-    const mockEvent = buildOcrEvent(text, { source: 'manual', eventType: 'gift', confidence: 0.95, metadata: { giftName: 'Rosa' } });
-    const decision = mockAiDecision(mockEvent);
+  // ── Core event → AI pipeline (shared by real OCR events + simulation) ────────
+  const runCapturedEventThroughAi = useCallback((msg: CapturedMessage) => {
+    if (!msg.text?.trim()) return;
+
+    // Map LiveEventKind → OcrEventType
+    const kindMap: Record<string, OcrEventType> = {
+      gift: 'gift', chat: 'comment', alert: 'system', system: 'system',
+    };
+    const eventType: OcrEventType = kindMap[msg.kind] ?? 'unknown';
+
+    // Map LiveEventSource → OcrEvent source
+    const sourceMap: Record<string, OcrEvent['source']> = {
+      ocr: 'ocr', test: 'test', manual: 'manual',
+    };
+    const ocrSource = sourceMap[msg.source] ?? 'manual';
+
+    const sourceLabel =
+      msg.source === 'ocr' ? 'OCR ao vivo'
+      : msg.source === 'test' ? 'simulação'
+      : msg.source;
+
+    addSimLog(logEntry('captura', `Texto capturado (${sourceLabel})`, { detail: msg.text, status: 'info' }));
+    addSimLog(logEntry('parser', `Parseado como ${eventType}`, { detail: msg.zoneName || '', status: 'ok' }));
+
+    const ocrEvent = buildOcrEvent(msg.text, {
+      source: ocrSource,
+      eventType,
+      zoneName: msg.zoneName || 'chat',
+      confidence: (msg.metadata?.confidence as number | undefined) ?? (msg.source === 'ocr' ? 0.85 : 0.95),
+      metadata: {
+        giftName: (msg.metadata?.giftName as string | null) ?? null,
+        giftKey: (msg.metadata?.giftKey as string | null) ?? null,
+        giftValue: (msg.metadata?.giftValue as number | null) ?? null,
+      },
+    });
+
+    const decision = mockAiDecision(ocrEvent);
     setAiDecision(decision);
-    addSimLog(logEntry('ia', `IA: ${decision.reasoning}`, { detail: `confiança ${Math.round(decision.confidence * 100)}%`, status: 'ok' }));
+    addSimLog(logEntry('ia', `IA: ${decision.reasoning}`, {
+      detail: `confiança ${Math.round(decision.confidence * 100)}%`,
+      status: 'ok',
+    }));
     if (decision.selectedVideoId) {
       addSimLog(logEntry('gatilho', `Gatilho acionado → ${decision.selectedVideoId}`, { status: 'ok' }));
     }
+
     if (onRunReactiveFlow) {
-      void onRunReactiveFlow(text, 'test').then(() => {
+      void onRunReactiveFlow(msg.text, msg.source).then(() => {
         addSimLog(logEntry('palco', 'Transição de vídeo executada', { status: 'ok' }));
       });
       return;
     }
-    runtime.injectEvent('gift', text, 'test');
+    runtime.injectEvent(msg.kind === 'gift' ? 'gift' : 'chat', msg.text, msg.source);
     addSimLog(logEntry('palco', 'Evento injetado no runtime', { status: 'ok' }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addSimLog, onRunReactiveFlow, runtime]);
+
+  // ── Auto-process real OCR/chat events as they arrive ──────────────────────
+  useEffect(() => {
+    for (const msg of capturedText) {
+      if (seenEventIdsRef.current.has(msg.id)) continue;
+      seenEventIdsRef.current.add(msg.id);
+      runCapturedEventThroughAi(msg);
+    }
+  }, [capturedText, runCapturedEventThroughAi]);
+
+  // ── Simulation shortcut ────────────────────────────────────────────────────
+  const simulateGift = () => {
+    const text = 'Lucas enviou Rosa';
+    runCapturedEventThroughAi({
+      id: `sim-${Date.now()}`,
+      source: 'test',
+      zoneName: 'Simulação',
+      text,
+      kind: 'gift',
+      createdAt: new Date().toISOString(),
+      time: new Date().toISOString(),
+      metadata: { giftName: 'Rosa', simulated: true },
+    });
   };
   const activeClip =
     videoState?.currentClip ||
