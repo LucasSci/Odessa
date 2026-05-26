@@ -149,9 +149,11 @@ export default function OcrSetup() {
 
   // Preset management
   const [activePreset, setActivePreset] = useState('live-chat');
+  const [serverPresets, setServerPresets] = useState<Array<{ name: string; zoneCount: number; updatedAt: string | null }>>([]);
+  const [presetBusy, setPresetBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Fetch initial config ─────────────────────────────────────────────────
+  // ── Fetch initial config + preset list ──────────────────────────────────
   useEffect(() => {
     fetch(apiUrl('/api/ocr/config'))
       .then((r) => r.ok ? r.json() : null)
@@ -160,6 +162,14 @@ export default function OcrSetup() {
           setOcrConfig(data);
           if (data.enabled) setOnboardingDone(true);
         }
+      })
+      .catch(() => undefined);
+
+    // Load preset list from server
+    fetch(apiUrl('/api/ocr/presets'))
+      .then((r) => r.ok ? r.json() : null)
+      .then((data: { presets?: Array<{ name: string; zoneCount: number; updatedAt: string | null }> } | null) => {
+        if (data?.presets?.length) setServerPresets(data.presets);
       })
       .catch(() => undefined);
   }, []);
@@ -372,6 +382,73 @@ export default function OcrSetup() {
     };
     reader.readAsText(file);
     e.target.value = '';
+  };
+
+  // ── Server preset CRUD ───────────────────────────────────────────────────
+  const refreshServerPresets = async () => {
+    try {
+      const r = await fetch(apiUrl('/api/ocr/presets'));
+      if (r.ok) {
+        const data = await r.json() as { presets: Array<{ name: string; zoneCount: number; updatedAt: string | null }> };
+        setServerPresets(data.presets ?? []);
+      }
+    } catch { /* silent */ }
+  };
+
+  const savePresetToServer = async () => {
+    if (!activePreset.trim()) return;
+    setPresetBusy(true);
+    addLog(logEntry('sistema', `Salvando preset "${activePreset}" no servidor…`, { status: 'info' }));
+    try {
+      const r = await fetch(apiUrl('/api/ocr/presets'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: activePreset, zones, ocrConfig }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json() as { name: string; zoneCount: number };
+      addLog(logEntry('sistema', `Preset "${data.name}" salvo (${data.zoneCount} zona(s))`, { status: 'ok' }));
+      await refreshServerPresets();
+    } catch (err) {
+      addLog(logEntry('erro', `Falha ao salvar preset: ${err instanceof Error ? err.message : 'erro'}`, { status: 'error' }));
+    } finally {
+      setPresetBusy(false);
+    }
+  };
+
+  const loadPresetFromServer = async (name: string) => {
+    if (!name) return;
+    setPresetBusy(true);
+    addLog(logEntry('sistema', `Carregando preset "${name}"…`, { status: 'info' }));
+    try {
+      const r = await fetch(apiUrl(`/api/ocr/presets?name=${encodeURIComponent(name)}`));
+      if (!r.ok) throw new Error(r.status === 404 ? 'Preset não encontrado' : `HTTP ${r.status}`);
+      const data = await r.json() as { zones?: OcrZone[]; ocrConfig?: OcrConfig };
+      if (data.zones) setZones(data.zones);
+      if (data.ocrConfig) setOcrConfig(data.ocrConfig);
+      setActivePreset(name);
+      addLog(logEntry('sistema', `Preset "${name}" aplicado (${data.zones?.length ?? 0} zona(s))`, { status: 'ok' }));
+    } catch (err) {
+      addLog(logEntry('erro', `Falha ao carregar preset: ${err instanceof Error ? err.message : 'erro'}`, { status: 'error' }));
+    } finally {
+      setPresetBusy(false);
+    }
+  };
+
+  const deletePresetFromServer = async (name: string) => {
+    if (!name) return;
+    setPresetBusy(true);
+    try {
+      const r = await fetch(apiUrl(`/api/ocr/presets?name=${encodeURIComponent(name)}`), { method: 'DELETE' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      addLog(logEntry('sistema', `Preset "${name}" removido`, { status: 'ok' }));
+      setActivePreset('live-chat');
+      await refreshServerPresets();
+    } catch (err) {
+      addLog(logEntry('erro', `Falha ao remover preset: ${err instanceof Error ? err.message : 'erro'}`, { status: 'error' }));
+    } finally {
+      setPresetBusy(false);
+    }
   };
 
   // ── Mark onboarding step ──────────────────────────────────────────────────
@@ -681,10 +758,11 @@ export default function OcrSetup() {
                 <div className="flex gap-2">
                   <button onClick={() => setOnboardingStep(4)} className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-400 hover:bg-slate-800 transition">Voltar</button>
                   <button
-                    onClick={finishOnboarding}
-                    className="flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-500 transition"
+                    onClick={() => { void savePresetToServer(); finishOnboarding(); }}
+                    disabled={presetBusy || !activePreset.trim()}
+                    className="flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-50 transition"
                   >
-                    <Save className="h-4 w-4" /> Finalizar configuração
+                    <Save className="h-4 w-4" /> Finalizar e salvar preset
                   </button>
                 </div>
               </div>
@@ -805,17 +883,61 @@ export default function OcrSetup() {
 
           {/* Presets */}
           <div className="space-y-2">
-            <label className="text-[9px] font-bold uppercase text-slate-600">Presets</label>
-            <select
+            <div className="flex items-center justify-between">
+              <label className="text-[9px] font-bold uppercase text-slate-600">Presets</label>
+              {serverPresets.length > 0 && (
+                <span className="text-[9px] text-slate-600">{serverPresets.length} salvos</span>
+              )}
+            </div>
+
+            {/* Name input */}
+            <input
+              type="text"
               value={activePreset}
               onChange={(e) => setActivePreset(e.target.value)}
-              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 outline-none"
+              placeholder="Nome do preset"
+              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-blue-500"
+            />
+
+            {/* Server preset selector (shown only when there are saved presets) */}
+            {serverPresets.length > 0 && (
+              <div className="flex gap-1.5">
+                <select
+                  onChange={(e) => { if (e.target.value) void loadPresetFromServer(e.target.value); }}
+                  value=""
+                  className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-[11px] text-slate-300 outline-none"
+                >
+                  <option value="">Carregar preset…</option>
+                  {serverPresets.map((p) => (
+                    <option key={p.name} value={p.name}>
+                      {p.name} ({p.zoneCount} zonas)
+                    </option>
+                  ))}
+                </select>
+                {serverPresets.find((p) => p.name === activePreset) && (
+                  <button
+                    onClick={() => void deletePresetFromServer(activePreset)}
+                    disabled={presetBusy}
+                    title="Apagar preset do servidor"
+                    className="rounded-lg border border-red-800/40 bg-red-900/20 px-2 text-[10px] text-red-400 hover:bg-red-900/30 disabled:opacity-40 transition"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Save to server */}
+            <button
+              onClick={() => void savePresetToServer()}
+              disabled={presetBusy || !activePreset.trim()}
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 py-1.5 text-[10px] font-bold text-blue-300 hover:bg-blue-500/15 disabled:opacity-40 transition"
             >
-              <option value="live-chat">Live Chat</option>
-              <option value="obs-compact">OBS Compacto</option>
-              <option value="eventos">Eventos</option>
-              <option value={activePreset}>{activePreset}</option>
-            </select>
+              <Save className="h-3 w-3" />
+              {presetBusy ? 'Salvando…' : 'Salvar no servidor'}
+            </button>
+
+            {/* File export / import (backup) */}
             <div className="flex gap-1.5">
               <button
                 onClick={exportPreset}
