@@ -4,7 +4,7 @@
  * Quando a IA real estiver integrada, basta passar status: 'online'
  * e alimentar com decisões reais via hook/context.
  */
-import { Brain, Zap } from 'lucide-react';
+import { Brain, Loader2, Zap } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { AiDecision, AiStatus } from '../core/aiDecisionContract';
 import {
@@ -37,6 +37,12 @@ const STATUS_STYLES: Record<AiStatus, { label: string; color: string; bg: string
     color: 'text-emerald-400',
     bg: 'bg-emerald-500/8',
     border: 'border-emerald-500/20',
+  },
+  checking: {
+    label: 'CONSULTANDO…',
+    color: 'text-violet-400',
+    bg: 'bg-violet-500/8',
+    border: 'border-violet-500/20',
   },
 };
 
@@ -86,12 +92,19 @@ export function AiDecisionPanel({ decision, className }: AiDecisionPanelProps) {
             Decisão da IA
           </span>
         </div>
-        <span className={cn('text-[9px] font-bold uppercase tracking-widest', st.color)}>
+        <span className={cn('flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest', st.color)}>
+          {d.status === 'checking' && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
           {st.label}
         </span>
       </div>
 
-      {d.status === 'offline' ? (
+      {d.status === 'checking' ? (
+        <p className="text-[11px] text-violet-300/70 text-center py-2 animate-pulse">
+          {d.sourceEvent
+            ? `Analisando "${(d.sourceEvent.normalizedText || d.sourceEvent.rawText).slice(0, 40)}…"`
+            : 'Consultando motor de decisão…'}
+        </p>
+      ) : d.status === 'offline' ? (
         <p className="text-[11px] text-slate-600 text-center py-2">
           IA não conectada — sistema operando por regras diretas.
         </p>

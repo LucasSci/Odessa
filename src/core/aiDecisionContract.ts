@@ -6,7 +6,7 @@
 
 import type { OcrEvent } from './ocrEventContract';
 
-export type AiStatus = 'offline' | 'simulated' | 'online';
+export type AiStatus = 'offline' | 'simulated' | 'online' | 'checking';
 export type AiIntentType =
   | 'gift_reaction'
   | 'greeting'
@@ -94,6 +94,61 @@ export const ACTION_LABELS: Record<AiDecision['recommendedAction'], string> = {
   wait: 'Aguardar',
   no_action: 'Sem ação',
 };
+
+/**
+ * Decisão "checking" — placeholder enquanto a chamada assíncrona está em voo.
+ */
+export function checkingAiDecision(event: OcrEvent): AiDecision {
+  return {
+    sourceEvent: event,
+    intent: 'unknown',
+    emotion: 'neutral',
+    recommendedAction: 'no_action',
+    selectedTriggerId: null,
+    selectedVideoId: null,
+    selectedVideoLabel: null,
+    confidence: 0,
+    reasoning: 'Consultando IA...',
+    status: 'checking',
+    timestamp: new Date().toISOString(),
+  };
+}
+
+/**
+ * Chama o endpoint real de decisão da IA (POST /api/ai/decide).
+ * Retorna status 'online' em caso de sucesso.
+ * Cai automaticamente para mockAiDecision (status 'simulated') em caso de erro
+ * ou se o servidor não estiver configurado (sem chave de API).
+ */
+export async function callAiDecision(
+  event: OcrEvent,
+  config?: { videos?: Array<{ id: string; label?: string; name?: string }>; triggers?: Array<{ id: string; name?: string; label?: string; enabled?: boolean }> },
+): Promise<AiDecision> {
+  try {
+    const res = await fetch('/api/ai/decide', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ocrEvent: event, config }),
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!res.ok) {
+      // 503 = API key not configured → silently fall back to mock
+      if (res.status !== 503) {
+        const err = (await res.json().catch(() => ({ error: `HTTP ${res.status}` }))) as { error?: string };
+        console.warn('[callAiDecision] server error:', err.error);
+      }
+      return mockAiDecision(event);
+    }
+
+    const decision = (await res.json()) as AiDecision;
+    return { ...decision, sourceEvent: event };
+  } catch (err) {
+    // Network error / timeout → fall back silently
+    console.warn('[callAiDecision] fallback to mock:', err instanceof Error ? err.message : err);
+    return mockAiDecision(event);
+  }
+}
 
 /**
  * Mock engine — simula uma decisão de IA com base no tipo de evento OCR.

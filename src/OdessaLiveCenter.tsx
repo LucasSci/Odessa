@@ -52,7 +52,7 @@ import { StatusBadge, deriveStageStatus } from './components/StatusBadge';
 import { ValidationChecklist, buildFlowValidationChecks } from './components/ValidationChecklist';
 
 import type { AiDecision } from './core/aiDecisionContract';
-import { EMPTY_AI_DECISION, mockAiDecision } from './core/aiDecisionContract';
+import { EMPTY_AI_DECISION, callAiDecision, checkingAiDecision } from './core/aiDecisionContract';
 import type { LogEntry } from './components/DebugLogPanel';
 import { buildOcrEvent } from './core/ocrEventContract';
 import type { OcrEvent, OcrEventType } from './core/ocrEventContract';
@@ -3844,7 +3844,7 @@ function StagePanel({
   };
 
   // ── Core event → AI pipeline (shared by real OCR events + simulation) ────────
-  const runCapturedEventThroughAi = useCallback((msg: CapturedMessage) => {
+  const runCapturedEventThroughAi = useCallback(async (msg: CapturedMessage) => {
     if (!msg.text?.trim()) return;
 
     // If CaptureStudio already built a canonical OcrEvent, reuse it directly.
@@ -3888,9 +3888,17 @@ function StagePanel({
       },
     });
 
-    const decision = mockAiDecision(ocrEvent);
+    // Mostra estado de loading imediatamente enquanto a chamada async está em voo
+    setAiDecision(checkingAiDecision(ocrEvent));
+    addSimLog(logEntry('ia', 'Consultando motor de decisão…', { status: 'info' }));
+
+    const decision = await callAiDecision(ocrEvent, {
+      videos: view.videos,
+      triggers: view.triggers,
+    });
     setAiDecision(decision);
-    addSimLog(logEntry('ia', `IA: ${decision.reasoning}`, {
+    const iaLabel = decision.status === 'online' ? '🟢 IA real' : '🟡 IA simulada';
+    addSimLog(logEntry('ia', `${iaLabel}: ${decision.reasoning}`, {
       detail: `confiança ${Math.round(decision.confidence * 100)}%`,
       status: 'ok',
     }));
@@ -3907,21 +3915,21 @@ function StagePanel({
     runtime.injectEvent(msg.kind === 'gift' ? 'gift' : 'chat', msg.text, msg.source);
     addSimLog(logEntry('palco', 'Evento injetado no runtime', { status: 'ok' }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addSimLog, onRunReactiveFlow, runtime]);
+  }, [addSimLog, onRunReactiveFlow, runtime, view.videos, view.triggers]);
 
   // ── Auto-process real OCR/chat events as they arrive ──────────────────────
   useEffect(() => {
     for (const msg of capturedText) {
       if (seenEventIdsRef.current.has(msg.id)) continue;
       seenEventIdsRef.current.add(msg.id);
-      runCapturedEventThroughAi(msg);
+      void runCapturedEventThroughAi(msg);
     }
   }, [capturedText, runCapturedEventThroughAi]);
 
   // ── Simulation shortcut ────────────────────────────────────────────────────
   const simulateGift = () => {
     const text = 'Lucas enviou Rosa';
-    runCapturedEventThroughAi({
+    void runCapturedEventThroughAi({
       id: `sim-${Date.now()}`,
       source: 'test',
       zoneName: 'Simulação',
