@@ -1,257 +1,1020 @@
-import { useState, useEffect } from 'react';
-import { Settings, ScanText, Activity, RefreshCw } from 'lucide-react';
+/**
+ * OcrSetup — central de configuração e diagnóstico de captura OCR.
+ * Layout: 3 colunas (config | preview | diagnóstico) quando fonte ativa,
+ * ou onboarding guiado em 5 etapas quando nenhuma fonte está selecionada.
+ */
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  ChevronRight,
+  Download,
+  Eye,
+  EyeOff,
+  Layers,
+  Monitor,
+  Plus,
+  RefreshCw,
+  ScanText,
+  Save,
+  Settings,
+  Trash2,
+  Wifi,
+} from 'lucide-react';
+import { cn } from './lib/utils';
 import { apiUrl } from './lib/api';
+import { SystemHealthCard, type ServiceHealth } from './components/SystemHealthCard';
+import { DebugLogPanel, logEntry, type LogEntry } from './components/DebugLogPanel';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type ZoneRole = 'chat' | 'gift' | 'system' | 'custom';
+type SourceType = 'window' | 'obs' | 'direct';
+type OnboardingStep = 1 | 2 | 3 | 4 | 5;
+type StepStatus = 'pending' | 'configured' | 'error' | 'ready';
+
+interface OcrZone {
+  id: string;
+  name: string;
+  role: ZoneRole;
+  color: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  enabled: boolean;
+}
+
+interface OcrConfig {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  interval_ms: number;
+  enabled: boolean;
+}
+
+const ZONE_COLORS: Record<ZoneRole, string> = {
+  chat:   '#3b82f6',
+  gift:   '#f59e0b',
+  system: '#8b5cf6',
+  custom: '#10b981',
+};
+
+const ROLE_LABELS: Record<ZoneRole, string> = {
+  chat:   'Chat',
+  gift:   'Presentes',
+  system: 'Sistema',
+  custom: 'Customizado',
+};
+
+const SOURCE_LABELS: Record<SourceType, { label: string; desc: string; icon: React.ReactNode }> = {
+  window: {
+    label: 'Janela / Tela',
+    desc: 'Captura uma janela ou região da tela do sistema. Ideal para TikTok Live no browser.',
+    icon: <Monitor className="h-4 w-4" />,
+  },
+  obs: {
+    label: 'OBS',
+    desc: 'Lê diretamente de uma Browser Source no OBS via WebSocket. Mais estável durante a live.',
+    icon: <Wifi className="h-4 w-4" />,
+  },
+  direct: {
+    label: 'Link direto',
+    desc: 'Aponta para um endpoint HTTP que retorna texto (stream de eventos do TikTok).',
+    icon: <Layers className="h-4 w-4" />,
+  },
+};
+
+const ONBOARDING_STEPS: { label: string; description: string }[] = [
+  { label: 'Escolha a fonte',          description: 'Janela, OBS ou link direto' },
+  { label: 'Selecione a janela',        description: 'Qual janela/URL será capturada' },
+  { label: 'Ajuste as zonas de leitura', description: 'Defina as regiões de chat e presentes' },
+  { label: 'Teste o OCR',               description: 'Valide a leitura antes de ir ao ar' },
+  { label: 'Salve o preset',            description: 'Guarde esta configuração para reutilizar' },
+];
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function OcrSetup() {
-  const [zones, setZones] = useState<Record<string, string>>({});
-  const [isPolling] = useState(true);
-  const [testText, setTestText] = useState('');
-  const [testResult, setTestResult] = useState<any>(null);
-
-  // OCR Config State
-  const [ocrConfig, setOcrConfig] = useState({
-    x: 0,
-    y: 0,
-    width: 400,
-    height: 600,
-    interval_ms: 2000,
-    enabled: false
+  // Config
+  const [ocrConfig, setOcrConfig] = useState<OcrConfig>({
+    x: 0, y: 0, width: 400, height: 600, interval_ms: 2000, enabled: false,
   });
+  const [sourceType, setSourceType] = useState<SourceType>('obs');
+  const [zones, setZones] = useState<OcrZone[]>([
+    { id: 'zone-chat',  name: 'Chat',      role: 'chat',  color: ZONE_COLORS.chat,   x: 10, y: 50, width: 380, height: 400, enabled: true },
+    { id: 'zone-gifts', name: 'Presentes', role: 'gift',  color: ZONE_COLORS.gift,   x: 10, y: 460, width: 320, height: 120, enabled: true },
+  ]);
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Fetch Initial OCR Config
+  // Onboarding
+  const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>(1);
+  const [stepStatuses, setStepStatuses] = useState<Record<OnboardingStep, StepStatus>>({
+    1: 'pending', 2: 'pending', 3: 'pending', 4: 'pending', 5: 'pending',
+  });
+  const [onboardingDone, setOnboardingDone] = useState(false);
+
+  // Live zones from server
+  const [liveZones, setLiveZones] = useState<Record<string, string>>({});
+
+  // Simulation / test
+  const [testText, setTestText] = useState('');
+  const [testResult, setTestResult] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
+
+  // Debug logs
+  const [debugLogs, setDebugLogs] = useState<LogEntry[]>([]);
+  const addLog = useCallback((entry: LogEntry) => setDebugLogs((prev) => [...prev.slice(-199), entry]), []);
+
+  // Health
+  const [health, setHealth] = useState<ServiceHealth[]>([
+    { name: 'OCR Engine',  status: 'unknown' },
+    { name: 'Backend API', status: 'unknown' },
+    { name: 'IA Decision', status: 'offline' },
+    { name: 'TTS',         status: 'offline' },
+  ]);
+
+  // Preset management
+  const [activePreset, setActivePreset] = useState('live-chat');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Fetch initial config ─────────────────────────────────────────────────
   useEffect(() => {
-    const fetchConfig = async () => {
-      try {
-        const res = await fetch(apiUrl('/api/ocr/config'));
-        const data = await res.json();
-        setOcrConfig(data);
-      } catch (err) {
-        console.error('Failed to fetch OCR config:', err);
-      }
-    };
-    fetchConfig();
+    fetch(apiUrl('/api/ocr/config'))
+      .then((r) => r.ok ? r.json() : null)
+      .then((data: OcrConfig | null) => {
+        if (data) {
+          setOcrConfig(data);
+          if (data.enabled) setOnboardingDone(true);
+        }
+      })
+      .catch(() => undefined);
   }, []);
 
-  const handleSaveConfig = async () => {
-    try {
-      setIsSaving(true);
-      await fetch(apiUrl('/api/ocr/config'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(ocrConfig)
-      });
-      setTimeout(() => setIsSaving(false), 500);
-    } catch (err) {
-      console.error('Failed to save config:', err);
-      setIsSaving(false);
-    }
-  };
-
-  const toggleOcrEngine = async () => {
-    const newConfig = { ...ocrConfig, enabled: !ocrConfig.enabled };
-    setOcrConfig(newConfig);
-    try {
-      await fetch(apiUrl('/api/ocr/config'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newConfig)
-      });
-    } catch (err) {
-      console.error('Failed to toggle OCR engine:', err);
-    }
-  };
-
-  // Poll OCR Zones
+  // ── Poll live zones ───────────────────────────────────────────────────────
   useEffect(() => {
-    if (!isPolling) return;
-
-    const fetchZones = async () => {
+    const poll = async () => {
       try {
-        const res = await fetch(apiUrl('/api/ocr/zones'));
-        const data = await res.json();
-        setZones(data);
-      } catch (err) {
-        console.error('Failed to fetch OCR zones:', err);
-      }
+        const r = await fetch(apiUrl('/api/ocr/zones'));
+        if (r.ok) setLiveZones(await r.json() as Record<string, string>);
+      } catch { /* silent */ }
     };
+    poll();
+    const id = setInterval(poll, 2000);
+    return () => clearInterval(id);
+  }, []);
 
-    const interval = setInterval(fetchZones, 2000);
-    fetchZones(); // Initial fetch
+  // ── Health check ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    const check = async () => {
+      const checks: Array<{ name: string; url: string }> = [
+        { name: 'OCR Engine',  url: apiUrl('/api/ocr/config') },
+        { name: 'Backend API', url: apiUrl('/api/health') },
+      ];
+      const results = await Promise.all(
+        checks.map(async ({ name, url }) => {
+          const t = Date.now();
+          try {
+            const r = await fetch(url, { signal: AbortSignal.timeout(3000) });
+            return { name, status: (r.ok ? 'online' : 'degraded') as ServiceHealth['status'], latencyMs: Date.now() - t };
+          } catch {
+            return { name, status: 'offline' as ServiceHealth['status'], latencyMs: null };
+          }
+        }),
+      );
+      setHealth([
+        ...results,
+        { name: 'IA Decision', status: 'offline' },
+        { name: 'TTS',         status: 'offline' },
+      ]);
+    };
+    check();
+    const id = setInterval(check, 15000);
+    return () => clearInterval(id);
+  }, []);
 
-    return () => clearInterval(interval);
-  }, [isPolling]);
+  // ── Save config ───────────────────────────────────────────────────────────
+  const saveConfig = async () => {
+    setIsSaving(true);
+    try {
+      await fetch(apiUrl('/api/ocr/config'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ocrConfig),
+      });
+      addLog(logEntry('sistema', 'Configuração salva', { status: 'ok' }));
+    } catch {
+      addLog(logEntry('erro', 'Erro ao salvar configuração', { status: 'error' }));
+    } finally {
+      setTimeout(() => setIsSaving(false), 600);
+    }
+  };
 
-  // Test Automation Flow manually
+  // ── Toggle OCR ────────────────────────────────────────────────────────────
+  const toggleOcr = async () => {
+    const next = { ...ocrConfig, enabled: !ocrConfig.enabled };
+    setOcrConfig(next);
+    try {
+      await fetch(apiUrl('/api/ocr/config'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next),
+      });
+      addLog(logEntry('ocr', next.enabled ? 'Motor OCR ativado' : 'Motor OCR desativado', { status: 'ok' }));
+    } catch {
+      addLog(logEntry('erro', 'Falha ao alternar motor OCR', { status: 'error' }));
+    }
+  };
+
+  // ── Test OCR text ─────────────────────────────────────────────────────────
   const handleTestText = async () => {
     if (!testText.trim()) return;
+    addLog(logEntry('parser', `Injetando texto: "${testText}"`, { status: 'info' }));
     try {
-      const res = await fetch(apiUrl(`/api/automation/test-trigger?text=${encodeURIComponent(testText)}`), {
-        method: 'POST'
-      });
-      const data = await res.json();
-      setTestResult({ status: 'success', data });
-      setTestText('');
-
-      // Auto-clear result after 3s
+      const r = await fetch(
+        apiUrl(`/api/automation/test-trigger?text=${encodeURIComponent(testText)}`),
+        { method: 'POST' },
+      );
+      const data = await r.json() as Record<string, unknown>;
+      setTestResult({ status: 'success', message: 'Texto processado com sucesso!' });
+      addLog(logEntry('gatilho', 'Gatilho disparado via teste', { detail: JSON.stringify(data).slice(0, 80), status: 'ok' }));
       setTimeout(() => setTestResult(null), 3000);
-    } catch (err) {
-      setTestResult({ status: 'error', message: 'Failed to inject text.' });
+    } catch {
+      setTestResult({ status: 'error', message: 'Falha ao processar texto.' });
+      addLog(logEntry('erro', 'Falha ao injetar texto de teste', { status: 'error' }));
     }
+    setTestText('');
   };
 
-  return (
-    <div className="flex flex-col h-full bg-slate-900">
-      <div className="flex items-center justify-between p-6 border-b border-slate-800">
-        <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <Settings className="text-blue-500 w-5 h-5" />
-            Configuração do OCR & Eventos
+  // ── Zone helpers ──────────────────────────────────────────────────────────
+  const addZone = () => {
+    const id = `zone-${Date.now()}`;
+    setZones((prev) => [
+      ...prev,
+      { id, name: 'Nova zona', role: 'custom', color: ZONE_COLORS.custom, x: 20, y: 20, width: 200, height: 100, enabled: true },
+    ]);
+    setSelectedZoneId(id);
+  };
+
+  const updateZone = (id: string, patch: Partial<OcrZone>) => {
+    setZones((prev) => prev.map((z) => (z.id === id ? { ...z, ...patch } : z)));
+  };
+
+  const deleteZone = (id: string) => {
+    setZones((prev) => prev.filter((z) => z.id !== id));
+    if (selectedZoneId === id) setSelectedZoneId(null);
+  };
+
+  // ── Export / import preset ────────────────────────────────────────────────
+  const exportPreset = () => {
+    const data = JSON.stringify({ name: activePreset, zones, ocrConfig }, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ocr-preset-${activePreset}-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importPreset = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target?.result as string) as { zones?: OcrZone[]; ocrConfig?: OcrConfig };
+        if (data.zones) setZones(data.zones);
+        if (data.ocrConfig) setOcrConfig(data.ocrConfig);
+        addLog(logEntry('sistema', `Preset "${file.name}" importado`, { status: 'ok' }));
+      } catch {
+        addLog(logEntry('erro', 'Falha ao importar preset', { status: 'error' }));
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  // ── Mark onboarding step ──────────────────────────────────────────────────
+  const markStep = (step: OnboardingStep, status: StepStatus) => {
+    setStepStatuses((prev) => ({ ...prev, [step]: status }));
+  };
+
+  const advanceOnboarding = (next: OnboardingStep) => {
+    markStep(onboardingStep, 'configured');
+    setOnboardingStep(next);
+  };
+
+  const finishOnboarding = () => {
+    markStep(5, 'ready');
+    setOnboardingDone(true);
+    void saveConfig();
+  };
+
+  const selectedZone = zones.find((z) => z.id === selectedZoneId) ?? null;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Render: onboarding
+  // ─────────────────────────────────────────────────────────────────────────
+  if (!onboardingDone) {
+    return (
+      <div className="flex h-full flex-col bg-[#0a0c10]">
+        {/* Onboarding header */}
+        <div className="border-b border-slate-800 px-6 py-4">
+          <h2 className="flex items-center gap-2 text-lg font-bold text-white">
+            <ScanText className="h-5 w-5 text-blue-400" />
+            Configurar Captura OCR
           </h2>
-          <p className="text-sm text-slate-400 mt-1">
-            Monitore o que o sistema está lendo da tela e simule entradas de texto.
-          </p>
+          <p className="mt-1 text-sm text-slate-400">Siga as etapas para configurar a captura de eventos da live.</p>
         </div>
 
-        <div className="flex gap-4">
+        {/* Steps sidebar + content */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Steps list */}
+          <div className="w-56 shrink-0 border-r border-slate-800 p-4 space-y-1">
+            {ONBOARDING_STEPS.map((step, i) => {
+              const n = (i + 1) as OnboardingStep;
+              const st = stepStatuses[n];
+              const isActive = onboardingStep === n;
+              return (
+                <button
+                  key={n}
+                  onClick={() => setOnboardingStep(n)}
+                  className={cn(
+                    'w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition',
+                    isActive ? 'bg-blue-600/20 border border-blue-500/30' : 'hover:bg-slate-800/50',
+                  )}
+                >
+                  <div className={cn(
+                    'flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold',
+                    st === 'ready' || st === 'configured' ? 'bg-emerald-500 text-white' :
+                    st === 'error' ? 'bg-red-500 text-white' :
+                    isActive ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-400',
+                  )}>
+                    {st === 'ready' || st === 'configured' ? '✓' : st === 'error' ? '!' : n}
+                  </div>
+                  <div className="min-w-0">
+                    <p className={cn('text-xs font-semibold truncate', isActive ? 'text-white' : 'text-slate-400')}>
+                      {step.label}
+                    </p>
+                    <p className="text-[10px] text-slate-600 truncate">{step.description}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Step content */}
+          <div className="flex-1 overflow-y-auto p-6">
+            {/* Step 1: Choose source */}
+            {onboardingStep === 1 && (
+              <div className="max-w-lg space-y-4">
+                <h3 className="text-base font-bold text-white">Etapa 1 — Escolha a fonte de captura</h3>
+                <div className="grid gap-3">
+                  {(Object.keys(SOURCE_LABELS) as SourceType[]).map((src) => {
+                    const info = SOURCE_LABELS[src];
+                    return (
+                      <button
+                        key={src}
+                        onClick={() => setSourceType(src)}
+                        className={cn(
+                          'flex items-start gap-3 rounded-xl border p-4 text-left transition',
+                          sourceType === src
+                            ? 'border-blue-500/50 bg-blue-500/10'
+                            : 'border-slate-700/50 bg-slate-800/20 hover:border-slate-600',
+                        )}
+                      >
+                        <span className={cn('mt-0.5', sourceType === src ? 'text-blue-400' : 'text-slate-500')}>
+                          {info.icon}
+                        </span>
+                        <div>
+                          <p className={cn('text-sm font-semibold', sourceType === src ? 'text-white' : 'text-slate-300')}>
+                            {info.label}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-0.5">{info.desc}</p>
+                        </div>
+                        {sourceType === src && (
+                          <CheckCircle2 className="ml-auto mt-0.5 h-4 w-4 text-blue-400 shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={() => advanceOnboarding(2)}
+                  className="mt-2 flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-500 transition"
+                >
+                  Próximo <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+
+            {/* Step 2: Select window */}
+            {onboardingStep === 2 && (
+              <div className="max-w-lg space-y-4">
+                <h3 className="text-base font-bold text-white">Etapa 2 — Selecione a janela / URL</h3>
+                {sourceType === 'obs' && (
+                  <div className="rounded-xl border border-slate-700/50 bg-slate-800/20 p-4 space-y-3">
+                    <p className="text-sm text-slate-300">
+                      A fonte OBS usa o WebSocket configurado em Settings. Certifique-se de que:
+                    </p>
+                    <ul className="text-xs text-slate-400 space-y-1 list-disc pl-4">
+                      <li>OBS está aberto e o WebSocket Server está ativado</li>
+                      <li>A Browser Source <code className="bg-slate-700 px-1 rounded">Odessa Chat OCR</code> está criada</li>
+                      <li>A source aponta para a URL do chat da live</li>
+                    </ul>
+                    <SystemHealthCard services={health.slice(0, 2)} compact />
+                  </div>
+                )}
+                {sourceType === 'window' && (
+                  <div className="rounded-xl border border-slate-700/50 bg-slate-800/20 p-4 space-y-3">
+                    <p className="text-sm text-slate-300">Configure as coordenadas da região de captura:</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {(['x', 'y', 'width', 'height'] as const).map((field) => (
+                        <label key={field} className="space-y-1">
+                          <span className="text-[10px] font-bold uppercase text-slate-500">{field.toUpperCase()}</span>
+                          <input
+                            type="number"
+                            value={ocrConfig[field]}
+                            onChange={(e) => setOcrConfig((p) => ({ ...p, [field]: parseInt(e.target.value) || 0 }))}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {sourceType === 'direct' && (
+                  <div className="rounded-xl border border-slate-700/50 bg-slate-800/20 p-4 space-y-3">
+                    <label className="space-y-1 block">
+                      <span className="text-[10px] font-bold uppercase text-slate-500">URL do endpoint</span>
+                      <input
+                        type="url"
+                        placeholder="http://localhost:8000/api/..."
+                        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+                      />
+                    </label>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setOnboardingStep(1)}
+                    className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-400 hover:bg-slate-800 transition"
+                  >
+                    Voltar
+                  </button>
+                  <button
+                    onClick={() => advanceOnboarding(3)}
+                    className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-500 transition"
+                  >
+                    Próximo <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Zones */}
+            {onboardingStep === 3 && (
+              <div className="max-w-2xl space-y-4">
+                <h3 className="text-base font-bold text-white">Etapa 3 — Zonas de leitura</h3>
+                <p className="text-sm text-slate-400">
+                  Defina as regiões da tela que serão lidas. Use coordenadas relativas à janela capturada.
+                </p>
+                <div className="space-y-2">
+                  {zones.map((zone) => (
+                    <div
+                      key={zone.id}
+                      className={cn(
+                        'rounded-xl border p-3 transition cursor-pointer',
+                        selectedZoneId === zone.id
+                          ? 'border-blue-500/40 bg-blue-500/8'
+                          : 'border-slate-700/40 bg-slate-800/20 hover:border-slate-600',
+                      )}
+                      onClick={() => setSelectedZoneId(zone.id === selectedZoneId ? null : zone.id)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="h-3 w-3 rounded-full shrink-0"
+                          style={{ background: zone.color }}
+                        />
+                        <span className="flex-1 text-sm font-semibold text-slate-200">{zone.name}</span>
+                        <span className="text-[10px] text-slate-500">{ROLE_LABELS[zone.role]}</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); updateZone(zone.id, { enabled: !zone.enabled }); }}
+                          className="text-slate-500 hover:text-slate-300"
+                        >
+                          {zone.enabled ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); deleteZone(zone.id); }}
+                          className="text-slate-600 hover:text-red-400"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      {selectedZoneId === zone.id && (
+                        <div className="mt-3 grid grid-cols-4 gap-2">
+                          {(['x', 'y', 'width', 'height'] as const).map((f) => (
+                            <label key={f} className="space-y-0.5">
+                              <span className="text-[9px] font-bold uppercase text-slate-600">{f.toUpperCase()}</span>
+                              <input
+                                type="number"
+                                value={zone[f]}
+                                onChange={(e) => updateZone(zone.id, { [f]: parseInt(e.target.value) || 0 })}
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-blue-500"
+                              />
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    onClick={addZone}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-700 py-2.5 text-sm text-slate-500 hover:border-slate-500 hover:text-slate-300 transition"
+                  >
+                    <Plus className="h-4 w-4" /> Adicionar zona
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setOnboardingStep(2)} className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-400 hover:bg-slate-800 transition">Voltar</button>
+                  <button onClick={() => advanceOnboarding(4)} className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-500 transition">Próximo <ChevronRight className="h-4 w-4" /></button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 4: Test */}
+            {onboardingStep === 4 && (
+              <div className="max-w-lg space-y-4">
+                <h3 className="text-base font-bold text-white">Etapa 4 — Teste o OCR</h3>
+                <p className="text-sm text-slate-400">
+                  Injete um texto manualmente para testar se os gatilhos estão reagindo corretamente.
+                </p>
+                <div className="space-y-2">
+                  <textarea
+                    value={testText}
+                    onChange={(e) => setTestText(e.target.value)}
+                    placeholder='Ex: "Lucas enviou Rosa" ou "Maria comentou: linda!"'
+                    className="w-full h-20 rounded-xl border border-slate-700 bg-slate-900 p-3 text-sm text-slate-200 outline-none focus:border-blue-500 resize-none font-mono"
+                  />
+                  <button
+                    onClick={() => void handleTestText()}
+                    disabled={!testText.trim()}
+                    className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-bold text-white hover:bg-blue-500 disabled:opacity-40 transition"
+                  >
+                    Testar
+                  </button>
+                  {testResult && (
+                    <div className={cn(
+                      'rounded-xl border px-4 py-3 text-sm font-mono',
+                      testResult.status === 'success'
+                        ? 'border-emerald-700 bg-emerald-900/20 text-emerald-300'
+                        : 'border-red-700 bg-red-900/20 text-red-300',
+                    )}>
+                      {testResult.message}
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setOnboardingStep(3)} className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-400 hover:bg-slate-800 transition">Voltar</button>
+                  <button onClick={() => advanceOnboarding(5)} className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-500 transition">Próximo <ChevronRight className="h-4 w-4" /></button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 5: Save preset */}
+            {onboardingStep === 5 && (
+              <div className="max-w-lg space-y-4">
+                <h3 className="text-base font-bold text-white">Etapa 5 — Salvar preset</h3>
+                <p className="text-sm text-slate-400">
+                  Dê um nome a esta configuração para reutilizar depois.
+                </p>
+                <label className="space-y-1 block">
+                  <span className="text-[10px] font-bold uppercase text-slate-500">Nome do preset</span>
+                  <input
+                    type="text"
+                    value={activePreset}
+                    onChange={(e) => setActivePreset(e.target.value)}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+                  />
+                </label>
+                <div className="flex gap-2">
+                  <button onClick={() => setOnboardingStep(4)} className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-400 hover:bg-slate-800 transition">Voltar</button>
+                  <button
+                    onClick={finishOnboarding}
+                    className="flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-500 transition"
+                  >
+                    <Save className="h-4 w-4" /> Finalizar configuração
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Render: 3-column operational layout
+  // ─────────────────────────────────────────────────────────────────────────
+  return (
+    <div className="flex h-full flex-col bg-[#0a0c10]">
+      {/* Top bar */}
+      <div className="flex shrink-0 items-center justify-between border-b border-slate-800 px-5 py-3">
+        <div className="flex items-center gap-3">
+          <ScanText className="h-4 w-4 text-blue-400" />
+          <span className="text-sm font-bold text-white">Fontes / OCR</span>
+          <span className="text-[10px] text-slate-600">|</span>
+          <span className="text-xs text-slate-500">{activePreset}</span>
+        </div>
+        <div className="flex items-center gap-2">
           <button
-            onClick={toggleOcrEngine}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition shadow-lg ${ocrConfig.enabled ? 'bg-emerald-600 text-white shadow-emerald-600/20' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'}`}
+            onClick={() => setOnboardingDone(false)}
+            className="text-[10px] text-slate-600 hover:text-slate-400 transition"
           >
-            <Activity className={`w-4 h-4 ${ocrConfig.enabled ? 'animate-pulse' : ''}`} />
-            {ocrConfig.enabled ? 'Motor OCR: LIGADO' : 'Motor OCR: DESLIGADO'}
+            Reconfigurar
+          </button>
+          <button
+            onClick={toggleOcr}
+            className={cn(
+              'flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-bold transition',
+              ocrConfig.enabled
+                ? 'bg-emerald-600/20 border border-emerald-500/30 text-emerald-300'
+                : 'border border-slate-700 bg-slate-800 text-slate-400 hover:bg-slate-700',
+            )}
+          >
+            <Activity className={cn('h-3.5 w-3.5', ocrConfig.enabled && 'animate-pulse')} />
+            {ocrConfig.enabled ? 'OCR: LIGADO' : 'OCR: DESLIGADO'}
+          </button>
+          <button
+            onClick={() => void saveConfig()}
+            disabled={isSaving}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-300 hover:bg-slate-700 transition disabled:opacity-50"
+          >
+            <Save className="h-3 w-3" />
+            {isSaving ? 'Salvo!' : 'Salvar'}
           </button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 grid grid-cols-2 gap-6">
+      {/* 3-column body */}
+      <div className="flex flex-1 min-h-0 divide-x divide-slate-800">
 
-        {/* Left Column: Live OCR Reading & Config */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-2 text-sm font-bold text-slate-300 uppercase tracking-wider">
-            <ScanText className="w-4 h-4 text-blue-400" />
-            Configuração da Região de Captura
+        {/* ── Column A: Config ── */}
+        <div className="w-64 shrink-0 overflow-y-auto p-4 space-y-4">
+          <SectionHeader icon={<Settings className="h-3.5 w-3.5" />} label="Configuração" />
+
+          {/* Source selector */}
+          <div className="space-y-2">
+            <label className="text-[9px] font-bold uppercase text-slate-600">Fonte</label>
+            <div className="grid gap-1.5">
+              {(Object.keys(SOURCE_LABELS) as SourceType[]).map((src) => (
+                <button
+                  key={src}
+                  onClick={() => setSourceType(src)}
+                  className={cn(
+                    'flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition',
+                    sourceType === src
+                      ? 'border-blue-500/40 bg-blue-500/10 text-blue-200'
+                      : 'border-slate-700/40 text-slate-400 hover:border-slate-600',
+                  )}
+                >
+                  <span className={sourceType === src ? 'text-blue-400' : 'text-slate-600'}>
+                    {SOURCE_LABELS[src].icon}
+                  </span>
+                  {SOURCE_LABELS[src].label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-4 space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">X (Esquerda)</label>
-                <input
-                  type="number"
-                  value={ocrConfig.x}
-                  onChange={(e) => setOcrConfig({...ocrConfig, x: parseInt(e.target.value) || 0})}
-                  className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-200 outline-none focus:border-blue-500"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">Y (Topo)</label>
-                <input
-                  type="number"
-                  value={ocrConfig.y}
-                  onChange={(e) => setOcrConfig({...ocrConfig, y: parseInt(e.target.value) || 0})}
-                  className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-200 outline-none focus:border-blue-500"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">Largura</label>
-                <input
-                  type="number"
-                  value={ocrConfig.width}
-                  onChange={(e) => setOcrConfig({...ocrConfig, width: parseInt(e.target.value) || 0})}
-                  className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-200 outline-none focus:border-blue-500"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">Altura</label>
-                <input
-                  type="number"
-                  value={ocrConfig.height}
-                  onChange={(e) => setOcrConfig({...ocrConfig, height: parseInt(e.target.value) || 0})}
-                  className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-200 outline-none focus:border-blue-500"
-                />
-              </div>
+          {/* Capture region */}
+          <div className="space-y-2">
+            <label className="text-[9px] font-bold uppercase text-slate-600">Região de captura</label>
+            <div className="grid grid-cols-2 gap-2">
+              {(['x', 'y', 'width', 'height'] as const).map((f) => (
+                <label key={f} className="space-y-0.5">
+                  <span className="text-[9px] font-bold uppercase text-slate-600">{f.toUpperCase()}</span>
+                  <input
+                    type="number"
+                    value={ocrConfig[f]}
+                    onChange={(e) => setOcrConfig((p) => ({ ...p, [f]: parseInt(e.target.value) || 0 }))}
+                    className="w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-blue-500"
+                  />
+                </label>
+              ))}
             </div>
-            <button
-              onClick={handleSaveConfig}
-              className={`w-full py-2 text-white text-xs font-bold rounded transition ${isSaving ? 'bg-emerald-600' : 'bg-slate-700 hover:bg-slate-600'}`}
+          </div>
+
+          {/* Interval */}
+          <div className="space-y-1">
+            <label className="text-[9px] font-bold uppercase text-slate-600">
+              Intervalo (ms): {ocrConfig.interval_ms}
+            </label>
+            <input
+              type="range"
+              min={500}
+              max={5000}
+              step={100}
+              value={ocrConfig.interval_ms}
+              onChange={(e) => setOcrConfig((p) => ({ ...p, interval_ms: parseInt(e.target.value) }))}
+              className="w-full accent-blue-500"
+            />
+          </div>
+
+          {/* Presets */}
+          <div className="space-y-2">
+            <label className="text-[9px] font-bold uppercase text-slate-600">Presets</label>
+            <select
+              value={activePreset}
+              onChange={(e) => setActivePreset(e.target.value)}
+              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 outline-none"
             >
-              {isSaving ? 'Salvo!' : 'Salvar Configuração'}
+              <option value="live-chat">Live Chat</option>
+              <option value="obs-compact">OBS Compacto</option>
+              <option value="eventos">Eventos</option>
+              <option value={activePreset}>{activePreset}</option>
+            </select>
+            <div className="flex gap-1.5">
+              <button
+                onClick={exportPreset}
+                className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-slate-700 py-1.5 text-[10px] text-slate-500 hover:text-slate-300 transition"
+              >
+                <Download className="h-3 w-3" /> Exportar
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-slate-700 py-1.5 text-[10px] text-slate-500 hover:text-slate-300 transition"
+              >
+                <RefreshCw className="h-3 w-3" /> Importar
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                className="hidden"
+                onChange={importPreset}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* ── Column B: Preview + Zones ── */}
+        <div className="flex-1 min-w-0 overflow-y-auto p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <SectionHeader icon={<Eye className="h-3.5 w-3.5" />} label="Preview de Zonas" />
+            <button
+              onClick={addZone}
+              className="flex items-center gap-1 rounded-lg border border-dashed border-slate-700 px-3 py-1 text-[10px] text-slate-500 hover:border-slate-500 hover:text-slate-300 transition"
+            >
+              <Plus className="h-3 w-3" /> Zona
             </button>
           </div>
 
-          <div className="flex items-center gap-2 text-sm font-bold text-slate-300 uppercase tracking-wider mt-6">
-            <Activity className="w-4 h-4 text-emerald-400" />
-            Leitura ao Vivo (Zonas)
-          </div>
-
-          <div className="bg-black/50 border border-slate-800 rounded-xl p-4 min-h-[200px] flex flex-col gap-4">
-            {Object.keys(zones).length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-slate-500">
-                <RefreshCw className="w-8 h-8 mb-2 animate-spin-slow opacity-50" />
-                <p>Nenhuma zona detectada ainda.</p>
-                <p className="text-xs mt-1">Inicie a captura de tela no OBS.</p>
-              </div>
-            ) : (
-              Object.entries(zones).map(([zoneId, text]) => (
-                <div key={zoneId} className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
-                  <div className="text-[10px] text-blue-400 font-bold uppercase mb-1">Zona: {zoneId}</div>
-                  <div className="font-mono text-sm text-emerald-300 whitespace-pre-wrap break-words">
-                    {text || <span className="text-slate-600 italic">Vazio...</span>}
-                  </div>
+          {/* Zone visual overlay */}
+          <div
+            className="relative rounded-xl border border-slate-700/50 bg-[#060810] overflow-hidden"
+            style={{ height: 320 }}
+          >
+            <div className="absolute inset-0 opacity-20"
+              style={{
+                backgroundImage: 'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)',
+                backgroundSize: '40px 40px',
+              }}
+            />
+            {/* Scale zones to preview container */}
+            {zones.filter((z) => z.enabled).map((zone) => {
+              const scaleX = 100 / Math.max(ocrConfig.width, 1);
+              const scaleY = 320 / Math.max(ocrConfig.height, 1);
+              return (
+                <div
+                  key={zone.id}
+                  onClick={() => setSelectedZoneId(zone.id === selectedZoneId ? null : zone.id)}
+                  className={cn(
+                    'absolute cursor-pointer rounded transition-all',
+                    selectedZoneId === zone.id ? 'opacity-90' : 'opacity-50 hover:opacity-70',
+                  )}
+                  style={{
+                    left: `${zone.x * scaleX}%`,
+                    top: zone.y * scaleY,
+                    width: `${zone.width * scaleX}%`,
+                    height: zone.height * scaleY,
+                    border: `2px solid ${zone.color}`,
+                    backgroundColor: `${zone.color}22`,
+                  }}
+                >
+                  <span
+                    className="absolute left-1 top-1 rounded px-1 py-0.5 text-[9px] font-bold"
+                    style={{ background: zone.color, color: '#000' }}
+                  >
+                    {zone.name}
+                  </span>
                 </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Right Column: Event Simulation */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-2 text-sm font-bold text-slate-300 uppercase tracking-wider">
-            <Activity className="w-4 h-4 text-amber-400" />
-            Simulador de Eventos
+              );
+            })}
+            {/* Label hint */}
+            <div className="absolute bottom-2 right-2 text-[9px] text-slate-700">
+              {ocrConfig.width}×{ocrConfig.height}px
+            </div>
           </div>
 
-          <div className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-5 space-y-4">
-            <p className="text-sm text-slate-400">
-              Digite um texto para testar se os seus gatilhos estão configurados corretamente. Isso ignora o OCR e injeta o texto direto no Parser.
-            </p>
-
-            <div className="space-y-2">
-              <textarea
-                value={testText}
-                onChange={(e) => setTestText(e.target.value)}
-                placeholder='Ex: "Lucas enviou Rosa" ou "Maria comentou: linda!"'
-                className="w-full h-24 bg-slate-900 border border-slate-700 rounded-lg p-3 text-slate-200 outline-none focus:border-blue-500 resize-none font-mono text-sm"
-              />
-              <button
-                onClick={handleTestText}
-                disabled={!testText.trim()}
-                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold rounded-lg transition"
+          {/* Zone list */}
+          <div className="space-y-1.5">
+            {zones.map((zone) => (
+              <div
+                key={zone.id}
+                onClick={() => setSelectedZoneId(zone.id === selectedZoneId ? null : zone.id)}
+                className={cn(
+                  'flex items-center gap-3 rounded-xl border px-3 py-2 cursor-pointer transition',
+                  selectedZoneId === zone.id
+                    ? 'border-blue-500/30 bg-blue-500/8'
+                    : 'border-slate-700/30 hover:border-slate-600/50',
+                )}
               >
-                Injetar Texto
+                <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: zone.color }} />
+                <span className="flex-1 text-xs font-medium text-slate-300">{zone.name}</span>
+                <span className="text-[10px] text-slate-600">{ROLE_LABELS[zone.role]}</span>
+                <span className="text-[10px] font-mono text-slate-700">
+                  {zone.width}×{zone.height}
+                </span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); updateZone(zone.id, { enabled: !zone.enabled }); }}
+                  className="text-slate-600 hover:text-slate-400 transition"
+                >
+                  {zone.enabled ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); deleteZone(zone.id); }}
+                  className="text-slate-700 hover:text-red-400 transition"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Zone editor when selected */}
+          {selectedZone && (
+            <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full" style={{ background: selectedZone.color }} />
+                <span className="text-xs font-bold text-white">{selectedZone.name}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-0.5">
+                  <span className="text-[9px] font-bold uppercase text-slate-600">Nome</span>
+                  <input
+                    type="text"
+                    value={selectedZone.name}
+                    onChange={(e) => updateZone(selectedZone.id, { name: e.target.value })}
+                    className="w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-blue-500"
+                  />
+                </label>
+                <label className="space-y-0.5">
+                  <span className="text-[9px] font-bold uppercase text-slate-600">Tipo</span>
+                  <select
+                    value={selectedZone.role}
+                    onChange={(e) => updateZone(selectedZone.id, { role: e.target.value as ZoneRole, color: ZONE_COLORS[e.target.value as ZoneRole] })}
+                    className="w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none"
+                  >
+                    {(Object.keys(ROLE_LABELS) as ZoneRole[]).map((r) => (
+                      <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                    ))}
+                  </select>
+                </label>
+                {(['x', 'y', 'width', 'height'] as const).map((f) => (
+                  <label key={f} className="space-y-0.5">
+                    <span className="text-[9px] font-bold uppercase text-slate-600">{f.toUpperCase()}</span>
+                    <input
+                      type="number"
+                      value={selectedZone[f]}
+                      onChange={(e) => updateZone(selectedZone.id, { [f]: parseInt(e.target.value) || 0 })}
+                      className="w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 outline-none focus:border-blue-500"
+                    />
+                  </label>
+                ))}
+              </div>
+              <button
+                onClick={() => addLog(logEntry('ocr', `Testando zona "${selectedZone.name}"`, { status: 'info' }))}
+                className="w-full rounded-lg border border-blue-500/30 bg-blue-500/10 py-1.5 text-[10px] font-bold text-blue-300 hover:bg-blue-500/15 transition"
+              >
+                Testar OCR nesta zona
               </button>
             </div>
+          )}
 
+          {/* Simulator */}
+          <div className="space-y-2">
+            <SectionHeader icon={<Activity className="h-3.5 w-3.5" />} label="Simular evento" />
+            <textarea
+              value={testText}
+              onChange={(e) => setTestText(e.target.value)}
+              placeholder='"Lucas enviou Rosa" ou "Maria: linda!"'
+              className="w-full h-16 rounded-xl border border-slate-700 bg-slate-900 p-3 text-xs text-slate-200 outline-none focus:border-blue-500 resize-none font-mono"
+            />
+            <button
+              onClick={() => void handleTestText()}
+              disabled={!testText.trim()}
+              className="w-full rounded-xl bg-blue-600 py-2 text-xs font-bold text-white hover:bg-blue-500 disabled:opacity-40 transition"
+            >
+              Injetar texto
+            </button>
             {testResult && (
-              <div className={`p-3 rounded-lg text-sm font-mono ${testResult.status === 'success' ? 'bg-emerald-900/30 text-emerald-400 border border-emerald-800' : 'bg-red-900/30 text-red-400 border border-red-800'}`}>
-                {testResult.status === 'success' ? 'Texto processado pelo Motor de Automação!' : testResult.message}
+              <div className={cn(
+                'rounded-xl border px-3 py-2 text-xs font-mono',
+                testResult.status === 'success'
+                  ? 'border-emerald-700/50 bg-emerald-900/20 text-emerald-300'
+                  : 'border-red-700/50 bg-red-900/20 text-red-300',
+              )}>
+                {testResult.message}
               </div>
             )}
           </div>
+        </div>
 
-          {/* Instructions Box */}
-          <div className="bg-blue-900/10 border border-blue-900/30 rounded-xl p-5">
-            <h3 className="text-sm font-bold text-blue-400 mb-2">Como o Parser Funciona?</h3>
-            <ul className="text-xs text-slate-400 space-y-2 list-disc pl-4">
-              <li>Padrão Gift: <code className="bg-slate-800 px-1 py-0.5 rounded text-amber-200">[Usuário] enviou [Presente]</code></li>
-              <li>Padrão Comment: <code className="bg-slate-800 px-1 py-0.5 rounded text-amber-200">[Usuário]: [Mensagem]</code></li>
-              <li>O Parser ignora maiúsculas e minúsculas e mapeia sinônimos (ex: 🌹 vira gift.rosa).</li>
-            </ul>
+        {/* ── Column C: Diagnostics ── */}
+        <div className="w-72 shrink-0 overflow-y-auto p-4 space-y-4">
+          <SectionHeader icon={<Activity className="h-3.5 w-3.5" />} label="Diagnóstico" />
+
+          {/* System health */}
+          <SystemHealthCard services={health} />
+
+          {/* Live OCR zones */}
+          <div className="space-y-2">
+            <label className="text-[9px] font-bold uppercase text-slate-600 flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Leitura ao vivo
+            </label>
+            <div className="rounded-xl border border-slate-700/40 bg-[#080a0e] p-3 space-y-2 min-h-[80px]">
+              {Object.keys(liveZones).length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-2 text-slate-600">
+                  <RefreshCw className="h-5 w-5 mb-1 animate-spin opacity-30" />
+                  <p className="text-[10px]">Aguardando captura...</p>
+                </div>
+              ) : (
+                Object.entries(liveZones).map(([id, text]) => (
+                  <div key={id} className="rounded-lg border border-slate-700/30 bg-slate-800/30 p-2">
+                    <div className="mb-1 text-[9px] font-bold uppercase text-blue-400">{id}</div>
+                    <div className="font-mono text-[10px] text-emerald-300 break-words line-clamp-3">
+                      {text || <span className="text-slate-700 italic">vazio</span>}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
 
+          {/* Alerts */}
+          {!ocrConfig.enabled && (
+            <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/8 p-3">
+              <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-200">
+                Motor OCR está desligado. Ative para começar a captura de eventos.
+              </p>
+            </div>
+          )}
+
+          {/* Debug console */}
+          <div className="space-y-2">
+            <label className="text-[9px] font-bold uppercase text-slate-600">Console</label>
+            <DebugLogPanel
+              entries={debugLogs}
+              onClear={() => setDebugLogs([])}
+              height={200}
+              title="Debug"
+            />
+          </div>
+
+          {/* How it works */}
+          <div className="rounded-xl border border-slate-700/30 bg-slate-800/20 p-3 space-y-1.5">
+            <p className="text-[9px] font-bold uppercase text-slate-600">Como funciona</p>
+            <ul className="space-y-1 text-[10px] text-slate-500 list-decimal pl-3.5">
+              <li>OCR captura texto bruto da tela</li>
+              <li>Parser transforma em evento estruturado</li>
+              <li>Filtro remove duplicatas / ruído</li>
+              <li>Motor de regras verifica gatilhos</li>
+              <li><span className="text-violet-400">[IA]</span> Avalia contexto e prioridade</li>
+              <li>Palco executa a transição</li>
+              <li>Clipe retorna ao IDLE</li>
+            </ul>
+          </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function SectionHeader({ icon, label }: { icon: React.ReactNode; label: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-slate-500">{icon}</span>
+      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{label}</span>
     </div>
   );
 }

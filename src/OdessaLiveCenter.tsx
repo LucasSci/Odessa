@@ -45,7 +45,16 @@ import {
 import { cn } from './lib/utils';
 import type { AutopilotRuntimeState } from './core/useAutopilotRuntime';
 import type { CapturedMessage } from './types';
-import { Badge, Button, Card, Input, StatusDot } from './components/ui';
+import { Badge, Button, Card, ConfirmButton, Input, StatusDot, Tooltip } from './components/ui';
+import { AiDecisionPanel } from './components/AiDecisionPanel';
+import { DebugLogPanel, logEntry } from './components/DebugLogPanel';
+import { StatusBadge, deriveStageStatus } from './components/StatusBadge';
+import { ValidationChecklist, buildFlowValidationChecks } from './components/ValidationChecklist';
+
+import type { AiDecision } from './core/aiDecisionContract';
+import { EMPTY_AI_DECISION, mockAiDecision } from './core/aiDecisionContract';
+import type { LogEntry } from './components/DebugLogPanel';
+import { buildOcrEvent } from './core/ocrEventContract';
 
 const CaptureStudio = lazy(() => import('./CaptureStudio'));
 const ReactiveFlowBoard = lazy(() => import('./ReactiveFlowBoard'));
@@ -3745,6 +3754,15 @@ function StagePanel({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [timelineMode, setTimelineMode] = useState<'sequence' | 'workflow'>('sequence');
   const [timelineZoom, setTimelineZoom] = useState(140);
+  // ── AI Decision Panel state ──────────────────────────────────────────────────
+  const [aiDecision, setAiDecision] = useState<AiDecision>(EMPTY_AI_DECISION);
+  const [showAiPanel, setShowAiPanel] = useState(false);
+  // ── Simulation log ───────────────────────────────────────────────────────────
+  const [simLogs, setSimLogs] = useState<LogEntry[]>([]);
+  const [showSimLog, setShowSimLog] = useState(false);
+  const addSimLog = (entry: LogEntry) => setSimLogs((prev) => [...prev.slice(-99), entry]);
+  // ── Validation panel ────────────────────────────────────────────────────────
+  const [showValidation, setShowValidation] = useState(false);
   const [selectedClipId, setSelectedClipId] = useState('');
   const [selectedConnectionId, setSelectedConnectionId] = useState('');
   const [previewMessage, setPreviewMessage] = useState<string | null>(null);
@@ -3820,12 +3838,25 @@ function StagePanel({
     }
   };
 
-  const simulateGift = () => {
+  const simulateGift = (text = 'Lucas enviou Rosa') => {
+    addSimLog(logEntry('captura', 'Texto capturado (simulação)', { detail: text, status: 'info' }));
+    addSimLog(logEntry('parser', 'Texto parseado como evento de presente', { detail: text, status: 'ok' }));
+    // Build a mock OcrEvent and run it through the AI mock
+    const mockEvent = buildOcrEvent(text, { source: 'manual', eventType: 'gift', confidence: 0.95, metadata: { giftName: 'Rosa' } });
+    const decision = mockAiDecision(mockEvent);
+    setAiDecision(decision);
+    addSimLog(logEntry('ia', `IA: ${decision.reasoning}`, { detail: `confiança ${Math.round(decision.confidence * 100)}%`, status: 'ok' }));
+    if (decision.selectedVideoId) {
+      addSimLog(logEntry('gatilho', `Gatilho acionado → ${decision.selectedVideoId}`, { status: 'ok' }));
+    }
     if (onRunReactiveFlow) {
-      void onRunReactiveFlow('Lucas enviou Rosa', 'test');
+      void onRunReactiveFlow(text, 'test').then(() => {
+        addSimLog(logEntry('palco', 'Transição de vídeo executada', { status: 'ok' }));
+      });
       return;
     }
-    runtime.injectEvent('gift', 'Lucas enviou Rosa', 'test');
+    runtime.injectEvent('gift', text, 'test');
+    addSimLog(logEntry('palco', 'Evento injetado no runtime', { status: 'ok' }));
   };
   const activeClip =
     videoState?.currentClip ||
@@ -3928,21 +3959,72 @@ function StagePanel({
   return (
     <div ref={stageRef} className="flex h-full min-h-0 flex-col overflow-hidden bg-[#0d0f12]">
       <section className="relative min-h-0 flex-1 overflow-hidden border-b border-white/10 bg-[#101114]">
-        <div className="absolute left-5 top-5 z-20 flex items-center gap-3">
-          <Badge variant={videoState?.state === 'ACTION' ? 'lavender' : 'gold'}>
-            {videoState?.state || 'IDLE'}
-          </Badge>
-          <span className="max-w-[42vw] truncate text-xs font-semibold text-slate-400">
+        {/* ── Status bar top-left ── */}
+        <div className="absolute left-5 top-5 z-20 flex items-center gap-2">
+          <StatusBadge
+            status={deriveStageStatus({
+              state: videoState?.state,
+              isTransitioning: triggering,
+              queueLen: videoState?.queue_len,
+              autopilotEnabled: runtime.autopilotEnabled,
+            })}
+            pulse={runtime.autopilotEnabled}
+          />
+          <span
+            className="max-w-[36vw] truncate text-xs font-semibold text-slate-400"
+            title={activeClipLabel}
+          >
             {activeClipLabel}
           </span>
         </div>
-        <div className="absolute right-5 top-5 z-20 flex items-center gap-3 rounded-lg border border-white/10 bg-black/35 px-3 py-2 text-xs text-slate-300">
-          <StatusDot status={runtime.autopilotEnabled ? 'online' : 'idle'} pulse />
-          <span>{runtime.autopilotEnabled ? 'live assistida ativa' : 'standby'}</span>
-          <span className="text-slate-600">|</span>
-          <span>{videoState?.queue_len ?? 0} na fila</span>
-          <span className="text-slate-600">|</span>
-          <span>{videoState?.executionMode || (runtime.autopilotEnabled ? 'live' : 'edicao')}</span>
+        {/* ── Info bar top-right ── */}
+        <div className="absolute right-5 top-5 z-20 flex items-center gap-2">
+          <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-black/35 px-3 py-2 text-xs text-slate-300">
+            <StatusDot status={runtime.autopilotEnabled ? 'online' : 'idle'} pulse />
+            <span>{runtime.autopilotEnabled ? 'live assistida ativa' : 'standby'}</span>
+            <span className="text-slate-600">|</span>
+            <span>{videoState?.queue_len ?? 0} na fila</span>
+          </div>
+          {/* Quick-action buttons */}
+          <Tooltip content="Painel de Decisão da IA">
+            <button
+              onClick={() => setShowAiPanel((v) => !v)}
+              className={cn(
+                'rounded-lg border px-2.5 py-1.5 text-[10px] font-bold transition',
+                showAiPanel
+                  ? 'border-violet-500/40 bg-violet-500/15 text-violet-300'
+                  : 'border-white/10 bg-black/35 text-slate-400 hover:text-slate-200',
+              )}
+            >
+              IA
+            </button>
+          </Tooltip>
+          <Tooltip content="Log de simulação de gatilhos">
+            <button
+              onClick={() => setShowSimLog((v) => !v)}
+              className={cn(
+                'rounded-lg border px-2.5 py-1.5 text-[10px] font-bold transition',
+                showSimLog
+                  ? 'border-amber-500/40 bg-amber-500/15 text-amber-300'
+                  : 'border-white/10 bg-black/35 text-slate-400 hover:text-slate-200',
+              )}
+            >
+              LOG
+            </button>
+          </Tooltip>
+          <Tooltip content="Validar sequência do fluxo">
+            <button
+              onClick={() => setShowValidation((v) => !v)}
+              className={cn(
+                'rounded-lg border px-2.5 py-1.5 text-[10px] font-bold transition',
+                showValidation
+                  ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+                  : 'border-white/10 bg-black/35 text-slate-400 hover:text-slate-200',
+              )}
+            >
+              ✓
+            </button>
+          </Tooltip>
         </div>
 
         <div className="flex h-full min-h-0 items-center justify-center p-3">
@@ -3987,6 +4069,39 @@ function StagePanel({
             )}
           </div>
         </div>
+
+        {/* ── Floating panels: AI Decision / Sim Log / Validation ── */}
+        {showAiPanel && (
+          <div className="absolute right-5 top-16 z-30 w-72">
+            <AiDecisionPanel decision={aiDecision} />
+          </div>
+        )}
+        {showSimLog && (
+          <div className="absolute right-5 top-16 z-30 w-80">
+            <DebugLogPanel
+              entries={simLogs}
+              onClear={() => setSimLogs([])}
+              height={260}
+              title="Log de Simulação"
+            />
+          </div>
+        )}
+        {showValidation && (
+          <div className="absolute right-5 top-16 z-30 w-72">
+            <ValidationChecklist
+              checks={buildFlowValidationChecks({
+                hasIdleVideo: !!view.idleVideoId,
+                videoCount: view.videos.length,
+                triggerCount: view.triggers?.length ?? 0,
+                connectionCount: view.connections?.length ?? 0,
+                videosWithoutReturn: [],
+                triggersWithoutDestination: [],
+                orphanConnections: [],
+              })}
+              errorsOnly={false}
+            />
+          </div>
+        )}
       </section>
 
       <section className="shrink-0 border-b border-white/10 bg-[#101114] px-4 py-3">
@@ -4091,7 +4206,7 @@ function StagePanel({
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={simulateGift}
+            onClick={() => simulateGift()}
             className="inline-flex items-center gap-2 text-xs font-semibold text-slate-400 transition hover:text-white"
           >
             <RadioTower className="h-4 w-4" />
@@ -4102,46 +4217,58 @@ function StagePanel({
             <span className="inline-block h-2 w-2 rounded-full" style={{ background: obsDirectStatus?.state === 'connected' ? '#34d399' : obsDirectStatus?.state === 'connecting' ? '#fbbf24' : '#64748b' }} />
             {obsDirectStatus?.state === 'connected' ? 'OBS Direto' : obsDirectStatus?.state === 'connecting' ? 'Conectando...' : 'OBS Offline'}
           </span>
-          <Button
-            size="sm"
-            variant="secondary"
-            loading={obsBusy === 'Preparar OBS'}
-            onClick={() => void runRoutedCommand('Preparar OBS', () => routeSetupLiveScene(obsSettingsFromApp))}
-          >
-            Preparar OBS
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            loading={obsBusy === 'Tela inicial'}
-            onClick={() => void runRoutedCommand('Tela inicial', () => routeShowStart(obsSettingsFromApp))}
-          >
-            Tela inicial
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            loading={obsBusy === 'Palco ao vivo'}
-            onClick={() => void runRoutedCommand('Palco ao vivo', () => routeShowStage(obsSettingsFromApp))}
-          >
-            Palco ao vivo
-          </Button>
-          <Button
-            size="sm"
-            variant="primary"
-            loading={obsBusy === 'Iniciar transmissao'}
-            onClick={() => void runRoutedCommand('Iniciar transmissao', () => routeStartTransmission(obsSettingsFromApp))}
-          >
-            Iniciar transmissao
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            loading={obsBusy === 'Parar transmissao'}
-            onClick={() => void runRoutedCommand('Parar transmissao', () => routeStopTransmission(obsSettingsFromApp))}
-          >
-            Parar transmissao
-          </Button>
+          <Tooltip content="Configura a cena do OBS com a Browser Source do palco">
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={obsBusy === 'Preparar OBS'}
+              onClick={() => void runRoutedCommand('Preparar OBS', () => routeSetupLiveScene(obsSettingsFromApp))}
+            >
+              Preparar OBS
+            </Button>
+          </Tooltip>
+          <Tooltip content="Mostra a cena de espera/início no OBS">
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={obsBusy === 'Tela inicial'}
+              onClick={() => void runRoutedCommand('Tela inicial', () => routeShowStart(obsSettingsFromApp))}
+            >
+              Tela inicial
+            </Button>
+          </Tooltip>
+          <Tooltip content="Ativa a cena com o palco ao vivo no OBS">
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={obsBusy === 'Palco ao vivo'}
+              onClick={() => void runRoutedCommand('Palco ao vivo', () => routeShowStage(obsSettingsFromApp))}
+            >
+              Palco ao vivo
+            </Button>
+          </Tooltip>
+          <Tooltip content="Inicia a transmissão no OBS (requer streaming configurado)">
+            <Button
+              size="sm"
+              variant="primary"
+              loading={obsBusy === 'Iniciar transmissao'}
+              onClick={() => void runRoutedCommand('Iniciar transmissao', () => routeStartTransmission(obsSettingsFromApp))}
+            >
+              Iniciar transmissao
+            </Button>
+          </Tooltip>
+          <Tooltip content="Clique duas vezes para confirmar — encerra a transmissão ao vivo">
+            <ConfirmButton
+              size="sm"
+              variant="danger"
+              confirmLabel="Confirmar parada"
+              loading={obsBusy === 'Parar transmissao'}
+              onConfirm={() => void runRoutedCommand('Parar transmissao', () => routeStopTransmission(obsSettingsFromApp))}
+              disabled={!!obsBusy}
+            >
+              Parar transmissao
+            </ConfirmButton>
+          </Tooltip>
           {obsMessage && <span className="truncate text-xs text-slate-500">{obsMessage}</span>}
           {previewMessage && <span className="truncate text-xs text-emerald-300">{previewMessage}</span>}
         </div>

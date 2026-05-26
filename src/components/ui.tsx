@@ -139,3 +139,97 @@ export function Input({
 export function Skeleton({ className }: { className?: string }) {
   return <div className={cn('animate-pulse rounded-2xl bg-[var(--bg3)]', className)} />;
 }
+
+/**
+ * Tooltip simples — envolve qualquer elemento e exibe uma dica no hover.
+ * Usa CSS puro (title não é suficiente para estilização customizada).
+ */
+export function Tooltip({
+  children,
+  content,
+  className,
+}: {
+  children: ReactNode;
+  content: string;
+  className?: string;
+}) {
+  return (
+    <span className={cn('group relative inline-flex', className)}>
+      {children}
+      <span
+        className={cn(
+          'pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5',
+          '-translate-x-1/2 whitespace-nowrap rounded-lg border border-[var(--border2)]',
+          'bg-[#13151a] px-2.5 py-1.5 text-[10px] font-medium text-[var(--t1)] shadow-xl',
+          'opacity-0 scale-95 transition-all duration-150 group-hover:opacity-100 group-hover:scale-100',
+        )}
+      >
+        {content}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * ConfirmButton — botão que pede confirmação antes de executar ação destrutiva.
+ * Primeiro clique mostra estado "Tem certeza?", segundo confirma.
+ */
+export function ConfirmButton({
+  children,
+  confirmLabel = 'Confirmar',
+  onConfirm,
+  className,
+  disabled,
+  loading,
+  size = 'md',
+  variant = 'default',
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  confirmLabel?: string;
+  onConfirm: () => void;
+  loading?: boolean;
+  size?: 'sm' | 'md' | 'icon';
+  variant?: 'default' | 'primary' | 'secondary' | 'ghost' | 'danger' | 'success';
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleClick = () => {
+    if (confirming) {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      setConfirming(false);
+      onConfirm();
+    } else {
+      setConfirming(true);
+      timerRef.current = setTimeout(() => setConfirming(false), 3000);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={disabled || loading}
+      className={cn(
+        'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[22px] border',
+        'font-semibold transition focus:outline-none',
+        'disabled:cursor-not-allowed disabled:opacity-55',
+        size === 'sm' && 'h-8 px-3 text-xs',
+        size === 'md' && 'h-[38px] px-4 text-[13px]',
+        size === 'icon' && 'h-9 w-9 px-0',
+        confirming
+          ? 'border-red-400/40 bg-red-500/20 text-red-300 animate-pulse'
+          : variant === 'danger'
+            ? 'border-red-400/25 bg-red-500/10 text-red-300 hover:bg-red-500/15'
+            : variant === 'primary'
+              ? 'border-transparent bg-[image:var(--grad-live)] text-[#051018] shadow-[var(--shadow-live)]'
+              : 'border-[var(--border2)] bg-[var(--bg3)] text-[var(--t1)] hover:bg-[var(--bg4)]',
+        className,
+      )}
+    >
+      {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+      {confirming ? confirmLabel : children}
+    </button>
+  );
+}
+
+import { useRef, useState } from 'react';
