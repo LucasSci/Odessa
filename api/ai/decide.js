@@ -23,6 +23,37 @@ const OPENAI_MODEL  = process.env.OPENAI_TEXT_MODEL || 'gpt-4o-mini';
 const GEMINI_MODEL  = 'gemini-2.5-flash';
 const TIMEOUT_MS    = Number(process.env.AI_DECISION_TIMEOUT || 8000);
 
+// ── Auth (same as other handlers) ────────────────────────────────────────────
+import crypto from 'node:crypto';
+const SESSION_COOKIE_NAME = 'odessa_admin_session';
+const SESSION_SECRET = process.env.ODESSA_SESSION_SECRET || 'odessa-hostinger-session-secret-v1-change-in-env';
+function _sign(payload) {
+  return crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+}
+function _parseSessionToken(token) {
+  if (!token || !token.includes('.')) return null;
+  const [payload, signature] = token.split('.');
+  if (_sign(payload) !== signature) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (data.sub !== 'admin' || data.role !== 'admin') return null;
+    if (Number(data.exp || 0) < Math.floor(Date.now() / 1000)) return null;
+    return data;
+  } catch { return null; }
+}
+function _getSession(req) {
+  const cookies = Object.fromEntries(
+    String(req.headers.cookie || '').split(';').map(s => s.trim()).filter(Boolean)
+      .map(s => { const i = s.indexOf('='); return i === -1 ? [s, ''] : [s.slice(0, i), decodeURIComponent(s.slice(i + 1))]; })
+  );
+  const cs = _parseSessionToken(cookies[SESSION_COOKIE_NAME]);
+  if (cs) return cs;
+  const auth = String(req.headers.authorization || '');
+  const [scheme, tok] = auth.split(' ');
+  if (scheme?.toLowerCase() === 'bearer') return _parseSessionToken(tok);
+  return null;
+}
+
 // ── Tipos reutilizados do contrato (sem import) ─────────────────────────────
 
 const VALID_INTENTS = [
@@ -213,6 +244,13 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.writeHead(405, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Method not allowed' }));
+    return;
+  }
+
+  // Auth check
+  if (!_getSession(req)) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Não autenticado. Faça login primeiro.' }));
     return;
   }
 
