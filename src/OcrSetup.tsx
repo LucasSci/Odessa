@@ -62,6 +62,13 @@ const ZONE_COLORS: Record<ZoneRole, string> = {
   custom: '#10b981',
 };
 
+const ZONE_SAMPLE: Record<ZoneRole, string> = {
+  gift:   'Lucas enviou Rosa',
+  chat:   'Maria: linda demais!',
+  system: 'Live iniciando...',
+  custom: 'Texto de exemplo',
+};
+
 const ROLE_LABELS: Record<ZoneRole, string> = {
   chat:   'Chat',
   gift:   'Presentes',
@@ -120,9 +127,13 @@ export default function OcrSetup() {
   // Live zones from server
   const [liveZones, setLiveZones] = useState<Record<string, string>>({});
 
-  // Simulation / test
+  // Simulation / test (generic ingest)
   const [testText, setTestText] = useState('');
   const [testResult, setTestResult] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
+
+  // Test zone (dry-run per-zone)
+  const [testZoneText, setTestZoneText] = useState('');
+  const [testZoneBusy, setTestZoneBusy] = useState(false);
 
   // Debug logs
   const [debugLogs, setDebugLogs] = useState<LogEntry[]>([]);
@@ -246,6 +257,72 @@ export default function OcrSetup() {
       addLog(logEntry('erro', 'Falha ao injetar texto de teste', { status: 'error' }));
     }
     setTestText('');
+  };
+
+  // ── Test zone (dry-run) ───────────────────────────────────────────────────
+  const handleTestZone = async (zone: OcrZone) => {
+    const text = testZoneText.trim() || ZONE_SAMPLE[zone.role];
+    if (!text) return;
+    setTestZoneBusy(true);
+    addLog(logEntry('ocr', `Testando zona "${zone.name}" [${zone.role}]`, { detail: text, status: 'info' }));
+    try {
+      const r = await fetch(apiUrl('/api/ocr/test-zone'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zone, sampleText: text, ocrConfig }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ error: `HTTP ${r.status}` })) as { error?: string };
+        throw new Error(err.error ?? `HTTP ${r.status}`);
+      }
+      const data = await r.json() as {
+        ok: boolean;
+        dryRun: boolean;
+        parsed: Array<{ line: string; eventType: string; giftKey: string | null; sender: string | null }>;
+        matchedTriggers: Array<{ triggerName: string; targetVideoLabel: string | null; giftKey: string | null }>;
+        noMatch: Array<{ line: string; reason: string }>;
+        wouldFire: boolean;
+        totalTriggers: number;
+        zoneWarnings: string[];
+        latencyMs: number;
+      };
+
+      // Log warnings
+      for (const w of data.zoneWarnings ?? []) {
+        addLog(logEntry('ocr', `⚠ ${w}`, { status: 'warn' }));
+      }
+
+      // Log parsed events
+      for (const p of data.parsed ?? []) {
+        const label = p.eventType === 'gift'
+          ? `Parseado: presente "${p.giftKey ?? ''}" de ${p.sender ?? '?'}`
+          : `Parseado: comentário de ${p.sender ?? 'anon'}`;
+        addLog(logEntry('parser', label, { detail: p.line, status: 'ok' }));
+      }
+
+      // Log trigger matches
+      if (data.wouldFire) {
+        for (const m of data.matchedTriggers) {
+          addLog(logEntry('gatilho', `✓ Gatilho "${m.triggerName}" → vídeo "${m.targetVideoLabel ?? m.giftKey ?? '?'}"`, { status: 'ok' }));
+        }
+      } else if (data.totalTriggers === 0) {
+        addLog(logEntry('gatilho', 'Nenhum gatilho configurado no fluxo.', { status: 'warn' }));
+      } else {
+        for (const nm of data.noMatch ?? []) {
+          addLog(logEntry('gatilho', `Sem match para "${nm.line}"`, { detail: nm.reason, status: 'warn' }));
+        }
+      }
+
+      const summary = data.wouldFire
+        ? `✓ ${data.matchedTriggers.length} gatilho(s) disparariam (dry-run, ${data.latencyMs}ms)`
+        : `Sem gatilho para esta zona (${data.totalTriggers} configurados)`;
+      addLog(logEntry('sistema', summary, { status: data.wouldFire ? 'ok' : 'warn' }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido';
+      addLog(logEntry('erro', `Falha no teste de zona: ${msg}`, { status: 'error' }));
+    } finally {
+      setTestZoneBusy(false);
+    }
   };
 
   // ── Zone helpers ──────────────────────────────────────────────────────────
@@ -898,12 +975,25 @@ export default function OcrSetup() {
                   </label>
                 ))}
               </div>
-              <button
-                onClick={() => addLog(logEntry('ocr', `Testando zona "${selectedZone.name}"`, { status: 'info' }))}
-                className="w-full rounded-lg border border-blue-500/30 bg-blue-500/10 py-1.5 text-[10px] font-bold text-blue-300 hover:bg-blue-500/15 transition"
-              >
-                Testar OCR nesta zona
-              </button>
+              {/* ── Test zone (dry-run) ── */}
+              <div className="space-y-1.5 pt-1 border-t border-slate-800">
+                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Testar zona</span>
+                <input
+                  type="text"
+                  value={testZoneText}
+                  onChange={(e) => setTestZoneText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void handleTestZone(selectedZone); }}
+                  placeholder={ZONE_SAMPLE[selectedZone.role]}
+                  className="w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-200 outline-none focus:border-blue-500 font-mono"
+                />
+                <button
+                  onClick={() => void handleTestZone(selectedZone)}
+                  disabled={testZoneBusy}
+                  className="w-full rounded-lg border border-blue-500/30 bg-blue-500/10 py-1.5 text-[10px] font-bold text-blue-300 hover:bg-blue-500/15 disabled:opacity-50 transition"
+                >
+                  {testZoneBusy ? '⟳ Testando…' : 'Testar OCR nesta zona'}
+                </button>
+              </div>
             </div>
           )}
 
