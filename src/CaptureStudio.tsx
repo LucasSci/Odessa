@@ -25,6 +25,8 @@ import {
   Zap,
 } from 'lucide-react';
 import { emitEvent } from './core/eventBus';
+import { buildOcrEvent } from './core/ocrEventContract';
+import type { OcrEvent } from './core/ocrEventContract';
 import { type GiftCatalogEntry, loadGiftCatalog, saveGiftCatalog } from './core/giftCatalog';
 import { apiUrl, API_BASE_URL } from './lib/api';
 import { cn } from './lib/utils';
@@ -3212,6 +3214,42 @@ const CaptureStudio = React.memo(function CaptureStudio({
               noMatchCount: ingestResult?.noMatch?.length ?? 0,
             };
             addCaptureEvent(captureEvent);
+
+            // ── Build canonical OcrEvent from ingest context ─────────────────
+            // Provides the AI pipeline with rich structured data (gift keys,
+            // sender/author, zone role) without requiring reconstruction later.
+            const firstTriggered = ingestResult?.triggered?.[0] ?? null;
+            const firstNoMatch = ingestResult?.noMatch?.[0] ?? null;
+            const giftKey =
+              firstTriggered?.giftKey ??
+              (firstNoMatch?.kind === 'gift' ? firstNoMatch.giftKey : undefined) ??
+              null;
+            const eventAuthor = firstTriggered?.sender ?? firstNoMatch?.sender ?? null;
+            const ocrEventZone =
+              zone.role === 'gifts' ? ('gift' as const)
+              : zone.role === 'alerts' ? ('system' as const)
+              : zone.role === 'custom' ? ('custom' as const)
+              : ('chat' as const);
+            const ocrEventType =
+              zone.role === 'gifts' ? ('gift' as const)
+              : zone.role === 'alerts' ? ('system' as const)
+              : ('comment' as const);
+            const canonicalOcrEvent: OcrEvent = buildOcrEvent(captureEvent.rawText, {
+              source: 'ocr',
+              zone: ocrEventZone,
+              zoneName: captureEvent.zoneName,
+              eventType: ocrEventType,
+              confidence: captureEvent.confidence ?? 1,
+              author: eventAuthor,
+              metadata: {
+                giftName: giftKey,
+                giftKey,
+                giftValue: null,
+                originalFrameId: captureEvent.id,
+                matchMethod: captureEvent.captureMode ?? null,
+              },
+            });
+
             const liveEvent = emitEvent({
               id: captureEvent.id,
               source: 'ocr',
@@ -3229,6 +3267,12 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 triggersFired: captureEvent.triggersFired,
                 triggerName: captureEvent.triggerName,
                 triggeredVideoId: captureEvent.triggeredVideoId,
+                // ── OcrEvent-compatible fields (flat, for easy access) ────────
+                giftName: giftKey,
+                giftKey,
+                author: eventAuthor,
+                // ── Full canonical OcrEvent (for direct AI pipeline consumption)
+                ocrEvent: canonicalOcrEvent,
               },
             });
             setCapturedText((current) =>

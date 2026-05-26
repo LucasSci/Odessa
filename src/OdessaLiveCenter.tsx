@@ -3847,13 +3847,19 @@ function StagePanel({
   const runCapturedEventThroughAi = useCallback((msg: CapturedMessage) => {
     if (!msg.text?.trim()) return;
 
-    // Map LiveEventKind → OcrEventType
+    // If CaptureStudio already built a canonical OcrEvent, reuse it directly.
+    // This preserves gift keys, author, zone, and confidence from the ingest result
+    // without any reconstruction. Falls back to building from scratch for events
+    // that don't carry the canonical event (simulations, external sources, etc.).
+    const prebuilt = msg.metadata?.ocrEvent as OcrEvent | undefined;
+
+    // Map LiveEventKind → OcrEventType (fallback path)
     const kindMap: Record<string, OcrEventType> = {
       gift: 'gift', chat: 'comment', alert: 'system', system: 'system',
     };
-    const eventType: OcrEventType = kindMap[msg.kind] ?? 'unknown';
+    const eventType: OcrEventType = prebuilt?.eventType ?? kindMap[msg.kind] ?? 'unknown';
 
-    // Map LiveEventSource → OcrEvent source
+    // Map LiveEventSource → OcrEvent source (fallback path)
     const sourceMap: Record<string, OcrEvent['source']> = {
       ocr: 'ocr', test: 'test', manual: 'manual',
     };
@@ -3865,9 +3871,12 @@ function StagePanel({
       : msg.source;
 
     addSimLog(logEntry('captura', `Texto capturado (${sourceLabel})`, { detail: msg.text, status: 'info' }));
-    addSimLog(logEntry('parser', `Parseado como ${eventType}`, { detail: msg.zoneName || '', status: 'ok' }));
+    const zoneDetail = prebuilt
+      ? `${prebuilt.zoneName} · confiança ${Math.round(prebuilt.confidence * 100)}%`
+      : (msg.zoneName || '');
+    addSimLog(logEntry('parser', `Parseado como ${eventType}`, { detail: zoneDetail, status: 'ok' }));
 
-    const ocrEvent = buildOcrEvent(msg.text, {
+    const ocrEvent: OcrEvent = prebuilt ?? buildOcrEvent(msg.text, {
       source: ocrSource,
       eventType,
       zoneName: msg.zoneName || 'chat',
