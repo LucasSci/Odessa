@@ -24,7 +24,7 @@
   "dependencies": {
     "@xyflow/react": "^12.10.2",
     "clsx": "^2.1.1",
-    "lucide-react": "^1.14.0",
+    "lucide-react": "^1.16.0",
     "obs-websocket-js": "^5.0.8",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
