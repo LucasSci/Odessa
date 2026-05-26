@@ -216,12 +216,25 @@ export default function ContentLibrary() {
     }
   };
 
-  const stats = {
-    total: items.length,
-    enabled: items.filter((item) => item.enabled).length,
-    safety: items.filter((item) => item.enabled && item.usage === 'safety').length,
-    action: items.filter((item) => item.enabled && item.usage === 'action').length,
-  };
+  // ⚡ Bolt: Single-pass iteration inside useMemo to calculate multiple stats
+  const stats = useMemo(() => {
+    let enabled = 0;
+    let safety = 0;
+    let action = 0;
+    for (const item of items) {
+      if (item.enabled) {
+        enabled++;
+        if (item.usage === 'safety') safety++;
+        if (item.usage === 'action') action++;
+      }
+    }
+    return {
+      total: items.length,
+      enabled,
+      safety,
+      action,
+    };
+  }, [items]);
 
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--odessa-bg)] text-slate-100">
