@@ -11,7 +11,7 @@ const __dirname = nodePath.dirname(fileURLToPath(_metaUrl));
 
 const SESSION_COOKIE_NAME = 'odessa_admin_session';
 const PERSONA_CONFIG_KEY = 'persona_config';
-const AUTH_BUILD = 'auth-2026-05-16-email-password-v3';
+const AUTH_BUILD = 'ai-decide-2026-05-27-gemini-v1';
 const SESSION_TTL_SECONDS = Number(process.env.ODESSA_SESSION_TTL_SECONDS || 12 * 60 * 60);
 const DEFAULT_ADMIN_EMAIL = 'lucasbatista.c.l@gmail.com';
 const DEFAULT_PASSWORD_HASH = 'ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f'; // 12345678

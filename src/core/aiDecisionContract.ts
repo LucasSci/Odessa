@@ -1,7 +1,13 @@
 /**
  * Contrato de decisão da IA.
- * Por enquanto apenas mock — a interface e os tipos estão prontos para
- * integração com um motor de IA real (Gemini, GPT, ou motor local).
+ *
+ * Dois caminhos de execução:
+ *  1. Direct Gemini (preferencial) — quando VITE_GEMINI_API_KEY está definida na
+ *     build, chama a Gemini API diretamente do browser. Funciona com deploys Vite
+ *     padrão sem dependência de atualização de arquivos server-side.
+ *  2. Server endpoint (/api/ai/decide) — fallback para quando a chave não está
+ *     embutida na build.
+ *  3. Mock engine — fallback final para simulação local sem API.
  */
 
 import type { OcrEvent } from './ocrEventContract';
@@ -114,45 +120,195 @@ export function checkingAiDecision(event: OcrEvent): AiDecision {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Gemini direct (client-side) — ativo quando VITE_GEMINI_API_KEY está na build
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Chave embutida na build pelo Vite (opcional). */
+const VITE_GEMINI_KEY: string = import.meta.env.VITE_GEMINI_API_KEY ?? '';
+const GEMINI_MODEL = 'gemini-2.5-flash';
+const AI_TIMEOUT_MS = 10_000;
+
+const AI_SYSTEM_PROMPT = `\
+Você é o motor de decisão de IA da Odessa, uma persona de live TikTok interativa.
+Sua tarefa: analisar um evento capturado por OCR ao vivo e decidir como a persona deve reagir.
+
+Responda SOMENTE com um objeto JSON válido. Sem markdown, sem texto fora do JSON.
+
+Estrutura obrigatória:
+{
+  "intent": "gift_reaction" | "greeting" | "compliment_response" | "question_response" | "idle_maintenance" | "special_event" | "unknown",
+  "emotion": "happy" | "excited" | "grateful" | "neutral" | "shy" | "playful" | "surprised",
+  "recommendedAction": "play_video" | "queue_video" | "wait" | "no_action",
+  "selectedTriggerId": "<id do gatilho selecionado da lista>" | null,
+  "selectedVideoId": "<id do vídeo selecionado da lista>" | null,
+  "selectedVideoLabel": "<label do vídeo>" | null,
+  "confidence": <número entre 0 e 1>,
+  "reasoning": "<motivo em português, máximo 120 caracteres>"
+}
+
+Regras:
+- Prefira gatilhos que combinem com o tipo do evento (gift → gatilhos de gift)
+- Se nenhum gatilho combinar, deixe selectedTriggerId e selectedVideoId como null
+- confidence acima de 0.8 → play_video; entre 0.5–0.8 → queue_video; abaixo → wait
+- Para eventos de baixa relevância use intent: "idle_maintenance" e wait
+`;
+
+const AI_VALID_INTENTS = ['gift_reaction','greeting','compliment_response','question_response','idle_maintenance','special_event','unknown'];
+const AI_VALID_EMOTIONS = ['happy','excited','grateful','neutral','shy','playful','surprised'];
+const AI_VALID_ACTIONS  = ['play_video','queue_video','wait','no_action'];
+
+type AiConfig = {
+  videos?: Array<{ id: string; label?: string; name?: string }>;
+  triggers?: Array<{ id: string; name?: string; label?: string; enabled?: boolean }>;
+};
+
+function buildAiUserMessage(event: OcrEvent, config?: AiConfig): string {
+  const lines: string[] = [
+    `Tipo de evento: ${event.eventType ?? 'desconhecido'}`,
+    `Texto bruto: "${event.rawText ?? ''}"`,
+    `Texto normalizado: "${event.normalizedText ?? ''}"`,
+    `Zona: ${event.zoneName ?? 'desconhecida'} (${event.zone ?? ''})`,
+    `Confiança do OCR: ${Math.round((event.confidence ?? 0) * 100)}%`,
+  ];
+  const meta = event.metadata as Record<string, string> | undefined;
+  if (meta?.giftName || meta?.giftKey) {
+    lines.push(`Presente: ${meta.giftName || meta.giftKey}`);
+  }
+  if (event.author) lines.push(`Autor/usuário: ${event.author}`);
+  if (config?.triggers?.length) {
+    const tList = config.triggers
+      .filter((t) => t.enabled !== false)
+      .slice(0, 10)
+      .map((t) => `  - id:"${t.id}" label:"${t.name || t.label || t.id}"`)
+      .join('\n');
+    lines.push(`\nGatilhos disponíveis:\n${tList}`);
+  } else {
+    lines.push('\nGatilhos disponíveis: nenhum');
+  }
+  if (config?.videos?.length) {
+    const vList = config.videos
+      .slice(0, 10)
+      .map((v) => `  - id:"${v.id}" label:"${v.label || v.name || v.id}"`)
+      .join('\n');
+    lines.push(`\nVídeos disponíveis:\n${vList}`);
+  }
+  return lines.join('\n');
+}
+
+function sanitizeAiDecision(raw: string, event: OcrEvent): AiDecision | null {
+  let parsed: Record<string, unknown>;
+  try {
+    const clean = (raw || '').replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '').trim();
+    parsed = JSON.parse(clean) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  return {
+    sourceEvent: event,
+    intent: AI_VALID_INTENTS.includes(parsed.intent as string) ? (parsed.intent as AiIntentType) : 'unknown',
+    emotion: AI_VALID_EMOTIONS.includes(parsed.emotion as string) ? (parsed.emotion as EmotionTone) : 'neutral',
+    recommendedAction: AI_VALID_ACTIONS.includes(parsed.recommendedAction as string)
+      ? (parsed.recommendedAction as AiDecision['recommendedAction'])
+      : 'no_action',
+    selectedTriggerId: typeof parsed.selectedTriggerId === 'string' ? parsed.selectedTriggerId : null,
+    selectedVideoId: typeof parsed.selectedVideoId === 'string' ? parsed.selectedVideoId : null,
+    selectedVideoLabel: typeof parsed.selectedVideoLabel === 'string' ? parsed.selectedVideoLabel : null,
+    confidence: typeof parsed.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0.5,
+    reasoning: typeof parsed.reasoning === 'string' ? (parsed.reasoning as string).slice(0, 200) : 'Decisão gerada pela IA.',
+    status: 'online',
+    timestamp: new Date().toISOString(),
+  };
+}
+
 /**
- * Chama o endpoint real de decisão da IA (POST /api/ai/decide).
- * Retorna status 'online' em caso de sucesso.
- * Cai automaticamente para mockAiDecision (status 'simulated') em caso de erro
- * ou se o servidor não estiver configurado (sem chave de API).
+ * Chama a Gemini API diretamente do browser.
+ * Retorna null se a chave não estiver disponível.
+ */
+async function callGeminiDirect(event: OcrEvent, config?: AiConfig): Promise<AiDecision | null> {
+  if (!VITE_GEMINI_KEY) return null;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${VITE_GEMINI_KEY}`;
+  const body = {
+    system_instruction: { parts: [{ text: AI_SYSTEM_PROMPT }] },
+    contents: [{ role: 'user', parts: [{ text: buildAiUserMessage(event, config) }] }],
+    generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 256, temperature: 0.3 },
+  };
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 120)}`);
+  }
+
+  const data = (await res.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+  const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
+  if (!rawText) throw new Error('Gemini retornou resposta vazia');
+
+  return sanitizeAiDecision(rawText, event);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ponto de entrada principal
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Chama o motor de decisão da IA.
+ *
+ * Ordem de tentativa:
+ *  1. Gemini direto do browser (se VITE_GEMINI_API_KEY estiver na build)
+ *  2. Endpoint do servidor /api/ai/decide (status 200 explícito — ignora 202)
+ *  3. Mock engine (simulação local)
  */
 export async function callAiDecision(
   event: OcrEvent,
-  config?: { videos?: Array<{ id: string; label?: string; name?: string }>; triggers?: Array<{ id: string; name?: string; label?: string; enabled?: boolean }> },
+  config?: AiConfig,
 ): Promise<AiDecision> {
+  // ── 1. Gemini direto ──────────────────────────────────────────────────────
+  if (VITE_GEMINI_KEY) {
+    try {
+      const decision = await callGeminiDirect(event, config);
+      if (decision) return decision;
+    } catch (err) {
+      console.warn('[callAiDecision] direct Gemini error:', err instanceof Error ? err.message : err);
+    }
+  }
+
+  // ── 2. Server endpoint ────────────────────────────────────────────────────
   try {
     const res = await fetch('/api/ai/decide', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ocrEvent: event, config }),
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(AI_TIMEOUT_MS),
     });
 
-    if (!res.ok) {
-      // 503 = API key not configured → silently fall back to mock
-      if (res.status !== 503) {
-        const err = (await res.json().catch(() => ({ error: `HTTP ${res.status}` }))) as { error?: string };
-        console.warn('[callAiDecision] server error:', err.error);
-      }
-      return mockAiDecision(event);
+    // Apenas 200 é resposta válida de decisão (202 = cloud-placeholder, 503 = sem key)
+    if (res.status === 200) {
+      const decision = (await res.json()) as AiDecision;
+      return { ...decision, sourceEvent: event };
     }
 
-    const decision = (await res.json()) as AiDecision;
-    return { ...decision, sourceEvent: event };
+    if (res.status !== 503 && res.status !== 202) {
+      const err = (await res.json().catch(() => ({ error: `HTTP ${res.status}` }))) as { error?: string };
+      console.warn('[callAiDecision] server error:', err.error);
+    }
   } catch (err) {
-    // Network error / timeout → fall back silently
-    console.warn('[callAiDecision] fallback to mock:', err instanceof Error ? err.message : err);
-    return mockAiDecision(event);
+    console.warn('[callAiDecision] server unavailable:', err instanceof Error ? err.message : err);
   }
+
+  // ── 3. Mock ───────────────────────────────────────────────────────────────
+  return mockAiDecision(event);
 }
 
 /**
  * Mock engine — simula uma decisão de IA com base no tipo de evento OCR.
- * Substituir por chamada real à API de IA quando disponível.
  */
 export function mockAiDecision(event: OcrEvent): AiDecision {
   const base: Omit<AiDecision, 'intent' | 'emotion' | 'recommendedAction' | 'reasoning' | 'confidence'> = {
@@ -165,7 +321,8 @@ export function mockAiDecision(event: OcrEvent): AiDecision {
   };
 
   if (event.eventType === 'gift') {
-    const giftName = event.metadata.giftName || event.metadata.giftKey || 'presente';
+    const meta = event.metadata as Record<string, string> | undefined;
+    const giftName = meta?.giftName || meta?.giftKey || 'presente';
     return {
       ...base,
       intent: 'gift_reaction',
