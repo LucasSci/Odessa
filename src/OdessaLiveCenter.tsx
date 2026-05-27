@@ -845,71 +845,83 @@ export default function OdessaLiveCenter({
 
   return (
     <main className="odessa-shell flex h-screen w-screen min-h-0 flex-col overflow-hidden text-[var(--t1)]">
-      <header className="od-topnav">
-        <div className="od-brand">
-          <div className="od-brand-mark">
-            <img src="/favicon.png" alt="Odessa" />
-          </div>
-          <div className="od-brand-text">
-            <div className="od-brand-name">Odessa</div>
-            <div className="od-brand-sub">Live Direction Desk</div>
+      <header className="odsa-header">
+        {/* Brand */}
+        <div className="odsa-brand">
+          <span className="odsa-brand-mark">
+            {/* Odessa orbital ring + satellite — matches the production icon */}
+            <svg viewBox="0 0 1024 1024" aria-label="Odessa" style={{ width: 28, height: 28 }}>
+              <defs>
+                <linearGradient id="oring" x1="256" y1="208" x2="792" y2="832" gradientUnits="userSpaceOnUse">
+                  <stop offset="0" stopColor="#f8fafc"/>
+                  <stop offset="0.38" stopColor="#93c5fd"/>
+                  <stop offset="0.72" stopColor="#22d3ee"/>
+                  <stop offset="1" stopColor="#38bdf8"/>
+                </linearGradient>
+              </defs>
+              <circle cx="512" cy="512" r="326" fill="none" stroke="#0f172a" strokeWidth="46"/>
+              <circle cx="512" cy="512" r="278" fill="none" stroke="url(#oring)" strokeWidth="118"/>
+              <circle cx="512" cy="512" r="168" fill="#07111f"/>
+              <path d="M704 286c36 26 66 59 88 98" fill="none" stroke="#e0f2fe" strokeWidth="34" strokeLinecap="round" opacity="0.86"/>
+              <circle cx="742" cy="284" r="34" fill="#67e8f9"/>
+              <circle cx="742" cy="284" r="58" fill="none" stroke="#22d3ee" strokeWidth="14" opacity="0.35"/>
+            </svg>
+          </span>
+          <div className="odsa-brand-text">
+            <div className="odsa-brand-name">Odessa</div>
+            <div className="odsa-brand-sub">Live Direction Desk</div>
           </div>
         </div>
 
-        {/* Nav tabs — wrapped in a div for responsive hiding; od-tabs uses display:flex
-            which is unlayered CSS and would beat Tailwind's hidden class */}
-        <div className="hidden lg:flex">
-          <nav className="od-tabs">
-            <NavButton icon={<Home />}       label="Início"     active={activeTab === 'home'}     onClick={() => setActiveTab('home')} />
-            <NavButton icon={<Video />}      label="Palco"      active={activeTab === 'stage'}    onClick={() => setActiveTab('stage')} />
-            <NavButton icon={<Link2 />}      label="Fluxo"      active={activeTab === 'flow'}     onClick={() => setActiveTab('flow')} />
-            <NavButton icon={<StickyNote />} label="Mural"      active={activeTab === 'canvas'}   onClick={() => setActiveTab('canvas')} />
-            <NavButton icon={<Film />}       label="Biblioteca" active={activeTab === 'library'}  onClick={() => setActiveTab('library')} />
-            <NavButton icon={<Camera />}     label="Fontes"     active={activeTab === 'sources'}  onClick={() => setActiveTab('sources')} />
-            <NavButton icon={<ListVideo />}  label="Logs"       active={activeTab === 'logs'}     onClick={() => setActiveTab('logs')} />
-            <NavButton icon={<Settings />}   label="Config"     active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+        {/* Navigation tabs (desktop) */}
+        <div className="hidden lg:block">
+          <nav className="odsa-tabs">
+            <NavButton icon={<Home />}       label="Início"       active={activeTab === 'home'}     onClick={() => setActiveTab('home')} />
+            <NavButton icon={<Video />}      label="Palco"        active={activeTab === 'stage'}    onClick={() => setActiveTab('stage')} />
+            <NavButton icon={<Link2 />}      label="Fluxo Reativo" active={activeTab === 'flow'}   onClick={() => setActiveTab('flow')} />
+            <NavButton icon={<StickyNote />} label="Mural"        active={activeTab === 'canvas'}   onClick={() => setActiveTab('canvas')} />
+            <NavButton icon={<Film />}       label="Biblioteca"   active={activeTab === 'library'}  onClick={() => setActiveTab('library')} />
+            <NavButton icon={<Camera />}     label="Fontes / OCR" active={activeTab === 'sources'}  onClick={() => setActiveTab('sources')} />
+            <NavButton icon={<ListVideo />}  label="Logs"         active={activeTab === 'logs'}     onClick={() => setActiveTab('logs')} />
+            <NavButton icon={<Settings />}   label="Config"       active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
           </nav>
         </div>
 
-        <div className="od-topnav-right">
-          <div className="hidden sm:flex">
-            <div className="od-pill" data-tone={runtime.autopilotEnabled ? 'live' : 'standby'}>
-              <span className="od-pill-dot" />
-              <span>{runtime.autopilotEnabled ? 'AO VIVO' : 'PRONTA'}</span>
-            </div>
-          </div>
-          <div className="od-topnav-divider hidden sm:block" />
+        {/* Right side: status + CTA */}
+        <div className="odsa-header-end">
+          {/* Live / Pronta pill */}
+          <span className={cn('odsa-live-pill hidden sm:inline-flex', runtime.autopilotEnabled && 'is-on')}>
+            <span className="d" />
+            {runtime.autopilotEnabled ? 'AO VIVO' : 'PRONTA'}
+          </span>
+
+          {/* Settings icon button */}
           <button
-            className="od-iconbtn"
-            onClick={() => {
-              onLiveConfigOpenChange?.(false);
-              setActiveTab('settings');
-            }}
-            title="Configurar Iniciar live"
+            className="odsa-btn odsa-btn-secondary odsa-btn-md odsa-btn-icon"
+            onClick={() => { onLiveConfigOpenChange?.(false); setActiveTab('settings'); }}
+            title="Configurações"
           >
             <Settings style={{ width: 16, height: 16 }} />
           </button>
+
+          {/* Primary CTA */}
           <button
-            className={cn('od-btn', runtime.autopilotEnabled ? 'od-btn-secondary' : 'od-btn-primary')}
+            className={cn('odsa-btn odsa-btn-md', runtime.autopilotEnabled ? 'odsa-btn-secondary' : 'odsa-btn-primary')}
             onClick={() => {
-              if (runtime.autopilotEnabled) {
-                runtime.pause();
-                return;
-              }
-              if (onStartLive) {
-                void onStartLive();
-                return;
-              }
+              if (runtime.autopilotEnabled) { runtime.pause(); return; }
+              if (onStartLive) { void onStartLive(); return; }
               runtime.start();
             }}
           >
-            <Play style={{ width: 14, height: 14 }} />
-            {runtime.autopilotEnabled ? 'Pausar' : 'Iniciar live'}
+            {runtime.autopilotEnabled
+              ? <Pause style={{ width: 15, height: 15 }} />
+              : <Play  style={{ width: 15, height: 15 }} />}
+            {runtime.autopilotEnabled ? 'Pausar live' : 'Iniciar live'}
           </button>
         </div>
 
         {liveStartError && (
-          <div className="absolute right-5 top-[68px] z-40 max-w-md rounded-[18px] border border-rose-400/30 bg-rose-950/90 px-4 py-3 text-xs font-semibold leading-5 text-rose-100 shadow-[var(--shadow-alert)]">
+          <div className="odsa-toast">
             {liveStartError}
           </div>
         )}
@@ -2657,9 +2669,9 @@ function NavButton({
   return (
     <button
       onClick={onClick}
-      className={cn('od-tab', active && 'is-active')}
+      className={cn('odsa-tab', active && 'is-active')}
     >
-      <span className="[&_svg]:h-3.5 [&_svg]:w-3.5 [&_svg]:stroke-[1.75]">
+      <span className="odsa-tab-ico [&_svg]:h-[14px] [&_svg]:w-[14px] [&_svg]:stroke-[1.75]">
         {icon}
       </span>
       {label}

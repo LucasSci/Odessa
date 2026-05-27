@@ -1139,3 +1139,321 @@
 
 /* Misc */
 .od-divider { height: 1px; background: var(--border); margin: 12px 0; }
+
+/* ══════════════════════════════════════════════════════════════
+   ODESSA LIVE DESK · odsa-* UI kit
+   Source: ui_kits/live-desk/desk.css (Odessa Command Deck)
+   These are the classes used by the reference Header.jsx / components.
+══════════════════════════════════════════════════════════════ */
+
+/* ── App shell ──────────────────────────────────────────────── */
+.odsa-shell {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--grad-shell);
+  color: var(--t1);
+}
+.odsa-shell-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 18px;
+  gap: 16px;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+.odsa-header {
+  height: 64px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 22px;
+  background: rgba(6, 7, 10, 0.96);
+  border-bottom: 1px solid var(--border2);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  position: relative;
+  z-index: 30;
+}
+
+.odsa-brand { display: flex; align-items: center; gap: 12px; }
+.odsa-brand-mark {
+  width: 38px; height: 38px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #111827, #07111f);
+  display: grid; place-items: center;
+  box-shadow: 0 0 24px rgba(125, 211, 252, 0.22), inset 0 0 0 1px rgba(125, 211, 252, 0.25);
+  flex-shrink: 0;
+}
+.odsa-brand-mark svg { width: 28px; height: 28px; }
+
+.odsa-brand-text { line-height: 1; }
+.odsa-brand-name {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-style: italic;
+  letter-spacing: -0.01em;
+  color: var(--t1);
+}
+.odsa-brand-sub {
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.32em;
+  color: var(--t3);
+  margin-top: 4px;
+}
+
+.odsa-tabs { display: flex; align-items: center; gap: 2px; }
+
+.odsa-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 99px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--t3);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.odsa-tab:hover { color: var(--t1); background: var(--bg3); }
+.odsa-tab.is-active {
+  color: var(--t1);
+  background: var(--bg3);
+  box-shadow: inset 0 0 0 1px var(--border2);
+}
+.odsa-tab .odsa-tab-ico { display: inline-flex; opacity: 0.9; }
+
+.odsa-header-end { display: flex; align-items: center; gap: 10px; }
+
+.odsa-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 99px;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--t2);
+  cursor: pointer;
+  transition: background var(--dur-fast);
+}
+.odsa-status-pill:hover { background: var(--bg3); }
+.odsa-status-pill .badge { background: rgba(255,255,255,0.08); padding: 1px 6px; border-radius: 99px; font-size: 10px; color: var(--t2); }
+
+/* ── Buttons ────────────────────────────────────────────────── */
+.odsa-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  border-radius: var(--r-2xl);
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--t1);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+  white-space: nowrap;
+}
+.odsa-btn:hover { background: var(--bg4); border-color: var(--border3); }
+.odsa-btn-md { height: 38px; padding: 0 16px; font-size: 13px; }
+.odsa-btn-sm { height: 32px; padding: 0 12px; font-size: 12px; border-radius: var(--r-xl); }
+.odsa-btn-icon { width: 38px; padding: 0; }
+.odsa-btn-primary { background: var(--grad-live); color: #051018; border-color: transparent; box-shadow: var(--shadow-live); }
+.odsa-btn-primary:hover { filter: brightness(1.06); background: var(--grad-live); }
+.odsa-btn-secondary { background: var(--bg2); }
+.odsa-btn-secondary:hover { border-color: rgba(125,211,252,0.45); background: var(--bg2); }
+.odsa-btn-ghost { background: transparent; border-color: transparent; color: var(--t2); }
+.odsa-btn-ghost:hover { background: var(--bg3); color: var(--t1); }
+.odsa-btn-danger { background: rgba(248,113,113,0.10); color: #fca5a5; border-color: rgba(248,113,113,0.25); }
+.odsa-btn-danger:hover { background: rgba(248,113,113,0.16); }
+.odsa-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.odsa-btn-ico { display: inline-flex; }
+
+/* ── Badge ──────────────────────────────────────────────────── */
+.odsa-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 99px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+  border: 1px solid var(--border2); background: var(--bg3); color: var(--t2);
+}
+.odsa-badge-sky    { background: rgba(125,211,252,0.10); color: var(--sky);   border-color: rgba(125,211,252,0.30); }
+.odsa-badge-rose   { background: rgba(251,113,133,0.10); color: var(--rose);  border-color: rgba(251,113,133,0.30); }
+.odsa-badge-green  { background: rgba(52,211,153,0.10);  color: var(--green); border-color: rgba(52,211,153,0.30); }
+.odsa-badge-amber  { background: rgba(251,191,36,0.10);  color: var(--amber); border-color: rgba(251,191,36,0.30); }
+.odsa-badge-red    { background: rgba(248,113,113,0.10); color: var(--red);   border-color: rgba(248,113,113,0.30); }
+.odsa-badge-blue   { background: rgba(96,165,250,0.10);  color: var(--blue);  border-color: rgba(96,165,250,0.30); }
+.odsa-badge-dot { width: 5px; height: 5px; border-radius: 99px; background: currentColor; }
+
+/* ── Status dot ─────────────────────────────────────────────── */
+.odsa-dot { width: 8px; height: 8px; border-radius: 99px; display: inline-block; flex-shrink: 0; }
+.odsa-dot-online { background: var(--green); }
+.odsa-dot-idle   { background: var(--sky); }
+.odsa-dot-warn   { background: var(--amber); }
+.odsa-dot-error  { background: var(--red); }
+.odsa-dot-pulse  { animation: odsa-pulse 1.8s ease-out infinite; }
+@keyframes odsa-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(52,211,153,0.55); }
+  70%  { box-shadow: 0 0 0 8px rgba(52,211,153,0); }
+  100% { box-shadow: 0 0 0 0   rgba(52,211,153,0); }
+}
+
+/* ── Live pill ──────────────────────────────────────────────── */
+.odsa-live-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 7px 13px; border-radius: 99px;
+  background: var(--bg2); border: 1px solid var(--border2);
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--sky);
+}
+.odsa-live-pill .d {
+  width: 7px; height: 7px; border-radius: 99px; background: var(--sky);
+  animation: odsa-pulse-sky 1.8s ease-out infinite;
+  flex-shrink: 0;
+}
+@keyframes odsa-pulse-sky {
+  0%   { box-shadow: 0 0 0 0   rgba(125,211,252,0.55); }
+  70%  { box-shadow: 0 0 0 8px rgba(125,211,252,0); }
+  100% { box-shadow: 0 0 0 0   rgba(125,211,252,0); }
+}
+.odsa-live-pill.is-on {
+  background: var(--grad-live);
+  border-color: transparent;
+  color: #051018;
+  box-shadow: var(--shadow-live);
+}
+.odsa-live-pill.is-on .d { background: #051018; animation: none; }
+
+/* ── Panel ──────────────────────────────────────────────────── */
+.odsa-panel {
+  background: linear-gradient(180deg, rgba(255,255,255,0.045), transparent 34%), var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--r-3xl);
+  position: relative;
+}
+.odsa-panel-padded { padding: 20px; }
+
+.odsa-eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-weight: 600; font-size: 9px; letter-spacing: 0.3em;
+  text-transform: uppercase; color: var(--t3);
+}
+.odsa-eyebrow-ico { display: inline-flex; opacity: 0.85; }
+.odsa-field-label { font-weight: 600; font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--t3); }
+
+/* ── Inputs ─────────────────────────────────────────────────── */
+.odsa-input, .odsa-select, .odsa-textarea {
+  height: 38px; padding: 0 14px;
+  font-family: var(--font-sans); font-size: 13px;
+  color: var(--t1); background: var(--bg3);
+  border: 1px solid var(--border2); border-radius: var(--r-2xl);
+  outline: none; width: 100%;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+.odsa-input::placeholder { color: var(--t3); }
+.odsa-input:focus, .odsa-select:focus, .odsa-textarea:focus {
+  border-color: var(--sky);
+  box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.18);
+}
+
+/* ── Layout ─────────────────────────────────────────────────── */
+.odsa-dash-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; flex: 1; min-height: 0; }
+.odsa-stack { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
+.odsa-row { display: flex; gap: 16px; }
+.odsa-grow { flex: 1; min-width: 0; min-height: 0; }
+
+/* ── Stage preview ──────────────────────────────────────────── */
+.odsa-stage { position: relative; border-radius: var(--r-2xl); overflow: hidden; aspect-ratio: 16 / 9; border: 1px solid var(--border2); }
+.odsa-stage-inner { position: absolute; inset: 0; display: grid; place-items: center; }
+.odsa-stage-clip-name { position: absolute; bottom: 14px; left: 16px; display: flex; align-items: center; gap: 10px; }
+.odsa-stage-corner { position: absolute; top: 14px; right: 16px; display: flex; gap: 8px; }
+.odsa-stage-portrait {
+  width: 138px; height: 138px; border-radius: 999px;
+  background: radial-gradient(circle at 36% 34%, rgba(125,211,252,0.7), transparent 60%), radial-gradient(circle at 70% 70%, rgba(251,113,133,0.55), transparent 64%), linear-gradient(135deg, #0b1726, #1a0a16);
+  box-shadow: 0 0 80px rgba(125,211,252,0.32); position: relative;
+}
+.odsa-stage-portrait::after { content: ''; position: absolute; inset: -14px; border-radius: 999px; border: 1px solid rgba(125,211,252,0.32); }
+.odsa-stage-portrait::before { content: ''; position: absolute; inset: -28px; border-radius: 999px; border: 1px dashed rgba(125,211,252,0.18); }
+
+/* ── Event feed ─────────────────────────────────────────────── */
+.odsa-feed { display: flex; flex-direction: column; gap: 8px; overflow: auto; min-height: 0; }
+.odsa-event { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: var(--r-md); background: var(--bg1); border: 1px solid var(--border); }
+.odsa-event-time { font-family: var(--font-mono); font-size: 10px; color: var(--t3); padding-top: 2px; min-width: 38px; }
+.odsa-event-body { flex: 1; min-width: 0; }
+.odsa-event-name { color: var(--t1); font-weight: 600; font-size: 12px; }
+.odsa-event-text { color: var(--t2); font-size: 12px; margin-top: 2px; }
+
+/* ── Stat tile ──────────────────────────────────────────────── */
+.odsa-stat { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--r-xl); }
+.odsa-stat-value { font-family: var(--font-display); font-size: 34px; line-height: 1; letter-spacing: -0.02em; color: var(--t1); }
+.odsa-stat-label { font-weight: 500; font-size: 11px; color: var(--t3); text-transform: uppercase; letter-spacing: 0.2em; }
+.odsa-stat-delta { font-family: var(--font-mono); font-size: 10px; color: var(--green); }
+
+/* ── Trigger row ────────────────────────────────────────────── */
+.odsa-trigger { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--r-md); background: var(--bg1); border: 1px solid var(--border); cursor: pointer; transition: background var(--dur-fast), border-color var(--dur-fast); }
+.odsa-trigger:hover { background: var(--bg2); border-color: var(--border2); }
+.odsa-trigger-cond { flex: 1; min-width: 0; }
+.odsa-trigger-name { font-size: 12.5px; color: var(--t1); font-weight: 600; }
+.odsa-trigger-cond-detail { font-family: var(--font-mono); font-size: 10.5px; color: var(--t3); margin-top: 2px; }
+.odsa-trigger-action { display: flex; align-items: center; gap: 6px; color: var(--t2); font-size: 11.5px; }
+.odsa-switch { width: 32px; height: 18px; border-radius: 99px; background: var(--bg4); border: 1px solid var(--border2); position: relative; cursor: pointer; transition: background var(--dur-fast); }
+.odsa-switch::after { content: ''; position: absolute; top: 1.5px; left: 2px; width: 13px; height: 13px; border-radius: 99px; background: var(--t2); transition: transform var(--dur-fast) var(--ease-out); }
+.odsa-switch.is-on { background: rgba(125,211,252,0.30); border-color: rgba(125,211,252,0.50); }
+.odsa-switch.is-on::after { transform: translateX(13px); background: var(--sky); }
+
+/* ── Video card / library tile ──────────────────────────────── */
+.odsa-clip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.odsa-clip { background: var(--bg1); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; cursor: pointer; transition: transform var(--dur-fast), border-color var(--dur-fast); }
+.odsa-clip:hover { border-color: rgba(125,211,252,0.4); }
+.odsa-clip-thumb { aspect-ratio: 16 / 10; background-size: cover; background-position: center; position: relative; }
+.odsa-clip-thumb::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.55)); }
+.odsa-clip-meta { padding: 10px 12px; }
+.odsa-clip-title { font-size: 12.5px; font-weight: 600; color: var(--t1); }
+.odsa-clip-sub { font-family: var(--font-mono); font-size: 10px; color: var(--t3); margin-top: 4px; }
+.odsa-clip-tag { position: absolute; top: 8px; left: 8px; z-index: 1; }
+.odsa-clip-time { position: absolute; bottom: 8px; right: 10px; z-index: 1; font-family: var(--font-mono); font-size: 10px; color: white; background: rgba(0,0,0,0.55); padding: 2px 6px; border-radius: 4px; }
+
+/* ── Flow board ─────────────────────────────────────────────── */
+.odsa-flow { position: absolute; inset: 0; }
+.odsa-flow-node { position: absolute; width: 200px; background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--r-xl); padding: 12px 14px; box-shadow: var(--shadow-2); cursor: grab; }
+.odsa-flow-node.is-trigger { border-color: rgba(251,113,133,0.4); box-shadow: 0 0 24px rgba(251,113,133,0.18); }
+.odsa-flow-node.is-action  { border-color: rgba(125,211,252,0.4); box-shadow: var(--shadow-live); }
+.odsa-flow-node.is-idle    { border-color: rgba(190,242,100,0.35); }
+.odsa-flow-node-title { font-size: 12px; font-weight: 600; color: var(--t1); }
+.odsa-flow-node-sub { font-family: var(--font-mono); font-size: 10px; color: var(--t3); margin-top: 4px; }
+.odsa-flow-handle { width: 8px; height: 8px; border-radius: 99px; background: var(--sky); position: absolute; top: 50%; transform: translateY(-50%); box-shadow: 0 0 0 3px rgba(125,211,252,0.16); }
+.odsa-flow-handle.left { left: -4px; }
+.odsa-flow-handle.right { right: -4px; }
+.odsa-minimap { position: absolute; bottom: 16px; right: 16px; width: 168px; height: 100px; background: rgba(11,13,16,0.86); border: 1px solid var(--border2); border-radius: var(--r-md); overflow: hidden; }
+
+/* ── Toast ──────────────────────────────────────────────────── */
+.odsa-toast { position: absolute; top: 76px; right: 18px; max-width: 360px; padding: 12px 14px; border-radius: var(--r-md); border: 1px solid rgba(248,113,113,0.30); background: rgba(35,13,18,0.92); color: #fecdd3; font-size: 12px; line-height: 1.5; box-shadow: var(--shadow-3), var(--shadow-alert); backdrop-filter: blur(8px); z-index: 40; }
+
+/* ── Grid backgrounds ───────────────────────────────────────── */
+.odsa-grid-bg { background-color: #0d0d0f; background-image: linear-gradient(#1a1a1f 1px, transparent 1px), linear-gradient(90deg, #1a1a1f 1px, transparent 1px); background-size: 24px 24px; box-shadow: inset 0 0 90px rgba(0,0,0,0.62); }
+.odsa-stage-mesh { background: linear-gradient(90deg, rgba(255,255,255,0.055) 1px, transparent 1px), linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), radial-gradient(circle at 50% 45%, rgba(125,211,252,0.16), transparent 34%), #07080a; background-size: 48px 48px, 48px 48px, auto, auto; }
+.odsa-signal-lane { position: relative; background: linear-gradient(90deg, rgba(125,211,252,0.10) 1px, transparent 1px), linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(120deg, rgba(125,211,252,0.12), transparent 28%), linear-gradient(320deg, rgba(251,113,133,0.10), transparent 28%), #07080a; background-size: 72px 100%, 100% 44px, auto, auto, auto; }
+
+/* ── Helpers ────────────────────────────────────────────────── */
+.muted { color: var(--t3); }
+.sky   { color: var(--sky); }
+.rose  { color: var(--rose); }
+.green-text { color: var(--green); }
+.amber-text { color: var(--amber); }
+.no-shrink  { flex-shrink: 0; }
