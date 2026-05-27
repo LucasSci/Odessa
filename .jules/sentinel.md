@@ -1,0 +1,4 @@
+## 2026-05-27 - [CRITICAL] Fix Path Traversal (LFI) in Catch-all Route
+**Vulnerability:** The catch-all `/` route used for serving static frontend assets (`dist_dir / full_path`) passed the user-controlled `full_path` directly to `FileResponse` without checking if the resolved path stayed within `dist_dir`. This allowed Local File Inclusion (LFI) via path traversal (e.g., `../../../../etc/passwd`).
+**Learning:** `fastapi.responses.FileResponse` does not provide built-in directory traversal protection like `StaticFiles` does. If user input is appended to a base path and passed to `FileResponse`, it must be manually validated.
+**Prevention:** Always use `Path.resolve().is_relative_to(base_dir.resolve())` to guarantee that dynamically constructed file paths do not escape their intended boundaries before passing them to `FileResponse` or `open()`.

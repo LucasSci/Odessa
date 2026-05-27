@@ -86,9 +86,18 @@ dist_dir = Path(__file__).resolve().parents[1] / "dist"
 if dist_dir.exists():
     app.mount("/assets", StaticFiles(directory=dist_dir / "assets"), name="web-assets")
 
+    from fastapi import HTTPException
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_web_app(full_path: str):
         target = dist_dir / full_path
+
+        try:
+            if not target.resolve().is_relative_to(dist_dir.resolve()):
+                raise HTTPException(status_code=404, detail="Not Found")
+        except Exception:
+            raise HTTPException(status_code=404, detail="Not Found")
+
         if full_path and target.is_file():
             return FileResponse(target)
         return FileResponse(dist_dir / "index.html")
