@@ -845,90 +845,52 @@ export default function OdessaLiveCenter({
 
   return (
     <main className="odessa-shell flex h-screen w-screen min-h-0 flex-col overflow-hidden text-[var(--t1)]">
-      <header className="relative z-30 flex h-16 shrink-0 items-center justify-between border-b border-[var(--border2)] bg-[#06070a]/96 px-[22px] backdrop-blur-xl">
-        <div className="flex items-center gap-3">
-          <div className="odessa-brand-mark">
+      <header className="od-topnav">
+        <div className="od-brand">
+          <div className="od-brand-mark">
             <img src="/favicon.png" alt="Odessa" />
           </div>
-          <div>
-            <div className="heading-serif text-[24px] leading-none">Odessa</div>
-            <div className="mt-1 text-[9px] font-semibold uppercase tracking-[0.32em] text-[var(--t3)]">
-              Live Direction Desk
-            </div>
+          <div className="od-brand-text">
+            <div className="od-brand-name">Odessa</div>
+            <div className="od-brand-sub">Live Direction Desk</div>
           </div>
         </div>
 
-        <nav className="hidden items-center gap-0.5 lg:flex">
-          <NavButton
-            icon={<Home />}
-            label="Início"
-            active={activeTab === 'home'}
-            onClick={() => setActiveTab('home')}
-          />
-          <NavButton
-            icon={<Video />}
-            label="Palco"
-            active={activeTab === 'stage'}
-            onClick={() => setActiveTab('stage')}
-          />
-          <NavButton
-            icon={<Link2 />}
-            label="Fluxo Reativo"
-            active={activeTab === 'flow'}
-            onClick={() => setActiveTab('flow')}
-          />
-          <NavButton
-            icon={<StickyNote />}
-            label="Mural"
-            active={activeTab === 'canvas'}
-            onClick={() => setActiveTab('canvas')}
-          />
-          <NavButton
-            icon={<Film />}
-            label="Biblioteca"
-            active={activeTab === 'library'}
-            onClick={() => setActiveTab('library')}
-          />
-          <NavButton
-            icon={<Camera />}
-            label="Fontes / OCR"
-            active={activeTab === 'sources'}
-            onClick={() => setActiveTab('sources')}
-          />
-          <NavButton
-            icon={<ListVideo />}
-            label="Logs"
-            active={activeTab === 'logs'}
-            onClick={() => setActiveTab('logs')}
-          />
-          <NavButton
-            icon={<Settings />}
-            label="Config"
-            active={activeTab === 'settings'}
-            onClick={() => setActiveTab('settings')}
-          />
-        </nav>
+        {/* Nav tabs — wrapped in a div for responsive hiding; od-tabs uses display:flex
+            which is unlayered CSS and would beat Tailwind's hidden class */}
+        <div className="hidden lg:flex">
+          <nav className="od-tabs">
+            <NavButton icon={<Home />}       label="Início"     active={activeTab === 'home'}     onClick={() => setActiveTab('home')} />
+            <NavButton icon={<Video />}      label="Palco"      active={activeTab === 'stage'}    onClick={() => setActiveTab('stage')} />
+            <NavButton icon={<Link2 />}      label="Fluxo"      active={activeTab === 'flow'}     onClick={() => setActiveTab('flow')} />
+            <NavButton icon={<StickyNote />} label="Mural"      active={activeTab === 'canvas'}   onClick={() => setActiveTab('canvas')} />
+            <NavButton icon={<Film />}       label="Biblioteca" active={activeTab === 'library'}  onClick={() => setActiveTab('library')} />
+            <NavButton icon={<Camera />}     label="Fontes"     active={activeTab === 'sources'}  onClick={() => setActiveTab('sources')} />
+            <NavButton icon={<ListVideo />}  label="Logs"       active={activeTab === 'logs'}     onClick={() => setActiveTab('logs')} />
+            <NavButton icon={<Settings />}   label="Config"     active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+          </nav>
+        </div>
 
-        <div className="flex items-center gap-2.5">
-          <div className="hidden h-[36px] items-center gap-2 rounded-full border border-[var(--border2)] bg-[var(--bg2)] px-3 text-[11.5px] font-bold uppercase tracking-[0.14em] text-[var(--sky)] sm:flex">
-            <StatusDot status={runtime.autopilotEnabled ? 'online' : 'idle'} pulse />
-            <span>
-              {runtime.autopilotEnabled ? 'AO VIVO' : 'PRONTA'}
-            </span>
+        <div className="od-topnav-right">
+          <div className="hidden sm:flex">
+            <div className="od-pill" data-tone={runtime.autopilotEnabled ? 'live' : 'standby'}>
+              <span className="od-pill-dot" />
+              <span>{runtime.autopilotEnabled ? 'AO VIVO' : 'PRONTA'}</span>
+            </div>
           </div>
-          <Button
-            size="icon"
-            variant="secondary"
+          <div className="od-topnav-divider hidden sm:block" />
+          <button
+            className="od-iconbtn"
             onClick={() => {
               onLiveConfigOpenChange?.(false);
               setActiveTab('settings');
             }}
             title="Configurar Iniciar live"
           >
-            <Settings className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={runtime.autopilotEnabled ? 'secondary' : 'primary'}
+            <Settings style={{ width: 16, height: 16 }} />
+          </button>
+          <button
+            className={cn('od-btn', runtime.autopilotEnabled ? 'od-btn-secondary' : 'od-btn-primary')}
             onClick={() => {
               if (runtime.autopilotEnabled) {
                 runtime.pause();
@@ -941,31 +903,32 @@ export default function OdessaLiveCenter({
               runtime.start();
             }}
           >
-            <Play className="h-4 w-4" />
-            {runtime.autopilotEnabled ? 'Pausar live' : 'Iniciar live'}
-          </Button>
+            <Play style={{ width: 14, height: 14 }} />
+            {runtime.autopilotEnabled ? 'Pausar' : 'Iniciar live'}
+          </button>
         </div>
 
         {liveStartError && (
-          <div className="absolute right-5 top-[58px] z-40 max-w-md rounded-[18px] border border-rose-400/30 bg-rose-950/90 px-4 py-3 text-xs font-semibold leading-5 text-rose-100 shadow-[var(--shadow-alert)]">
+          <div className="absolute right-5 top-[68px] z-40 max-w-md rounded-[18px] border border-rose-400/30 bg-rose-950/90 px-4 py-3 text-xs font-semibold leading-5 text-rose-100 shadow-[var(--shadow-alert)]">
             {liveStartError}
           </div>
         )}
       </header>
 
-      <div className="flex gap-2 overflow-x-auto border-b border-[var(--border)] px-3 py-2 lg:hidden">
-        {(['home', 'stage', 'flow', 'canvas', 'library', 'sources', 'logs', 'settings'] as TabKey[]).map((tab) => (
+      <div className="flex gap-1 overflow-x-auto border-b border-[var(--border)] px-3 py-1.5 lg:hidden" style={{ background: 'rgba(6,7,10,0.86)', backdropFilter: 'blur(20px)' }}>
+        {([
+          { id: 'home', label: 'Início' }, { id: 'stage', label: 'Palco' },
+          { id: 'flow', label: 'Fluxo' }, { id: 'canvas', label: 'Mural' },
+          { id: 'library', label: 'Biblioteca' }, { id: 'sources', label: 'Fontes' },
+          { id: 'logs', label: 'Logs' }, { id: 'settings', label: 'Config' },
+        ] as { id: TabKey; label: string }[]).map(({ id, label }) => (
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={cn(
-              'shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold',
-              activeTab === tab
-                ? 'bg-[var(--gold)] text-[#0a0a0c]'
-                : 'bg-[var(--bg2)] text-[var(--t2)]',
-            )}
+            key={id}
+            onClick={() => setActiveTab(id)}
+            className={cn('od-tab od-tab-sm shrink-0', activeTab === id && 'is-active')}
+            style={{ height: 28, fontSize: 11.5, padding: '0 10px' }}
           >
-            {tab}
+            {label}
           </button>
         ))}
       </div>
@@ -2694,14 +2657,9 @@ function NavButton({
   return (
     <button
       onClick={onClick}
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[12.5px] font-medium transition',
-        active
-          ? 'bg-[var(--bg3)] text-[var(--t1)] shadow-[inset_0_0_0_1px_var(--border2)]'
-          : 'text-[var(--t2)] hover:bg-[var(--bg3)] hover:text-[var(--t1)]',
-      )}
+      className={cn('od-tab', active && 'is-active')}
     >
-      <span className="flex h-4 w-4 items-center justify-center [&_svg]:h-4 [&_svg]:w-4 [&_svg]:stroke-[1.75]">
+      <span className="[&_svg]:h-3.5 [&_svg]:w-3.5 [&_svg]:stroke-[1.75]">
         {icon}
       </span>
       {label}
