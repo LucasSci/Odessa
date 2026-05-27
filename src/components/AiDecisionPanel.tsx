@@ -73,7 +73,8 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
 
 export function AiDecisionPanel({ decision, className }: AiDecisionPanelProps) {
   const d = decision ?? EMPTY_AI_DECISION;
-  const st = STATUS_STYLES[d.status];
+  // Fallback para 'offline' se status vier inválido (ex.: resposta malformada do servidor).
+  const st = STATUS_STYLES[d.status] ?? STATUS_STYLES['offline'];
 
   return (
     <div
