@@ -30,6 +30,13 @@ const DATA_DIR = process.env.ODESSA_DATA_DIR || (PERSISTENT_DIR ? nodePath.join(
 const UPLOADS_DIR = process.env.ODESSA_UPLOADS_DIR || (PERSISTENT_DIR ? nodePath.join(PERSISTENT_DIR, 'uploads') : nodePath.join(__dirname, '..', 'uploads'));
 const KV_PATH = nodePath.join(DATA_DIR, 'kv.json');
 const MIN_PASSWORD_LENGTH = 8;
+// ── AI / Gemini ───────────────────────────────────────────────────────────────
+const AI_PROVIDER   = (process.env.AI_PROVIDER || 'gemini').toLowerCase().trim();
+const GEMINI_KEY    = process.env.GEMINI_API_KEY || '';
+const OPENAI_KEY    = process.env.OPENAI_API_KEY || '';
+const OPENAI_MODEL  = process.env.OPENAI_TEXT_MODEL || 'gpt-4o-mini';
+const GEMINI_MODEL  = 'gemini-2.5-flash';
+const AI_TIMEOUT_MS = Number(process.env.AI_DECISION_TIMEOUT || 8000);
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
 try { fs.mkdirSync(nodePath.join(UPLOADS_DIR, 'videos'), { recursive: true }); } catch {}
 const cloudStore = (globalThis.__ODESSA_CLOUD_STORE ||= {
@@ -246,6 +253,127 @@ function cloudCapabilities() {
     databaseConfigured: true,
     blobConfigured: true,
   };
+}
+
+// ── AI helper functions ───────────────────────────────────────────────────────
+const AI_SYSTEM_PROMPT = `\
+Você é o motor de decisão de IA da Odessa, uma persona de live TikTok interativa.
+Sua tarefa: analisar um evento capturado por OCR ao vivo e decidir como a persona deve reagir.
+
+Responda SOMENTE com um objeto JSON válido. Sem markdown, sem texto fora do JSON.
+
+Estrutura obrigatória:
+{
+  "intent": "gift_reaction" | "greeting" | "compliment_response" | "question_response" | "idle_maintenance" | "special_event" | "unknown",
+  "emotion": "happy" | "excited" | "grateful" | "neutral" | "shy" | "playful" | "surprised",
+  "recommendedAction": "play_video" | "queue_video" | "wait" | "no_action",
+  "selectedTriggerId": "<id do gatilho selecionado da lista>" | null,
+  "selectedVideoId": "<id do vídeo selecionado da lista>" | null,
+  "selectedVideoLabel": "<label do vídeo>" | null,
+  "confidence": <número entre 0 e 1>,
+  "reasoning": "<motivo em português, máximo 120 caracteres>"
+}
+
+Regras:
+- Prefira gatilhos que combinem com o tipo do evento (gift → gatilhos de gift)
+- Se nenhum gatilho combinar, deixe selectedTriggerId e selectedVideoId como null
+- confidence acima de 0.8 → play_video; entre 0.5–0.8 → queue_video; abaixo → wait
+- Para eventos de baixa relevância use intent: "idle_maintenance" e wait
+`;
+
+const AI_VALID_INTENTS  = ['gift_reaction','greeting','compliment_response','question_response','idle_maintenance','special_event','unknown'];
+const AI_VALID_EMOTIONS = ['happy','excited','grateful','neutral','shy','playful','surprised'];
+const AI_VALID_ACTIONS  = ['play_video','queue_video','wait','no_action'];
+
+function buildAiUserMessage(ocrEvent, config) {
+  const lines = [
+    `Tipo de evento: ${ocrEvent.eventType ?? 'desconhecido'}`,
+    `Texto bruto: "${ocrEvent.rawText ?? ''}"`,
+    `Texto normalizado: "${ocrEvent.normalizedText ?? ''}"`,
+    `Zona: ${ocrEvent.zoneName ?? 'desconhecida'} (${ocrEvent.zone ?? ''})`,
+    `Confiança do OCR: ${Math.round((ocrEvent.confidence ?? 0) * 100)}%`,
+  ];
+  if (ocrEvent.metadata?.giftName || ocrEvent.metadata?.giftKey) {
+    lines.push(`Presente: ${ocrEvent.metadata.giftName || ocrEvent.metadata.giftKey}`);
+  }
+  if (ocrEvent.author) lines.push(`Autor/usuário: ${ocrEvent.author}`);
+  if (config?.triggers?.length) {
+    const tList = config.triggers.filter(t => t.enabled !== false).slice(0, 10)
+      .map(t => `  - id:"${t.id}" label:"${t.name || t.label || t.id}"`).join('\n');
+    lines.push(`\nGatilhos disponíveis:\n${tList}`);
+  } else {
+    lines.push('\nGatilhos disponíveis: nenhum');
+  }
+  if (config?.videos?.length) {
+    const vList = config.videos.slice(0, 10)
+      .map(v => `  - id:"${v.id}" label:"${v.label || v.name || v.id}"`).join('\n');
+    lines.push(`\nVídeos disponíveis:\n${vList}`);
+  }
+  return lines.join('\n');
+}
+
+function sanitizeAiDecision(raw, ocrEvent) {
+  let parsed;
+  try {
+    const clean = (raw || '').replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '').trim();
+    parsed = JSON.parse(clean);
+  } catch { return null; }
+  return {
+    sourceEvent: ocrEvent,
+    intent: AI_VALID_INTENTS.includes(parsed.intent) ? parsed.intent : 'unknown',
+    emotion: AI_VALID_EMOTIONS.includes(parsed.emotion) ? parsed.emotion : 'neutral',
+    recommendedAction: AI_VALID_ACTIONS.includes(parsed.recommendedAction) ? parsed.recommendedAction : 'no_action',
+    selectedTriggerId: typeof parsed.selectedTriggerId === 'string' ? parsed.selectedTriggerId : null,
+    selectedVideoId: typeof parsed.selectedVideoId === 'string' ? parsed.selectedVideoId : null,
+    selectedVideoLabel: typeof parsed.selectedVideoLabel === 'string' ? parsed.selectedVideoLabel : null,
+    confidence: typeof parsed.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0.5,
+    reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning.slice(0, 200) : 'Decisão gerada pela IA.',
+    status: 'online',
+    timestamp: new Date().toISOString(),
+  };
+}
+
+async function callAiGemini(userMessage) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
+  const body = {
+    system_instruction: { parts: [{ text: AI_SYSTEM_PROMPT }] },
+    contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+    generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 256, temperature: 0.3 },
+  };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const err = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(`Gemini ${res.status}: ${err.slice(0, 120)}`);
+  }
+  const data = await res.json();
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
+}
+
+async function callAiOpenAi(userMessage) {
+  const body = {
+    model: OPENAI_MODEL,
+    messages: [{ role: 'system', content: AI_SYSTEM_PROMPT }, { role: 'user', content: userMessage }],
+    response_format: { type: 'json_object' },
+    max_tokens: 256,
+    temperature: 0.3,
+  };
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_KEY}` },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const err = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(`OpenAI ${res.status}: ${err.slice(0, 120)}`);
+  }
+  const data = await res.json();
+  return data?.choices?.[0]?.message?.content ?? null;
 }
 
 function resolvePublicUrl(req) {
@@ -2215,6 +2343,32 @@ async function protectedResponse(req, res, rawPath) {
 
   if (path.startsWith('/conversations/')) {
     return json(res, 200, { conversations: [], messages: [], ...cloudState() });
+  }
+
+  if (path === '/ai/decide' && req.method === 'POST') {
+    const session = getSession(req);
+    if (!session) return json(res, 401, { error: 'Não autenticado. Faça login primeiro.' });
+    const body = await readBody(req);
+    const { ocrEvent, config } = body ?? {};
+    if (!ocrEvent?.rawText && !ocrEvent?.normalizedText) {
+      return json(res, 400, { error: 'ocrEvent.rawText ou ocrEvent.normalizedText é obrigatório' });
+    }
+    const hasKey = AI_PROVIDER === 'openai' ? Boolean(OPENAI_KEY) : Boolean(GEMINI_KEY);
+    if (!hasKey) {
+      return json(res, 503, { error: `${AI_PROVIDER} API key não configurada no servidor`, provider: AI_PROVIDER, available: false });
+    }
+    try {
+      const userMessage = buildAiUserMessage(ocrEvent, config);
+      const rawText = AI_PROVIDER === 'openai' ? await callAiOpenAi(userMessage) : await callAiGemini(userMessage);
+      if (!rawText) throw new Error('LLM retornou resposta vazia');
+      const decision = sanitizeAiDecision(rawText, ocrEvent);
+      if (!decision) throw new Error(`Não foi possível parsear a resposta do LLM: ${rawText.slice(0, 80)}`);
+      return json(res, 200, decision);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erro desconhecido';
+      console.error('[ai/decide]', message);
+      return json(res, 502, { error: message, provider: AI_PROVIDER });
+    }
   }
 
   if (path.startsWith('/ai/')) {
