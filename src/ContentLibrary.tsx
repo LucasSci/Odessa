@@ -216,12 +216,21 @@ export default function ContentLibrary() {
     }
   };
 
-  const stats = {
-    total: items.length,
-    enabled: items.filter((item) => item.enabled).length,
-    safety: items.filter((item) => item.enabled && item.usage === 'safety').length,
-    action: items.filter((item) => item.enabled && item.usage === 'action').length,
-  };
+  // ⚡ Bolt Optimization: Calculate derived subsets in a single pass instead of 3 separate O(N) .filter() loops.
+  // Impact: Reduces complexity from O(3N) to O(N) and memoizes result to prevent expensive recalculation on every render.
+  const stats = useMemo(() => {
+    return items.reduce(
+      (acc, item) => {
+        if (item.enabled) {
+          acc.enabled++;
+          if (item.usage === 'safety') acc.safety++;
+          if (item.usage === 'action') acc.action++;
+        }
+        return acc;
+      },
+      { total: items.length, enabled: 0, safety: 0, action: 0 },
+    );
+  }, [items]);
 
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--odessa-bg)] text-slate-100">
