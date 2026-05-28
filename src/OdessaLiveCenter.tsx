@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import {
+  Brain,
   Camera,
   CheckCircle2,
   ClipboardCheck,
@@ -880,6 +881,7 @@ export default function OdessaLiveCenter({
           <nav className="odsa-tabs">
             <NavButton icon={<Home />}       label="Início"       active={activeTab === 'home'}     onClick={() => setActiveTab('home')} />
             <NavButton icon={<Video />}      label="Palco"        active={activeTab === 'stage'}    onClick={() => setActiveTab('stage')} />
+            <NavButton icon={<Brain />}      label="IA"           active={activeTab === 'ai'}       onClick={() => setActiveTab('ai')} />
             <NavButton icon={<Link2 />}      label="Fluxo Reativo" active={activeTab === 'flow'}   onClick={() => setActiveTab('flow')} />
             <NavButton icon={<StickyNote />} label="Mural"        active={activeTab === 'canvas'}   onClick={() => setActiveTab('canvas')} />
             <NavButton icon={<Film />}       label="Biblioteca"   active={activeTab === 'library'}  onClick={() => setActiveTab('library')} />
