@@ -47,12 +47,14 @@ import type { AutopilotRuntimeState } from './core/useAutopilotRuntime';
 import type { CapturedMessage } from './types';
 import { Badge, Button, Card, ConfirmButton, Input, StatusDot, Tooltip } from './components/ui';
 import { AiDecisionPanel } from './components/AiDecisionPanel';
+import { AiConfigPanel } from './components/AiConfigPanel';
 import { DebugLogPanel, logEntry } from './components/DebugLogPanel';
 import { StatusBadge, deriveStageStatus } from './components/StatusBadge';
 import { ValidationChecklist, buildFlowValidationChecks } from './components/ValidationChecklist';
 
 import type { AiDecision } from './core/aiDecisionContract';
 import { EMPTY_AI_DECISION, callAiDecision, checkingAiDecision } from './core/aiDecisionContract';
+import { getAiConfig } from './core/aiConfig';
 import type { LogEntry } from './components/DebugLogPanel';
 import { buildOcrEvent } from './core/ocrEventContract';
 import type { OcrEvent, OcrEventType } from './core/ocrEventContract';
@@ -121,7 +123,7 @@ interface OdessaLiveCenterProps {
   onObsSettingsChanged?: (settings: Record<string, unknown>) => void;
 }
 
-type TabKey = 'home' | 'stage' | 'flow' | 'canvas' | 'library' | 'sources' | 'logs' | 'settings';
+type TabKey = 'home' | 'stage' | 'ai' | 'flow' | 'canvas' | 'library' | 'sources' | 'logs' | 'settings';
 
 type VideoEntry = {
   id: string;
@@ -413,7 +415,7 @@ export default function OdessaLiveCenter({
   // ── AI Decision — estado compartilhado (alimentado pelo pipeline principal) ──
   // Threshold abaixo do qual a IA bloqueia o disparo de gatilho.
   // 0.65 = confiança mínima para play_video; queue_video sempre passa.
-  const AI_CONFIDENCE_THRESHOLD = 0.65;
+  const AI_CONFIDENCE_THRESHOLD = getAiConfig().confidenceThreshold ?? 0.65;
   const [aiDecision, setAiDecision] = useState<AiDecision>(EMPTY_AI_DECISION);
 
   const loadConfig = useCallback(async () => {
@@ -930,7 +932,7 @@ export default function OdessaLiveCenter({
       <div className="flex gap-1 overflow-x-auto border-b border-[var(--border)] px-3 py-1.5 lg:hidden" style={{ background: 'rgba(6,7,10,0.86)', backdropFilter: 'blur(20px)' }}>
         {([
           { id: 'home', label: 'Início' }, { id: 'stage', label: 'Palco' },
-          { id: 'flow', label: 'Fluxo' }, { id: 'canvas', label: 'Mural' },
+          { id: 'ai', label: 'IA' }, { id: 'flow', label: 'Fluxo' }, { id: 'canvas', label: 'Mural' },
           { id: 'library', label: 'Biblioteca' }, { id: 'sources', label: 'Fontes' },
           { id: 'logs', label: 'Logs' }, { id: 'settings', label: 'Config' },
         ] as { id: TabKey; label: string }[]).map(({ id, label }) => (
@@ -974,6 +976,9 @@ export default function OdessaLiveCenter({
             onRunReactiveFlow={runReactiveFlow}
             aiDecision={aiDecision}
           />
+        )}
+        {activeTab === 'ai' && (
+          <AiConfigPanel videos={view.videos} triggers={view.triggers} />
         )}
         {activeTab === 'flow' && (
           <Suspense fallback={<PanelLoading label="Carregando fluxo reativo" />}>

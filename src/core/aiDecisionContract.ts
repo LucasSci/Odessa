@@ -1,16 +1,15 @@
 /**
  * Contrato de decisão da IA.
  *
- * Dois caminhos de execução:
- *  1. Direct Gemini (preferencial) — quando VITE_GEMINI_API_KEY está definida na
- *     build, chama a Gemini API diretamente do browser. Funciona com deploys Vite
- *     padrão sem dependência de atualização de arquivos server-side.
- *  2. Server endpoint (/api/ai/decide) — fallback para quando a chave não está
- *     embutida na build.
- *  3. Mock engine — fallback final para simulação local sem API.
+ * Três caminhos de execução:
+ *  1. Direct Gemini (preferencial) — usa getEffectiveGeminiKey() que verifica
+ *     VITE_GEMINI_API_KEY (build) e depois localStorage (configurado na aba IA).
+ *  2. Server endpoint (/api/ai/decide) — fallback para servidor.
+ *  3. Mock engine — fallback final para simulação local.
  */
 
 import type { OcrEvent } from './ocrEventContract';
+import { getEffectiveGeminiKey, getEffectiveSystemPrompt, getAiConfig } from './aiConfig';
 
 export type AiStatus = 'offline' | 'simulated' | 'online' | 'checking';
 export type AiIntentType =
@@ -121,49 +120,22 @@ export function checkingAiDecision(event: OcrEvent): AiDecision {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Gemini direct (client-side) — ativo quando VITE_GEMINI_API_KEY está na build
+// Gemini direct (client-side)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Chave embutida na build pelo Vite (opcional). */
-const VITE_GEMINI_KEY: string = import.meta.env.VITE_GEMINI_API_KEY ?? '';
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const AI_TIMEOUT_MS = 10_000;
-
-const AI_SYSTEM_PROMPT = `\
-Você é o motor de decisão de IA da Odessa, uma persona de live TikTok interativa.
-Sua tarefa: analisar um evento capturado por OCR ao vivo e decidir como a persona deve reagir.
-
-Responda SOMENTE com um objeto JSON válido. Sem markdown, sem texto fora do JSON.
-
-Estrutura obrigatória:
-{
-  "intent": "gift_reaction" | "greeting" | "compliment_response" | "question_response" | "idle_maintenance" | "special_event" | "unknown",
-  "emotion": "happy" | "excited" | "grateful" | "neutral" | "shy" | "playful" | "surprised",
-  "recommendedAction": "play_video" | "queue_video" | "wait" | "no_action",
-  "selectedTriggerId": "<id do gatilho selecionado da lista>" | null,
-  "selectedVideoId": "<id do vídeo selecionado da lista>" | null,
-  "selectedVideoLabel": "<label do vídeo>" | null,
-  "confidence": <número entre 0 e 1>,
-  "reasoning": "<motivo em português, máximo 120 caracteres>"
-}
-
-Regras:
-- Prefira gatilhos que combinem com o tipo do evento (gift → gatilhos de gift)
-- Se nenhum gatilho combinar, deixe selectedTriggerId e selectedVideoId como null
-- confidence acima de 0.8 → play_video; entre 0.5–0.8 → queue_video; abaixo → wait
-- Para eventos de baixa relevância use intent: "idle_maintenance" e wait
-`;
 
 const AI_VALID_INTENTS = ['gift_reaction','greeting','compliment_response','question_response','idle_maintenance','special_event','unknown'];
 const AI_VALID_EMOTIONS = ['happy','excited','grateful','neutral','shy','playful','surprised'];
 const AI_VALID_ACTIONS  = ['play_video','queue_video','wait','no_action'];
 
-type AiConfig = {
+export type AiConfig = {
   videos?: Array<{ id: string; label?: string; name?: string }>;
   triggers?: Array<{ id: string; name?: string; label?: string; enabled?: boolean }>;
 };
 
-function buildAiUserMessage(event: OcrEvent, config?: AiConfig): string {
+export function buildAiUserMessage(event: OcrEvent, config?: AiConfig): string {
   const lines: string[] = [
     `Tipo de evento: ${event.eventType ?? 'desconhecido'}`,
     `Texto bruto: "${event.rawText ?? ''}"`,
@@ -223,14 +195,17 @@ function sanitizeAiDecision(raw: string, event: OcrEvent): AiDecision | null {
 
 /**
  * Chama a Gemini API diretamente do browser.
- * Retorna null se a chave não estiver disponível.
+ * Usa getEffectiveGeminiKey() — verifica VITE_GEMINI_API_KEY (build) e depois localStorage.
+ * Retorna null se nenhuma chave estiver disponível.
+ * Exportada para que AiConfigPanel possa testá-la isoladamente.
  */
-async function callGeminiDirect(event: OcrEvent, config?: AiConfig): Promise<AiDecision | null> {
-  if (!VITE_GEMINI_KEY) return null;
+export async function callGeminiDirect(event: OcrEvent, config?: AiConfig): Promise<AiDecision | null> {
+  const apiKey = getEffectiveGeminiKey();
+  if (!apiKey) return null;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${VITE_GEMINI_KEY}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
   const body = {
-    system_instruction: { parts: [{ text: AI_SYSTEM_PROMPT }] },
+    system_instruction: { parts: [{ text: getEffectiveSystemPrompt() }] },
     contents: [{ role: 'user', parts: [{ text: buildAiUserMessage(event, config) }] }],
     generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 256, temperature: 0.3 },
   };
@@ -262,7 +237,8 @@ async function callGeminiDirect(event: OcrEvent, config?: AiConfig): Promise<AiD
  * Chama o motor de decisão da IA.
  *
  * Ordem de tentativa:
- *  1. Gemini direto do browser (se VITE_GEMINI_API_KEY estiver na build)
+ *  1. Gemini direto do browser (se chave disponível via build ou localStorage e
+ *     provider !== 'mock')
  *  2. Endpoint do servidor /api/ai/decide (status 200 explícito — ignora 202)
  *  3. Mock engine (simulação local)
  */
@@ -270,8 +246,10 @@ export async function callAiDecision(
   event: OcrEvent,
   config?: AiConfig,
 ): Promise<AiDecision> {
+  const { provider } = getAiConfig();
+
   // ── 1. Gemini direto ──────────────────────────────────────────────────────
-  if (VITE_GEMINI_KEY) {
+  if (provider !== 'mock' && hasActiveGeminiKey()) {
     try {
       const decision = await callGeminiDirect(event, config);
       if (decision) return decision;
@@ -279,6 +257,9 @@ export async function callAiDecision(
       console.warn('[callAiDecision] direct Gemini error:', err instanceof Error ? err.message : err);
     }
   }
+
+  // Se provider === 'mock', pula direto para o mock sem tentar o servidor
+  if (provider === 'mock') return mockAiDecision(event);
 
   // ── 2. Server endpoint ────────────────────────────────────────────────────
   try {
