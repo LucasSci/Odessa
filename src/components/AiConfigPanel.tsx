@@ -169,9 +169,7 @@ export function AiConfigPanel({ videos, triggers }: AiConfigPanelProps) {
     setTestStatus('loading');
     setTestError('');
     try {
-      const dummyEvent: OcrEvent = buildOcrEvent({
-        rawText: 'teste de conexão',
-        normalizedText: 'teste de conexão',
+      const dummyEvent: OcrEvent = buildOcrEvent('teste de conexão', {
         eventType: 'comment',
         zone: 'chat',
         zoneName: 'Chat',
@@ -229,9 +227,7 @@ export function AiConfigPanel({ videos, triggers }: AiConfigPanelProps) {
     setTestDecision(null);
 
     // Monta o contexto que o usuário vai ver
-    const ocrEvent: OcrEvent = buildOcrEvent({
-      rawText: text,
-      normalizedText: text.toLowerCase(),
+    const ocrEvent: OcrEvent = buildOcrEvent(text, {
       eventType: /rosa|flor|coração|gift|presente|estrela/i.test(text) ? 'gift' : 'comment',
       zone: 'chat',
       zoneName: 'Chat',
