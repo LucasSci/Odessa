@@ -56,6 +56,7 @@ import { ValidationChecklist, buildFlowValidationChecks } from './components/Val
 import type { AiDecision, AiIntentType } from './core/aiDecisionContract';
 import { EMPTY_AI_DECISION, callAiDecision, checkingAiDecision } from './core/aiDecisionContract';
 import type { PersonaDecision } from './types';
+import { applyVideoEdit, type VideoSegment } from './core/videoEdits';
 import type { LogEntry } from './components/DebugLogPanel';
 import { buildOcrEvent } from './core/ocrEventContract';
 import type { OcrEvent, OcrEventType } from './core/ocrEventContract';
@@ -63,6 +64,7 @@ import type { OcrEvent, OcrEventType } from './core/ocrEventContract';
 const CaptureStudio = lazy(() => import('./CaptureStudio'));
 const ReactiveFlowBoard = lazy(() => import('./ReactiveFlowBoard'));
 const PlanningCanvas = lazy(() => import('./PlanningCanvas'));
+const VideoEditor = lazy(() => import('./components/VideoEditor'));
 
 // ─── Gift detection ───────────────────────────────────────────────────────────
 // isGiftEvent is imported from ocrPipeline — single source of truth.
@@ -156,6 +158,7 @@ type ClipAudioSettings = {
   volume?: number;
   trackId?: string;
   trackUrl?: string;
+  trackLoop?: boolean;
 };
 
 type FlowNode = {
@@ -178,6 +181,8 @@ type VideoClip = {
   loop?: boolean;
   playback?: PlaybackSettings;
   audio?: ClipAudioSettings;
+  /** Cortes (Fase 4): trechos a tocar em ordem. Ausente/vazio = trim simples start/end. */
+  segments?: VideoSegment[];
 };
 
 type TriggerEntry = {
@@ -2752,8 +2757,10 @@ function HomeDashboard({
   ];
 
   // Derive the active clip exactly like StagePanel so both players stay in sync.
+  // applyVideoEdit sobrepõe a edição por vídeo (cortes/volume/áudio) também nos
+  // clipes vindos do servidor (fluxo), não só nos forçados pela Diretora.
   const homeActiveClip =
-    videoState?.currentClip ||
+    (videoState?.currentClip ? applyVideoEdit(videoState.currentClip) : null) ||
     (videoState?.current_video_id
       ? clipFromVideoId(videoState.current_video_id, view.videos)
       : view.idleVideoId
@@ -2778,7 +2785,7 @@ function HomeDashboard({
                   playback and keeps Início in sync with the live state. */}
               <ContinuityPlayer
                 clip={homeActiveClip}
-                nextClip={videoState?.nextClip ?? null}
+                nextClip={videoState?.nextClip ? applyVideoEdit(videoState.nextClip) : null}
                 videos={view.videos}
                 onEnded={async () => {
                   await advanceReactiveFlow(videoState ?? null);
@@ -3138,7 +3145,10 @@ type HomeViewData = {
 
 function clipFromVideoId(videoId: string, videos: VideoEntry[] = []): VideoClip {
   const video = videos.find((item) => item.id === videoId);
-  return {
+  // applyVideoEdit mescla a edição por vídeo (cortes/volume/áudio) salva no
+  // editor — assim vídeos forçados pela Diretora honram a edição sem mexer no
+  // servidor (o player já respeita startSec/endSec/segments/audio).
+  return applyVideoEdit({
     nodeId: null,
     videoId,
     label: videoLabel(video),
@@ -3147,15 +3157,33 @@ function clipFromVideoId(videoId: string, videos: VideoEntry[] = []): VideoClip 
     transitionMs: 220,
     returnToIdle: false,
     playback: { startSec: 0, endSec: null, transitionMs: 220 },
-  };
+  });
+}
+
+function segmentsKey(segments?: VideoSegment[]) {
+  if (!segments?.length) return '';
+  return '|seg:' + segments.map((s) => `${s.startSec}-${s.endSec}`).join(',');
 }
 
 function clipKey(clip?: VideoClip | null) {
   if (!clip) return 'none';
-  // Identity only — nodeId + video + trimmed range. transitionMs is a
-  // transition setting, not part of the clip's identity, so it is excluded
+  // Identity only — nodeId + video + trimmed range (+ segments). transitionMs is
+  // a transition setting, not part of the clip's identity, so it is excluded
   // (it differs between currentClip and the preloaded nextClip).
-  return `${clip.nodeId || 'video'}:${clip.videoId}:${clip.startSec}:${clip.endSec ?? 'end'}`;
+  return `${clip.nodeId || 'video'}:${clip.videoId}:${clip.startSec}:${clip.endSec ?? 'end'}${segmentsKey(clip.segments)}`;
+}
+
+/**
+ * Segmentos limitados (com fim definido) que o player deve tocar em sequência.
+ * - segments[] explícitos → usa-os;
+ * - senão, trim simples (startSec/endSec) → um único segmento;
+ * - senão (sem fim) → [] (vídeo inteiro; o evento 'ended' nativo encerra).
+ */
+function effectiveSegments(clip: VideoClip | null): VideoSegment[] {
+  if (!clip) return [];
+  if (clip.segments && clip.segments.length) return clip.segments;
+  if (clip.endSec != null) return [{ startSec: Math.max(0, clip.startSec || 0), endSec: clip.endSec }];
+  return [];
 }
 
 /**
@@ -3209,6 +3237,10 @@ export function ContinuityPlayer({
   // Which clip each <video> slot currently holds. A ref (not state) because
   // playback is driven imperatively for frame-accurate, gap-free cuts.
   const slotClipRef = useRef<[VideoClip | null, VideoClip | null]>([null, null]);
+  // Índice do segmento atual em cada slot (Fase 4: cortes multi-segmento).
+  const slotSegmentRef = useRef<[number, number]>([0, 0]);
+  // Trilha/efeito sonoro do clipe ativo (Fase 4: audio.mode === 'track').
+  const trackAudioRef = useRef<HTMLAudioElement>(null);
   const endedRef = useRef('');
 
   // Switch the active slot. activeSlotRef MUST update synchronously here —
@@ -3219,10 +3251,13 @@ export function ContinuityPlayer({
     setActiveSlot(slot);
   }, []);
 
-  const primeElement = useCallback((element: HTMLVideoElement, slotClip: VideoClip) => {
+  const primeElement = useCallback((element: HTMLVideoElement, slotClip: VideoClip, slot: 0 | 1) => {
     element.muted = (slotClip.audio?.mode || 'muted') !== 'original';
     element.volume = Math.max(0, Math.min(1, slotClip.audio?.volume ?? 1));
-    const start = Math.max(0, slotClip.startSec || 0);
+    // Reinicia no primeiro segmento (cortes multi-segmento da Fase 4).
+    slotSegmentRef.current[slot] = 0;
+    const segs = effectiveSegments(slotClip);
+    const start = segs.length ? segs[0].startSec : Math.max(0, slotClip.startSec || 0);
     try {
       if (Math.abs(element.currentTime - start) > 0.25) element.currentTime = start;
     } catch {
@@ -3248,7 +3283,7 @@ export function ContinuityPlayer({
       }
       const ready = () => {
         if (autoplay) {
-          primeElement(element, slotClip);
+          primeElement(element, slotClip, slot);
           void element.play().catch(() => undefined);
           activateSlot(slot);
           return;
@@ -3257,7 +3292,7 @@ export function ContinuityPlayer({
         // this slot to active while we waited, it is now playing the clip and
         // must NOT be paused or re-seeked, or the flow freezes.
         if (activeSlotRef.current === slot) return;
-        primeElement(element, slotClip);
+        primeElement(element, slotClip, slot);
         element.pause();
       };
       if (element.readyState >= 1) ready();
@@ -3275,7 +3310,7 @@ export function ContinuityPlayer({
       const element = refs[slot].current;
       const slotClip = slotClipRef.current[slot];
       if (!element || !slotClip) return;
-      primeElement(element, slotClip);
+      primeElement(element, slotClip, slot);
       void element.play().catch(() => undefined);
       const other = refs[slot === 0 ? 1 : 0].current;
       if (other) other.pause();
@@ -3325,8 +3360,24 @@ export function ContinuityPlayer({
 
   const handleProgress = (slot: 0 | 1, element: HTMLVideoElement) => {
     const slotClip = slotClipRef.current[slot];
-    if (!slotClip?.endSec) return;
-    if (element.currentTime >= slotClip.endSec) handleClipEnd(slotClip);
+    if (!slotClip) return;
+    const segs = effectiveSegments(slotClip);
+    if (!segs.length) return; // vídeo inteiro → encerra pelo evento 'ended' nativo
+    let idx = slotSegmentRef.current[slot];
+    if (idx >= segs.length) idx = segs.length - 1;
+    const seg = segs[idx];
+    if (element.currentTime < seg.endSec) return;
+    if (idx + 1 < segs.length) {
+      // Próximo corte: pula para o início do segmento seguinte (mesma fonte).
+      slotSegmentRef.current[slot] = idx + 1;
+      try {
+        element.currentTime = segs[idx + 1].startSec;
+      } catch {
+        /* seek pode falhar momentaneamente — re-tenta no próximo timeupdate */
+      }
+    } else {
+      handleClipEnd(slotClip); // último segmento → cut p/ próximo clipe + avança fluxo
+    }
   };
 
   // Watchdog — recover a stalled active video (e.g. inside OBS Browser Source).
@@ -3340,8 +3391,35 @@ export function ContinuityPlayer({
     return () => window.clearInterval(interval);
   }, [refs]);
 
+  // Trilha/efeito sonoro do clipe ativo (Fase 4). Assinatura estável evita
+  // reiniciar o áudio a cada render (o clip é recriado por applyVideoEdit).
+  const trackSig = clip
+    ? `${clipKey(clip)}|${clip.audio?.mode ?? ''}|${clip.audio?.trackUrl ?? ''}|${clip.audio?.trackLoop ? 1 : 0}|${clip.audio?.volume ?? 1}`
+    : 'none';
+  useEffect(() => {
+    const a = trackAudioRef.current;
+    if (!a) return;
+    const mode = clip?.audio?.mode;
+    const url = clip?.audio?.trackUrl;
+    if (clip && mode === 'track' && url) {
+      if (a.getAttribute('src') !== url) a.src = url;
+      a.loop = Boolean(clip.audio?.trackLoop);
+      a.volume = Math.max(0, Math.min(1, clip.audio?.volume ?? 1));
+      try { a.currentTime = 0; } catch { /* pré-metadata */ }
+      void a.play().catch(() => undefined);
+    } else {
+      a.pause();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackSig]);
+
+  // Pausa a trilha ao desmontar o player.
+  useEffect(() => () => trackAudioRef.current?.pause(), []);
+
   return (
     <div className={cn('relative h-full w-full overflow-hidden bg-black', className)}>
+      {/* Trilha/efeito sonoro do clipe (Fase 4) — fora da tela, áudio apenas. */}
+      <audio ref={trackAudioRef} preload="auto" />
       {[0, 1].map((index) => (
         <video
           key={index}
@@ -4003,7 +4081,7 @@ function StagePanel({
     });
   };
   const activeClip =
-    videoState?.currentClip ||
+    (videoState?.currentClip ? applyVideoEdit(videoState.currentClip) : null) ||
     (videoState?.current_video_id
       ? clipFromVideoId(videoState.current_video_id, view.videos)
       : view.idleVideoId
@@ -4088,7 +4166,7 @@ function StagePanel({
         <div className="relative aspect-[9/16] h-full max-h-screen max-w-full bg-black">
           <ContinuityPlayer
             clip={activeClip}
-            nextClip={videoState?.nextClip ?? null}
+            nextClip={videoState?.nextClip ? applyVideoEdit(videoState.nextClip) : null}
             videos={view.videos}
             onEnded={advanceVideo}
             fit="contain"
@@ -4456,7 +4534,9 @@ function VideoLibraryPanel({
   const [uploadBatch, setUploadBatch] = useState<
     Array<{ name: string; status: 'pending' | 'uploading' | 'done' | 'error'; error?: string }>
   >([]);
+  const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
   const videos = config?.videos || [];
+  const editingVideo = videos.find((v) => v.id === editingVideoId) || null;
 
   const uploadSummary = useMemo(
     () =>
@@ -4682,6 +4762,10 @@ function VideoLibraryPanel({
                   <Play className="h-3.5 w-3.5" />
                   Preview
                 </Button>
+                <Button size="sm" variant="secondary" onClick={() => setEditingVideoId(video.id)}>
+                  <Scissors className="h-3.5 w-3.5" />
+                  Editar
+                </Button>
                 <Button size="sm" variant="secondary" onClick={() => setIdle(video.id)}>
                   Idle
                 </Button>
@@ -4693,6 +4777,15 @@ function VideoLibraryPanel({
           </Card>
         ))}
       </div>
+      {editingVideo && (
+        <Suspense fallback={null}>
+          <VideoEditor
+            videoId={editingVideo.id}
+            label={videoLabel(editingVideo)}
+            onClose={() => setEditingVideoId(null)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
