@@ -56,7 +56,7 @@ import { ValidationChecklist, buildFlowValidationChecks } from './components/Val
 import type { AiDecision, AiIntentType } from './core/aiDecisionContract';
 import { EMPTY_AI_DECISION, callAiDecision, checkingAiDecision } from './core/aiDecisionContract';
 import type { PersonaDecision } from './types';
-import { applyVideoEdit, type VideoSegment } from './core/videoEdits';
+import { applyVideoEdit, getVideoEdit, saveVideoEdit, defaultVideoEdit, type VideoSegment } from './core/videoEdits';
 import { getAiConfig, hasActiveGeminiKey, type AiAutonomyLevel } from './core/aiConfig';
 import type { LogEntry } from './components/DebugLogPanel';
 import { buildOcrEvent } from './core/ocrEventContract';
@@ -3987,6 +3987,7 @@ function StagePanel({
   }, []);
   // ── Validation panel ────────────────────────────────────────────────────────
   const [showValidation, setShowValidation] = useState(false);
+  const [showCutsEditor, setShowCutsEditor] = useState(false);
   const [selectedClipId, setSelectedClipId] = useState('');
   const [selectedConnectionId, setSelectedConnectionId] = useState('');
   const [previewMessage, setPreviewMessage] = useState<string | null>(null);
@@ -4253,6 +4254,122 @@ function StagePanel({
     );
   }
 
+  return (
+    <div ref={stageRef} className="odsa-stage2 flex h-full min-h-0 flex-col gap-4 overflow-y-auto bg-[#07080a] p-4 lg:p-5">
+      {/* Status + controles de OBS */}
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusBadge
+          status={deriveStageStatus({ state: videoState?.state, isTransitioning: triggering, queueLen: videoState?.queue_len, autopilotEnabled: runtime.autopilotEnabled })}
+          pulse={runtime.autopilotEnabled}
+        />
+        <span className="truncate text-xs text-slate-400">{videoState?.queue_len ?? 0} na fila</span>
+        <div className="ml-auto flex items-center gap-2">
+          <button className="odsa-btn odsa-btn-secondary odsa-btn-md" disabled={!!obsBusy} onClick={() => void runRoutedCommand('Preparar mesa OBS', () => routeSetupLiveScene(obsSettingsFromApp as never))}>
+            <Upload style={{ width: 14, height: 14 }} /> Preparar OBS
+          </button>
+          <button className="odsa-btn odsa-btn-primary odsa-btn-md" disabled={!!obsBusy} onClick={() => void runRoutedCommand('Iniciar transmissao', () => routeStartTransmission(obsSettingsFromApp as never))}>
+            <RadioTower style={{ width: 14, height: 14 }} /> Transmitir
+          </button>
+          <button className="odsa-btn odsa-btn-secondary odsa-btn-md odsa-btn-icon" onClick={() => void toggleFullscreen()} title="Tela cheia">
+            <Maximize2 style={{ width: 15, height: 15 }} />
+          </button>
+        </div>
+      </div>
+
+      {/* Topo: preview + No ar agora + fila */}
+      <div className="grid gap-4 lg:grid-cols-[minmax(260px,320px)_1fr]" style={{ alignItems: 'start' }}>
+        <div className="relative overflow-hidden rounded-2xl border border-white/12 bg-black" style={{ aspectRatio: '9 / 16', maxHeight: 460 }}>
+          <ContinuityPlayer clip={displayClip} nextClip={videoState?.nextClip ? applyVideoEdit(videoState.nextClip) : null} videos={view.videos} onEnded={advanceVideo} fit="contain" className="h-full w-full" />
+          <div className="pointer-events-none absolute right-2 top-2 rounded-full border border-white/15 bg-black/60 px-2.5 py-1 text-[9px] font-bold uppercase tracking-widest text-[var(--sky)]">No ar</div>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <div className="odessa-panel-surface p-4">
+            <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">No ar agora</div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-white">{activeClipLabel}</div>
+                <div className="truncate text-xs text-slate-500">{(activeClip?.segments?.length || 0) > 0 ? `${activeClip?.segments?.length} cortes` : 'sem corte'} · áudio {activeClip?.audio?.mode || 'mudo'}</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button className="odsa-btn odsa-btn-secondary odsa-btn-md odsa-btn-icon" title="Repetir" onClick={() => { if (activeClip?.videoId) void forceVideo(activeClip.videoId); }}><Rewind style={{ width: 15, height: 15 }} /></button>
+                <button className="odsa-btn odsa-btn-secondary odsa-btn-md odsa-btn-icon" title="Próximo" onClick={() => void advanceVideo()}><FastForward style={{ width: 15, height: 15 }} /></button>
+              </div>
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <VolumeX style={{ width: 15, height: 15 }} className="shrink-0 text-slate-500" />
+              <input type="range" min={0} max={100} value={Math.round((activeClip?.audio?.volume ?? 1) * 100)}
+                onChange={(e) => { if (!activeClip?.videoId) return; const cur = getVideoEdit(activeClip.videoId) ?? defaultVideoEdit(activeClip.videoId); saveVideoEdit({ ...cur, volume: Number(e.target.value) / 100 }); onRefresh(); }}
+                className="flex-1 accent-[var(--violet)]" />
+              <span className="w-9 shrink-0 text-right font-mono text-[11px] text-slate-400">{Math.round((activeClip?.audio?.volume ?? 1) * 100)}%</span>
+            </div>
+          </div>
+
+          <div className="odessa-panel-surface p-4">
+            <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">A seguir na fila</div>
+            {upcomingClips.length === 0 ? (
+              <div className="text-xs text-slate-500">Nada enfileirado. A Diretora enfileira reações automaticamente.</div>
+            ) : (
+              <div className="space-y-2">
+                {upcomingClips.slice(0, 5).map((clip, i) => (
+                  <div key={`${clip.videoId}-${i}`} className="flex items-center gap-3 text-xs">
+                    <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#171a1f] text-slate-400">▶</span>
+                    <span className="truncate text-slate-300">{clipDisplayName(clip, view.videos)}</span>
+                    <span className="ml-auto text-slate-600">fila</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Editor de cortes */}
+      <div className="odessa-panel-surface p-4">
+        <div className="flex items-center gap-2">
+          <Scissors style={{ width: 15, height: 15 }} className="text-[var(--violet)]" />
+          <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Editor de cortes</span>
+          <span className="truncate text-xs text-slate-500">· {activeClipLabel}</span>
+          <button className="odsa-btn odsa-btn-primary odsa-btn-md ml-auto" disabled={!activeClip?.videoId} onClick={() => setShowCutsEditor(true)}>
+            <Scissors style={{ width: 14, height: 14 }} /> Abrir editor
+          </button>
+        </div>
+        <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_240px]">
+          <div>
+            <div className="relative h-14 overflow-hidden rounded-lg border border-white/10 bg-[#0a0b0d]">
+              {(() => {
+                const segs = activeClip?.segments || [];
+                if (segs.length === 0) return <div className="absolute inset-0 grid place-items-center text-[11px] text-slate-600">Vídeo inteiro (sem corte) — abra o editor para recortar trechos</div>;
+                const total = Math.max(activeClip?.endSec ?? segs[segs.length - 1].endSec ?? 1, 1);
+                return segs.map((seg, i) => (
+                  <div key={i} className="absolute top-0 h-full border-x-2 border-[var(--sky)]" style={{ left: `${(seg.startSec / total) * 100}%`, width: `${((seg.endSec - seg.startSec) / total) * 100}%`, background: 'rgba(125,211,252,0.16)' }} />
+                ));
+              })()}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {(activeClip?.segments || []).map((seg, i) => (
+                <span key={i} className="rounded bg-[#171a1f] px-2 py-0.5 text-[10px] font-mono text-slate-400">#{i + 1} · {formatClipTime(seg.startSec)}→{formatClipTime(seg.endSec)}</span>
+              ))}
+            </div>
+          </div>
+          <div className="text-xs leading-relaxed text-slate-500">
+            Áudio: <b className="text-slate-300">{activeClip?.audio?.mode || 'mudo'}</b> · volume {Math.round((activeClip?.audio?.volume ?? 1) * 100)}%<br />
+            Transição: <b className="text-slate-300">{activeClip?.transitionMs ?? 220}ms</b><br />
+            <span className="text-slate-600">As edições valem sempre que o vídeo tocar — inclusive quando a Diretora o escolhe.</span>
+          </div>
+        </div>
+      </div>
+
+      {showCutsEditor && activeClip?.videoId && (
+        <Suspense fallback={null}>
+          <VideoEditor videoId={activeClip.videoId} label={activeClipLabel} onClose={() => { setShowCutsEditor(false); onRefresh(); }} />
+        </Suspense>
+      )}
+    </div>
+  );
+
+  // ── Layout antigo do Palco (inalcançável — TODO remover após validação) ──
+  // eslint-disable-next-line no-unreachable
   return (
     <div ref={stageRef} className="flex h-full min-h-0 flex-col overflow-hidden bg-[#0d0f12]">
       <section className="relative min-h-0 flex-1 overflow-hidden border-b border-white/10 bg-[#101114]">
