@@ -57,9 +57,29 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
   const [fitZoom, setFitZoom] = useState(40);
 
   const previewSegRef = useRef(0);
+  const durationInitRef = useRef(false);
   const src = useMemo(() => apiUrl(`/api/video/play/${videoId}`), [videoId]);
   const segments = edit.segments;
   const trackWidth = Math.max(640, duration * zoom);
+
+  // Alguns MP4 transmitidos só informam a duração no evento durationchange (e às
+  // vezes como Infinity até tocar). Trata ambos os eventos e força resolução.
+  const applyDuration = useCallback((d: number) => {
+    if (!Number.isFinite(d) || d <= 0) return;
+    setDuration(d);
+    const z = clamp(Math.round(760 / d), 8, 120);
+    setFitZoom(z);
+    if (!durationInitRef.current) { setZoom(z); durationInitRef.current = true; }
+  }, []);
+
+  // Se a duração não resolver (mp4 streamed), "cutuca" buscando p/ o fim.
+  const nudgeDuration = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (!Number.isFinite(v.duration) || v.duration <= 0) {
+      try { v.currentTime = 1e6; } catch { /* ignore */ }
+    }
+  }, []);
 
   const updateSegments = useCallback((next: VideoSegment[]) => {
     setEdit((e) => ({ ...e, segments: [...next].sort((a, b) => a.startSec - b.startSec) }));
@@ -223,8 +243,10 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
           {/* Preview */}
           <div className="relative mx-auto w-full max-w-md overflow-hidden rounded-xl border border-white/10 bg-black" style={{ aspectRatio: '16 / 9' }}>
             <video
-              ref={videoRef} src={src} playsInline className="h-full w-full object-contain"
-              onLoadedMetadata={(e) => { const d = e.currentTarget.duration || 0; setDuration(d); const z = clamp(Math.round(760 / Math.max(d, 1)), 8, 120); setZoom(z); setFitZoom(z); }}
+              ref={videoRef} src={src} playsInline preload="metadata" className="h-full w-full object-contain"
+              onLoadedMetadata={(e) => { applyDuration(e.currentTarget.duration); if (!Number.isFinite(e.currentTarget.duration) || e.currentTarget.duration <= 0) nudgeDuration(); }}
+              onDurationChange={(e) => applyDuration(e.currentTarget.duration)}
+              onSeeked={(e) => { if (durationInitRef.current) return; applyDuration(e.currentTarget.duration); try { e.currentTarget.currentTime = 0; } catch { /* ignore */ } }}
               onTimeUpdate={onTimeUpdate} onPause={() => setPlaying(false)} onPlay={() => setPlaying(true)}
             />
           </div>
