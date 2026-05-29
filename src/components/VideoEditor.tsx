@@ -55,6 +55,8 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
   const [selectedSeg, setSelectedSeg] = useState<number | null>(null);
   const [zoom, setZoom] = useState(40); // pixels por segundo
   const [fitZoom, setFitZoom] = useState(40);
+  const [blobSrc, setBlobSrc] = useState<string | null>(null);
+  const [loadingVideo, setLoadingVideo] = useState(true);
 
   const previewSegRef = useRef(0);
   const durationInitRef = useRef(false);
@@ -80,6 +82,23 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
       try { v.currentTime = 1e6; } catch { /* ignore */ }
     }
   }, []);
+
+  // Baixa o clipe como Blob e toca por blob URL — o stream /api/video/play não
+  // expõe duração/range confiável, então o <video> ficava em 0.00s e sem seek
+  // preciso. Com o blob local, a duração resolve e o corte fica frame-a-frame.
+  useEffect(() => {
+    let url = '';
+    let cancelled = false;
+    setLoadingVideo(true);
+    setBlobSrc(null);
+    durationInitRef.current = false;
+    fetch(src)
+      .then((r) => r.blob())
+      .then((b) => { if (cancelled) return; url = URL.createObjectURL(b); setBlobSrc(url); })
+      .catch(() => undefined)
+      .finally(() => { if (!cancelled) setLoadingVideo(false); });
+    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
+  }, [src]);
 
   const updateSegments = useCallback((next: VideoSegment[]) => {
     setEdit((e) => ({ ...e, segments: [...next].sort((a, b) => a.startSec - b.startSec) }));
@@ -242,13 +261,20 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
         <div className="min-h-0 flex-1 overflow-y-auto p-5 space-y-4">
           {/* Preview */}
           <div className="relative mx-auto w-full max-w-md overflow-hidden rounded-xl border border-white/10 bg-black" style={{ aspectRatio: '16 / 9' }}>
-            <video
-              ref={videoRef} src={src} playsInline preload="metadata" className="h-full w-full object-contain"
-              onLoadedMetadata={(e) => { applyDuration(e.currentTarget.duration); if (!Number.isFinite(e.currentTarget.duration) || e.currentTarget.duration <= 0) nudgeDuration(); }}
-              onDurationChange={(e) => applyDuration(e.currentTarget.duration)}
-              onSeeked={(e) => { if (durationInitRef.current) return; applyDuration(e.currentTarget.duration); try { e.currentTarget.currentTime = 0; } catch { /* ignore */ } }}
-              onTimeUpdate={onTimeUpdate} onPause={() => setPlaying(false)} onPlay={() => setPlaying(true)}
-            />
+            {blobSrc && (
+              <video
+                ref={videoRef} src={blobSrc} playsInline preload="metadata" className="h-full w-full object-contain"
+                onLoadedMetadata={(e) => { applyDuration(e.currentTarget.duration); if (!Number.isFinite(e.currentTarget.duration) || e.currentTarget.duration <= 0) nudgeDuration(); }}
+                onDurationChange={(e) => applyDuration(e.currentTarget.duration)}
+                onSeeked={(e) => { if (durationInitRef.current) return; applyDuration(e.currentTarget.duration); try { e.currentTarget.currentTime = 0; } catch { /* ignore */ } }}
+                onTimeUpdate={onTimeUpdate} onPause={() => setPlaying(false)} onPlay={() => setPlaying(true)}
+              />
+            )}
+            {loadingVideo && (
+              <div className="absolute inset-0 flex items-center justify-center gap-2 text-[11px] text-slate-400">
+                <Loader2 className="h-4 w-4 animate-spin" /> carregando vídeo…
+              </div>
+            )}
           </div>
 
           {/* Transport preciso */}
