@@ -416,6 +416,42 @@ export async function callDirectorDecision(
   return parseDirectorDecision(rawText);
 }
 
+/**
+ * Geração de texto livre via Gemini direto (browser). Reutilizável — usada pelo
+ * resumo de aprendizado do chat. Retorna null se não houver chave.
+ */
+export async function callGeminiText(
+  systemPrompt: string,
+  userMessage: string,
+  opts?: { temperature?: number; maxOutputTokens?: number },
+): Promise<string | null> {
+  const apiKey = getEffectiveGeminiKey();
+  if (!apiKey) return null;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  const body = {
+    system_instruction: { parts: [{ text: systemPrompt }] },
+    contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+    generationConfig: {
+      maxOutputTokens: opts?.maxOutputTokens ?? 256,
+      temperature: typeof opts?.temperature === 'number' ? opts.temperature : 0.4,
+    },
+  };
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 120)}`);
+  }
+  const data = (await res.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Ponto de entrada principal
 // ─────────────────────────────────────────────────────────────────────────────

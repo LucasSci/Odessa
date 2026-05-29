@@ -9,6 +9,8 @@ import { classifyEvent } from './eventClassifier';
 import { markEventProcessed } from './eventBus';
 import { capabilityForAction } from './toolRegistry';
 import { callDirectorDecision } from './aiDecisionContract';
+import { recordChatLearning, buildChatInsightsContext } from './chatLearning';
+import { recordGiftLearning, buildGiftInsightsContext } from './giftLearning';
 import { apiUrl } from '../lib/api';
 import {
   addTurn,
@@ -495,6 +497,9 @@ async function requestDecision(
 
   const contentBlock = buildContentPromptContext(contentUsed);
   const contextParts = [options.personaPrompt, contentBlock, moodPrompt, ragContext];
+  // Aprendizado (Fase 2): o que o chat pede/curte e os presentes mais recebidos.
+  contextParts.push(buildChatInsightsContext());
+  contextParts.push(buildGiftInsightsContext());
   if (usersBlock) contextParts.push(`\n\n[PERFIS DE USUARIOS]:\n${usersBlock}`);
   if (memoryBlock) contextParts.push(`\n\n[MEMORIA RECENTE]:\n${memoryBlock}`);
   if (backendMemory.context) {
@@ -672,6 +677,9 @@ export async function runPersonaRound(
     classifiedEvents.forEach((event) => {
       profiles = trackUserInteraction(profiles, event.text);
     });
+    // Aprendizado (Fase 2): agrega o que o chat fala/pede e os presentes recebidos.
+    recordChatLearning(classifiedEvents);
+    recordGiftLearning(classifiedEvents, decision);
     markContentUsed(contentUsed);
     appendAuditCycle(cycle);
     options.onUpdate?.({ ...cycle, logs: [...cycle.logs], actions: [...cycle.actions] });

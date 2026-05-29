@@ -9,11 +9,17 @@
  *  5. Teste manual — texto livre → exibe AiDecision completo em tempo real
  */
 
-import { useState, useCallback, useRef } from 'react';
-import { Brain, Zap, Key, Sliders, FlaskConical, CheckCircle, XCircle, AlertCircle, Loader2, Eye, EyeOff, RotateCcw, Bot, Activity, Pause, Radio } from 'lucide-react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { Brain, Zap, Key, Sliders, FlaskConical, CheckCircle, XCircle, AlertCircle, Loader2, Eye, EyeOff, RotateCcw, Bot, Activity, Pause, Radio, Sparkles, Gift, MessageCircle, Trash2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button, Input } from './ui';
 import { AiDecisionPanel } from './AiDecisionPanel';
+import {
+  getChatInsights,
+  summarizeChatLearning,
+  clearChatLearning,
+} from '../core/chatLearning';
+import { getGiftLearning, clearGiftLearning, type GiftStat } from '../core/giftLearning';
 import {
   getAiConfig,
   saveAiConfig,
@@ -165,10 +171,48 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
   const [testPrompt, setTestPrompt] = useState('');
   const testAbortRef = useRef<AbortController | null>(null);
 
+  // ── Aprendizado (chat + presentes) ──────────────────────────────────────────
+  const [chatInsights, setChatInsights] = useState(() => getChatInsights());
+  const [giftStats, setGiftStats] = useState<GiftStat[]>(() => getGiftLearning());
+  const [summarizing, setSummarizing] = useState(false);
+
   // ── Derived ────────────────────────────────────────────────────────────────
   const [currentProvider, setCurrentProvider] = useState<AiProvider>(cfg.provider);
   const statusInfo = deriveStatusInfo(currentProvider);
   const storedKey = cfg.geminiKey;
+
+  // Atualiza os insights periodicamente (a rodada escreve nos stores enquanto no ar).
+  useEffect(() => {
+    const refresh = () => {
+      setChatInsights(getChatInsights());
+      setGiftStats(getGiftLearning());
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 4000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const handleSummarizeLearning = useCallback(async () => {
+    setSummarizing(true);
+    try {
+      await summarizeChatLearning();
+      setChatInsights(getChatInsights());
+    } catch {
+      // sem chave / falha de rede — silencioso (a UI mostra estado sem resumo)
+    } finally {
+      setSummarizing(false);
+    }
+  }, []);
+
+  const handleClearChatLearning = useCallback(() => {
+    clearChatLearning();
+    setChatInsights(getChatInsights());
+  }, []);
+
+  const handleClearGiftLearning = useCallback(() => {
+    clearGiftLearning();
+    setGiftStats(getGiftLearning());
+  }, []);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -457,6 +501,141 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                     ))}
                 </div>
               )}
+            </div>
+          </SectionCard>
+
+          {/* ── Aprendizado (chat + presentes) ────────────────────────────── */}
+          <SectionCard icon={<Sparkles className="h-4 w-4" />} title="Aprendizado" className="lg:col-span-2">
+            <p className="text-[11px] text-slate-500">
+              A Diretora aprende com a live: o que o chat fala/pede/curte e os presentes recebidos.
+              Esses dados entram no contexto das decisões automaticamente.
+            </p>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {/* Chat */}
+              <div className="rounded-xl border border-white/8 bg-[#0a0b0d] p-3 space-y-3">
+                <div className="flex items-center gap-2">
+                  <MessageCircle className="h-3.5 w-3.5 text-sky-400" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Chat</span>
+                  <span className="ml-auto font-mono text-[10px] text-slate-500">
+                    {chatInsights.totalMessages} msgs · {chatInsights.questions} perguntas
+                  </span>
+                </div>
+
+                {chatInsights.totalMessages === 0 ? (
+                  <p className="text-[11px] text-slate-600">
+                    Nada aprendido ainda. Inicie a Diretora e o aprendizado aparece aqui.
+                  </p>
+                ) : (
+                  <>
+                    {chatInsights.topRequests.length > 0 && (
+                      <div className="space-y-1">
+                        <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Pedidos frequentes</span>
+                        {chatInsights.topRequests.map(([key, c]) => (
+                          <div key={key} className="flex items-center justify-between gap-2 text-[11px]">
+                            <span className="truncate text-slate-300">{c.sample || key}</span>
+                            <span className="shrink-0 font-mono text-[10px] text-violet-300">{c.count}x</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {chatInsights.topLikes.length > 0 && (
+                      <div className="space-y-1">
+                        <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">O chat curte</span>
+                        <div className="flex flex-wrap gap-1">
+                          {chatInsights.topLikes.map(([key, c]) => (
+                            <span key={key} className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                              {key} · {c.count}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {chatInsights.topTopics.length > 0 && (
+                      <div className="space-y-1">
+                        <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Tópicos recorrentes</span>
+                        <div className="flex flex-wrap gap-1">
+                          {chatInsights.topTopics.map(([key, c]) => (
+                            <span key={key} className="rounded bg-slate-700/40 px-1.5 py-0.5 text-[10px] text-slate-300">
+                              {key} · {c.count}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {chatInsights.aiSummary && (
+                      <p className="rounded-lg border border-sky-500/20 bg-sky-500/8 px-2.5 py-1.5 text-[11px] text-sky-200/90">
+                        {chatInsights.aiSummary.text}
+                      </p>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => void handleSummarizeLearning()}
+                        disabled={summarizing || !hasActiveGeminiKey() || chatInsights.totalMessages === 0}
+                      >
+                        {summarizing ? (
+                          <><Loader2 className="h-3 w-3 animate-spin mr-1" />Resumindo…</>
+                        ) : (
+                          <><Sparkles className="h-3 w-3 mr-1" />Resumo da IA</>
+                        )}
+                      </Button>
+                      <button
+                        onClick={handleClearChatLearning}
+                        className="ml-auto flex items-center gap-1 text-[10px] text-slate-600 hover:text-red-400"
+                      >
+                        <Trash2 className="h-3 w-3" /> Limpar
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Presentes */}
+              <div className="rounded-xl border border-white/8 bg-[#0a0b0d] p-3 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Gift className="h-3.5 w-3.5 text-pink-400" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Presentes</span>
+                  <span className="ml-auto font-mono text-[10px] text-slate-500">{giftStats.length} tipos</span>
+                </div>
+
+                {giftStats.length === 0 ? (
+                  <p className="text-[11px] text-slate-600">
+                    Nenhum presente registrado ainda. Presentes novos são aprendidos automaticamente.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                    {giftStats.slice(0, 30).map((g) => (
+                      <div key={g.key} className="flex items-center gap-2 text-[11px]">
+                        <span className="truncate text-slate-300">{g.name}</span>
+                        {g.learned && (
+                          <span className="shrink-0 rounded bg-violet-500/15 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-violet-300">
+                            novo
+                          </span>
+                        )}
+                        {g.reactionVideoLabel && (
+                          <span className="shrink-0 truncate text-[9px] text-slate-600">→ {g.reactionVideoLabel}</span>
+                        )}
+                        <span className="ml-auto shrink-0 font-mono text-[10px] text-pink-300">
+                          {g.count}x{g.totalQty > g.count ? ` · ${g.totalQty}un` : ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {giftStats.length > 0 && (
+                  <button
+                    onClick={handleClearGiftLearning}
+                    className="flex items-center gap-1 text-[10px] text-slate-600 hover:text-red-400"
+                  >
+                    <Trash2 className="h-3 w-3" /> Limpar
+                  </button>
+                )}
+              </div>
             </div>
           </SectionCard>
 
