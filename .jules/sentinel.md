@@ -1,0 +1,4 @@
+## 2025-02-27 - LFI Vulnerability in FastAPI FileResponse Catch-All
+**Vulnerability:** Path traversal (LFI) vulnerability in the FastAPI catch-all route (`/{full_path:path}`) used for serving static assets in `server/main.py`.
+**Learning:** `FileResponse` doesn't provide built-in boundary checks to ensure that the requested path remains within a safe base directory, unlike `StaticFiles`. Constructing file paths by directly concatenating an unsafe, unvalidated user path from a route parameter (`dist_dir / full_path`) opens the door to LFI via sequences like `../../../`.
+**Prevention:** Always use `path.resolve().is_relative_to(base_dir.resolve())` before calling `FileResponse` to serve dynamic file paths or catch-all routes to ensure the resolved target file resides within the intended safe directory boundary.
