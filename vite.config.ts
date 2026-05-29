@@ -90,6 +90,24 @@ export default defineConfig(() => {
     optimizeDeps: {
       entries: ['index.html'],
     },
+    build: {
+      rollupOptions: {
+        output: {
+          // Separa libs estáveis em chunks cacheáveis (melhora cache entre
+          // deploys e reduz o chunk principal). NÃO captura deps carregadas
+          // dinamicamente (ex.: tesseract.js no CaptureStudio) — estas devolvem
+          // undefined e o Rollup mantém seus chunks lazy.
+          manualChunks(id: string) {
+            if (!id.includes('node_modules')) return undefined;
+            if (id.includes('react-dom') || id.includes('/scheduler/') || /[\\/]react[\\/]/.test(id)) {
+              return 'vendor-react';
+            }
+            if (id.includes('lucide-react')) return 'vendor-icons';
+            return undefined;
+          },
+        },
+      },
+    },
     test: {
       globals: true,
       environment: 'jsdom',
