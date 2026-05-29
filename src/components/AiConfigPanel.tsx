@@ -10,7 +10,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Brain, Zap, Key, Sliders, FlaskConical, CheckCircle, XCircle, AlertCircle, Loader2, Eye, EyeOff, RotateCcw, Bot, Activity, Pause, Radio, Sparkles, Gift, MessageCircle, Trash2 } from 'lucide-react';
+import { Brain, Zap, Key, Sliders, FlaskConical, CheckCircle, XCircle, AlertCircle, Loader2, Eye, EyeOff, RotateCcw, Bot, Activity, Pause, Radio, Sparkles, Gift, MessageCircle, Trash2, Film, Clock } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button, Input } from './ui';
 import { AiDecisionPanel } from './AiDecisionPanel';
@@ -32,8 +32,17 @@ import {
   callAiDecision,
   callGeminiDirect,
   buildAiUserMessage,
+  INTENT_LABELS,
   type AiDecision,
 } from '../core/aiDecisionContract';
+import {
+  loadVideoPresets,
+  getVideoPreset,
+  saveVideoPreset,
+  defaultProfile,
+  videoCooldownRemaining,
+  type VideoReactionProfile,
+} from '../core/videoPresets';
 import { buildOcrEvent } from '../core/ocrEventContract';
 import type { OcrEvent } from '../core/ocrEventContract';
 import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
@@ -43,9 +52,27 @@ import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface AiConfigPanelProps {
-  videos: Array<{ id: string; label?: string; name?: string }>;
+  videos: Array<{ id: string; label?: string; name?: string; title?: string }>;
   triggers: Array<{ id: string; name?: string; label?: string; enabled?: boolean }>;
   runtime: AutopilotRuntimeState;
+}
+
+// Tipos de evento selecionáveis no perfil de reação.
+const EVENT_KIND_OPTIONS: Array<[string, string]> = [
+  ['gift', 'Presente'],
+  ['chat', 'Chat'],
+  ['alert', 'Alerta'],
+  ['follow', 'Seguidor'],
+  ['system', 'Sistema'],
+];
+
+// Intenções selecionáveis (exclui 'unknown').
+const INTENT_OPTIONS = (Object.keys(INTENT_LABELS) as Array<keyof typeof INTENT_LABELS>).filter(
+  (k) => k !== 'unknown',
+);
+
+function videoDisplayName(v: { label?: string; name?: string; title?: string; id: string }): string {
+  return v.label || v.title || v.name || v.id;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -186,6 +213,7 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
     const refresh = () => {
       setChatInsights(getChatInsights());
       setGiftStats(getGiftLearning());
+      setVideoPresets(loadVideoPresets());
     };
     refresh();
     const timer = window.setInterval(refresh, 4000);
@@ -212,6 +240,44 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
   const handleClearGiftLearning = useCallback(() => {
     clearGiftLearning();
     setGiftStats(getGiftLearning());
+  }, []);
+
+  // ── Reações por vídeo (Fase 3) ───────────────────────────────────────────────
+  const [videoPresets, setVideoPresets] = useState(() => loadVideoPresets());
+  const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
+  const [draftPreset, setDraftPreset] = useState<VideoReactionProfile | null>(null);
+
+  const toggleVideoAuto = useCallback((videoId: string) => {
+    const p = getVideoPreset(videoId) ?? defaultProfile(videoId);
+    saveVideoPreset({ ...p, enabled: !p.enabled });
+    setVideoPresets(loadVideoPresets());
+  }, []);
+
+  const openPresetEditor = useCallback((videoId: string) => {
+    setDraftPreset(getVideoPreset(videoId) ?? defaultProfile(videoId));
+    setEditingVideoId(videoId);
+  }, []);
+
+  const savePresetDraft = useCallback(() => {
+    if (draftPreset) {
+      saveVideoPreset(draftPreset);
+      setVideoPresets(loadVideoPresets());
+    }
+    setEditingVideoId(null);
+    setDraftPreset(null);
+  }, [draftPreset]);
+
+  const toggleDraftArray = useCallback((field: 'eventKinds' | 'intents', value: string) => {
+    setDraftPreset((d) =>
+      d
+        ? {
+            ...d,
+            [field]: d[field].includes(value)
+              ? d[field].filter((x) => x !== value)
+              : [...d[field], value],
+          }
+        : d,
+    );
   }, []);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -637,6 +703,161 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                 )}
               </div>
             </div>
+          </SectionCard>
+
+          {/* ── Reações por vídeo (pré-definições) ─────────────────────────── */}
+          <SectionCard icon={<Film className="h-4 w-4" />} title="Reações por vídeo" className="lg:col-span-2">
+            <p className="text-[11px] text-slate-500">
+              Defina <strong>quando</strong> a Diretora pode usar cada vídeo: a que eventos/intenções ele
+              responde, prioridade e um descanso (cooldown) para não repetir. Marque <strong>AUTO</strong>
+              para liberar a escolha automática. Essas regras entram na decisão da IA.
+            </p>
+
+            {videos.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-white/8 p-5 text-center text-[11px] text-slate-600">
+                Nenhum vídeo na biblioteca ainda. Adicione vídeos na aba Biblioteca.
+              </div>
+            ) : (
+              <div className="space-y-1.5 max-h-[28rem] overflow-y-auto pr-1">
+                {videos.map((v) => {
+                  const preset = videoPresets[v.id];
+                  const enabled = preset?.enabled ?? false;
+                  const cd = videoCooldownRemaining(v.id);
+                  const isEditing = editingVideoId === v.id;
+                  return (
+                    <div key={v.id} className="rounded-xl border border-white/8 bg-[#0a0b0d] p-2.5">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => toggleVideoAuto(v.id)}
+                          className={cn(
+                            'shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide transition',
+                            enabled ? 'bg-emerald-500/15 text-emerald-300' : 'bg-slate-700/40 text-slate-500',
+                          )}
+                          title={enabled ? 'Escolha automática ligada' : 'Escolha automática desligada'}
+                        >
+                          {enabled ? 'Auto' : 'Off'}
+                        </button>
+                        <span className="truncate text-[11px] text-slate-300">{videoDisplayName(v)}</span>
+                        {enabled && preset && (
+                          <span className="shrink-0 font-mono text-[9px] text-slate-600">
+                            {preset.eventKinds.length ? preset.eventKinds.join(',') : 'qualquer'} · P{preset.priority}
+                          </span>
+                        )}
+                        {cd > 0 && (
+                          <span className="shrink-0 flex items-center gap-0.5 text-[9px] text-amber-400">
+                            <Clock className="h-2.5 w-2.5" />{cd}s
+                          </span>
+                        )}
+                        {!isEditing && (
+                          <button
+                            onClick={() => openPresetEditor(v.id)}
+                            className="ml-auto shrink-0 text-[10px] text-slate-500 hover:text-violet-300"
+                          >
+                            Editar
+                          </button>
+                        )}
+                      </div>
+
+                      {isEditing && draftPreset && (
+                        <div className="mt-2.5 space-y-2.5 border-t border-white/8 pt-2.5">
+                          <div className="space-y-1">
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Responde a eventos</span>
+                            <div className="flex flex-wrap gap-1">
+                              {EVENT_KIND_OPTIONS.map(([key, label]) => (
+                                <button
+                                  key={key}
+                                  onClick={() => toggleDraftArray('eventKinds', key)}
+                                  className={cn(
+                                    'rounded px-2 py-0.5 text-[10px] transition',
+                                    draftPreset.eventKinds.includes(key)
+                                      ? 'bg-violet-500/15 text-violet-300 border border-violet-500/40'
+                                      : 'bg-slate-800/40 text-slate-500 border border-transparent hover:text-slate-300',
+                                  )}
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Intenções</span>
+                            <div className="flex flex-wrap gap-1">
+                              {INTENT_OPTIONS.map((intent) => (
+                                <button
+                                  key={intent}
+                                  onClick={() => toggleDraftArray('intents', intent)}
+                                  className={cn(
+                                    'rounded px-2 py-0.5 text-[10px] transition',
+                                    draftPreset.intents.includes(intent)
+                                      ? 'bg-violet-500/15 text-violet-300 border border-violet-500/40'
+                                      : 'bg-slate-800/40 text-slate-500 border border-transparent hover:text-slate-300',
+                                  )}
+                                >
+                                  {INTENT_LABELS[intent]}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Prioridade</span>
+                                <span className="font-mono text-[10px] text-violet-300">{draftPreset.priority}</span>
+                              </div>
+                              <input
+                                type="range"
+                                min={1}
+                                max={10}
+                                step={1}
+                                value={draftPreset.priority}
+                                onChange={(e) => setDraftPreset((d) => (d ? { ...d, priority: Number(e.target.value) } : d))}
+                                className="w-full accent-violet-500"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Cooldown (s)</span>
+                              <input
+                                type="number"
+                                min={0}
+                                max={600}
+                                value={draftPreset.cooldownSec}
+                                onChange={(e) => setDraftPreset((d) => (d ? { ...d, cooldownSec: Number(e.target.value) || 0 } : d))}
+                                className="w-full rounded-lg border border-white/8 bg-[#07080a] px-2 py-1 text-[11px] text-slate-300 focus:border-violet-500/40 focus:outline-none"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Quando usar (instrução livre)</span>
+                            <input
+                              type="text"
+                              value={draftPreset.notes}
+                              onChange={(e) => setDraftPreset((d) => (d ? { ...d, notes: e.target.value } : d))}
+                              placeholder="ex: usar quando falarem de amor, ou agradecer presentes grandes"
+                              className="w-full rounded-lg border border-white/8 bg-[#07080a] px-2 py-1 text-[11px] text-slate-300 focus:border-violet-500/40 focus:outline-none"
+                            />
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <Button variant="primary" size="sm" onClick={savePresetDraft}>
+                              <CheckCircle className="h-3.5 w-3.5 mr-1" />Salvar
+                            </Button>
+                            <button
+                              onClick={() => { setEditingVideoId(null); setDraftPreset(null); }}
+                              className="text-[10px] text-slate-500 hover:text-slate-300"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </SectionCard>
 
           {/* ── 2. Chave da API ───────────────────────────────────────────── */}

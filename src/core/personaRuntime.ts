@@ -11,6 +11,7 @@ import { capabilityForAction } from './toolRegistry';
 import { callDirectorDecision } from './aiDecisionContract';
 import { recordChatLearning, buildChatInsightsContext } from './chatLearning';
 import { recordGiftLearning, buildGiftInsightsContext } from './giftLearning';
+import { buildVideoPresetsContext, markVideoPlayed } from './videoPresets';
 import { apiUrl } from '../lib/api';
 import {
   addTurn,
@@ -500,6 +501,8 @@ async function requestDecision(
   // Aprendizado (Fase 2): o que o chat pede/curte e os presentes mais recebidos.
   contextParts.push(buildChatInsightsContext());
   contextParts.push(buildGiftInsightsContext());
+  // Pré-definições de vídeo (Fase 3): regras de reação + cooldowns por vídeo.
+  contextParts.push(buildVideoPresetsContext(options.videos || []));
   if (usersBlock) contextParts.push(`\n\n[PERFIS DE USUARIOS]:\n${usersBlock}`);
   if (memoryBlock) contextParts.push(`\n\n[MEMORIA RECENTE]:\n${memoryBlock}`);
   if (backendMemory.context) {
@@ -680,6 +683,13 @@ export async function runPersonaRound(
     // Aprendizado (Fase 2): agrega o que o chat fala/pede e os presentes recebidos.
     recordChatLearning(classifiedEvents);
     recordGiftLearning(classifiedEvents, decision);
+    // Pré-definições de vídeo (Fase 3): inicia o cooldown dos vídeos que tocaram.
+    for (const action of executedActions) {
+      if (action.type === 'play_video' && action.status === 'done') {
+        const vid = String(action.payload?.videoId || action.payload?.video || '');
+        if (vid) markVideoPlayed(vid);
+      }
+    }
     markContentUsed(contentUsed);
     appendAuditCycle(cycle);
     options.onUpdate?.({ ...cycle, logs: [...cycle.logs], actions: [...cycle.actions] });
