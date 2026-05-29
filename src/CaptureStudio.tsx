@@ -1792,30 +1792,32 @@ const CaptureStudio = React.memo(function CaptureStudio({
   const activeZone = zones[activeZoneIndex] || zones[0];
 
   const lastEvent = captureEvents[captureEvents.length - 1];
-  const successfulEvents = useMemo(
-    () => captureEvents.filter((event) => event.routeStatus !== 'error'),
-    [captureEvents],
-  );
-  const { averageConfidence, averageLatency } = useMemo(() => {
+  // ⚡ Bolt: Single-pass iteration to calculate multiple stats and filter
+  const { successfulEvents, averageConfidence, averageLatency } = useMemo(() => {
+    const success: CaptureEvent[] = [];
     let confidenceSum = 0;
     let confidenceCount = 0;
     let latencySum = 0;
     let latencyCount = 0;
-    for (const event of successfulEvents) {
-      if (event.confidence !== null && event.confidence !== undefined) {
-        confidenceSum += event.confidence;
-        confidenceCount++;
-      }
-      if (event.latencyMs !== null && event.latencyMs !== undefined) {
-        latencySum += event.latencyMs;
-        latencyCount++;
+    for (const event of captureEvents) {
+      if (event.routeStatus !== 'error') {
+        success.push(event);
+        if (event.confidence !== null && event.confidence !== undefined) {
+          confidenceSum += event.confidence;
+          confidenceCount++;
+        }
+        if (event.latencyMs !== null && event.latencyMs !== undefined) {
+          latencySum += event.latencyMs;
+          latencyCount++;
+        }
       }
     }
     return {
+      successfulEvents: success,
       averageConfidence: confidenceSum / Math.max(1, confidenceCount),
       averageLatency: latencySum / Math.max(1, latencyCount),
     };
-  }, [successfulEvents]);
+  }, [captureEvents]);
   const desktopRuntime = (window as ElectronRuntimeWindow).odessaDesktop;
   const isElectronRuntime = Boolean(desktopRuntime?.isElectron);
   const canUseDirectWebCapture = Boolean(desktopRuntime?.canUseDirectWebCapture);
