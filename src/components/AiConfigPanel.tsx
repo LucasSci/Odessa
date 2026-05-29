@@ -10,27 +10,27 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import { Brain, Zap, Key, Sliders, FlaskConical, CheckCircle, XCircle, AlertCircle, Loader2, Eye, EyeOff, RotateCcw } from 'lucide-react';
+import { Brain, Zap, Key, Sliders, FlaskConical, CheckCircle, XCircle, AlertCircle, Loader2, Eye, EyeOff, RotateCcw, Bot, Activity, Pause, Radio } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button, Input } from './ui';
 import { AiDecisionPanel } from './AiDecisionPanel';
 import {
   getAiConfig,
   saveAiConfig,
-  getEffectiveGeminiKey,
   hasActiveGeminiKey,
   AI_SYSTEM_PROMPT_DEFAULT,
   type AiProvider,
+  type AiAutonomyLevel,
 } from '../core/aiConfig';
 import {
   callAiDecision,
   callGeminiDirect,
   buildAiUserMessage,
-  EMPTY_AI_DECISION,
   type AiDecision,
 } from '../core/aiDecisionContract';
 import { buildOcrEvent } from '../core/ocrEventContract';
 import type { OcrEvent } from '../core/ocrEventContract';
+import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -39,6 +39,7 @@ import type { OcrEvent } from '../core/ocrEventContract';
 interface AiConfigPanelProps {
   videos: Array<{ id: string; label?: string; name?: string }>;
   triggers: Array<{ id: string; name?: string; label?: string; enabled?: boolean }>;
+  runtime: AutopilotRuntimeState;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -130,7 +131,13 @@ function StatusIcon({ kind }: { kind: 'online' | 'mock' | 'warn' }) {
 // Main component
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function AiConfigPanel({ videos, triggers }: AiConfigPanelProps) {
+const AUTONOMY_INFO: Record<AiAutonomyLevel, { label: string; desc: string }> = {
+  manual: { label: 'Manual', desc: 'A IA sugere, mas nada executa sozinho — tudo espera sua aprovação.' },
+  assistido: { label: 'Assistido', desc: 'Vídeo, voz e cena automáticos; moderação pede aprovação.' },
+  auto: { label: 'Autônomo', desc: 'A Diretora conduz tudo sozinha dentro do que está habilitado.' },
+};
+
+export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps) {
   const cfg = getAiConfig();
 
   // ── Status section ─────────────────────────────────────────────────────────
@@ -320,6 +327,137 @@ export function AiConfigPanel({ videos, triggers }: AiConfigPanelProps) {
                 ℹ️ <strong>VITE_GEMINI_API_KEY</strong> está embutida nesta build — ela tem prioridade sobre a chave local abaixo.
               </p>
             )}
+          </SectionCard>
+
+          {/* ── Diretora ao vivo (cockpit) ────────────────────────────────── */}
+          <SectionCard icon={<Bot className="h-4 w-4" />} title="Diretora ao vivo" className="lg:col-span-2">
+            {/* Estado + controle */}
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/8 bg-[#0a0b0d] p-3">
+              <div className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest',
+                    runtime.autopilotEnabled
+                      ? 'bg-emerald-500/15 text-emerald-300'
+                      : 'bg-slate-700/40 text-slate-400',
+                  )}
+                >
+                  <Radio className="h-3 w-3" />
+                  {runtime.autopilotEnabled ? 'No ar' : 'Fora do ar'}
+                </span>
+                {runtime.isProcessing && (
+                  <span className="flex items-center gap-1 text-[10px] text-violet-300">
+                    <Loader2 className="h-3 w-3 animate-spin" /> decidindo…
+                  </span>
+                )}
+                {!hasActiveGeminiKey() && (
+                  <span className="text-[10px] text-amber-400">sem chave — usando regras locais</span>
+                )}
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => (runtime.autopilotEnabled ? runtime.pause() : runtime.start())}
+              >
+                {runtime.autopilotEnabled ? (
+                  <><Pause className="h-3.5 w-3.5 mr-1" />Pausar Diretora</>
+                ) : (
+                  <><Activity className="h-3.5 w-3.5 mr-1" />Iniciar Diretora</>
+                )}
+              </Button>
+            </div>
+
+            {runtime.lastError && (
+              <p className="flex items-center gap-1.5 text-[11px] text-red-400">
+                <XCircle className="h-3.5 w-3.5" /> {runtime.lastError}
+              </p>
+            )}
+
+            {/* Nível de autonomia */}
+            <div className="space-y-2">
+              <span className="text-[11px] font-medium text-slate-400">Nível de autonomia</span>
+              <div className="flex flex-wrap gap-2">
+                {(['manual', 'assistido', 'auto'] as AiAutonomyLevel[]).map((lvl) => (
+                  <button
+                    key={lvl}
+                    onClick={() => runtime.setAutonomyLevel(lvl)}
+                    className={cn(
+                      'rounded-lg border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition',
+                      runtime.autonomyLevel === lvl
+                        ? 'border-violet-500/50 bg-violet-500/15 text-violet-300'
+                        : 'border-white/8 bg-transparent text-slate-500 hover:text-slate-300',
+                    )}
+                  >
+                    {AUTONOMY_INFO[lvl].label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-600">{AUTONOMY_INFO[runtime.autonomyLevel].desc}</p>
+            </div>
+
+            {/* Feed de decisões da Diretora */}
+            <div className="space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
+                Últimas decisões
+              </span>
+              {runtime.cycles.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-white/8 p-5 text-center text-[11px] text-slate-600">
+                  Nenhuma decisão ainda. Inicie a Diretora e os eventos do chat aparecerão aqui.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {runtime.cycles
+                    .slice(-6)
+                    .reverse()
+                    .map((cycle) => (
+                      <div
+                        key={cycle.id}
+                        className="rounded-xl border border-white/8 bg-[#0a0b0d] p-3 space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] text-slate-300 truncate">
+                            <span className="text-slate-600">[{cycle.event?.kind || 'evento'}]</span>{' '}
+                            {cycle.event?.text || '—'}
+                          </span>
+                          {cycle.decision && (
+                            <span className="shrink-0 font-mono text-[10px] text-violet-300">
+                              {Math.round((cycle.decision.confidence || 0) * 100)}%
+                            </span>
+                          )}
+                        </div>
+                        {cycle.decision?.speech && (
+                          <p className="text-[11px] text-sky-200/80 italic">“{cycle.decision.speech}”</p>
+                        )}
+                        {cycle.decision?.reason && (
+                          <p className="text-[10px] text-slate-500">{cycle.decision.reason}</p>
+                        )}
+                        {cycle.actions.length > 0 && (
+                          <div className="flex flex-wrap gap-1 pt-0.5">
+                            {cycle.actions.map((action) => (
+                              <span
+                                key={action.id}
+                                className={cn(
+                                  'rounded px-1.5 py-0.5 font-mono text-[9px]',
+                                  action.status === 'done'
+                                    ? 'bg-emerald-500/10 text-emerald-300'
+                                    : action.status === 'error' || action.status === 'blocked'
+                                      ? 'bg-red-500/10 text-red-300'
+                                      : action.status === 'approval_required'
+                                        ? 'bg-amber-500/10 text-amber-300'
+                                        : 'bg-slate-700/30 text-slate-400',
+                                )}
+                                title={action.result || action.status}
+                              >
+                                {action.type}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
           </SectionCard>
 
           {/* ── 2. Chave da API ───────────────────────────────────────────── */}

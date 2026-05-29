@@ -53,9 +53,9 @@ import { DebugLogPanel, logEntry } from './components/DebugLogPanel';
 import { StatusBadge, deriveStageStatus } from './components/StatusBadge';
 import { ValidationChecklist, buildFlowValidationChecks } from './components/ValidationChecklist';
 
-import type { AiDecision } from './core/aiDecisionContract';
+import type { AiDecision, AiIntentType } from './core/aiDecisionContract';
 import { EMPTY_AI_DECISION, callAiDecision, checkingAiDecision } from './core/aiDecisionContract';
-import { getAiConfig } from './core/aiConfig';
+import type { PersonaDecision } from './types';
 import type { LogEntry } from './components/DebugLogPanel';
 import { buildOcrEvent } from './core/ocrEventContract';
 import type { OcrEvent, OcrEventType } from './core/ocrEventContract';
@@ -354,6 +354,36 @@ type ReactiveRunResult = {
   executions: AutomationExecutionResponse[];
 };
 
+/**
+ * Converte a decisão da Diretora (PersonaDecision, do runtime) para o formato
+ * AiDecision que o painel do Palco exibe. Só para exibição — a execução real das
+ * ações acontece no executor do runtime.
+ */
+function personaDecisionToAiDecision(decision: PersonaDecision): AiDecision {
+  const actions = Array.isArray(decision.actions) ? decision.actions : [];
+  const playAction = actions.find((a) => a.type === 'play_video');
+  const videoId = playAction?.payload?.videoId as string | undefined;
+  const videoLabelRaw = playAction?.payload?.label as string | undefined;
+  const recommendedAction: AiDecision['recommendedAction'] = playAction
+    ? 'play_video'
+    : actions.some((a) => a.type !== 'speak' && a.type !== 'log_event')
+      ? 'queue_video'
+      : 'wait';
+  return {
+    sourceEvent: null,
+    intent: decision.intent as AiIntentType,
+    emotion: 'neutral',
+    recommendedAction,
+    selectedTriggerId: (playAction?.ruleId as string) ?? null,
+    selectedVideoId: videoId ?? null,
+    selectedVideoLabel: videoLabelRaw ?? videoId ?? null,
+    confidence: typeof decision.confidence === 'number' ? decision.confidence : 0.7,
+    reasoning: decision.reason || decision.speech || 'Decisão da Diretora.',
+    status: 'online',
+    timestamp: new Date().toISOString(),
+  };
+}
+
 function tabFromPanel(panel: AdvancedPanel): TabKey {
   if (panel === 'capture') return 'sources';
   if (panel === 'content') return 'library';
@@ -413,10 +443,9 @@ export default function OdessaLiveCenter({
   const [reactiveError, setReactiveError] = useState<string | null>(null);
   const [reactiveBusy, setReactiveBusy] = useState(false);
 
-  // ── AI Decision — estado compartilhado (alimentado pelo pipeline principal) ──
-  // Threshold abaixo do qual a IA bloqueia o disparo de gatilho.
-  // 0.65 = confiança mínima para play_video; queue_video sempre passa.
-  const AI_CONFIDENCE_THRESHOLD = getAiConfig().confidenceThreshold ?? 0.65;
+  // ── Decisão da IA — estado exibido no Palco ─────────────────────────────────
+  // Fora do ar: prévia (callAiDecision, sem executar). Ao vivo: espelha a decisão
+  // real da Diretora (runtime.latestDecision).
   const [aiDecision, setAiDecision] = useState<AiDecision>(EMPTY_AI_DECISION);
 
   const loadConfig = useCallback(async () => {
@@ -776,24 +805,19 @@ export default function OdessaLiveCenter({
     videoState?.current_video_id,
   ]);
 
-  // ── Pipeline principal: OCR event → IA → gatilho (se aprovado) ──────────────
-  // Único ponto de entrada para eventos ao vivo. A IA age como filtro:
-  //   play_video + confidence ≥ threshold  → dispara runReactiveFlow
-  //   queue_video                          → dispara (menor prioridade, sem threshold)
-  //   wait / no_action                     → bloqueia o disparo
-  //   status === 'offline' (sem chave API) → fallback: sempre dispara (regras puras)
-  //
-  // Antes desta refatoração havia dois useEffects processando capturedText em
-  // paralelo (um aqui, outro no StagePanel), resultando em double-ingest.
-  // Agora existe um único pipeline aqui, sempre ativo independente da aba.
+  // ── Prévia da IA (apenas fora do ar) ────────────────────────────────────────
+  // Quando a live está NO AR, quem conduz é a Diretora única (useAutopilotRuntime →
+  // runPersonaRound), que decide fala + vídeo + cena numa rodada só e executa pelo
+  // executor. Para NÃO duplicar o processamento (double-ingest), este efeito só roda
+  // FORA do ar: mostra no Palco o que a IA decidiria, SEM executar nada.
+  // O disparo real de vídeo fora do ar continua nos botões manuais (runReactiveFlow).
   useEffect(() => {
-    const processEvent = async (event: CapturedMessage) => {
+    if (runtime.autopilotEnabled) return; // ao vivo → a Diretora cuida (sem prévia paralela)
+
+    const previewEvent = async (event: CapturedMessage) => {
       if (!event.text?.trim()) return;
       if (event.metadata?.backendIngested) return;
 
-      // Reutiliza o OcrEvent canônico construído pelo CaptureStudio (se disponível),
-      // preservando giftKey, author e confidence do ingest. Caso contrário, constrói
-      // a partir do texto bruto.
       const prebuilt = event.metadata?.ocrEvent as OcrEvent | undefined;
       const srcMap: Record<string, OcrEvent['source']> = { ocr: 'ocr', test: 'test', manual: 'manual' };
       const kindMap: Record<string, OcrEventType> = { gift: 'gift', chat: 'comment', alert: 'system', system: 'system' };
@@ -809,28 +833,12 @@ export default function OdessaLiveCenter({
         },
       });
 
-      // Mostra "CONSULTANDO…" no AiDecisionPanel enquanto a chamada está em voo
       setAiDecision(checkingAiDecision(ocrEvent));
-
       const decision = await callAiDecision(ocrEvent, {
         videos:   view.videos,
         triggers: view.triggers,
       });
-      setAiDecision(decision);
-
-      // Gate de confiança:
-      //   offline → sempre passa (IA sem chave = sistema de regras puras)
-      //   play_video com confiança suficiente → passa
-      //   queue_video → sempre passa (baixa prioridade, sem threshold)
-      //   wait / no_action → bloqueia
-      const shouldFire =
-        decision.status === 'offline' ||
-        (decision.recommendedAction === 'play_video' && decision.confidence >= AI_CONFIDENCE_THRESHOLD) ||
-        decision.recommendedAction === 'queue_video';
-
-      if (shouldFire) {
-        void runReactiveFlow(event.text, event.source);
-      }
+      setAiDecision(decision); // somente exibição — sem runReactiveFlow aqui
     };
 
     for (const event of capturedText) {
@@ -841,10 +849,19 @@ export default function OdessaLiveCenter({
         continue;
       }
       processedGiftIdsRef.current.add(event.id);
-      void processEvent(event);
+      void previewEvent(event);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [capturedText, runReactiveFlow, view.videos, view.triggers]);
+  }, [capturedText, runtime.autopilotEnabled, view.videos, view.triggers]);
+
+  // ── Espelho da decisão da Diretora no Palco (ao vivo) ───────────────────────
+  // Ao vivo, o painel "Decisão da IA" do Palco reflete a última decisão real da
+  // Diretora (vinda do runtime), convertida para o formato do painel.
+  useEffect(() => {
+    if (!runtime.autopilotEnabled) return;
+    if (!runtime.latestDecision) return;
+    setAiDecision(personaDecisionToAiDecision(runtime.latestDecision));
+  }, [runtime.autopilotEnabled, runtime.latestDecision]);
 
   return (
     <main className="odessa-shell flex h-screen w-screen min-h-0 flex-col overflow-hidden text-[var(--t1)]">
@@ -980,7 +997,7 @@ export default function OdessaLiveCenter({
           />
         )}
         {activeTab === 'ai' && (
-          <AiConfigPanel videos={view.videos} triggers={view.triggers} />
+          <AiConfigPanel videos={view.videos} triggers={view.triggers} runtime={runtime} />
         )}
         {activeTab === 'flow' && (
           <Suspense fallback={<PanelLoading label="Carregando fluxo reativo" />}>

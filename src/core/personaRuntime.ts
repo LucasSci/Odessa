@@ -8,6 +8,7 @@ import {
 import { classifyEvent } from './eventClassifier';
 import { markEventProcessed } from './eventBus';
 import { capabilityForAction } from './toolRegistry';
+import { callDirectorDecision } from './aiDecisionContract';
 import { apiUrl } from '../lib/api';
 import {
   addTurn,
@@ -58,6 +59,12 @@ export interface PersonaRuntimeOptions {
   tools: PersonaTool[];
   rules: AutomationRule[];
   voiceEnabled: boolean;
+  /** Catálogo de vídeos que a Diretora pode escolher (play_video). */
+  videos?: Array<{ id: string; label?: string; name?: string; title?: string }>;
+  /** Gatilhos configurados (referência para a Diretora). */
+  triggers?: Array<{ id: string; name?: string; label?: string; enabled?: boolean }>;
+  /** Cenas de OBS permitidas (switch_scene). */
+  scenes?: string[];
   onUpdate?: (cycle: AutopilotCycle) => void;
   onAction?: (action: AutopilotAction) => void;
 }
@@ -467,7 +474,7 @@ async function requestDecision(
   events: LiveEvent[],
   primaryEvent: LiveEvent,
   options: PersonaRuntimeOptions,
-  matchedRules: RuleMatches,
+  _matchedRules: RuleMatches,
   contentUsed: UsedContentItem[],
   backendMemory: BackendMemoryRoundContext,
 ) {
@@ -493,53 +500,27 @@ async function requestDecision(
   if (backendMemory.context) {
     contextParts.push(`\n\n[MEMORIA PERSISTENTE SQLITE]:\n${backendMemory.context}`);
   }
+  contextParts.push(
+    '\n\n[DIRECAO DA RODADA]\n' +
+      `Eventos: ${events.length}. Principal: ${primaryEvent.kind} (prioridade ${eventPriority(primaryEvent)}).\n` +
+      `Resumo:\n${eventBatchSummary(events)}`,
+  );
 
-  const response = await fetch(apiUrl('/ai/decide'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      persona_prompt: contextParts.join(''),
-      events,
-      tools: options.tools.map(({ label, capability, enabled, requiresApproval, simulated }) => ({
-        label,
-        capability,
-        enabled,
-        requiresApproval,
-        simulated,
-      })),
-      rules: matchedRules.map((match) => ({
-        id: match.rule.id,
-        label: match.rule.label,
-        actions: match.actions.map(({ type, label, capability, payload }) => ({
-          type,
-          label,
-          capability,
-          payload,
-        })),
-      })),
-      context: {
-        memory: memoryBlock,
-        memory_db: backendMemory,
-        users: usersBlock,
-        content: contentUsed,
-        director_round: {
-          event_count: events.length,
-          primary_event_id: primaryEvent.id,
-          primary_kind: primaryEvent.kind,
-          priority: eventPriority(primaryEvent),
-          batch_summary: eventBatchSummary(events),
-          instruction:
-            'Responda como diretora da live: no maximo uma fala curta nesta rodada; chat comum deve virar contexto quando houver presente, resgate ou moderacao.',
-        },
-      },
-      mode: 'live_director_round',
-      temperature: 0.64,
-    }),
+  // Cérebro único: Gemini direto no browser (multilíngue). Substitui o antigo POST
+  // /ai/decide do servidor (que recebia payload incompatível e sempre caía no fallback).
+  const mood = globalMoodEngine.getCurrentMood();
+  const raw = await callDirectorDecision(events, {
+    systemPrompt: contextParts.join(''),
+    videos: options.videos,
+    triggers: options.triggers,
+    scenes: options.scenes,
+    tools: options.tools.map(({ capability, label, enabled }) => ({ capability, label, enabled })),
+    temperature: mood.temperature,
   });
 
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.detail || 'Falha ao decidir proxima acao');
-  return normalizeDecision(data, primaryEvent.text);
+  // null = sem chave de IA → lança para o chamador usar buildLocalDecision (offline).
+  if (!raw) throw new Error('Diretora offline: nenhuma chave de IA configurada');
+  return normalizeDecision(raw as unknown as Partial<PersonaDecision>, primaryEvent.text);
 }
 
 export async function runPersonaRound(

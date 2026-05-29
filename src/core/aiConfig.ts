@@ -36,6 +36,14 @@ Regras:
 
 export type AiProvider = 'auto' | 'gemini' | 'mock';
 
+/**
+ * Nível de autonomia da Diretora de IA.
+ *  - manual:    a IA sugere, mas nada executa sozinho (toda ação pede aprovação).
+ *  - assistido: vídeo/voz/cena executam sozinhos; ações sensíveis (moderação) pedem aprovação.
+ *  - auto:      tudo executa automaticamente dentro do que está habilitado no registry.
+ */
+export type AiAutonomyLevel = 'manual' | 'assistido' | 'auto';
+
 export type AiLocalConfig = {
   /** Chave Gemini digitada pelo usuário (nunca vai para o servidor). */
   geminiKey: string;
@@ -45,6 +53,8 @@ export type AiLocalConfig = {
   provider: AiProvider;
   /** Limiar mínimo de confiança para disparar play_video. Padrão: 0.65. */
   confidenceThreshold: number;
+  /** Quanto a Diretora pode executar sozinha. Padrão: 'assistido'. */
+  autonomyLevel: AiAutonomyLevel;
 };
 
 const DEFAULTS: AiLocalConfig = {
@@ -52,6 +62,7 @@ const DEFAULTS: AiLocalConfig = {
   systemPrompt: '',
   provider: 'auto',
   confidenceThreshold: 0.65,
+  autonomyLevel: 'assistido',
 };
 
 function readRaw(): Partial<AiLocalConfig> {
@@ -76,6 +87,9 @@ export function getAiConfig(): AiLocalConfig {
     confidenceThreshold: typeof stored.confidenceThreshold === 'number'
       ? Math.max(0.1, Math.min(0.99, stored.confidenceThreshold))
       : DEFAULTS.confidenceThreshold,
+    autonomyLevel: (['manual','assistido','auto'] as AiAutonomyLevel[]).includes(stored.autonomyLevel as AiAutonomyLevel)
+      ? (stored.autonomyLevel as AiAutonomyLevel)
+      : DEFAULTS.autonomyLevel,
   };
 }
 

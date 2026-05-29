@@ -9,7 +9,8 @@
  */
 
 import type { OcrEvent } from './ocrEventContract';
-import { getEffectiveGeminiKey, getEffectiveSystemPrompt, getAiConfig } from './aiConfig';
+import type { LiveEvent } from '../types';
+import { getEffectiveGeminiKey, getEffectiveSystemPrompt, getAiConfig, hasActiveGeminiKey } from './aiConfig';
 
 export type AiStatus = 'offline' | 'simulated' | 'online' | 'checking';
 export type AiIntentType =
@@ -227,6 +228,192 @@ export async function callGeminiDirect(event: OcrEvent, config?: AiConfig): Prom
   if (!rawText) throw new Error('Gemini retornou resposta vazia');
 
   return sanitizeAiDecision(rawText, event);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Diretora — decisão de rodada (cérebro único)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Diferente de callGeminiDirect (que escolhe apenas um vídeo), a Diretora recebe
+// uma RODADA de eventos + o contexto rico (persona, memória, humor, biblioteca) e
+// devolve uma decisão completa no formato PersonaDecision: fala + lista de ações
+// (tocar vídeo, trocar cena, responder no chat, etc.). É multilíngue por natureza:
+// o modelo lê qualquer idioma e casa por significado, não por palavra exata.
+
+/** Contexto que a Diretora recebe para decidir a rodada. */
+export type DirectorContext = {
+  /** Prompt de sistema completo (persona + memória + humor + biblioteca + RAG). */
+  systemPrompt: string;
+  /** Vídeos disponíveis para a IA escolher (id + label). */
+  videos?: Array<{ id: string; label?: string; name?: string; title?: string }>;
+  /** Gatilhos configurados (referência para a IA). */
+  triggers?: Array<{ id: string; name?: string; label?: string; enabled?: boolean }>;
+  /** Cenas de OBS permitidas (para switch_scene). */
+  scenes?: string[];
+  /** Ferramentas habilitadas (capabilities que a IA pode usar). */
+  tools?: Array<{ capability: string; label?: string; enabled?: boolean }>;
+  /** Temperatura da geração (humor). Default 0.6. */
+  temperature?: number;
+};
+
+/** Decisão crua devolvida pela Diretora — passa por normalizeDecision no chamador. */
+export type RawDirectorDecision = {
+  context_analysis?: string;
+  sentiment?: string;
+  speech: string;
+  intent: string;
+  confidence: number;
+  reason: string;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+  actions: Array<{
+    type: string;
+    capability?: string;
+    label?: string;
+    payload?: Record<string, unknown>;
+  }>;
+};
+
+const DIRECTOR_INSTRUCTION = `\
+Você está dirigindo uma rodada ao vivo. Receberá um lote de eventos capturados (chat, presentes,
+alertas, sistema). IMPORTANTE: o chat pode estar em QUALQUER idioma — interprete pelo SIGNIFICADO,
+não pela palavra exata. Os gatilhos/vídeos podem ter nomes em português; case por intenção.
+
+Responda SOMENTE com um objeto JSON válido (sem markdown, sem texto fora do JSON):
+{
+  "context_analysis": "<o que está acontecendo na rodada, 1 frase>",
+  "sentiment": "positivo" | "neutro" | "negativo",
+  "speech": "<UMA fala curta da persona, em português do Brasil>",
+  "intent": "<intenção curta, ex: ack_gift, welcome, respond_chat, recover_quiet>",
+  "confidence": <número entre 0 e 1>,
+  "reason": "<por que essa decisão, curto>",
+  "priority": "low" | "normal" | "high" | "urgent",
+  "actions": [
+    { "type": "play_video", "payload": { "videoId": "<id EXATO da lista de vídeos>" } },
+    { "type": "switch_scene", "payload": { "sceneName": "<cena EXATA da lista>" } },
+    { "type": "chat_reply", "payload": { "message": "<resposta curta no chat>" } }
+  ]
+}
+
+Regras:
+- No máximo UMA fala por rodada. Chat comum vira contexto quando houver presente/resgate/moderação.
+- Só inclua "play_video" se algum vídeo da lista fizer sentido para o evento; use o id EXATO.
+- Só inclua "switch_scene" se a cena estiver na lista de cenas permitidas.
+- Para presente, prefira reagir (play_video) e agradecer sem pressionar a gastar.
+- Se nada relevante, retorne actions: [] e uma fala leve de manutenção.
+- Tipos de ação válidos: speak, chat_reply, ack_gift, moderate_message, switch_scene,
+  show_overlay, play_music, play_video, webhook, stop_media, set_topic, suggest_topic, remember.`;
+
+function buildDirectorUserMessage(events: LiveEvent[], ctx: DirectorContext): string {
+  const lines: string[] = [];
+  lines.push('EVENTOS DA RODADA:');
+  events.forEach((ev, i) => {
+    const meta = (ev.metadata || {}) as Record<string, unknown>;
+    const extra: string[] = [];
+    if (meta.user) extra.push(`autor:${String(meta.user)}`);
+    if (meta.giftName) extra.push(`presente:${String(meta.giftName)}`);
+    if (meta.quantity) extra.push(`x${String(meta.quantity)}`);
+    lines.push(`  ${i + 1}. [${ev.kind}/${ev.source}] "${ev.text}"${extra.length ? ` (${extra.join(' ')})` : ''}`);
+  });
+
+  const vids = (ctx.videos || []).slice(0, 24);
+  if (vids.length) {
+    lines.push('\nVÍDEOS DISPONÍVEIS (use o id EXATO em play_video):');
+    vids.forEach((v) => lines.push(`  - id:"${v.id}" label:"${v.label || v.name || v.title || v.id}"`));
+  } else {
+    lines.push('\nVÍDEOS DISPONÍVEIS: nenhum (não use play_video).');
+  }
+
+  const scenes = (ctx.scenes || []).slice(0, 16);
+  if (scenes.length) {
+    lines.push('\nCENAS PERMITIDAS (use o nome EXATO em switch_scene):');
+    scenes.forEach((s) => lines.push(`  - "${s}"`));
+  } else {
+    lines.push('\nCENAS PERMITIDAS: nenhuma (não use switch_scene).');
+  }
+
+  const tools = (ctx.tools || []).filter((t) => t.enabled !== false).slice(0, 20);
+  if (tools.length) {
+    lines.push('\nFERRAMENTAS HABILITADAS:');
+    lines.push('  ' + tools.map((t) => t.capability).join(', '));
+  }
+
+  lines.push(`\n${DIRECTOR_INSTRUCTION}`);
+  return lines.join('\n');
+}
+
+function parseDirectorDecision(raw: string): RawDirectorDecision | null {
+  let parsed: Record<string, unknown>;
+  try {
+    const clean = (raw || '').replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '').trim();
+    parsed = JSON.parse(clean) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  if (typeof parsed.speech !== 'string' && !Array.isArray(parsed.actions)) return null;
+  const rawActions = Array.isArray(parsed.actions) ? parsed.actions : [];
+  const actions = rawActions
+    .filter((a): a is Record<string, unknown> => Boolean(a) && typeof a === 'object')
+    .map((a) => ({
+      type: typeof a.type === 'string' ? a.type : 'log_event',
+      capability: typeof a.capability === 'string' ? a.capability : undefined,
+      label: typeof a.label === 'string' ? a.label : undefined,
+      payload: (a.payload && typeof a.payload === 'object' ? a.payload : {}) as Record<string, unknown>,
+    }));
+  return {
+    context_analysis: typeof parsed.context_analysis === 'string' ? parsed.context_analysis : undefined,
+    sentiment: typeof parsed.sentiment === 'string' ? parsed.sentiment : undefined,
+    speech: typeof parsed.speech === 'string' ? parsed.speech : '',
+    intent: typeof parsed.intent === 'string' ? parsed.intent : 'respond_live_event',
+    confidence: typeof parsed.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0.7,
+    reason: typeof parsed.reason === 'string' ? parsed.reason.slice(0, 240) : 'Decisão da Diretora.',
+    priority: (['low', 'normal', 'high', 'urgent'] as const).includes(parsed.priority as never)
+      ? (parsed.priority as RawDirectorDecision['priority'])
+      : 'normal',
+    actions,
+  };
+}
+
+/**
+ * Chama a Diretora (Gemini direto, multilíngue) para decidir a rodada inteira.
+ * Retorna null se não houver chave disponível (chamador usa fallback local).
+ * Lança em erro de rede/HTTP (chamador trata).
+ */
+export async function callDirectorDecision(
+  events: LiveEvent[],
+  ctx: DirectorContext,
+): Promise<RawDirectorDecision | null> {
+  const apiKey = getEffectiveGeminiKey();
+  if (!apiKey) return null;
+  if (!events.length) return null;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  const body = {
+    system_instruction: { parts: [{ text: ctx.systemPrompt || getEffectiveSystemPrompt() }] },
+    contents: [{ role: 'user', parts: [{ text: buildDirectorUserMessage(events, ctx) }] }],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      maxOutputTokens: 640,
+      temperature: typeof ctx.temperature === 'number' ? ctx.temperature : 0.6,
+    },
+  };
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 120)}`);
+  }
+
+  const data = (await res.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+  const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
+  if (!rawText) throw new Error('Diretora: Gemini retornou resposta vazia');
+
+  return parseDirectorDecision(rawText);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ import {
   runPersonaRound,
 } from './personaRuntime';
 import { loadToolRegistry, updateToolRegistry } from './toolRegistry';
+import { getAiConfig, saveAiConfig, type AiAutonomyLevel } from './aiConfig';
 import { apiUrl } from '../lib/api';
 import { isObsDirectAvailable, getObsStatus } from '../lib/obsWebSocket';
 import { loadMemory } from '../lib/memory';
@@ -87,6 +88,8 @@ export interface AutopilotRuntimeState {
   latestAction?: AutopilotAction;
   roundCollectionMs: number;
   speechCooldownMs: number;
+  autonomyLevel: AiAutonomyLevel;
+  setAutonomyLevel: (level: AiAutonomyLevel) => void;
   start: (opts?: StartOptions) => void;
   pause: () => void;
   toggleVoice: () => void;
@@ -174,6 +177,29 @@ function loadInitialActions() {
     .slice(-100);
 }
 
+// Sempre executam sem aprovação (não são ações "para o público").
+const AUTONOMY_SAFE_CAPS = new Set(['log.event', 'memory.remember']);
+// No nível "assistido", apenas estas pedem aprovação.
+const AUTONOMY_GUARDED_CAPS = new Set(['moderation.message', 'webhook.call']);
+
+/**
+ * Deriva `requiresApproval` das ferramentas a partir do nível de autonomia da
+ * Diretora — sem persistir no registry (cópia só para a rodada). Assim o cockpit
+ * pode mudar a autonomia e a próxima rodada já reflete.
+ */
+function applyAutonomyToTools(tools: PersonaTool[], level: AiAutonomyLevel): PersonaTool[] {
+  if (level === 'auto') {
+    return tools.map((t) => ({ ...t, requiresApproval: false }));
+  }
+  if (level === 'manual') {
+    return tools.map((t) =>
+      AUTONOMY_SAFE_CAPS.has(t.capability) ? t : { ...t, requiresApproval: true },
+    );
+  }
+  // 'assistido'
+  return tools.map((t) => ({ ...t, requiresApproval: AUTONOMY_GUARDED_CAPS.has(t.capability) }));
+}
+
 export function useAutopilotRuntime({
   capturedText,
   setCapturedText,
@@ -197,6 +223,7 @@ export function useAutopilotRuntime({
   const [obsScenes, setObsScenes] = useState<string[]>([]);
   const [currentObsScene, setCurrentObsScene] = useState<string | null>(null);
   const [obsError, setObsError] = useState<string | null>(null);
+  const [autonomyLevel, setAutonomyLevelState] = useState<AiAutonomyLevel>(() => getAiConfig().autonomyLevel);
   const queuedOrProcessedIdsRef = useRef<Set<string>>(
     new Set(capturedText.filter((event) => event.processedAt).map((event) => event.id)),
   );
@@ -204,6 +231,13 @@ export function useAutopilotRuntime({
   const roundTimerRef = useRef<number | null>(null);
   const lastSpeechAtRef = useRef(0);
   const lastEventAtRef = useRef(0);
+  // Catálogo (vídeos/gatilhos) que a Diretora pode usar — buscado do servidor.
+  const catalogRef = useRef<{
+    videos: Array<{ id: string; label?: string; name?: string; title?: string }>;
+    triggers: Array<{ id: string; name?: string; label?: string; enabled?: boolean }>;
+  }>({ videos: [], triggers: [] });
+  // Espelho de obsScenes para uso dentro do closure da rodada (sem disparar re-render).
+  const obsScenesRef = useRef<string[]>([]);
 
   const latestCycle = cycles[cycles.length - 1];
   const latestDecision = latestCycle?.decision;
@@ -295,22 +329,48 @@ export function useAutopilotRuntime({
     });
   }, []);
 
+  // Busca o catálogo (vídeos/gatilhos) que a Diretora usa para escolher ações.
+  const refreshCatalog = useCallback(async () => {
+    try {
+      const res = await fetch(apiUrl('/api/video/config'));
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        videos?: Array<{ id: string; label?: string; name?: string; title?: string }>;
+        triggers?: Array<{ id: string; name?: string; label?: string; enabled?: boolean }>;
+      };
+      catalogRef.current = {
+        videos: Array.isArray(data?.videos) ? data.videos : [],
+        triggers: Array.isArray(data?.triggers) ? data.triggers : [],
+      };
+    } catch {
+      // Catálogo indisponível — a Diretora apenas não terá vídeos para escolher.
+    }
+  }, []);
+
   useEffect(() => {
     pendingEventsRef.current = pendingEvents;
   }, [pendingEvents]);
 
   useEffect(() => {
+    obsScenesRef.current = obsScenes;
+  }, [obsScenes]);
+
+  useEffect(() => {
     const firstRun = window.setTimeout(refreshHealth, 0);
     const obsFirstRun = window.setTimeout(refreshObsScenes, 700);
+    const catalogFirstRun = window.setTimeout(refreshCatalog, 300);
     const interval = window.setInterval(refreshHealth, 15000);
     const obsInterval = window.setInterval(refreshObsScenes, 20000);
+    const catalogInterval = window.setInterval(refreshCatalog, 30000);
     return () => {
       window.clearTimeout(firstRun);
       window.clearTimeout(obsFirstRun);
+      window.clearTimeout(catalogFirstRun);
       window.clearInterval(interval);
       window.clearInterval(obsInterval);
+      window.clearInterval(catalogInterval);
     };
-  }, [refreshHealth, refreshObsScenes]);
+  }, [refreshHealth, refreshObsScenes, refreshCatalog]);
 
   useEffect(() => {
     capturedText.forEach(enqueueEvent);
@@ -370,11 +430,18 @@ export function useAutopilotRuntime({
       setIsProcessing(true);
       setLastError(null);
 
+      // Autonomia atual da Diretora → define o que executa sozinho nesta rodada.
+      const autonomy = getAiConfig().autonomyLevel;
+      const effectiveTools = applyAutonomyToTools(tools, autonomy);
+
       runPersonaRound(batch, {
         personaPrompt: PERSONA_AUTOPILOT_PROMPT,
-        tools,
+        tools: effectiveTools,
         rules,
         voiceEnabled,
+        videos: catalogRef.current.videos,
+        triggers: catalogRef.current.triggers,
+        scenes: obsScenesRef.current,
         onUpdate: (cycle) => setCycles((current) => upsertCycle(current, cycle)),
         onAction: (action) => setActionQueue((current) => upsertAction(current, action)),
       })
@@ -455,6 +522,11 @@ export function useAutopilotRuntime({
 
   const toggleVoice = useCallback(() => {
     setVoiceEnabled((value) => !value);
+  }, []);
+
+  const setAutonomyLevel = useCallback((level: AiAutonomyLevel) => {
+    saveAiConfig({ autonomyLevel: level });
+    setAutonomyLevelState(level);
   }, []);
 
   const toggleTestMode = useCallback(() => {
@@ -554,6 +626,8 @@ export function useAutopilotRuntime({
     latestAction,
     roundCollectionMs: ROUND_COLLECTION_MS,
     speechCooldownMs: SPEECH_COOLDOWN_MS,
+    autonomyLevel,
+    setAutonomyLevel,
     start,
     pause,
     toggleVoice,
