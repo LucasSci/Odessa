@@ -57,6 +57,7 @@ import type { AiDecision, AiIntentType } from './core/aiDecisionContract';
 import { EMPTY_AI_DECISION, callAiDecision, checkingAiDecision } from './core/aiDecisionContract';
 import type { PersonaDecision } from './types';
 import { applyVideoEdit, type VideoSegment } from './core/videoEdits';
+import { getAiConfig, hasActiveGeminiKey, type AiAutonomyLevel } from './core/aiConfig';
 import type { LogEntry } from './components/DebugLogPanel';
 import { buildOcrEvent } from './core/ocrEventContract';
 import type { OcrEvent, OcrEventType } from './core/ocrEventContract';
@@ -869,12 +870,11 @@ export default function OdessaLiveCenter({
   }, [runtime.autopilotEnabled, runtime.latestDecision]);
 
   return (
-    <main className="odessa-shell flex h-screen w-screen min-h-0 flex-col overflow-hidden text-[var(--t1)]">
-      <header className="odsa-header">
-        {/* Brand */}
+    <main className="odessa-shell odsa-v2 flex h-screen w-screen min-h-0 overflow-hidden text-[var(--t1)]">
+      {/* Sidebar (desktop) — navegação agrupada + card fixo da Diretora */}
+      <aside className="odsa-sidebar hidden lg:flex">
         <div className="odsa-brand">
           <span className="odsa-brand-mark">
-            {/* Odessa orbital ring + satellite — matches the production icon */}
             <svg viewBox="0 0 1024 1024" aria-label="Odessa" style={{ width: 28, height: 28 }}>
               <defs>
                 <linearGradient id="oring" x1="256" y1="208" x2="792" y2="832" gradientUnits="userSpaceOnUse">
@@ -894,24 +894,41 @@ export default function OdessaLiveCenter({
           </span>
           <div className="odsa-brand-text">
             <div className="odsa-brand-name">Odessa</div>
-            <div className="odsa-brand-sub">Live Direction Desk</div>
+            <div className="odsa-brand-sub">Studio</div>
           </div>
         </div>
 
-        {/* Navigation tabs (desktop) */}
-        <div className="hidden lg:block">
-          <nav className="odsa-tabs">
-            <NavButton icon={<Home />}       label="Início"       active={activeTab === 'home'}     onClick={() => setActiveTab('home')} />
-            <NavButton icon={<Video />}      label="Palco"        active={activeTab === 'stage'}    onClick={() => setActiveTab('stage')} />
-            <NavButton icon={<Brain />}      label="IA"           active={activeTab === 'ai'}       onClick={() => setActiveTab('ai')} />
-            <NavButton icon={<Link2 />}      label="Fluxo Reativo" active={activeTab === 'flow'}   onClick={() => setActiveTab('flow')} />
-            <NavButton icon={<StickyNote />} label="Mural"        active={activeTab === 'canvas'}   onClick={() => setActiveTab('canvas')} />
-            <NavButton icon={<Film />}       label="Biblioteca"   active={activeTab === 'library'}  onClick={() => setActiveTab('library')} />
-            <NavButton icon={<Camera />}     label="Fontes / OCR" active={activeTab === 'sources'}  onClick={() => setActiveTab('sources')} />
-            <NavButton icon={<ListVideo />}  label="Logs"         active={activeTab === 'logs'}     onClick={() => setActiveTab('logs')} />
-            <NavButton icon={<Settings />}   label="Config"       active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
-          </nav>
-        </div>
+        <nav className="odsa-side-nav">
+          <div className="odsa-nav-group">
+            <span className="odsa-nav-label">Operação</span>
+            <SideNavButton icon={<Home />}       label="Início"       active={activeTab === 'home'}     onClick={() => setActiveTab('home')} />
+            <SideNavButton icon={<Video />}      label="Palco"        active={activeTab === 'stage'}    onClick={() => setActiveTab('stage')} />
+            <SideNavButton icon={<Brain />}      label="Diretora IA"  active={activeTab === 'ai'}       onClick={() => setActiveTab('ai')} />
+          </div>
+          <div className="odsa-nav-group">
+            <span className="odsa-nav-label">Conteúdo</span>
+            <SideNavButton icon={<Film />}       label="Biblioteca"   active={activeTab === 'library'}  onClick={() => setActiveTab('library')} />
+            <SideNavButton icon={<Link2 />}      label="Fluxo"        active={activeTab === 'flow'}     onClick={() => setActiveTab('flow')} />
+            <SideNavButton icon={<StickyNote />} label="Mural"        active={activeTab === 'canvas'}   onClick={() => setActiveTab('canvas')} />
+          </div>
+          <div className="odsa-nav-group">
+            <span className="odsa-nav-label">Sistema</span>
+            <SideNavButton icon={<Camera />}     label="Fontes / OCR" active={activeTab === 'sources'}  onClick={() => setActiveTab('sources')} />
+            <SideNavButton icon={<ListVideo />}  label="Logs"         active={activeTab === 'logs'}     onClick={() => setActiveTab('logs')} />
+            <SideNavButton icon={<Settings />}   label="Config"       active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+          </div>
+        </nav>
+
+        <DirectorStatusCard runtime={runtime} onOpen={() => setActiveTab('ai')} />
+      </aside>
+
+      {/* Coluna principal: topbar + conteúdo */}
+      <div className="odsa-main flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="odsa-topbar">
+          <div className="odsa-topbar-title">
+            <span className="odsa-crumb">{TAB_META[activeTab].group}</span>
+            <h1>{TAB_META[activeTab].title}</h1>
+          </div>
 
         {/* Right side: status + CTA */}
         <div className="odsa-header-end">
@@ -1086,6 +1103,7 @@ export default function OdessaLiveCenter({
           />
         )}
       </section>
+      </div>
     </main>
   );
 }
@@ -2705,6 +2723,63 @@ function NavButton({
       </span>
       {label}
     </button>
+  );
+}
+
+// Metadados de cada aba para o cabeçalho/sidebar (redesign Studio 2.0).
+const TAB_META: Record<TabKey, { group: string; title: string }> = {
+  home:     { group: 'Operação', title: 'Início' },
+  stage:    { group: 'Operação', title: 'Palco' },
+  ai:       { group: 'Operação', title: 'Diretora IA' },
+  flow:     { group: 'Conteúdo', title: 'Fluxo Reativo' },
+  canvas:   { group: 'Conteúdo', title: 'Mural' },
+  library:  { group: 'Conteúdo', title: 'Biblioteca' },
+  sources:  { group: 'Sistema',  title: 'Fontes / OCR' },
+  logs:     { group: 'Sistema',  title: 'Logs' },
+  settings: { group: 'Sistema',  title: 'Config' },
+};
+
+function SideNavButton({ icon, label, active, onClick }: { icon: ReactNode; label: string; active: boolean; onClick: () => void; }) {
+  return (
+    <button onClick={onClick} className={cn('odsa-side-item', active && 'is-active')}>
+      <span className="odsa-side-ico [&_svg]:h-[17px] [&_svg]:w-[17px] [&_svg]:stroke-[1.75]">{icon}</span>
+      {label}
+    </button>
+  );
+}
+
+const AUTONOMY_LABEL: Record<AiAutonomyLevel, string> = { manual: 'Manual', assistido: 'Assistido', auto: 'Autônomo' };
+
+/** Card fixo da Diretora na sidebar — estado ao vivo, provedor e autonomia. */
+function DirectorStatusCard({ runtime, onOpen }: { runtime: AutopilotRuntimeState; onOpen: () => void; }) {
+  const provider = getAiConfig().provider;
+  const live = runtime.autopilotEnabled;
+  const mode = provider === 'mock' ? 'mock' : hasActiveGeminiKey() ? 'gemini' : 'nokey';
+  const providerPill = mode === 'gemini' ? 'Gemini' : mode === 'mock' ? 'Mock' : 'Sem chave';
+  const meta = live
+    ? 'No ar · conduzindo a live.'
+    : mode === 'gemini' ? 'Pronta · IA real (Gemini).'
+    : mode === 'mock' ? 'Conduzindo por regras locais.'
+    : 'Sem chave — regras locais.';
+  return (
+    <div className="odsa-director-card" onClick={onOpen} role="button" tabIndex={0}>
+      <div className="odsa-dc-top">
+        <span className={cn('odsa-dc-dot', live ? 'is-live' : 'is-warn')} />
+        <span className="odsa-dc-title">Diretora</span>
+        <span className={cn('odsa-dc-pill', mode === 'gemini' ? 'is-violet' : 'is-gold')}>{providerPill}</span>
+      </div>
+      <div className="odsa-dc-meta">{meta}</div>
+      <div className="odsa-dc-row">
+        <span className="odsa-dc-pill is-violet">{AUTONOMY_LABEL[runtime.autonomyLevel]}</span>
+        <button
+          className="odsa-dc-btn"
+          onClick={(e) => { e.stopPropagation(); if (live) runtime.pause(); else runtime.start(); }}
+        >
+          {live ? <Pause style={{ width: 12, height: 12 }} /> : <Play style={{ width: 12, height: 12 }} />}
+          {live ? 'Pausar' : 'Iniciar'}
+        </button>
+      </div>
+    </div>
   );
 }
 

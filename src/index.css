@@ -38,6 +38,9 @@
   --gold: #7dd3fc;
   --lavender: #fb7185;
   --lime: #bef264;
+  --violet: #8b7cf6;
+  --accent-grad: linear-gradient(135deg, #8b7cf6 0%, #46c2f0 100%);
+  --accent-soft: linear-gradient(135deg, rgba(139,124,246,0.16), rgba(70,194,240,0.14));
   --surface-strong: #1f1f25;
   --grad-live: linear-gradient(135deg, var(--sky) 0%, var(--rose) 100%);
   --grad-shell:
@@ -1457,3 +1460,67 @@
 .green-text { color: var(--green); }
 .amber-text { color: var(--amber); }
 .no-shrink  { flex-shrink: 0; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Studio 2.0 — Sidebar shell + topbar + Diretora card (redesign)
+   ════════════════════════════════════════════════════════════════════════ */
+.odsa-v2 { flex-direction: row; }
+
+.odsa-sidebar {
+  width: 250px; flex-shrink: 0; display: flex; flex-direction: column;
+  padding: 16px 12px; gap: 4px;
+  border-right: 1px solid var(--border2);
+  background: linear-gradient(180deg, rgba(255,255,255,0.018), transparent 40%);
+}
+.odsa-sidebar .odsa-brand { padding: 6px 8px 14px; }
+.odsa-sidebar .odsa-brand-name { font-family: var(--font-display); font-size: 22px; line-height: 1; }
+.odsa-sidebar .odsa-brand-sub { font-size: 9px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--t3); margin-top: 2px; }
+
+.odsa-side-nav { display: flex; flex-direction: column; gap: 14px; overflow-y: auto; flex: 1; padding-bottom: 8px; }
+.odsa-nav-group { display: flex; flex-direction: column; gap: 2px; }
+.odsa-nav-label { font-size: 9.5px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--t3); font-weight: 600; padding: 0 10px 6px; }
+.odsa-side-item {
+  display: flex; align-items: center; gap: 11px;
+  padding: 9px 11px; border-radius: 11px; color: var(--t2);
+  font-size: 13.5px; font-weight: 500; cursor: pointer; text-align: left;
+  border: 1px solid transparent; background: transparent; transition: all .15s;
+}
+.odsa-side-item:hover { background: rgba(255,255,255,0.04); color: var(--t1); }
+.odsa-side-item.is-active { background: var(--accent-soft); color: #fff; border-color: rgba(139,124,246,0.34); }
+.odsa-side-ico { display: grid; place-items: center; opacity: .85; color: var(--t2); }
+.odsa-side-item.is-active .odsa-side-ico { color: var(--violet); opacity: 1; }
+
+/* Diretora card */
+.odsa-director-card {
+  border: 1px solid var(--border2); border-radius: 16px; padding: 13px; cursor: pointer;
+  background: linear-gradient(160deg, rgba(139,124,246,0.10), rgba(70,194,240,0.05));
+  transition: border-color .15s;
+}
+.odsa-director-card:hover { border-color: rgba(139,124,246,0.4); }
+.odsa-dc-top { display: flex; align-items: center; gap: 8px; }
+.odsa-dc-dot { width: 8px; height: 8px; border-radius: 50%; }
+.odsa-dc-dot.is-live { background: var(--green); box-shadow: 0 0 0 4px rgba(52,211,153,0.18); }
+.odsa-dc-dot.is-warn { background: var(--amber); box-shadow: 0 0 0 4px rgba(251,191,36,0.16); }
+.odsa-dc-title { font-size: 12.5px; font-weight: 600; }
+.odsa-dc-pill { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 8px; text-transform: uppercase; letter-spacing: 0.04em; }
+.odsa-dc-pill.is-violet { background: rgba(139,124,246,0.18); color: #c4bbfb; }
+.odsa-dc-pill.is-gold { background: rgba(251,191,36,0.16); color: var(--amber); }
+.odsa-dc-top .odsa-dc-pill { margin-left: auto; }
+.odsa-dc-meta { font-size: 11px; color: var(--t2); margin-top: 8px; line-height: 1.45; }
+.odsa-dc-row { display: flex; align-items: center; gap: 6px; margin-top: 11px; }
+.odsa-dc-btn { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 5px 11px; border-radius: 9px; border: none; cursor: pointer; background: var(--accent-grad); color: #fff; }
+
+/* Main column + topbar */
+.odsa-main { background: transparent; }
+.odsa-topbar {
+  position: relative; height: 62px; flex-shrink: 0; display: flex; align-items: center;
+  justify-content: space-between; gap: 16px; padding: 0 22px;
+  border-bottom: 1px solid var(--border);
+}
+.odsa-topbar-title { display: flex; flex-direction: column; gap: 1px; }
+.odsa-crumb { font-size: 11px; color: var(--t3); }
+.odsa-topbar-title h1 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+
+/* Active accent nudge for the existing in-content tab pills */
+.od-tab.is-active, .odsa-tab.is-active { box-shadow: inset 0 -2px 0 var(--violet); }
+
