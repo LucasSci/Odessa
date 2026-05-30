@@ -453,6 +453,115 @@ export async function callGeminiText(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Designer de fluxo reativo — auto-montagem com IA
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type FlowProposalReaction = {
+  videoId: string;
+  eventType?: 'gift' | 'comment' | 'follow' | 'alert';
+  giftKey?: string | null;
+  keyword?: string | null;
+  returnToIdle?: boolean;
+  reason?: string;
+};
+export type FlowProposal = {
+  idleVideoId: string | null;
+  reactions: FlowProposalReaction[];
+};
+
+const FLOW_DESIGNER_PROMPT = `\
+Você projeta o FLUXO REATIVO de uma live TikTok com uma persona em vídeo.
+Recebe a biblioteca de VÍDEOS e os PRESENTES disponíveis.
+
+Tarefa:
+1) Escolha o vídeo IDLE (loop de espera — o mais neutro/parado, ou um que tenha "idle/loop/base" no nome).
+2) Para cada PRESENTE relevante, escolha o MELHOR vídeo de reação combinando por SIGNIFICADO
+   (nome/tags/descrição — em qualquer idioma).
+3) Adicione de 2 a 5 reações por PALAVRA-CHAVE de chat comuns (saudação "oi"/"hello", elogio
+   "linda"/"love", pergunta) ligadas ao vídeo mais adequado.
+
+Responda SOMENTE com JSON válido (sem markdown, sem texto fora do JSON):
+{"idleVideoId":"<id>","reactions":[{"videoId":"<id EXATO>","eventType":"gift"|"comment","giftKey":"<key EXATA>"|null,"keyword":"<palavra>"|null,"returnToIdle":true,"reason":"<curto>"}]}
+
+Regras:
+- Use ids de vídeo e keys de presente EXATAMENTE como nas listas.
+- Presente → eventType "gift" + giftKey (e keyword null). Palavra-chave → eventType "comment" + keyword (e giftKey null).
+- NUNCA use o vídeo idle como reação. No máximo uma reação por presente.
+- returnToIdle sempre true.`;
+
+function buildFlowDesignerMessage(ctx: {
+  videos: Array<{ id: string; label?: string; tags?: string[]; description?: string }>;
+  gifts: Array<{ key: string; name: string }>;
+}): string {
+  const vids = ctx.videos.slice(0, 60).map((v) => {
+    const extra = [v.tags?.length ? `tags:[${v.tags.join(',')}]` : '', v.description ? `desc:"${v.description.slice(0, 80)}"` : '']
+      .filter(Boolean).join(' ');
+    return `  - id:"${v.id}" label:"${v.label || v.id}"${extra ? ` ${extra}` : ''}`;
+  }).join('\n');
+  const gifts = ctx.gifts.slice(0, 60).map((g) => `  - key:"${g.key}" nome:"${g.name}"`).join('\n');
+  return `VÍDEOS:\n${vids || '  (nenhum)'}\n\nPRESENTES:\n${gifts || '  (nenhum)'}`;
+}
+
+function parseFlowProposal(raw: string): FlowProposal | null {
+  let parsed: Record<string, unknown>;
+  try {
+    const clean = (raw || '').replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '').trim();
+    parsed = JSON.parse(clean) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  const rawReactions = Array.isArray(parsed.reactions) ? parsed.reactions : [];
+  const reactions: FlowProposalReaction[] = rawReactions
+    .filter((r): r is Record<string, unknown> => Boolean(r) && typeof r === 'object' && typeof (r as Record<string, unknown>).videoId === 'string')
+    .map((r) => ({
+      videoId: String(r.videoId),
+      eventType: (['gift', 'comment', 'follow', 'alert'] as const).includes(r.eventType as never) ? (r.eventType as FlowProposalReaction['eventType']) : 'gift',
+      giftKey: typeof r.giftKey === 'string' ? r.giftKey : null,
+      keyword: typeof r.keyword === 'string' ? r.keyword : null,
+      returnToIdle: r.returnToIdle !== false,
+      reason: typeof r.reason === 'string' ? r.reason.slice(0, 120) : undefined,
+    }));
+  return {
+    idleVideoId: typeof parsed.idleVideoId === 'string' ? parsed.idleVideoId : null,
+    reactions,
+  };
+}
+
+/**
+ * Pede à IA (Gemini direto) um fluxo reativo completo a partir da biblioteca de
+ * vídeos e presentes. Retorna null se não houver chave de IA.
+ */
+export async function callFlowDesigner(ctx: {
+  videos: Array<{ id: string; label?: string; tags?: string[]; description?: string }>;
+  gifts: Array<{ key: string; name: string }>;
+}): Promise<FlowProposal | null> {
+  const apiKey = getEffectiveGeminiKey();
+  if (!apiKey) return null;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  const body = {
+    system_instruction: { parts: [{ text: FLOW_DESIGNER_PROMPT }] },
+    contents: [{ role: 'user', parts: [{ text: buildFlowDesignerMessage(ctx) }] }],
+    generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 1400, temperature: 0.3 },
+  };
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 120)}`);
+  }
+  const data = (await res.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
+  if (!raw) throw new Error('IA retornou resposta vazia');
+  return parseFlowProposal(raw);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Ponto de entrada principal
 // ─────────────────────────────────────────────────────────────────────────────
 

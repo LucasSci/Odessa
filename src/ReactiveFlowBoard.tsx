@@ -32,6 +32,7 @@ import {
   RefreshCw,
   Save,
   Scissors,
+  Sparkles,
   Trash2,
   Upload,
   Video,
@@ -43,6 +44,7 @@ import { type GiftCatalogEntry, loadGiftCatalog } from './core/giftCatalog';
 import { loadRulesFromFlowTriggers } from './core/giftEventBus';
 import { ANY_GIFT_KEY, giftLabel } from './core/knownGifts';
 import { apiUrl } from './lib/api';
+import { callFlowDesigner } from './core/aiDecisionContract';
 import { cn } from './lib/utils';
 
 type VideoEntry = {
@@ -485,6 +487,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   const [giftCatalog, setGiftCatalog] = useState<GiftCatalogEntry[]>([]);
   const [giftCatalogOpen, setGiftCatalogOpen] = useState(false);
   const [schedulesOpen, setSchedulesOpen] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
   const [nodes, setNodes, onNodesChange] = useNodesState<VideoFlowNodeType>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
@@ -896,6 +899,128 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     setSelectedNodeId(flowNode.nodeId);
     setSelectedEdgeId('');
   }, [idleVideoId, nodes.length, setNodes, updateConfig]);
+
+  // ── Auto-montagem do fluxo com IA (Gemini) ─────────────────────────────────
+  // A IA recebe a biblioteca de vídeos + presentes e propõe as melhores
+  // conexões (idle → reação) por significado. O resultado entra como RASCUNHO
+  // (nada é salvo até "Salvar rascunho"), então é seguro descartar ("Recarregar").
+  const generateFlowWithAi = useCallback(async () => {
+    if (!config) return;
+    if (videos.length === 0) {
+      setStatusMessage('Adicione vídeos à biblioteca antes de gerar o fluxo.');
+      return;
+    }
+    setAiGenerating(true);
+    setStatusMessage('IA analisando vídeos e presentes…');
+    try {
+      const proposal = await callFlowDesigner({
+        videos: videos.map((v) => ({
+          id: v.id,
+          label: shortVideo(v),
+          tags: (v as { tags?: string[] }).tags,
+          description: (v as { description?: string }).description,
+        })),
+        gifts: giftCatalog.map((g) => ({ key: g.key, name: g.name })),
+      });
+      if (!proposal) {
+        setStatusMessage('Configure a chave da IA (Gemini) na aba IA para gerar o fluxo automaticamente.');
+        return;
+      }
+
+      const hasVideo = (id?: string | null): id is string => Boolean(id && videos.some((v) => v.id === id));
+      const idleVideoId = hasVideo(proposal.idleVideoId)
+        ? proposal.idleVideoId
+        : hasVideo(config.idleVideoId)
+          ? config.idleVideoId
+          : videos[0].id;
+
+      const reactions = (proposal.reactions || []).filter((r) => hasVideo(r.videoId) && r.videoId !== idleVideoId);
+      if (reactions.length === 0) {
+        setStatusMessage('A IA não encontrou reações adequadas. Adicione mais vídeos/tags ou presentes e tente de novo.');
+        return;
+      }
+
+      const nodeVideoIds = Array.from(new Set<string>([idleVideoId, ...reactions.map((r) => r.videoId)]));
+      const existingByVideo = new Map((config.flowNodes || []).map((n) => [n.videoId, n] as const));
+      const flowNodes: FlowNode[] = nodeVideoIds.map(
+        (vid, i) => existingByVideo.get(vid) || makeFlowNode(findVideo(videos, vid) || placeholderVideo(vid), i),
+      );
+      const nodeByVideo = new Map(flowNodes.map((n) => [n.videoId, n] as const));
+      const idleNode = nodeByVideo.get(idleVideoId);
+      if (!idleNode) {
+        setStatusMessage('Não foi possível montar o nó idle. Tente novamente.');
+        return;
+      }
+
+      const triggers: TriggerEntry[] = [];
+      const flowConnections: FlowConnection[] = [];
+      reactions.forEach((r, idx) => {
+        const toNode = nodeByVideo.get(r.videoId);
+        if (!toNode || toNode.nodeId === idleNode.nodeId) return;
+        const eventType = r.eventType === 'comment' ? 'comment' : 'gift';
+        const conditions =
+          eventType === 'comment'
+            ? { keyword: (r.keyword || '').trim() || 'oi' }
+            : { giftKey: (r.giftKey && r.giftKey.trim()) || ANY_GIFT_KEY };
+        const triggerId = `trigger-ai-${Date.now()}-${idx}`;
+        triggers.push({
+          id: triggerId,
+          name: `Quando ${nodeTitle(toNode, findVideo(videos, toNode.videoId))}`,
+          enabled: true,
+          eventType,
+          conditions,
+          actions: [
+            {
+              type: 'play_video',
+              nodeId: toNode.nodeId,
+              videoId: toNode.videoId,
+              playback: playbackFrom(toNode.playback),
+              audio: audioFrom(toNode.audio),
+              returnToIdle: r.returnToIdle !== false,
+            },
+          ],
+          priority: 1,
+          cooldown_ms: 2500,
+        });
+        flowConnections.push({
+          id: `flow-${triggerId}`,
+          fromNodeId: idleNode.nodeId,
+          toNodeId: toNode.nodeId,
+          fromVideoId: idleNode.videoId,
+          toVideoId: toNode.videoId,
+          triggerId,
+          returnToIdle: r.returnToIdle !== false,
+        });
+      });
+
+      const nextConfig: PersonaConfig = {
+        ...config,
+        idleVideoId,
+        videos: config.videos.map((v) => ({ ...v, loop: v.id === idleVideoId })),
+        flowNodes,
+        flowConnections,
+        triggers,
+        action_map: { ...(config.action_map || {}), idle: [idleVideoId] },
+      };
+
+      setConfig(nextConfig);
+      setNodes(
+        flowNodes.map((fn) =>
+          makeNode(fn, findVideo(nextConfig.videos, fn.videoId) || placeholderVideo(fn.videoId), idleVideoId, null),
+        ),
+      );
+      setEdges(flowConnections.map((c) => makeEdge(c, triggers.find((t) => t.id === c.triggerId), null, animateFlow)));
+      setSelectedNodeId('');
+      setSelectedEdgeId('');
+      setStatusMessage(
+        `IA montou ${flowConnections.length} conexão(ões) a partir de ${videos.length} vídeos. Revise e clique em "Salvar rascunho" para aplicar — ou "Recarregar" para descartar.`,
+      );
+    } catch (err) {
+      setStatusMessage(err instanceof Error ? `Falha ao gerar fluxo: ${err.message}` : 'Falha ao gerar fluxo com IA');
+    } finally {
+      setAiGenerating(false);
+    }
+  }, [config, videos, giftCatalog, animateFlow, setEdges, setNodes]);
 
   const setIdleFromNode = (nodeId: string) => {
     const idleNode = nodeById.get(nodeId);
@@ -1578,6 +1703,16 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
             <Button onClick={toggleAnimateFlow} variant={animateFlow ? 'success' : 'secondary'}>
               <Eye className="h-4 w-4" />
               Fluxo
+            </Button>
+            <Button
+              onClick={() => void generateFlowWithAi()}
+              loading={aiGenerating}
+              variant="secondary"
+              className="border-violet-400/30 bg-violet-500/15 text-violet-100 hover:bg-violet-500/25"
+              title="A IA monta as conexões do fluxo automaticamente a partir dos seus vídeos e presentes"
+            >
+              <Sparkles className="h-4 w-4" />
+              Gerar com IA
             </Button>
             <Button onClick={loadConfig} variant="secondary">
               <RefreshCw className="h-4 w-4" />
