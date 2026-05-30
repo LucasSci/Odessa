@@ -3987,7 +3987,6 @@ function StagePanel({
   }, []);
   // ── Validation panel ────────────────────────────────────────────────────────
   const [showValidation, setShowValidation] = useState(false);
-  const [showCutsEditor, setShowCutsEditor] = useState(false);
   const [selectedClipId, setSelectedClipId] = useState('');
   const [selectedConnectionId, setSelectedConnectionId] = useState('');
   const [previewMessage, setPreviewMessage] = useState<string | null>(null);
@@ -4324,46 +4323,13 @@ function StagePanel({
         </div>
       </div>
 
-      {/* Editor de cortes */}
-      <div className="odessa-panel-surface p-4">
-        <div className="flex items-center gap-2">
-          <Scissors style={{ width: 15, height: 15 }} className="text-[var(--violet)]" />
-          <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Editor de cortes</span>
-          <span className="truncate text-xs text-slate-500">· {activeClipLabel}</span>
-          <button className="odsa-btn odsa-btn-primary odsa-btn-md ml-auto" disabled={!activeClip?.videoId} onClick={() => setShowCutsEditor(true)}>
-            <Scissors style={{ width: 14, height: 14 }} /> Abrir editor
-          </button>
-        </div>
-        <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_240px]">
-          <div>
-            <div className="relative h-14 overflow-hidden rounded-lg border border-white/10 bg-[#0a0b0d]">
-              {(() => {
-                const segs = activeClip?.segments || [];
-                if (segs.length === 0) return <div className="absolute inset-0 grid place-items-center text-[11px] text-slate-600">Vídeo inteiro (sem corte) — abra o editor para recortar trechos</div>;
-                const total = Math.max(activeClip?.endSec ?? segs[segs.length - 1].endSec ?? 1, 1);
-                return segs.map((seg, i) => (
-                  <div key={i} className="absolute top-0 h-full border-x-2 border-[var(--sky)]" style={{ left: `${(seg.startSec / total) * 100}%`, width: `${((seg.endSec - seg.startSec) / total) * 100}%`, background: 'rgba(125,211,252,0.16)' }} />
-                ));
-              })()}
-            </div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {(activeClip?.segments || []).map((seg, i) => (
-                <span key={i} className="rounded bg-[#171a1f] px-2 py-0.5 text-[10px] font-mono text-slate-400">#{i + 1} · {formatClipTime(seg.startSec)}→{formatClipTime(seg.endSec)}</span>
-              ))}
-            </div>
-          </div>
-          <div className="text-xs leading-relaxed text-slate-500">
-            Áudio: <b className="text-slate-300">{activeClip?.audio?.mode || 'mudo'}</b> · volume {Math.round((activeClip?.audio?.volume ?? 1) * 100)}%<br />
-            Transição: <b className="text-slate-300">{activeClip?.transitionMs ?? 220}ms</b><br />
-            <span className="text-slate-600">As edições valem sempre que o vídeo tocar — inclusive quando a Diretora o escolhe.</span>
-          </div>
-        </div>
-      </div>
-
-      {showCutsEditor && activeClip?.videoId && (
-        <Suspense fallback={null}>
-          <VideoEditor videoId={activeClip.videoId} label={activeClipLabel} onClose={() => { setShowCutsEditor(false); onRefresh(); }} />
+      {/* Editor de cortes — embutido na página (sem modal) */}
+      {activeClip?.videoId ? (
+        <Suspense fallback={<div className="odessa-panel-surface p-4 text-xs text-slate-500">Carregando editor…</div>}>
+          <VideoEditor embedded key={activeClip.videoId} videoId={activeClip.videoId} label={activeClipLabel} />
         </Suspense>
+      ) : (
+        <div className="odessa-panel-surface p-4 text-xs text-slate-500">Coloque um vídeo no ar para editar os cortes aqui.</div>
       )}
     </div>
   );
