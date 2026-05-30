@@ -49,6 +49,7 @@ import type { CapturedMessage } from './types';
 import { Badge, Button, Card, ConfirmButton, Input, StatusDot, Tooltip } from './components/ui';
 import { AiDecisionPanel } from './components/AiDecisionPanel';
 import { AiConfigPanel } from './components/AiConfigPanel';
+import VideoEditor from './components/VideoEditor';
 import { DebugLogPanel, logEntry } from './components/DebugLogPanel';
 import { StatusBadge, deriveStageStatus } from './components/StatusBadge';
 import { ValidationChecklist, buildFlowValidationChecks } from './components/ValidationChecklist';
@@ -66,7 +67,8 @@ import type { OcrEvent, OcrEventType } from './core/ocrEventContract';
 const CaptureStudio = lazy(() => import('./CaptureStudio'));
 const ReactiveFlowBoard = lazy(() => import('./ReactiveFlowBoard'));
 const PlanningCanvas = lazy(() => import('./PlanningCanvas'));
-const VideoEditor = lazy(() => import('./components/VideoEditor'));
+// VideoEditor é importado de forma normal (não-lazy): no Palco o stream de vídeo
+// ao vivo segura conexões HTTP/1.1 e o chunk lazy ficava "pending" para sempre.
 
 // ─── Gift detection ───────────────────────────────────────────────────────────
 // isGiftEvent is imported from ocrPipeline — single source of truth.
