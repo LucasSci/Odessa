@@ -1,0 +1,4 @@
+## 2026-05-30 - Fix Path Traversal in FileResponse catch-all route
+**Vulnerability:** A critical Local File Inclusion (LFI) vulnerability existed in `server/main.py` where a catch-all route `/{full_path:path}` used `FileResponse(dist_dir / full_path)` without proper boundary checks.
+**Learning:** `FileResponse` in FastAPI does not provide built-in directory boundary checks like `StaticFiles` does. Concatenating user input with a base directory using pathlib and passing it directly to `FileResponse` allows an attacker to access sensitive system files via path traversal (`../`).
+**Prevention:** When manually serving static files or dynamic paths using `FileResponse`, always resolve the path and verify it is within the intended base directory using `path.resolve().is_relative_to(base_dir.resolve())`.
