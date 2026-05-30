@@ -55,6 +55,13 @@ export type AiLocalConfig = {
   confidenceThreshold: number;
   /** Quanto a Diretora pode executar sozinha. Padrão: 'assistido'. */
   autonomyLevel: AiAutonomyLevel;
+  /**
+   * URL da "ponte" que encaminha as chamadas à Gemini (ex.: um Cloudflare
+   * Worker). O browser não consegue chamar a Gemini direto (o Google não
+   * responde o preflight CORS), então a ponte faz isso. '' = tenta o
+   * proxy do próprio servidor (/api/ai/gemini).
+   */
+  geminiProxyUrl: string;
 };
 
 const DEFAULTS: AiLocalConfig = {
@@ -63,6 +70,7 @@ const DEFAULTS: AiLocalConfig = {
   provider: 'auto',
   confidenceThreshold: 0.65,
   autonomyLevel: 'assistido',
+  geminiProxyUrl: '',
 };
 
 function readRaw(): Partial<AiLocalConfig> {
@@ -90,7 +98,14 @@ export function getAiConfig(): AiLocalConfig {
     autonomyLevel: (['manual','assistido','auto'] as AiAutonomyLevel[]).includes(stored.autonomyLevel as AiAutonomyLevel)
       ? (stored.autonomyLevel as AiAutonomyLevel)
       : DEFAULTS.autonomyLevel,
+    geminiProxyUrl: typeof stored.geminiProxyUrl === 'string' ? stored.geminiProxyUrl.trim() : DEFAULTS.geminiProxyUrl,
   };
+}
+
+/** URL efetiva da ponte Gemini (vazio = usa o proxy do próprio servidor). */
+export function getGeminiProxyUrl(): string {
+  const buildUrl = (import.meta.env as Record<string, string>).VITE_GEMINI_PROXY_URL ?? '';
+  return (buildUrl || getAiConfig().geminiProxyUrl || '').trim();
 }
 
 /** Persiste uma atualização parcial. */

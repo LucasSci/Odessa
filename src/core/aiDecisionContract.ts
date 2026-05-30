@@ -10,7 +10,7 @@
 
 import type { OcrEvent } from './ocrEventContract';
 import type { LiveEvent } from '../types';
-import { getEffectiveGeminiKey, getEffectiveSystemPrompt, getAiConfig, hasActiveGeminiKey } from './aiConfig';
+import { getEffectiveGeminiKey, getEffectiveSystemPrompt, getAiConfig, hasActiveGeminiKey, getGeminiProxyUrl } from './aiConfig';
 import { apiUrl } from '../lib/api';
 
 export type AiStatus = 'offline' | 'simulated' | 'online' | 'checking';
@@ -206,13 +206,25 @@ function sanitizeAiDecision(raw: string, event: OcrEvent): AiDecision | null {
 async function geminiGenerate(payload: Record<string, unknown>): Promise<string | null> {
   const apiKey = getEffectiveGeminiKey();
   if (!apiKey) return null;
-  const res = await fetch(apiUrl('/ai/gemini'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key: apiKey, model: GEMINI_MODEL, payload }),
-    credentials: 'include',
-    signal: AbortSignal.timeout(25_000),
-  });
+  const reqBody = JSON.stringify({ key: apiKey, model: GEMINI_MODEL, payload });
+  const proxyUrl = getGeminiProxyUrl();
+  // Ponte externa (ex.: Cloudflare Worker) quando configurada; senão, o proxy
+  // do próprio servidor (mesma origem). O browser não chama a Gemini direto.
+  const res = proxyUrl
+    ? await fetch(proxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: reqBody,
+        credentials: 'omit',
+        signal: AbortSignal.timeout(25_000),
+      })
+    : await fetch(apiUrl('/ai/gemini'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: reqBody,
+        credentials: 'include',
+        signal: AbortSignal.timeout(25_000),
+      });
   if (!res.ok) {
     const errText = await res.text().catch(() => `HTTP ${res.status}`);
     throw new Error(`Gemini ${res.status}: ${errText.slice(0, 180)}`);

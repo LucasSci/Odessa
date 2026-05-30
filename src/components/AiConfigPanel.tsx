@@ -191,6 +191,15 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
   const [threshold, setThreshold] = useState(cfg.confidenceThreshold);
   const [thresholdSaved, setThresholdSaved] = useState(false);
 
+  // ── Ponte da IA (proxy externo, ex.: Cloudflare Worker) ─────────────────────
+  const [proxyInput, setProxyInput] = useState(cfg.geminiProxyUrl || '');
+  const [proxySaved, setProxySaved] = useState(false);
+  const handleSaveProxy = () => {
+    saveAiConfig({ geminiProxyUrl: proxyInput.trim() });
+    setProxySaved(true);
+    window.setTimeout(() => setProxySaved(false), 1500);
+  };
+
   // ── Test section ───────────────────────────────────────────────────────────
   const [testInput, setTestInput] = useState('');
   const [testDecision, setTestDecision] = useState<AiDecision | null>(null);
@@ -917,6 +926,28 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
               >
                 {keySaved ? <><CheckCircle className="h-3.5 w-3.5 mr-1" />Salvo!</> : 'Salvar'}
               </Button>
+            </div>
+
+            {/* Ponte da IA — encaminha as chamadas à Gemini (o browser não chama direto) */}
+            <div className="mt-4 border-t border-white/8 pt-3">
+              <p className="text-[11px] text-slate-400">
+                <strong className="text-slate-200">Ponte da IA</strong> — link que repassa as chamadas à Gemini
+                (ex.: um <span className="text-violet-300">Cloudflare Worker</span>). O navegador não consegue
+                falar com a Gemini direto, então a ponte faz isso. Deixe vazio para usar o servidor.
+              </p>
+              <div className="mt-2 flex gap-2">
+                <Input
+                  label=""
+                  value={proxyInput}
+                  onChange={(e) => setProxyInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSaveProxy()}
+                  placeholder="https://...workers.dev"
+                  className="flex-1 font-mono text-xs"
+                />
+                <Button variant="primary" size="sm" onClick={handleSaveProxy} className="shrink-0">
+                  {proxySaved ? <><CheckCircle className="h-3.5 w-3.5 mr-1" />Salvo!</> : 'Salvar'}
+                </Button>
+              </div>
             </div>
           </SectionCard>
 
