@@ -58,6 +58,7 @@ import { EMPTY_AI_DECISION, callAiDecision, checkingAiDecision } from './core/ai
 import type { PersonaDecision } from './types';
 import { applyVideoEdit, getVideoEdit, saveVideoEdit, defaultVideoEdit, type VideoSegment } from './core/videoEdits';
 import { getAiConfig, hasActiveGeminiKey, type AiAutonomyLevel } from './core/aiConfig';
+import { globalMoodEngine } from './core/moodEngine';
 import type { LogEntry } from './components/DebugLogPanel';
 import { buildOcrEvent } from './core/ocrEventContract';
 import type { OcrEvent, OcrEventType } from './core/ocrEventContract';
@@ -2842,6 +2843,110 @@ function HomeDashboard({
         ? clipFromVideoId(view.idleVideoId, view.videos)
         : null);
 
+  const homeDecision = runtime.latestDecision;
+  const homeMood = globalMoodEngine.getCurrentMood();
+  const homeMoodLabel = ({ cozy: 'Aconchego', hype: 'Hype', focused: 'Focada', chaotic: 'Caótica' } as Record<string, string>)[homeMood.state] || 'Calma';
+  const homeStats = [
+    { v: view.activeTriggers.length, l: 'Gatilhos ativos', accent: true },
+    { v: videoState?.queue_len ?? 0, l: 'Clipes na fila' },
+    { v: capturedText.length, l: 'Eventos' },
+    { v: runtime.obsScenes.length, l: 'Cenas OK' },
+  ];
+
+  return (
+    <div className="h-full overflow-y-auto bg-[#07080a] p-4 lg:p-5">
+      <div className="grid gap-4 lg:grid-cols-[348px_1fr]" style={{ alignItems: 'start' }}>
+        {/* Preview do palco */}
+        <div className="relative overflow-hidden rounded-2xl border border-white/12 bg-black" style={{ aspectRatio: '9 / 16', maxHeight: 592 }}>
+          <ContinuityPlayer
+            clip={homeActiveClip}
+            nextClip={videoState?.nextClip ? applyVideoEdit(videoState.nextClip) : null}
+            videos={view.videos}
+            onEnded={async () => { await advanceReactiveFlow(videoState ?? null); onRefresh(); }}
+            fit="contain"
+            className="h-full w-full"
+          />
+          <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-2">
+            <span className="rounded-full border border-white/15 bg-black/60 px-2.5 py-1 text-[9px] font-bold uppercase tracking-widest text-[var(--gold)]">{videoState?.state === 'ACTION' ? 'reação no ar' : 'em ensaio'}</span>
+            <span className="rounded-full border border-white/10 bg-black/60 px-2.5 py-1 text-[9px] font-bold uppercase tracking-widest text-slate-400">1080×1920</span>
+          </div>
+        </div>
+
+        {/* Coluna direita */}
+        <div className="flex flex-col gap-4">
+          {/* Diretora ao vivo */}
+          <div className="odessa-panel-surface p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <Brain style={{ width: 15, height: 15 }} className="text-[var(--violet)]" />
+              <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Diretora ao vivo</span>
+              <button className="ml-auto text-[11px] text-slate-500 hover:text-slate-300" onClick={() => go('ai')}>ver tudo →</button>
+            </div>
+            <div className="flex gap-4">
+              <div className="min-w-0 flex-1">
+                {homeDecision ? (
+                  <>
+                    <p className="text-[13px] italic text-sky-200/90">“{homeDecision.speech}”</p>
+                    <p className="mt-1 text-[11px] text-slate-500">{homeDecision.reason}</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {homeDecision.actions.slice(0, 4).map((a) => (
+                        <span key={a.id} className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[9px] text-emerald-300">{a.type}</span>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-[13px] text-slate-500">Aguardando eventos — inicie a Diretora para vê-la conduzir.</p>
+                )}
+              </div>
+              <div className="w-[136px] shrink-0 space-y-2">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-600">Humor</div>
+                <div className="heading-serif text-2xl text-[var(--gold)]">{homeMoodLabel}</div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-[#171a1f]"><div className="h-full rounded-full" style={{ width: `${Math.round(homeMood.energy)}%`, background: 'var(--accent-grad)' }} /></div>
+                <div className="text-[11px] text-slate-500">energia {Math.round(homeMood.energy)} · acolhimento {Math.round(homeMood.warmth)}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Métricas */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {homeStats.map((s) => (
+              <div key={s.l} className="odessa-panel-surface p-4">
+                <div className="heading-serif text-3xl leading-none" style={s.accent ? { color: 'transparent', backgroundImage: 'var(--accent-grad)', WebkitBackgroundClip: 'text', backgroundClip: 'text' } : undefined}>{s.v}</div>
+                <div className="mt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{s.l}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Eventos ao vivo */}
+          <div className="odessa-panel-surface p-4">
+            <div className="mb-2 flex items-center gap-2">
+              <RadioTower style={{ width: 15, height: 15 }} className="text-[var(--violet)]" />
+              <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Eventos · ao vivo</span>
+              <span className="ml-auto text-[10px] text-slate-600">captura ●</span>
+            </div>
+            {latestEvents.length === 0 ? (
+              <p className="text-xs text-slate-500">Aguardando OCR ou teste manual.</p>
+            ) : (
+              <div className="divide-y divide-white/5">
+                {latestEvents.map((event) => (
+                  <div key={event.id} className="flex items-start gap-3 py-2.5">
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[#171a1f] text-[13px]">{event.kind === 'gift' ? '🎁' : event.kind === 'alert' ? '👋' : '💬'}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[12.5px] text-slate-200">{event.text}</div>
+                      <div className="text-[10px] text-slate-600">{event.kind}/{event.source}</div>
+                    </div>
+                    <span className="shrink-0 font-mono text-[10px] text-slate-600">{event.time}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── Layout antigo do Início (inalcançável — TODO remover após validação) ──
+  // eslint-disable-next-line no-unreachable
   return (
     <div className="h-full overflow-y-auto p-[18px]">
       <div className="grid min-h-[calc(100vh-100px)] gap-4 xl:grid-cols-[minmax(680px,1fr)_minmax(420px,0.72fr)]">
