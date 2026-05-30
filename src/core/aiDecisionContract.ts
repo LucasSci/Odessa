@@ -11,6 +11,7 @@
 import type { OcrEvent } from './ocrEventContract';
 import type { LiveEvent } from '../types';
 import { getEffectiveGeminiKey, getEffectiveSystemPrompt, getAiConfig, hasActiveGeminiKey } from './aiConfig';
+import { apiUrl } from '../lib/api';
 
 export type AiStatus = 'offline' | 'simulated' | 'online' | 'checking';
 export type AiIntentType =
@@ -195,36 +196,49 @@ function sanitizeAiDecision(raw: string, event: OcrEvent): AiDecision | null {
 }
 
 /**
- * Chama a Gemini API diretamente do browser.
- * Usa getEffectiveGeminiKey() — verifica VITE_GEMINI_API_KEY (build) e depois localStorage.
- * Retorna null se nenhuma chave estiver disponível.
+ * Encaminha uma requisição generateContent para a Gemini ATRAVÉS do proxy do
+ * servidor (POST /api/ai/gemini). O browser não consegue chamar a Gemini direto
+ * porque o endpoint do Google não responde o preflight CORS ("Failed to fetch"),
+ * então toda chamada client-side caía em fallback local. A chave segue no corpo
+ * porque é guardada no cliente (localStorage / VITE_GEMINI_API_KEY). Retorna o
+ * texto do primeiro candidate, ou null se não houver chave/candidate.
+ */
+async function geminiGenerate(payload: Record<string, unknown>): Promise<string | null> {
+  const apiKey = getEffectiveGeminiKey();
+  if (!apiKey) return null;
+  const res = await fetch(apiUrl('/ai/gemini'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: apiKey, model: GEMINI_MODEL, payload }),
+    credentials: 'include',
+    signal: AbortSignal.timeout(25_000),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 180)}`);
+  }
+  const data = (await res.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    error?: { message?: string };
+  };
+  if (data?.error) throw new Error(`Gemini: ${data.error.message || 'erro desconhecido'}`);
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
+}
+
+/**
+ * Chama a Gemini (via proxy do servidor) para uma decisão simples a partir de um
+ * OcrEvent. Retorna null se nenhuma chave estiver disponível.
  * Exportada para que AiConfigPanel possa testá-la isoladamente.
  */
 export async function callGeminiDirect(event: OcrEvent, config?: AiConfig): Promise<AiDecision | null> {
   const apiKey = getEffectiveGeminiKey();
   if (!apiKey) return null;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-  const body = {
+  const rawText = await geminiGenerate({
     system_instruction: { parts: [{ text: getEffectiveSystemPrompt() }] },
     contents: [{ role: 'user', parts: [{ text: buildAiUserMessage(event, config) }] }],
     generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 256, temperature: 0.3 },
-  };
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(AI_TIMEOUT_MS),
   });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => `HTTP ${res.status}`);
-    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 120)}`);
-  }
-
-  const data = (await res.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-  const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
   if (!rawText) throw new Error('Gemini retornou resposta vazia');
 
   return sanitizeAiDecision(rawText, event);
@@ -386,8 +400,7 @@ export async function callDirectorDecision(
   if (!apiKey) return null;
   if (!events.length) return null;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-  const body = {
+  const rawText = await geminiGenerate({
     system_instruction: { parts: [{ text: ctx.systemPrompt || getEffectiveSystemPrompt() }] },
     contents: [{ role: 'user', parts: [{ text: buildDirectorUserMessage(events, ctx) }] }],
     generationConfig: {
@@ -395,22 +408,7 @@ export async function callDirectorDecision(
       maxOutputTokens: 640,
       temperature: typeof ctx.temperature === 'number' ? ctx.temperature : 0.6,
     },
-  };
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(AI_TIMEOUT_MS),
   });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => `HTTP ${res.status}`);
-    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 120)}`);
-  }
-
-  const data = (await res.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-  const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
   if (!rawText) throw new Error('Diretora: Gemini retornou resposta vazia');
 
   return parseDirectorDecision(rawText);
@@ -428,28 +426,15 @@ export async function callGeminiText(
   const apiKey = getEffectiveGeminiKey();
   if (!apiKey) return null;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-  const body = {
+  const rawText = await geminiGenerate({
     system_instruction: { parts: [{ text: systemPrompt }] },
     contents: [{ role: 'user', parts: [{ text: userMessage }] }],
     generationConfig: {
       maxOutputTokens: opts?.maxOutputTokens ?? 256,
       temperature: typeof opts?.temperature === 'number' ? opts.temperature : 0.4,
     },
-  };
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(AI_TIMEOUT_MS),
   });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => `HTTP ${res.status}`);
-    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 120)}`);
-  }
-  const data = (await res.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-  return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? null;
+  return rawText ? rawText.trim() : null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -538,25 +523,11 @@ export async function callFlowDesigner(ctx: {
   const apiKey = getEffectiveGeminiKey();
   if (!apiKey) return null;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-  const body = {
+  const raw = await geminiGenerate({
     system_instruction: { parts: [{ text: FLOW_DESIGNER_PROMPT }] },
     contents: [{ role: 'user', parts: [{ text: buildFlowDesignerMessage(ctx) }] }],
     generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 1400, temperature: 0.3 },
-  };
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(AI_TIMEOUT_MS),
   });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => `HTTP ${res.status}`);
-    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 120)}`);
-  }
-  const data = (await res.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
   if (!raw) throw new Error('IA retornou resposta vazia');
   return parseFlowProposal(raw);
 }

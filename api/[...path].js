@@ -2345,6 +2345,42 @@ async function protectedResponse(req, res, rawPath) {
     return json(res, 200, { conversations: [], messages: [], ...cloudState() });
   }
 
+  // ── Proxy genérico da Gemini ───────────────────────────────────────────────
+  // O browser NÃO consegue chamar a Gemini direto: o endpoint do Google não
+  // responde o preflight CORS, então toda chamada vira "Failed to fetch". Aqui o
+  // cliente manda { key, model, payload } e o servidor encaminha o generateContent
+  // (mesma origem, sem CORS) devolvendo a resposta do Google tal qual. A chave vem
+  // no corpo porque é guardada no cliente (localStorage / VITE_GEMINI_API_KEY).
+  if (path.replace(/^\/(api\/)?v1\//, '/') === '/ai/gemini' && req.method === 'POST') {
+    const session = getSession(req);
+    if (!session) return json(res, 401, { error: 'Não autenticado. Faça login primeiro.' });
+    const reqBody = await readBody(req);
+    const apiKey = (typeof reqBody?.key === 'string' && reqBody.key.trim()) || GEMINI_KEY;
+    if (!apiKey) return json(res, 503, { error: 'Nenhuma chave Gemini disponível (cliente nem servidor).' });
+    const model = (typeof reqBody?.model === 'string' && reqBody.model.trim()) || GEMINI_MODEL;
+    const payload = reqBody?.payload && typeof reqBody.payload === 'object' ? reqBody.payload : null;
+    if (!payload) return json(res, 400, { error: 'payload (corpo do generateContent) é obrigatório.' });
+    try {
+      const upstream = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(20_000),
+        },
+      );
+      const text = await upstream.text();
+      let parsed;
+      try { parsed = JSON.parse(text); } catch { parsed = { raw: text }; }
+      return json(res, upstream.status, parsed);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erro desconhecido';
+      console.error('[ai/gemini proxy]', message);
+      return json(res, 502, { error: `Proxy Gemini falhou: ${message}` });
+    }
+  }
+
   if (path === '/ai/decide' && req.method === 'POST') {
     const session = getSession(req);
     if (!session) return json(res, 401, { error: 'Não autenticado. Faça login primeiro.' });
