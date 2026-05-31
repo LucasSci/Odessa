@@ -1,0 +1,4 @@
+## 2026-05-31 - [Fix Path Traversal in static file serving]
+**Vulnerability:** Found a Path Traversal / Local File Inclusion (LFI) vulnerability in `server/main.py` where a catch-all route was passing raw user input `full_path` directly to `FileResponse(dist_dir / full_path)`.
+**Learning:** `FileResponse` in FastAPI does not perform boundary checks to ensure the requested file resides within the intended directory, unlike `StaticFiles`. The `Path` module resolves dot segments (like `..`), allowing attackers to escape the `dist` directory and access sensitive server source code.
+**Prevention:** Whenever manually serving files with `FileResponse` based on user-supplied paths, always calculate the fully resolved target path and explicitly verify it remains within the intended root directory using `target.is_relative_to(base_dir.resolve())`.
