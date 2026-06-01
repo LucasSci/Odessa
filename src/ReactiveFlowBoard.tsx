@@ -934,9 +934,32 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
           ? config.idleVideoId
           : videos[0].id;
 
-      const reactions = (proposal.reactions || []).filter((r) => hasVideo(r.videoId) && r.videoId !== idleVideoId);
+      const aiReactions = (proposal.reactions || []).filter((r) => hasVideo(r.videoId) && r.videoId !== idleVideoId);
+
+      // Cobertura 100%: TODO vídeo da biblioteca (menos o idle) entra no fluxo.
+      // O que a IA não mapeou recebe um gatilho padrão por palavra-chave derivada
+      // do nome, pra nenhum vídeo ficar sem uso (aproveitar todos os vídeos).
+      const reacted = new Set(aiReactions.map((r) => r.videoId));
+      const deriveKeyword = (label: string) => {
+        const w = (label || '')
+          .toLowerCase()
+          .replace(/[^0-9a-zà-ú\s]/gi, ' ')
+          .split(/\s+/)
+          .filter((x) => x.length >= 3 && !['video', 'clip', 'loop', 'idle', 'final', 'fim'].includes(x))[0];
+        return w || 'reagir';
+      };
+      const leftovers = videos
+        .filter((v) => v.id !== idleVideoId && !reacted.has(v.id))
+        .map((v) => ({
+          videoId: v.id,
+          eventType: 'comment' as const,
+          giftKey: null as string | null,
+          keyword: deriveKeyword(shortVideo(v)),
+          returnToIdle: true,
+        }));
+      const reactions = [...aiReactions, ...leftovers];
       if (reactions.length === 0) {
-        setStatusMessage('A IA não encontrou reações adequadas. Adicione mais vídeos/tags ou presentes e tente de novo.');
+        setStatusMessage('Nenhum vídeo de reação disponível além do idle. Adicione mais vídeos.');
         return;
       }
 
@@ -1013,7 +1036,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
       setSelectedNodeId('');
       setSelectedEdgeId('');
       setStatusMessage(
-        `IA montou ${flowConnections.length} conexão(ões) a partir de ${videos.length} vídeos. Revise e clique em "Salvar rascunho" para aplicar — ou "Recarregar" para descartar.`,
+        `IA montou ${flowConnections.length} conexões usando os ${videos.length} vídeos da biblioteca` +
+          (leftovers.length ? ` (${leftovers.length} entraram com gatilho padrão por palavra-chave — ajuste se quiser)` : '') +
+          '. Revise e clique em "Salvar rascunho" para aplicar — ou "Recarregar" para descartar.',
       );
     } catch (err) {
       setStatusMessage(err instanceof Error ? `Falha ao gerar fluxo: ${err.message}` : 'Falha ao gerar fluxo com IA');

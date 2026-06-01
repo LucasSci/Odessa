@@ -482,10 +482,13 @@ Recebe a biblioteca de VÍDEOS e os PRESENTES disponíveis.
 
 Tarefa:
 1) Escolha o vídeo IDLE (loop de espera — o mais neutro/parado, ou um que tenha "idle/loop/base" no nome).
-2) Para cada PRESENTE relevante, escolha o MELHOR vídeo de reação combinando por SIGNIFICADO
+2) APROVEITE TODOS OS VÍDEOS: cada vídeo da lista (exceto o idle) deve aparecer em PELO MENOS UMA reação.
+   Nenhum vídeo pode ficar de fora.
+3) Para cada PRESENTE relevante, escolha o MELHOR vídeo de reação combinando por SIGNIFICADO
    (nome/tags/descrição — em qualquer idioma).
-3) Adicione de 2 a 5 reações por PALAVRA-CHAVE de chat comuns (saudação "oi"/"hello", elogio
-   "linda"/"love", pergunta) ligadas ao vídeo mais adequado.
+4) Para os vídeos que não combinarem com nenhum presente, crie uma reação por PALAVRA-CHAVE de chat
+   relacionada ao próprio vídeo (algo que o público digitaria), ou por saudações/elogios comuns
+   ("oi"/"hello", "linda"/"love", pergunta). O importante é que TODO vídeo tenha uma reação.
 
 Responda SOMENTE com JSON válido (sem markdown, sem texto fora do JSON):
 {"idleVideoId":"<id>","reactions":[{"videoId":"<id EXATO>","eventType":"gift"|"comment","giftKey":"<key EXATA>"|null,"keyword":"<palavra>"|null,"returnToIdle":true,"reason":"<curto>"}]}
@@ -493,7 +496,7 @@ Responda SOMENTE com JSON válido (sem markdown, sem texto fora do JSON):
 Regras:
 - Use ids de vídeo e keys de presente EXATAMENTE como nas listas.
 - Presente → eventType "gift" + giftKey (e keyword null). Palavra-chave → eventType "comment" + keyword (e giftKey null).
-- NUNCA use o vídeo idle como reação. No máximo uma reação por presente.
+- NUNCA use o vídeo idle como reação. No máximo uma reação por presente, mas TODO vídeo (menos o idle) precisa de reação.
 - returnToIdle sempre true.`;
 
 function buildFlowDesignerMessage(ctx: {
