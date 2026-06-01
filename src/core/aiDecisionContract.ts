@@ -210,21 +210,29 @@ async function geminiGenerate(payload: Record<string, unknown>): Promise<string 
   const proxyUrl = getGeminiProxyUrl();
   // Ponte externa (ex.: Cloudflare Worker) quando configurada; senão, o proxy
   // do próprio servidor (mesma origem). O browser não chama a Gemini direto.
-  const res = proxyUrl
-    ? await fetch(proxyUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: reqBody,
-        credentials: 'omit',
-        signal: AbortSignal.timeout(25_000),
-      })
-    : await fetch(apiUrl('/ai/gemini'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: reqBody,
-        credentials: 'include',
-        signal: AbortSignal.timeout(25_000),
-      });
+  const doRequest = () =>
+    proxyUrl
+      ? fetch(proxyUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: reqBody,
+          credentials: 'omit',
+          signal: AbortSignal.timeout(25_000),
+        })
+      : fetch(apiUrl('/ai/gemini'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: reqBody,
+          credentials: 'include',
+          signal: AbortSignal.timeout(25_000),
+        });
+  // A Gemini às vezes responde 503 (sobrecarga) ou 429 (limite por minuto) —
+  // são transitórios, então tenta de novo com um pequeno intervalo antes de desistir.
+  let res = await doRequest();
+  for (let attempt = 0; attempt < 2 && (res.status === 503 || res.status === 429); attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
+    res = await doRequest();
+  }
   if (!res.ok) {
     const errText = await res.text().catch(() => `HTTP ${res.status}`);
     throw new Error(`Gemini ${res.status}: ${errText.slice(0, 180)}`);
