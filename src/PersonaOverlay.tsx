@@ -103,16 +103,27 @@ export default function PersonaOverlay() {
       if (stored) lastScheduleFiredRef.current = JSON.parse(stored) as Record<string, number>;
     } catch { /* ignore */ }
 
-    // If build-time injection didn't work (isolated build env), fall back to
-    // fetching the static config file shipped with the app in public/.
+    // If build-time injection didn't work (isolated build env, ex.: Hostinger),
+    // carrega a config do WORKFLOW PUBLICADO — ela sempre traz as automações
+    // (schedules) + o fluxo atuais. Cai para o arquivo estático em public/ só
+    // se o publicado não estiver disponível.
     if (!scheduleConfigRef.current) {
-      fetch('/odessa-schedules.json')
+      const useCfg = (cfg: unknown, source: string) => {
+        const c = cfg as typeof __ODESSA_SCHEDULE_CONFIG__;
+        if (c && c.schedules?.length && Array.isArray(c.flowConnections) && Array.isArray(c.triggers)) {
+          scheduleConfigRef.current = c;
+          console.log(`[Odessa] Schedule config carregada de ${source} (${c.schedules.length} automações)`);
+          return true;
+        }
+        return false;
+      };
+      fetch(apiUrl('/workflow/published'))
         .then((r) => (r.ok ? r.json() : null))
         .then((cfg) => {
-          if (cfg?.schedules?.length) {
-            scheduleConfigRef.current = cfg as typeof __ODESSA_SCHEDULE_CONFIG__;
-            console.log(`[Odessa] Schedule config loaded from /odessa-schedules.json (${cfg.schedules.length} schedules)`);
-          }
+          if (useCfg(cfg, 'workflow publicado')) return;
+          return fetch('/odessa-schedules.json')
+            .then((r) => (r.ok ? r.json() : null))
+            .then((c2) => { useCfg(c2, '/odessa-schedules.json'); });
         })
         .catch(() => undefined);
     }
