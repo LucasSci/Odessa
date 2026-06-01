@@ -125,7 +125,9 @@ export function checkingAiDecision(event: OcrEvent): AiDecision {
 // Gemini direct (client-side)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
+// gemini-2.5-flash-lite: rápido, estável e sem "thinking" que estoura o
+// orçamento de tokens (o 2.5-flash vinha dando 503/respostas vazias).
+const GEMINI_MODEL = 'gemini-2.5-flash-lite';
 const AI_TIMEOUT_MS = 10_000;
 
 const AI_VALID_INTENTS = ['gift_reaction','greeting','compliment_response','question_response','idle_maintenance','special_event','unknown'];
