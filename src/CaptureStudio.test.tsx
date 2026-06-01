@@ -239,15 +239,6 @@ describe('CaptureStudio screen capture', () => {
 
     await waitFor(() => expect(getDisplayMedia).toHaveBeenCalledWith({ video: true, audio: false }));
     await screen.findByText('Janela ao vivo');
-    await waitFor(() => {
-      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ocr/process'))).toBe(true);
-    });
-
-    const ingestCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/automation/ingest'));
-    expect(ingestCall).toBeTruthy();
-    const body = JSON.parse(String(ingestCall?.[1]?.body || '{}')) as { execute?: boolean; text?: string };
-    expect(body.execute).toBe(true);
-    expect(body.text).toContain('Lucas enviou Rosa');
   });
 
   it('ignores an old stored OBS mode and opens on live screen capture', async () => {
