@@ -548,10 +548,17 @@ export async function callFlowDesigner(ctx: {
   const raw = await geminiGenerate({
     system_instruction: { parts: [{ text: FLOW_DESIGNER_PROMPT }] },
     contents: [{ role: 'user', parts: [{ text: buildFlowDesignerMessage(ctx) }] }],
-    generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 1400, temperature: 0.3 },
+    generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 8192, temperature: 0.3 },
   });
-  if (!raw) throw new Error('IA retornou resposta vazia');
-  return parseFlowProposal(raw);
+  if (!raw) throw new Error('IA retornou resposta vazia (pode ser sobrecarga momentânea da Gemini — tente de novo).');
+  const proposal = parseFlowProposal(raw);
+  // Importante: parseFlowProposal devolve null quando a resposta não é JSON
+  // válido (ex.: cortada). Lançamos um erro claro aqui em vez de devolver null,
+  // senão a tela mostra "Configure a chave" por engano (o problema não é a chave).
+  if (!proposal) {
+    throw new Error(`IA devolveu um formato inesperado (talvez resposta cortada). Tente de novo. Início: ${raw.slice(0, 120)}`);
+  }
+  return proposal;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
