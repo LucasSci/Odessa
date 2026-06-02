@@ -17,12 +17,12 @@ export function saveAdminSessionToken(token: string | null | undefined, origin?:
   if (typeof window === 'undefined') return;
   const originKey = `${SESSION_TOKEN_ORIGIN_PREFIX}${originFor(origin)}`;
   if (!token) {
-    window.sessionStorage.removeItem(SESSION_TOKEN_KEY);
-    window.sessionStorage.removeItem(originKey);
+    window.localStorage.removeItem(SESSION_TOKEN_KEY);
+    window.localStorage.removeItem(originKey);
     return;
   }
-  window.sessionStorage.setItem(SESSION_TOKEN_KEY, token);
-  window.sessionStorage.setItem(originKey, token);
+  window.localStorage.setItem(SESSION_TOKEN_KEY, token);
+  window.localStorage.setItem(originKey, token);
 }
 
 export function clearAdminSessionToken(origin?: string) {
@@ -32,14 +32,23 @@ export function clearAdminSessionToken(origin?: string) {
 export function installCredentialedFetch() {
   if (installed || typeof window === 'undefined') return;
   installed = true;
+  // Migração: o token antes ficava em sessionStorage (sumia ao fechar a aba,
+  // causando logout constante). Se houver um token legado lá e ainda não em
+  // localStorage, copia uma vez — assim a sessão persiste sem relogar.
+  try {
+    if (!window.localStorage.getItem(SESSION_TOKEN_KEY)) {
+      const legacy = window.sessionStorage.getItem(SESSION_TOKEN_KEY);
+      if (legacy) window.localStorage.setItem(SESSION_TOKEN_KEY, legacy);
+    }
+  } catch { /* ignore */ }
   const nativeFetch = window.fetch.bind(window);
 
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
     const headers = new Headers(init?.headers);
     const requestOrigin = originFor(input instanceof Request ? input.url : input);
     const sessionToken =
-      window.sessionStorage.getItem(`${SESSION_TOKEN_ORIGIN_PREFIX}${requestOrigin}`) ||
-      window.sessionStorage.getItem(SESSION_TOKEN_KEY);
+      window.localStorage.getItem(`${SESSION_TOKEN_ORIGIN_PREFIX}${requestOrigin}`) ||
+      window.localStorage.getItem(SESSION_TOKEN_KEY);
     if (sessionToken && !headers.has('Authorization')) {
       headers.set('Authorization', `Bearer ${sessionToken}`);
     }

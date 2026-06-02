@@ -33,7 +33,8 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
       }
       if (data.sessionToken) {
         try {
-          window.sessionStorage.setItem('odessa:admin-session-token:v1', data.sessionToken);
+          // localStorage (não sessionStorage) pra a sessão sobreviver a fechar a aba.
+          window.localStorage.setItem('odessa:admin-session-token:v1', data.sessionToken);
         } catch {}
       }
       onLogin();
