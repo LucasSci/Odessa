@@ -221,8 +221,10 @@ export async function obsSetupLiveScene(settings: ObsSetupSettings): Promise<Obs
   const stageUrl = settings.stageUrl || '';
   const stageSourceName = settings.stageSourceName || 'Odessa Stage Overlay';
   const chatSourceName = settings.chatSourceName || 'Odessa Chat OCR';
-  const canvasW = settings.canvasWidth || 1080;
-  const canvasH = settings.canvasHeight || 1920;
+  let canvasW = settings.canvasWidth || 1080;
+  let canvasH = settings.canvasHeight || 1920;
+  // Tango Live é vertical (9:16). Se vier paisagem/quadrado por engano, força 9:16.
+  if (canvasW >= canvasH) { canvasW = 1080; canvasH = 1920; }
   const created: string[] = [];
   const warnings: string[] = [];
 
@@ -235,10 +237,27 @@ export async function obsSetupLiveScene(settings: ObsSetupSettings): Promise<Obs
       }
     } catch { /* not connected or error — proceed with setup */ }
 
-    // NOTE: SetVideoSettings is intentionally NOT called here.
-    // OBS canvas/output resolution is a per-profile setting managed by the user.
-    // Calling SetVideoSettings would corrupt the active profile (e.g. Tango Profile)
-    // every time "Iniciar Live" is triggered.
+    // Define a tela do OBS no formato VERTICAL do Tango Live (9:16) pra o overlay
+    // preencher o quadro todo. Só altera quando ainda não está nesse tamanho
+    // (idempotente — não reseta à toa). A trava acima garante que isto nunca roda
+    // durante uma transmissão ativa.
+    try {
+      const vs = await obs.call('GetVideoSettings');
+      const needsResize =
+        vs.baseWidth !== canvasW || vs.baseHeight !== canvasH ||
+        vs.outputWidth !== canvasW || vs.outputHeight !== canvasH;
+      if (needsResize) {
+        await obs.call('SetVideoSettings', {
+          baseWidth: canvasW,
+          baseHeight: canvasH,
+          outputWidth: canvasW,
+          outputHeight: canvasH,
+        });
+        created.push(`canvas:${canvasW}x${canvasH}`);
+      }
+    } catch (err) {
+      warnings.push(`Resolução 9:16: ${err instanceof Error ? err.message : String(err)}`);
+    }
 
     // 2. Get current scenes
     await refreshScenes();
