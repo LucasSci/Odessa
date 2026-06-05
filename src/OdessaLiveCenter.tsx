@@ -788,7 +788,17 @@ export default function OdessaLiveCenter({
     const activeTriggers = triggers.filter((item) => item.enabled);
     const connections = config?.flowConnections || [];
     const flowNodes = config?.flowNodes || [];
-    const lastOcr = [...capturedText].reverse().find((event) => event.source === 'ocr');
+
+    // Bolt Optimization: Backward loop instead of [...array].reverse().find()
+    // Avoids O(N) memory allocation and iteration on every render for a continuously growing array.
+    let lastOcr;
+    for (let i = capturedText.length - 1; i >= 0; i--) {
+      if (capturedText[i].source === 'ocr') {
+        lastOcr = capturedText[i];
+        break;
+      }
+    }
+
     return {
       videos,
       triggers,
