@@ -7,6 +7,7 @@ import { getRecentEvents, replaceEvents } from './core/eventBus';
 import { useAutopilotRuntime } from './core/useAutopilotRuntime';
 import { apiUrl } from './lib/api';
 import { installCredentialedFetch } from './lib/fetchCredentials';
+import { startAutoLogin } from './lib/autoLogin';
 import { connectObs, disconnectObs, onObsStatus, type ObsDirectStatus } from './lib/obsWebSocket';
 import {
   routeSetupLiveScene,
@@ -32,6 +33,9 @@ type ObsSettingsState = {
 };
 
 installCredentialedFetch();
+// Mantém a sessão sempre fresca em segundo plano (login automático opt-in),
+// pra o app nunca pedir login — lives 24/7 e acesso de vários dispositivos.
+startAutoLogin();
 
 type LiveConfig = {
   voiceEnabled?: boolean;

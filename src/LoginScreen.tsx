@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { apiUrl } from './lib/api';
+import { setAutoLoginCredentials, clearAutoLogin } from './lib/autoLogin';
 
 type LoginScreenProps = {
   onLogin: () => void;
@@ -10,6 +11,7 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [keepLogged, setKeepLogged] = useState(true);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,6 +39,10 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
           window.localStorage.setItem('odessa:admin-session-token:v1', data.sessionToken);
         } catch {}
       }
+      // Login automático: guarda as credenciais neste aparelho pra re-logar
+      // sozinho em segundo plano (nunca mais pedir login). Ou limpa se desmarcado.
+      if (keepLogged) setAutoLoginCredentials(email.trim(), password);
+      else clearAutoLogin();
       onLogin();
     } catch {
       setError('Erro de conexao. Verifique sua internet.');
@@ -153,6 +159,27 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
               boxSizing: 'border-box',
             }}
           />
+        </label>
+
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            marginBottom: 18,
+            cursor: 'pointer',
+            fontSize: 13,
+            color: 'var(--t2, #aaa)',
+            userSelect: 'none',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={keepLogged}
+            onChange={(e) => setKeepLogged(e.target.checked)}
+            style={{ width: 16, height: 16, accentColor: 'var(--accent, #6366f1)', cursor: 'pointer' }}
+          />
+          Manter conectado neste aparelho (login automático)
         </label>
 
         <button
