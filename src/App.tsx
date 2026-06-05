@@ -111,7 +111,10 @@ function loadLiveConfig(): LiveConfig {
 }
 
 export default function App() {
-  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  // Login desabilitado: começa autenticado e nunca desconecta sozinho — essencial
+  // pra lives 24/7 (a tela de login travava a live ao expirar). Pra refazer o
+  // login sob demanda, abra a rota #login.
+  const [authenticated, setAuthenticated] = useState<boolean | null>(true);
   const [requestedPanel, setRequestedPanel] = useState<AdvancedPanel>(() => getPanelFromHash());
   const [capturedText, setCapturedTextState] = useState<CapturedMessage[]>(() => getRecentEvents());
   const [liveConfigOpen, setLiveConfigOpen] = useState(false);
@@ -124,14 +127,11 @@ export default function App() {
   const [obsSettings, setObsSettings] = useState<ObsSettingsState | null>(null);
 
   useEffect(() => {
-    // Skip auth check for overlay (OBS browser source)
-    if (getPanelFromHash() === ('overlay' as AdvancedPanel)) {
-      setAuthenticated(true);
-      return;
-    }
-    fetch(apiUrl('/auth/me'), { credentials: 'include' })
-      .then((res) => setAuthenticated(res.ok))
-      .catch(() => setAuthenticated(false));
+    // Login desabilitado — o app nunca bloqueia/desconecta sozinho (lives 24/7).
+    // Não checamos /auth/me (que faria a tela de login aparecer ao expirar).
+    // A sessão (token em localStorage) é usada nas chamadas que precisam; a live
+    // em si roda via endpoints públicos, então não depende do login.
+    setAuthenticated(true);
   }, []);
 
   // Direct OBS WebSocket connection — works both local and cloud.
@@ -237,6 +237,19 @@ export default function App() {
 
   if (requestedPanel === ('overlay' as AdvancedPanel)) {
     return <PersonaOverlay />;
+  }
+
+  // Porta dos fundos: a tela de login só aparece se você abrir #login de propósito
+  // (pra renovar a sessão quando precisar salvar algo). Nunca é forçada.
+  if (window.location.hash === '#login') {
+    return (
+      <LoginScreen
+        onLogin={() => {
+          window.location.hash = '';
+          setAuthenticated(true);
+        }}
+      />
+    );
   }
 
   if (authenticated === null) {
