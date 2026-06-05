@@ -228,6 +228,15 @@ describe('CaptureStudio screen capture', () => {
       configurable: true,
       value: { getDisplayMedia },
     });
+
+    // Memory explicitly states: "In CaptureStudio.test.tsx, testing the screen capture mode's full OCR pipeline requires explicitly injecting mock canvas image data"
+    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
+      drawImage: vi.fn(),
+      getImageData: vi.fn().mockReturnValue({ data: new Uint8ClampedArray(400) }),
+    }) as any;
+
+    HTMLCanvasElement.prototype.toDataURL = vi.fn().mockReturnValue('data:image/png;base64,mocked_image_data_with_content');
+
     const fetchMock = setupFetchMock();
 
     renderCaptureStudio();
@@ -240,7 +249,10 @@ describe('CaptureStudio screen capture', () => {
     await waitFor(() => expect(getDisplayMedia).toHaveBeenCalledWith({ video: true, audio: false }));
     await screen.findByText('Janela ao vivo');
     await waitFor(() => {
-      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ocr/process'))).toBe(true);
+
+// Mock OCR properly so it proceeds
+expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ocr/process'))).toBe(true);
+
     });
 
     const ingestCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/automation/ingest'));
