@@ -7,7 +7,7 @@ import { getRecentEvents, replaceEvents } from './core/eventBus';
 import { useAutopilotRuntime } from './core/useAutopilotRuntime';
 import { apiUrl } from './lib/api';
 import { installCredentialedFetch } from './lib/fetchCredentials';
-import { startAutoLogin } from './lib/autoLogin';
+import { startAutoLogin, ensureFreshSession, hasValidSession } from './lib/autoLogin';
 import { connectObs, disconnectObs, onObsStatus, type ObsDirectStatus } from './lib/obsWebSocket';
 import {
   routeSetupLiveScene,
@@ -115,10 +115,9 @@ function loadLiveConfig(): LiveConfig {
 }
 
 export default function App() {
-  // Login desabilitado: começa autenticado e nunca desconecta sozinho — essencial
-  // pra lives 24/7 (a tela de login travava a live ao expirar). Pra refazer o
-  // login sob demanda, abra a rota #login.
-  const [authenticated, setAuthenticated] = useState<boolean | null>(true);
+  // A sessão é mantida viva por login automático (ver useEffect abaixo). Começa
+  // "carregando" (null) até confirmar; o overlay (live) entra direto.
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [requestedPanel, setRequestedPanel] = useState<AdvancedPanel>(() => getPanelFromHash());
   const [capturedText, setCapturedTextState] = useState<CapturedMessage[]>(() => getRecentEvents());
   const [liveConfigOpen, setLiveConfigOpen] = useState(false);
@@ -131,11 +130,19 @@ export default function App() {
   const [obsSettings, setObsSettings] = useState<ObsSettingsState | null>(null);
 
   useEffect(() => {
-    // Login desabilitado — o app nunca bloqueia/desconecta sozinho (lives 24/7).
-    // Não checamos /auth/me (que faria a tela de login aparecer ao expirar).
-    // A sessão (token em localStorage) é usada nas chamadas que precisam; a live
-    // em si roda via endpoints públicos, então não depende do login.
-    setAuthenticated(true);
+    // Overlay (fonte do OBS) nunca precisa de login.
+    if (getPanelFromHash() === ('overlay' as AdvancedPanel)) {
+      setAuthenticated(true);
+      return;
+    }
+    // Mantém a sessão viva via login automático (se configurado). Se a sessão
+    // estiver válida → entra direto, sem tela de login (lives 24/7). Se a sessão
+    // vencer e NÃO houver login automático, mostra o login — assim os dados
+    // (vídeos/fluxo) nunca vêm vazios "em silêncio". A live (overlay) é auth-free.
+    (async () => {
+      await ensureFreshSession();
+      setAuthenticated(hasValidSession());
+    })();
   }, []);
 
   // Direct OBS WebSocket connection — works both local and cloud.

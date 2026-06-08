@@ -65,6 +65,13 @@ function tokenExpEpoch(): number | null {
   }
 }
 
+/** True se há um token de sessão ainda válido (não expirado). */
+export function hasValidSession(): boolean {
+  const exp = tokenExpEpoch();
+  if (!exp) return false;
+  return exp - Date.now() / 1000 > 60; // válido por mais de 1 min
+}
+
 let inFlight = false;
 
 /**
