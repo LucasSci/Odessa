@@ -114,7 +114,7 @@ interface ElectronRuntimeWindow extends Window {
 type WebviewProps = React.HTMLAttributes<ElectronWebviewElement> & {
   src?: string;
   partition?: string;
-  allowpopups?: string;
+  allowpopups?: boolean | string;
   webpreferences?: string;
 };
 
@@ -4227,7 +4227,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                           ref={directWebviewRef as unknown as React.RefObject<HTMLWebViewElement>}
                           src={directPageUrl}
                           partition="persist:odessa-capture"
-                          allowpopups
+                          allowpopups="true"
                           useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
                           webpreferences="contextIsolation=yes,nodeIntegration=no,javascript=yes"
                           onError={() => {
