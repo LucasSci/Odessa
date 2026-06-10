@@ -225,6 +225,7 @@ export async function obsSetupLiveScene(settings: ObsSetupSettings): Promise<Obs
   let canvasH = settings.canvasHeight || 1920;
   // Tango Live é vertical (9:16). Se vier paisagem/quadrado por engano, força 9:16.
   if (canvasW >= canvasH) { canvasW = 1080; canvasH = 1920; }
+  let outputFps = 30; // sobrescrito pelo FPS real do OBS (GetVideoSettings) abaixo
   const created: string[] = [];
   const warnings: string[] = [];
 
@@ -243,6 +244,9 @@ export async function obsSetupLiveScene(settings: ObsSetupSettings): Promise<Obs
     // durante uma transmissão ativa.
     try {
       const vs = await obs.call('GetVideoSettings');
+      // FPS de saída do OBS — a fonte de navegador será pinada nele pra renderizar
+      // exatamente no ritmo da transmissão (sem descasar e gerar microtravadas).
+      outputFps = Math.max(1, Math.round((vs.fpsNumerator || 30) / (vs.fpsDenominator || 1)));
       const needsResize =
         vs.baseWidth !== canvasW || vs.baseHeight !== canvasH ||
         vs.outputWidth !== canvasW || vs.outputHeight !== canvasH;
@@ -285,7 +289,7 @@ export async function obsSetupLiveScene(settings: ObsSetupSettings): Promise<Obs
       ]) {
         for (const srcName of sources) {
           try {
-            await ensureBrowserSource(sceneName, srcName, stageUrl, canvasW, canvasH);
+            await ensureBrowserSource(sceneName, srcName, stageUrl, canvasW, canvasH, outputFps);
             created.push(`source:${sceneName}/${srcName}`);
           } catch (err) {
             warnings.push(`Source ${srcName}: ${err instanceof Error ? err.message : String(err)}`);
@@ -307,26 +311,50 @@ async function ensureBrowserSource(
   url: string,
   canvasW: number,
   canvasH: number,
+  fps: number,
 ) {
+  // Configuração ótima da fonte de navegador pra live limpa:
+  // - fps_custom + fps = FPS de saída → renderiza no ritmo exato da transmissão;
+  // - shutdown:false → NÃO desliga a fonte fora de cena (senão o overlay recarrega
+  //   e perde os vídeos pré-carregados da memória, voltando a travar);
+  // - restart_when_active:false → não reinicia o Chromium ao ativar a cena.
+  const desiredSettings = {
+    url,
+    width: canvasW,
+    height: canvasH,
+    css: '',
+    fps_custom: true,
+    fps,
+    shutdown: false,
+    restart_when_active: false,
+  };
+
   const { sceneItems } = await obs.call('GetSceneItemList', { sceneName });
   const existing = (sceneItems as Array<{ sourceName: string; sceneItemId: number }>)
     .find((item) => item.sourceName === sourceName);
 
   if (existing) {
-    // Only update settings if the URL actually changed — SetInputSettings reloads
-    // the browser source (spins up new Chromium process), causing CPU spikes and
-    // potential stream disruption.
+    // SetInputSettings recria o processo Chromium (pico de CPU + recarrega o
+    // overlay). Então só reaplica se algo RELEVANTE divergir do desejado —
+    // assim "Preparar OBS" rodado de novo não derruba a fonte à toa.
     let needsUpdate = true;
     try {
-      const currentSettings = await obs.call('GetInputSettings', { inputName: sourceName });
-      const currentUrl = (currentSettings.inputSettings as Record<string, unknown>)?.url;
-      if (currentUrl === url) needsUpdate = false;
+      const cur = (await obs.call('GetInputSettings', { inputName: sourceName }))
+        .inputSettings as Record<string, unknown>;
+      // OBS omite configs que estão no padrão (shutdown/restart = false por padrão),
+      // então `?? false` evita recarregar a fonte achando que divergiu.
+      needsUpdate =
+        cur.url !== url ||
+        (cur.fps_custom ?? false) !== true ||
+        Number(cur.fps) !== fps ||
+        (cur.shutdown ?? false) !== false ||
+        (cur.restart_when_active ?? false) !== false;
     } catch { /* can't read settings, update anyway */ }
 
     if (needsUpdate) {
       await obs.call('SetInputSettings', {
         inputName: sourceName,
-        inputSettings: { url, width: canvasW, height: canvasH, css: '' },
+        inputSettings: desiredSettings,
         overlay: true,
       });
     }
@@ -350,14 +378,7 @@ async function ensureBrowserSource(
     sceneName,
     inputName: sourceName,
     inputKind: 'browser_source',
-    inputSettings: {
-      url,
-      width: canvasW,
-      height: canvasH,
-      css: '',
-      shutdown: false,
-      restart_when_active: false,
-    },
+    inputSettings: desiredSettings,
   });
 
   await obs.call('SetSceneItemTransform', {
