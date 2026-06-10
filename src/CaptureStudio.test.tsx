@@ -243,6 +243,10 @@ describe('CaptureStudio screen capture', () => {
       expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ocr/process'))).toBe(true);
     });
 
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/automation/ingest'))).toBe(true);
+    });
+
     const ingestCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/automation/ingest'));
     expect(ingestCall).toBeTruthy();
     const body = JSON.parse(String(ingestCall?.[1]?.body || '{}')) as { execute?: boolean; text?: string };
