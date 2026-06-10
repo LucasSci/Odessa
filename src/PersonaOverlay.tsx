@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiUrl } from './lib/api';
 import { cn } from './lib/utils';
+import { preloadVideos, videoSrcFor } from './lib/videoPreload';
 
 // Build-time injected by odessaSchedulePlugin in vite.config.ts.
 // On the Hostinger server this is populated from the KV store at build time.
@@ -103,30 +104,48 @@ export default function PersonaOverlay() {
       if (stored) lastScheduleFiredRef.current = JSON.parse(stored) as Record<string, number>;
     } catch { /* ignore */ }
 
+    // Fase 1 da otimização de live: pré-carrega TODOS os vídeos do fluxo em
+    // memória logo no início, pra cada reação tocar na hora (sem trava/congela).
+    // Prioriza o idle (que fica em loop) e depois os nós + automações.
+    const kickPreload = (c: typeof __ODESSA_SCHEDULE_CONFIG__) => {
+      if (!c) return;
+      const ids: string[] = [];
+      if (c.idleVideoId) ids.push(c.idleVideoId);
+      for (const n of c.flowNodes || []) if (n?.videoId) ids.push(n.videoId);
+      for (const s of c.schedules || []) if (s?.videoId) ids.push(s.videoId);
+      if (ids.length) void preloadVideos(ids);
+    };
+
+    // Se a config veio injetada em build, já pré-carrega a partir dela.
+    if (scheduleConfigRef.current) {
+      kickPreload(scheduleConfigRef.current);
+      return;
+    }
+
     // If build-time injection didn't work (isolated build env, ex.: Hostinger),
     // carrega a config do WORKFLOW PUBLICADO — ela sempre traz as automações
     // (schedules) + o fluxo atuais. Cai para o arquivo estático em public/ só
     // se o publicado não estiver disponível.
-    if (!scheduleConfigRef.current) {
-      const useCfg = (cfg: unknown, source: string) => {
-        const c = cfg as typeof __ODESSA_SCHEDULE_CONFIG__;
-        if (c && c.schedules?.length && Array.isArray(c.flowConnections) && Array.isArray(c.triggers)) {
-          scheduleConfigRef.current = c;
-          console.log(`[Odessa] Schedule config carregada de ${source} (${c.schedules.length} automações)`);
-          return true;
-        }
-        return false;
-      };
-      fetch(apiUrl('/workflow/published'))
-        .then((r) => (r.ok ? r.json() : null))
-        .then((cfg) => {
-          if (useCfg(cfg, 'workflow publicado')) return;
-          return fetch('/odessa-schedules.json')
-            .then((r) => (r.ok ? r.json() : null))
-            .then((c2) => { useCfg(c2, '/odessa-schedules.json'); });
-        })
-        .catch(() => undefined);
-    }
+    const useCfg = (cfg: unknown, source: string) => {
+      const c = cfg as typeof __ODESSA_SCHEDULE_CONFIG__;
+      // Pré-carrega sempre que a config trouxer o fluxo, mesmo sem automações.
+      if (c && Array.isArray(c.flowNodes) && c.flowNodes.length) kickPreload(c);
+      if (c && c.schedules?.length && Array.isArray(c.flowConnections) && Array.isArray(c.triggers)) {
+        scheduleConfigRef.current = c;
+        console.log(`[Odessa] Schedule config carregada de ${source} (${c.schedules.length} automações)`);
+        return true;
+      }
+      return false;
+    };
+    fetch(apiUrl('/workflow/published'))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((cfg) => {
+        if (useCfg(cfg, 'workflow publicado')) return;
+        return fetch('/odessa-schedules.json')
+          .then((r) => (r.ok ? r.json() : null))
+          .then((c2) => { useCfg(c2, '/odessa-schedules.json'); });
+      })
+      .catch(() => undefined);
   }, []);
 
   const [activeSlot, setActiveSlot] = useState<0 | 1>(0);
@@ -260,7 +279,9 @@ export default function PersonaOverlay() {
         return next;
       });
 
-      nextElement.src = apiUrl(`/api/video/play/${clip.videoId}`);
+      // Usa o blob pré-carregado (instantâneo, em memória) quando disponível;
+      // senão cai no stream normal. Sem stall de fetch → sem trava ao disparar.
+      nextElement.src = videoSrcFor(clip.videoId);
       nextElement.loop = shouldLoopClip(clip);
       nextElement.muted = (clip.audio?.mode || 'muted') !== 'original';
       nextElement.volume = Math.max(0, Math.min(1, clip.audio?.volume ?? 1));
@@ -388,7 +409,7 @@ export default function PersonaOverlay() {
           disableRemotePlayback
           preload="auto"
           loop={shouldLoopClip(slotClip)}
-          src={slotClip ? apiUrl(`/api/video/play/${slotClip.videoId}`) : undefined}
+          src={slotClip ? videoSrcFor(slotClip.videoId) : undefined}
           onTimeUpdate={(event) => handleProgress(slotClip, event.currentTarget)}
           onEnded={() => handleEnded(slotClip)}
           className={cn(
