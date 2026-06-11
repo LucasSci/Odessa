@@ -1,0 +1,4 @@
+## 2026-06-11 - Path Traversal (LFI) in FastAPI `FileResponse` Route
+**Vulnerability:** A catch-all route (`/{full_path:path}`) serving static assets directly concatenated user input (`full_path`) with the base directory and passed it to `FileResponse()`, allowing Local File Inclusion (LFI) via `../` sequences to read arbitrary server files.
+**Learning:** While FastAPI's `StaticFiles` handles path boundary checks natively, `FileResponse` does *not* validate whether the constructed target path escapes the intended directory. Furthermore, relying on standard TestClients can mask this vulnerability as they often normalize `../` paths before making the request. Raw sockets or `curl --path-as-is` are required to accurately test LFI against such endpoints.
+**Prevention:** Always explicitly check if a resolved target path remains inside the intended base directory using `pathlib.Path.resolve().is_relative_to(base_dir.resolve())` before serving it dynamically.
