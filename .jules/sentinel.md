@@ -1,0 +1,4 @@
+## 2023-10-24 - Path Traversal in Catch-all Route
+**Vulnerability:** A Path Traversal (LFI) vulnerability was found in the FastAPI catch-all route (`/{full_path:path}`) where a user could specify a path like `../secret.txt` to read files outside the expected static directory, because `FileResponse` doesn't enforce directory boundaries.
+**Learning:** `FileResponse` serves files directly and does not prevent users from walking up directories via `../`. While `StaticFiles` prevents this natively, custom catch-all fallback routes using `FileResponse` are vulnerable if the requested path is not explicitly validated against an absolute boundary path.
+**Prevention:** Always explicitly check if a resolved file path is relative to the intended base directory using `path.resolve().is_relative_to(base_dir.resolve())` before serving it.
