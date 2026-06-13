@@ -791,7 +791,7 @@ export default function OdessaLiveCenter({
 
     // ⚡ Bolt: Prevent O(N) array copy + reverse on every render.
     // Replaced [...capturedText].reverse().find(...) with a backward for loop.
-    let lastOcr;
+    let lastOcr: CapturedMessage | undefined = undefined;
     for (let i = capturedText.length - 1; i >= 0; i--) {
       if (capturedText[i].source === 'ocr') {
         lastOcr = capturedText[i];
