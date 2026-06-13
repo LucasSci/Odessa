@@ -1,0 +1,3 @@
+## 2024-06-13 - Optimize reverse array searching for growing lists
+**Learning:** In React components (like `OdessaLiveCenter`), using `[...array].reverse().find(...)` inside `useMemo` or on every render for continuously growing arrays (like event logs `capturedText`) creates severe performance bottlenecks. It forces O(N) memory allocation to create a shallow copy and then another O(N) iteration, which gets linearly slower as the array grows.
+**Action:** Replace `[...array].reverse().find(...)` with a backward `for` loop (or `findLast` if target supports it). The `for` loop does zero allocations and operates in a single backward pass, stopping immediately upon finding the target item.
