@@ -232,6 +232,10 @@ describe('CaptureStudio screen capture', () => {
 
     renderCaptureStudio();
 
+    // Inject mock canvas image data to allow Tesseract OCR to run successfully
+    const canvasMock = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL');
+    canvasMock.mockReturnValue('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
+
     const startButton = await screen.findByRole('button', { name: /iniciar/i });
     await waitFor(() => expect((startButton as HTMLButtonElement).disabled).toBe(false));
 
@@ -239,6 +243,7 @@ describe('CaptureStudio screen capture', () => {
 
     await waitFor(() => expect(getDisplayMedia).toHaveBeenCalledWith({ video: true, audio: false }));
     await screen.findByText('Janela ao vivo');
+
     await waitFor(() => {
       expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ocr/process'))).toBe(true);
     });
@@ -248,6 +253,11 @@ describe('CaptureStudio screen capture', () => {
     const body = JSON.parse(String(ingestCall?.[1]?.body || '{}')) as { execute?: boolean; text?: string };
     expect(body.execute).toBe(true);
     expect(body.text).toContain('Lucas enviou Rosa');
+
+    // Clean up
+    fireEvent.click(screen.getByRole('button', { name: /parar/i }));
+    expect(media.track.stop).toHaveBeenCalled();
+    canvasMock.mockRestore();
   });
 
   it('ignores an old stored OBS mode and opens on live screen capture', async () => {
