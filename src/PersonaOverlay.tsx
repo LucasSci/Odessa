@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiUrl } from './lib/api';
 import { cn } from './lib/utils';
-import { preloadVideos, videoSrcFor } from './lib/videoPreload';
+import { preloadVideos, videoSrcFor, videoVersion } from './lib/videoPreload';
 
 // Build-time injected by odessaSchedulePlugin in vite.config.ts.
 // On the Hostinger server this is populated from the KV store at build time.
@@ -12,6 +12,9 @@ declare const __ODESSA_SCHEDULE_CONFIG__: {
   flowConnections: Array<{ id: string; fromNodeId: string; toNodeId: string; triggerId: string }>;
   triggers: Array<{ id: string; eventType: string; conditions?: { keyword?: string; giftKey?: string }; enabled?: boolean }>;
   idleVideoId: string | null;
+  // Vem no /workflow/published — usado pra detectar quando um vídeo foi trocado
+  // (uploadedAt muda) e re-baixar o blob, em vez de tocar o conteúdo antigo.
+  videos?: Array<{ id: string; uploadedAt?: string; updatedAt?: string }>;
 } | null;
 
 type VideoClip = {
@@ -85,6 +88,9 @@ export default function PersonaOverlay() {
   const refs = useMemo(() => [videoRefA, videoRefB] as const, []);
   const activeSlotRef = useRef<0 | 1>(0);
   const endedRef = useRef('');
+  // Versão (uploadedAt) do vídeo atualmente no ar — pra detectar quando o
+  // operador troca o conteúdo do vídeo que já está tocando e recarregar.
+  const playedVersionRef = useRef('');
 
   // ── Client-side schedule firing ──────────────────────────────────────────
   // Uses the workflow config injected at build time by odessaSchedulePlugin.
@@ -104,48 +110,63 @@ export default function PersonaOverlay() {
       if (stored) lastScheduleFiredRef.current = JSON.parse(stored) as Record<string, number>;
     } catch { /* ignore */ }
 
-    // Fase 1 da otimização de live: pré-carrega TODOS os vídeos do fluxo em
-    // memória logo no início, pra cada reação tocar na hora (sem trava/congela).
-    // Prioriza o idle (que fica em loop) e depois os nós + automações.
-    const kickPreload = (c: typeof __ODESSA_SCHEDULE_CONFIG__) => {
-      if (!c) return;
+    let cancelled = false;
+
+    // Lista [{id, version}] dos vídeos do fluxo (idle + nós + automações), com a
+    // versão = uploadedAt do arquivo. A versão deixa o preload detectar quando um
+    // vídeo foi TROCADO e re-baixar o blob, em vez de tocar o conteúdo antigo.
+    const versionedItems = (c: typeof __ODESSA_SCHEDULE_CONFIG__) => {
+      if (!c) return [];
+      const verById = new Map<string, string>();
+      for (const v of c.videos || []) if (v?.id) verById.set(v.id, v.uploadedAt || v.updatedAt || '');
       const ids: string[] = [];
-      if (c.idleVideoId) ids.push(c.idleVideoId);
+      if (c.idleVideoId) ids.push(c.idleVideoId); // idle primeiro (fica em loop)
       for (const n of c.flowNodes || []) if (n?.videoId) ids.push(n.videoId);
       for (const s of c.schedules || []) if (s?.videoId) ids.push(s.videoId);
-      if (ids.length) void preloadVideos(ids);
+      const seen = new Set<string>();
+      return ids
+        .filter((id) => id && !seen.has(id) && seen.add(id))
+        .map((id) => ({ id, version: verById.get(id) || '' }));
     };
 
-    // Se a config veio injetada em build, já pré-carrega a partir dela.
-    if (scheduleConfigRef.current) {
-      kickPreload(scheduleConfigRef.current);
-      return;
-    }
-
-    // If build-time injection didn't work (isolated build env, ex.: Hostinger),
-    // carrega a config do WORKFLOW PUBLICADO — ela sempre traz as automações
-    // (schedules) + o fluxo atuais. Cai para o arquivo estático em public/ só
-    // se o publicado não estiver disponível.
-    const useCfg = (cfg: unknown, source: string) => {
+    // Atualiza a config em memória (automações + fluxo) e (re)pré-carrega os
+    // vídeos. NUNCA sobrescreve uma config boa com uma vazia/inválida.
+    const applyConfig = (cfg: unknown, source: string) => {
       const c = cfg as typeof __ODESSA_SCHEDULE_CONFIG__;
-      // Pré-carrega sempre que a config trouxer o fluxo, mesmo sem automações.
-      if (c && Array.isArray(c.flowNodes) && c.flowNodes.length) kickPreload(c);
-      if (c && c.schedules?.length && Array.isArray(c.flowConnections) && Array.isArray(c.triggers)) {
+      if (!c || !Array.isArray(c.flowNodes) || !c.flowNodes.length) return false;
+      if (Array.isArray(c.flowConnections) && Array.isArray(c.triggers)) {
+        const before = scheduleConfigRef.current;
         scheduleConfigRef.current = c;
-        console.log(`[Odessa] Schedule config carregada de ${source} (${c.schedules.length} automações)`);
-        return true;
+        if (!before) console.log(`[Odessa] Schedule config carregada de ${source} (${c.schedules?.length || 0} automações)`);
       }
-      return false;
+      void preloadVideos(versionedItems(c));
+      return true;
     };
-    fetch(apiUrl('/workflow/published'))
-      .then((r) => (r.ok ? r.json() : null))
-      .then((cfg) => {
-        if (useCfg(cfg, 'workflow publicado')) return;
-        return fetch('/odessa-schedules.json')
-          .then((r) => (r.ok ? r.json() : null))
-          .then((c2) => { useCfg(c2, '/odessa-schedules.json'); });
-      })
-      .catch(() => undefined);
+
+    // Re-busca o workflow publicado PERIODICAMENTE — assim trocas de vídeo/fluxo
+    // feitas pelo operador chegam ao overlay sem precisar recarregá-lo (que num
+    // live 24/7, depois da Fase 3, nunca acontece). Mantém a config atual se a
+    // rede falhar.
+    const refresh = async () => {
+      try {
+        const r = await fetch(apiUrl('/workflow/published'));
+        const cfg = r.ok ? await r.json() : null;
+        if (cancelled) return;
+        if (applyConfig(cfg, 'workflow publicado')) return;
+        const r2 = await fetch('/odessa-schedules.json');
+        const c2 = r2.ok ? await r2.json() : null;
+        if (!cancelled) applyConfig(c2, '/odessa-schedules.json');
+      } catch { /* mantém a config atual */ }
+    };
+
+    // Config injetada em build (dev) serve só de ponto de partida pras automações.
+    // O preload/atualização real vem do servidor (tem as versões dos vídeos).
+    void refresh();
+    const intervalId = window.setInterval(() => void refresh(), 2 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
   }, []);
 
   const [activeSlot, setActiveSlot] = useState<0 | 1>(0);
@@ -365,6 +386,16 @@ export default function PersonaOverlay() {
         (state.current_video_id ? clipFromVideoId(state.current_video_id) : null);
       if (nextClip && clipKey(nextClip) !== currentKey) {
         await transitionToClip(nextClip, state);
+        playedVersionRef.current = videoVersion(nextClip.videoId);
+      } else if (nextClip) {
+        // Mesmo clipe no ar: se o operador TROCOU o conteúdo do vídeo, o blob novo
+        // já foi baixado com versão nova — força recarregar pra trocar na hora,
+        // em vez de continuar tocando o vídeo antigo (clipKey não muda sozinho).
+        const ver = videoVersion(nextClip.videoId);
+        if (playedVersionRef.current && ver && ver !== playedVersionRef.current) {
+          playedVersionRef.current = ver;
+          setCurrentKey(''); // o próximo tick re-transiciona pro conteúdo novo
+        }
       }
     };
 
