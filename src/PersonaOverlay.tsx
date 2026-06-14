@@ -91,6 +91,9 @@ export default function PersonaOverlay() {
   // Versão (uploadedAt) do vídeo atualmente no ar — pra detectar quando o
   // operador troca o conteúdo do vídeo que já está tocando e recarregar.
   const playedVersionRef = useRef('');
+  // Último vídeo "fora do fluxo" que ignoramos — evita empurrar o servidor
+  // (advance) repetidamente pro mesmo vídeo rogue a cada tick.
+  const rogueAdvancedRef = useRef('');
 
   // ── Client-side schedule firing ──────────────────────────────────────────
   // Uses the workflow config injected at build time by odessaSchedulePlugin.
@@ -406,6 +409,29 @@ export default function PersonaOverlay() {
       const nextClip =
         state.currentClip ||
         (state.current_video_id ? clipFromVideoId(state.current_video_id) : null);
+
+      // TRAVA DE FLUXO: o overlay só toca o que está no FLUXO PUBLICADO. Se o
+      // servidor mandar um vídeo que NÃO está no fluxo (ex.: um trigger/automação
+      // velho disparado por um presente real do chat), não toca "por conta
+      // própria" — empurra o servidor de volta pro idle (uma vez por vídeo rogue)
+      // e mantém o que já está no ar. Só trava com a config carregada (senão,
+      // no boot, deixa passar).
+      const cfg = scheduleConfigRef.current;
+      const inFlow =
+        !nextClip ||
+        !cfg ||
+        cfg.idleVideoId === nextClip.videoId ||
+        (cfg.flowNodes || []).some((n) => n.videoId === nextClip.videoId);
+      if (nextClip && !inFlow) {
+        if (rogueAdvancedRef.current !== nextClip.videoId) {
+          rogueAdvancedRef.current = nextClip.videoId;
+          console.warn(`[Odessa] vídeo fora do fluxo IGNORADO: ${nextClip.videoId}`);
+          await advanceAndRefresh(nextClip);
+        }
+        return;
+      }
+      rogueAdvancedRef.current = '';
+
       if (nextClip && clipKey(nextClip) !== currentKey) {
         await transitionToClip(nextClip, state);
         playedVersionRef.current = videoVersion(nextClip.videoId);

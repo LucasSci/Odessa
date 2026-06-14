@@ -1,34 +1,8 @@
 {
-  "idleVideoId": "IDLE_LOOP_COMPLETE",
-  "schedules": [
-    {"id": "sch-1779489600945-t115", "videoId": "peitinhos",     "intervalMinutes": 1,  "enabled": true},
-    {"id": "sch-1779489612534-dykk", "videoId": "bye_bey",       "intervalMinutes": 7,  "enabled": true},
-    {"id": "sch-1779489618074-71cx", "videoId": "cora__o",       "intervalMinutes": 9,  "enabled": true},
-    {"id": "sch-1779489622624-ley3", "videoId": "lingua_de_fora","intervalMinutes": 10, "enabled": true},
-    {"id": "sch-1779489626064-73pm", "videoId": "rea_aofeliz",   "intervalMinutes": 11, "enabled": true}
-  ],
-  "flowNodes": [
-    {"nodeId": "node-IDLE_LOOP_COMPLETE-1779485320421-med7a", "videoId": "IDLE_LOOP_COMPLETE"},
-    {"nodeId": "node-bye_bey-1779487265948-8y7f7",            "videoId": "bye_bey"},
-    {"nodeId": "node-cora__o-1779487266572-me6qk",            "videoId": "cora__o"},
-    {"nodeId": "node-rea_aofeliz-1779487267428-wdtfc",        "videoId": "rea_aofeliz"},
-    {"nodeId": "node-peitinhos-1779485545402-t6wyr",          "videoId": "peitinhos"},
-    {"nodeId": "node-lingua_de_fora-1779487266973-8p41u",     "videoId": "lingua_de_fora"},
-    {"nodeId": "node-return_to_loop-1779485340135-8qepa",     "videoId": "return_to_loop"},
-    {"nodeId": "node-base-1779487264428-djvt1",               "videoId": "base"}
-  ],
-  "flowConnections": [
-    {"id": "flow-trigger-comment-hello-oi",        "fromNodeId": "node-IDLE_LOOP_COMPLETE-1779485320421-med7a", "toNodeId": "node-bye_bey-1779487265948-8y7f7",         "triggerId": "trigger-comment-hello-oi"},
-    {"id": "flow-trigger-gift-coracao",            "fromNodeId": "node-IDLE_LOOP_COMPLETE-1779485320421-med7a", "toNodeId": "node-cora__o-1779487266572-me6qk",          "triggerId": "trigger-gift-coracao"},
-    {"id": "flow-trigger-gift-eu-te-amo",          "fromNodeId": "node-IDLE_LOOP_COMPLETE-1779485320421-med7a", "toNodeId": "node-rea_aofeliz-1779487267428-wdtfc",      "triggerId": "trigger-gift-eu-te-amo"},
-    {"id": "flow-trigger-comment-peitos",          "fromNodeId": "node-IDLE_LOOP_COMPLETE-1779485320421-med7a", "toNodeId": "node-peitinhos-1779485545402-t6wyr",        "triggerId": "trigger-comment-peitos"},
-    {"id": "flow-trigger-comment-lingua-sem-acento","fromNodeId":"node-IDLE_LOOP_COMPLETE-1779485320421-med7a", "toNodeId": "node-lingua_de_fora-1779487266973-8p41u",   "triggerId": "trigger-comment-lingua-sem-acento"}
-  ],
-  "triggers": [
-    {"id": "trigger-comment-hello-oi",        "eventType": "comment", "enabled": true, "conditions": {"keyword": "oi"}},
-    {"id": "trigger-gift-coracao",            "eventType": "gift",    "enabled": true, "conditions": {"giftKey": "gift.coracao"}},
-    {"id": "trigger-gift-eu-te-amo",          "eventType": "gift",    "enabled": true, "conditions": {"giftKey": "gift.eu_te_amo"}},
-    {"id": "trigger-comment-peitos",          "eventType": "comment", "enabled": true, "conditions": {"keyword": "Peitos"}},
-    {"id": "trigger-comment-lingua-sem-acento","eventType": "comment", "enabled": true, "conditions": {"keyword": "lingua"}}
-  ]
+  "_comment": "Fallback estatico INTENCIONALMENTE VAZIO. A fonte de verdade e /api/v1/workflow/published. Os schedules antigos daqui (peitinhos, bye_bey, cora__o, lingua_de_fora, rea_aofeliz) disparavam videos FORA do fluxo publicado, sozinhos. Mantido vazio pra o overlay nunca tocar nada que nao esteja no fluxo atual.",
+  "idleVideoId": null,
+  "schedules": [],
+  "flowNodes": [],
+  "flowConnections": [],
+  "triggers": []
 }
