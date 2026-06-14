@@ -145,23 +145,45 @@ export default function PersonaOverlay() {
 
     // Re-busca o workflow publicado PERIODICAMENTE — assim trocas de vídeo/fluxo
     // feitas pelo operador chegam ao overlay sem precisar recarregá-lo (que num
-    // live 24/7, depois da Fase 3, nunca acontece). Mantém a config atual se a
-    // rede falhar.
-    const refresh = async () => {
+    // live 24/7, depois da Fase 3, nunca acontece).
+    let settledOnPublished = false;
+
+    const tryPublished = async (): Promise<boolean> => {
       try {
         const r = await fetch(apiUrl('/workflow/published'));
         const cfg = r.ok ? await r.json() : null;
-        if (cancelled) return;
-        if (applyConfig(cfg, 'workflow publicado')) return;
+        if (cancelled) return true;
+        if (applyConfig(cfg, 'workflow publicado')) {
+          settledOnPublished = true;
+          return true;
+        }
+      } catch { /* rede — tenta de novo no próximo ciclo */ }
+      return false;
+    };
+
+    const refresh = async () => {
+      if (await tryPublished()) return;
+      // O ESTÁTICO é só último recurso, e SÓ enquanto nunca conseguimos o
+      // publicado — nunca regride um fluxo publicado bom pro estático velho.
+      if (settledOnPublished || cancelled) return;
+      try {
         const r2 = await fetch('/odessa-schedules.json');
         const c2 = r2.ok ? await r2.json() : null;
         if (!cancelled) applyConfig(c2, '/odessa-schedules.json');
       } catch { /* mantém a config atual */ }
     };
 
-    // Config injetada em build (dev) serve só de ponto de partida pras automações.
-    // O preload/atualização real vem do servidor (tem as versões dos vídeos).
-    void refresh();
+    // Cold-start: no boot o token pode levar uns segundos pra ficar fresco (auto-
+    // login em segundo plano), e um 401 cairia no fluxo ESTÁTICO velho. Então
+    // insiste no publicado por ~30s ANTES de considerar o estático.
+    void (async () => {
+      for (let i = 0; i < 6 && !settledOnPublished && !cancelled; i++) {
+        if (await tryPublished()) return;
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+      await refresh(); // ainda sem publicado → garante ao menos o estático
+    })();
+
     const intervalId = window.setInterval(() => void refresh(), 2 * 60 * 1000);
     return () => {
       cancelled = true;
