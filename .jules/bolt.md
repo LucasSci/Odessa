@@ -1,0 +1,3 @@
+## 2024-05-18 - Avoid array copying for backward searches
+**Learning:** Using `[...array].reverse().find(...)` to search backward creates a shallow copy of the array and forces an O(N) iteration, causing significant memory allocation and render bottlenecks when applied to continuously growing arrays in React state (like event logs or captured text) inside `useMemo` or render functions. Furthermore, ES2023's `findLast()` is not available because the project's `tsconfig.json` target is `ES2020`.
+**Action:** Always use a traditional backward `for` loop (e.g. `for (let i = array.length - 1; i >= 0; i--)`) to search backwards without copying the array.

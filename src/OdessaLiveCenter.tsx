@@ -788,7 +788,18 @@ export default function OdessaLiveCenter({
     const activeTriggers = triggers.filter((item) => item.enabled);
     const connections = config?.flowConnections || [];
     const flowNodes = config?.flowNodes || [];
-    const lastOcr = [...capturedText].reverse().find((event) => event.source === 'ocr');
+
+    // Performance optimization: Using a backward `for` loop instead of `[...capturedText].reverse().find()`
+    // avoids creating a shallow copy of the array and prevents full O(N) traversal if a match is found early.
+    // This reduces memory allocation and unnecessary iteration during every render.
+    let lastOcr: CapturedMessage | undefined;
+    for (let i = capturedText.length - 1; i >= 0; i--) {
+      if (capturedText[i].source === 'ocr') {
+        lastOcr = capturedText[i];
+        break;
+      }
+    }
+
     return {
       videos,
       triggers,
@@ -860,7 +871,7 @@ export default function OdessaLiveCenter({
       processedGiftIdsRef.current.add(event.id);
       void previewEvent(event);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [capturedText, runtime.autopilotEnabled, view.videos, view.triggers]);
 
   // ── Espelho da decisão da Diretora no Palco (ao vivo) ───────────────────────
