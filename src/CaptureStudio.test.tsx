@@ -45,7 +45,7 @@ function setupCanvasMock() {
     imageSmoothingEnabled: true,
   } as unknown as CanvasRenderingContext2D;
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => context);
-  vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/png;base64,frame');
+  vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
   return context;
 }
 
