@@ -25,7 +25,7 @@ const SESSION_COOKIE_NAME  = 'odessa_admin_session';
 const SESSION_SECRET       = process.env.ODESSA_SESSION_SECRET || 'odessa-hostinger-session-secret-v1-change-in-env';
 const PERSONA_CONFIG_KEY   = 'persona_config';
 const DEFAULT_ADMIN_EMAIL  = 'lucasbatista.c.l@gmail.com';
-const DEFAULT_PASSWORD_HASH = 'ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f';
+const DEFAULT_PASSWORD_HASH = '';
 const ADMIN_EMAIL          = (process.env.ODESSA_ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL).trim().toLowerCase();
 
 const HOME_DIR       = process.env.HOME || process.env.USERPROFILE || '';
