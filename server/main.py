@@ -89,8 +89,12 @@ if dist_dir.exists():
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_web_app(full_path: str):
         target = dist_dir / full_path
-        if full_path and target.is_file():
+
+        # 🛡️ Sentinel: Prevent Path Traversal (LFI) by verifying the resolved path
+        # remains within the base dist directory.
+        if full_path and target.resolve().is_relative_to(dist_dir.resolve()) and target.is_file():
             return FileResponse(target)
+
         return FileResponse(dist_dir / "index.html")
 
 if __name__ == "__main__":
