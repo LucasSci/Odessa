@@ -1,0 +1,3 @@
+## 2025-02-20 - Backward for-loop for array reverse search
+**Learning:** In continuously growing arrays, the pattern `[...array].reverse().find(...)` creates shallow copies and reverses the entire array, which allocates memory and iterates over the entire array (O(N) operation). This can cause severe render bottlenecks in React components like `OdessaLiveCenter.tsx`. Native methods like `findLast()` (ES2023) might not be available due to `tsconfig.json` target settings (e.g., `ES2020`).
+**Action:** Use a backward `for` loop to manually find the latest matching item, avoiding memory allocation and full iteration.
