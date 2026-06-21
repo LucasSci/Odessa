@@ -239,15 +239,16 @@ describe('CaptureStudio screen capture', () => {
 
     await waitFor(() => expect(getDisplayMedia).toHaveBeenCalledWith({ video: true, audio: false }));
     await screen.findByText('Janela ao vivo');
-    await waitFor(() => {
-      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ocr/process'))).toBe(true);
-    });
+    // The screen capture mode uses the local OCR worker (Tesseract/TextDetector) and does NOT call /ocr/process.
+    // Instead, after local OCR finishes, it routes the text to /ocr/ingest.
+    // Wait for the ingest call directly.
 
-    const ingestCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/automation/ingest'));
-    expect(ingestCall).toBeTruthy();
-    const body = JSON.parse(String(ingestCall?.[1]?.body || '{}')) as { execute?: boolean; text?: string };
-    expect(body.execute).toBe(true);
-    expect(body.text).toContain('Lucas enviou Rosa');
+    await waitFor(() => {
+      const ingestCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/ocr/ingest'));
+      expect(ingestCall).toBeTruthy();
+      const body = JSON.parse(String(ingestCall?.[1]?.body || '{}')) as { text?: string };
+      expect(body.text).toContain('Lucas enviou Rosa');
+    });
   });
 
   it('ignores an old stored OBS mode and opens on live screen capture', async () => {
