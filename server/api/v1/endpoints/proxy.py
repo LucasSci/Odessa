@@ -9,9 +9,11 @@ All responses have X-Frame-Options and Content-Security-Policy removed
 so the iframe can render them without being blocked.
 """
 
+import ipaddress
 import logging
 import re
-from urllib.parse import urljoin, urlparse, quote
+import socket
+from urllib.parse import quote, urljoin, urlparse
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -53,6 +55,36 @@ CHROME_UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0.0.0 Safari/537.36"
 )
+
+
+def _is_safe_url(url: str) -> bool:
+    """
+    Check if a URL is safe to fetch (mitigates SSRF).
+    Blocks local hostnames, private IPs, loopback IPs, and link-local IPs.
+    """
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+
+        # Pre-resolution checks for obvious local names
+        if hostname.lower() in ("localhost", "host.docker.internal", "127.0.0.1", "0.0.0.0", "::1"):
+            return False
+
+        # Resolve IP to handle DNS rebinding and obscured local IPs
+        ip = socket.gethostbyname(hostname)
+        ip_obj = ipaddress.ip_address(ip)
+
+        # Block private, loopback, and link-local addresses
+        if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local:
+            return False
+
+    except (socket.gaierror, ValueError):
+        # Fail secure if we can't resolve the IP or parse it
+        return False
+
+    return True
 
 
 def _proxy_base_url(request: Request) -> str:
@@ -273,6 +305,10 @@ async def proxy_page(
     if not url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="url must start with http:// or https://")
 
+    if not _is_safe_url(url):
+        logger.warning("[proxy] Blocked unsafe URL: %s", url)
+        raise HTTPException(status_code=400, detail="Unsafe URL provided")
+
     logger.info("[proxy] Fetching page: %s", url)
 
     forward_headers = {
@@ -337,6 +373,10 @@ async def proxy_asset(
     """
     if not url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="url must be absolute")
+
+    if not _is_safe_url(url):
+        logger.warning("[proxy] Blocked unsafe asset URL: %s", url)
+        raise HTTPException(status_code=400, detail="Unsafe asset URL provided")
 
     forward_headers = {
         "user-agent": CHROME_UA,

@@ -1,0 +1,4 @@
+## 2026-06-21 - [CRITICAL] Prevent SSRF in HTTPX Proxy Endpoints
+**Vulnerability:** The proxy endpoints in `server/api/v1/endpoints/proxy.py` blindly accepted and fetched user-provided URLs using `httpx`, checking only for `http://` or `https://` schemes.
+**Learning:** This exposed the server to Server-Side Request Forgery (SSRF) vulnerabilities, allowing requests to internal network resources, local loopbacks (127.0.0.1, localhost), or cloud metadata services (169.254.169.254).
+**Prevention:** Implement a strict `_is_safe_url` check before any internal fetch. This must explicitly parse the domain, resolve it to an IP address (to defeat DNS rebinding attacks), and reject the request if the IP falls within private, loopback, or link-local address spaces (`ipaddress.ip_address(ip).is_private`).
