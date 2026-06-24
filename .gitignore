@@ -12,6 +12,7 @@ coverage/
 *.log
 *.jsonl
 *.pyc
+*.traineddata
 server/runtime/
 server/data/logs/
 certs/dev/*.pfx

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Odessa Studio 2.0 — Diretora IA</title>
+<link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="logo"><svg data-lucide="orbit"></svg></span>
+      <div><div class="name">Odessa</div><div class="sub">Studio</div></div>
+    </div>
+    <div class="nav-group">
+      <div class="label">Operação</div>
+      <div class="nav-item"><svg data-lucide="layout-dashboard"></svg>Início</div>
+      <div class="nav-item"><svg data-lucide="monitor-play"></svg>Palco</div>
+      <div class="nav-item active"><svg data-lucide="bot"></svg>Diretora IA</div>
+    </div>
+    <div class="nav-group">
+      <div class="label">Conteúdo</div>
+      <div class="nav-item"><svg data-lucide="film"></svg>Biblioteca <span class="badge">10</span></div>
+      <div class="nav-item"><svg data-lucide="git-fork"></svg>Fluxo</div>
+      <div class="nav-item"><svg data-lucide="sticky-note"></svg>Mural</div>
+    </div>
+    <div class="nav-group">
+      <div class="label">Sistema</div>
+      <div class="nav-item"><svg data-lucide="scan-eye"></svg>Fontes / OCR</div>
+      <div class="nav-item"><svg data-lucide="scroll-text"></svg>Logs</div>
+      <div class="nav-item"><svg data-lucide="settings"></svg>Config</div>
+    </div>
+    <div class="director-card">
+      <div class="top"><span class="dot live"></span><span class="title">Diretora</span>
+        <span class="pill violet" style="margin-left:auto">Gemini</span></div>
+      <div class="meta">No ar · conduzindo a live.</div>
+      <div class="row"><span class="pill gold">Assistido</span>
+        <button class="btn-mini"><svg data-lucide="pause"></svg>Pausar</button></div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div><div class="crumb">Operação</div><h1>Diretora IA</h1></div>
+      <div class="right">
+        <span class="live-pill" style="color:var(--emerald);border-color:rgba(52,211,153,.35)"><span class="d" style="background:var(--emerald)"></span>Ao vivo</span>
+        <button class="btn"><svg data-lucide="flask-conical"></svg>Teste manual</button>
+        <button class="icon-btn"><svg data-lucide="settings"></svg></button>
+      </div>
+    </header>
+
+    <div class="content">
+      <!-- Status hero -->
+      <div class="card" style="margin-bottom:16px; background:linear-gradient(120deg, rgba(139,124,246,.10), rgba(70,194,240,.05));">
+        <div class="flex center gap16" style="flex-wrap:wrap">
+          <div class="flex center gap12">
+            <span class="logo" style="width:44px;height:44px;border-radius:13px"><svg data-lucide="bot" style="width:22px;height:22px"></svg></span>
+            <div>
+              <div style="font-size:15px;font-weight:600">Gemini conectado · multilíngue</div>
+              <div class="muted" style="font-size:12px">Chave local ativa · entende qualquer idioma do chat</div>
+            </div>
+          </div>
+          <div style="margin-left:auto" class="flex center gap16">
+            <div>
+              <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);font-weight:600;margin-bottom:7px">Autonomia</div>
+              <div class="seg"><button>Manual</button><button class="on">Assistido</button><button>Autônomo</button></div>
+            </div>
+            <button class="btn"><svg data-lucide="zap"></svg>Testar conexão</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid" style="grid-template-columns: 1.35fr 1fr; align-items:start;">
+        <!-- Decision timeline -->
+        <div class="card">
+          <div class="head"><svg data-lucide="activity"></svg><span class="ttl">Decisões ao vivo</span><span class="more">tempo real ●</span></div>
+          <div class="decision">
+            <div class="dh"><span class="kind">gift_reaction</span><span class="muted" style="font-size:11px">agora</span><span class="conf">92%</span></div>
+            <div class="speech">"Aii que amor, obrigada pela Rosa! 🌹 Vocês tão lindos hoje"</div>
+            <div class="reason">Presente "Rosa ×5" de Ana · alta prioridade · vídeo de reação selecionado</div>
+            <div class="acts"><span class="act">play_video → Bye Bey</span><span class="act">speak</span><span class="act muted">ack_gift</span></div>
+          </div>
+          <div class="decision">
+            <div class="dh"><span class="kind">compliment_response</span><span class="muted" style="font-size:11px">17:03</span><span class="conf">81%</span></div>
+            <div class="speech">"Obrigada, meu amor 🥰"</div>
+            <div class="reason">@kenji "かわいい" interpretado como elogio (japonês) → resposta tímida</div>
+            <div class="acts"><span class="act">play_video → Peitinhos</span><span class="act muted">chat_reply</span></div>
+          </div>
+          <div class="decision">
+            <div class="dh"><span class="kind">idle_maintenance</span><span class="muted" style="font-size:11px">17:02</span><span class="conf">45%</span></div>
+            <div class="speech">"Chat, me conta: qual música vocês querem agora?"</div>
+            <div class="reason">Chat quieto 45s · puxando assunto (pedido frequente: música)</div>
+            <div class="acts"><span class="act muted">suggest_topic</span><span class="act">speak</span></div>
+          </div>
+        </div>
+
+        <!-- Right column -->
+        <div class="grid" style="gap:16px;">
+          <div class="card">
+            <div class="head"><svg data-lucide="sparkles"></svg><span class="ttl">Aprendizado</span></div>
+            <div class="muted" style="font-size:11px;margin-bottom:8px">O chat costuma pedir</div>
+            <div class="flex gap8" style="flex-wrap:wrap;margin-bottom:14px">
+              <span class="tag on">música · 28×</span><span class="tag on">dança · 14×</span><span class="tag">sorri · 9×</span>
+            </div>
+            <div class="muted" style="font-size:11px;margin-bottom:8px">Presentes aprendidos</div>
+            <div class="flex gap8" style="flex-wrap:wrap">
+              <span class="tag">🌹 Rosa · 42×</span><span class="tag">❤️ Coração · 18×</span><span class="tag on">🐉 Dragão · novo</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="head"><svg data-lucide="brain"></svg><span class="ttl">Personalidade</span><span class="more">editar</span></div>
+            <div style="font-size:12px;color:var(--t2);line-height:1.6;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px;font-family:monospace">Você é a Odessa — anfitriã calorosa, próxima e brincalhona de uma live. Reaja com energia a presentes, responda elogios com carinho…</div>
+          </div>
+
+          <div class="card">
+            <div class="head"><svg data-lucide="sliders-horizontal"></svg><span class="ttl">Parâmetros</span></div>
+            <div class="flex between center" style="margin-bottom:8px"><span style="font-size:12px;color:var(--t2)">Confiança p/ tocar vídeo</span><span class="serif" style="font-size:18px;color:var(--violet)">65%</span></div>
+            <input class="range" type="range" min="30" max="95" value="65" style="width:100%" />
+            <div class="flex between"><span class="muted" style="font-size:10px">permissivo</span><span class="muted" style="font-size:10px">restritivo</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>
