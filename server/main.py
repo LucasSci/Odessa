@@ -89,8 +89,14 @@ if dist_dir.exists():
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_web_app(full_path: str):
         target = dist_dir / full_path
-        if full_path and target.is_file():
-            return FileResponse(target)
+        if full_path:
+            try:
+                resolved_target = target.resolve()
+                resolved_dist = dist_dir.resolve()
+                if resolved_target.is_relative_to(resolved_dist) and resolved_target.is_file():
+                    return FileResponse(resolved_target)
+            except Exception:
+                pass
         return FileResponse(dist_dir / "index.html")
 
 if __name__ == "__main__":
