@@ -1,0 +1,4 @@
+## 2024-06-25 - Prevent Path Traversal (LFI) via unvalidated catch-all routes
+**Vulnerability:** A critical Path Traversal / Local File Inclusion (LFI) vulnerability was found in the FastAPI catch-all route `/{full_path:path}` used for serving the SPA `index.html`. It passed raw user input directly to `FileResponse()`.
+**Learning:** `FileResponse()` in FastAPI does not perform any inherent sandbox or boundary checks like `StaticFiles()` does. Any path matching `is_file()` across the filesystem can be exposed. Furthermore, FastAPI TestClient normalizes `../` automatically, masking the vulnerability in naive unit tests.
+**Prevention:** Always validate resolved paths when manually serving files. Specifically, use `target.resolve().is_relative_to(base_dir.resolve())` in Python 3.9+ to ensure absolute file boundaries. Also, use raw socket or HTTP connections for proper path traversal testing.
