@@ -1,0 +1,3 @@
+## 2024-05-30 - [Performance Anti-Pattern: Reverse Array Searching]
+**Learning:** Found a severe render bottleneck in `src/OdessaLiveCenter.tsx` caused by `[...array].reverse().find(...)`. The component was shallow copying and reversing the `capturedText` array on every render, which is an O(N) memory allocation and iteration penalty. Since this array continuously grows with captured events, this degrades performance over time.
+**Action:** Use a backward `for` loop to search from the end of an array instead. This allows the search to terminate early without allocating any new arrays or reversing the data structure in memory.
