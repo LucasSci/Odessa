@@ -1,0 +1,4 @@
+## 2026-06-26 - Prevent Path Traversal (LFI) in FastAPI Static SPA Route
+**Vulnerability:** A Local File Inclusion (LFI) vulnerability was found in `server/main.py` where a catch-all route (`/{full_path:path}`) concatenated user input to `dist_dir` and blindly served it using `FileResponse(target)` simply checking `target.is_file()`.
+**Learning:** `pathlib.Path.is_file()` correctly resolves paths but evaluates to `True` for any valid file on the host machine (e.g. `/etc/passwd`). It does not confine the lookup to a specific base directory boundary.
+**Prevention:** Always combine `target.is_file()` with boundary validation: `target.resolve().is_relative_to(base_dir.resolve())`. When dealing with SPA routes, failing this boundary check should elegantly fall back to the default `index.html` to prevent route leakage and preserve application logic, instead of throwing errors.
