@@ -1,0 +1,3 @@
+## 2025-01-20 - Backward for-loops over reverse().find()
+**Learning:** Using `[...array].reverse().find(...)` on continuously growing state arrays within render functions (like `capturedText` in `OdessaLiveCenter.tsx`) creates a severe render bottleneck. It forces O(N) memory allocation (shallow copy) and O(N) iteration on every single render.
+**Action:** Replace `[...array].reverse().find(...)` with a backward `for` loop to search from the end without any extra array allocation or full array traversal overhead. This is especially relevant in this project as it targets ES2020 where `findLast()` is unavailable.
