@@ -73,6 +73,10 @@ def verify_admin_credentials(email: str, password: str) -> bool:
     if not hmac.compare_digest(normalized_email, ADMIN_EMAIL):
         return False
     normalized_password = password.strip()
+    # Explicitly reject empty passwords to prevent authentication bypass
+    # if the default password or fallback is cleared.
+    if not normalized_password:
+        return False
     incoming_hash = _hash_password(normalized_password)
     stored_hash = _load_stored_hash()
     return hmac.compare_digest(incoming_hash, stored_hash)

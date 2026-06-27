@@ -1,0 +1,4 @@
+## 2025-02-28 - Reject empty passwords before HMAC comparison
+**Vulnerability:** The application was vulnerable to authentication bypass if the default password hash was removed or unset and empty passwords were provided.
+**Learning:** Functions like `hmac.compare_digest` in Python and `crypto.timingSafeEqual` in Node.js will evaluate to `True`/`true` when both inputs are empty. In both `server/core/auth.py` and `api/[...path].js`, the logic hashed the input, which for an empty string produces a valid hash. If the stored hash was also somehow set to the hash of an empty string or accidentally emptied, it could lead to bypass.
+**Prevention:** Always validate and reject empty passwords (e.g., `if not password: return False` or `if (!password) return false;`) *before* applying hashing or performing timing-safe comparisons to prevent such edge cases.

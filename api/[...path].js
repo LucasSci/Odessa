@@ -155,6 +155,8 @@ function verifyCredentials(email, password) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   if (!safeEqual(normalizedEmail, ADMIN_EMAIL)) return false;
   const normalizedPassword = String(password || '').trim();
+  // Explicitly reject empty passwords to prevent authentication bypass
+  if (!normalizedPassword) return false;
   const incomingHash = hashPassword(normalizedPassword);
   const storedHash = getStoredPasswordHash();
   return safeEqual(incomingHash, storedHash);
