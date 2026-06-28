@@ -1,0 +1,4 @@
+## 2026-06-28 - Path Traversal (LFI) in Catch-All SPA Route
+**Vulnerability:** The SPA fallback route `/{full_path:path}` in FastAPI used `dist_dir / full_path` and `is_file()` directly to serve static files. Since `is_file()` follows symlinks and absolute paths, providing a payload like `../main.py` allowed directory traversal, returning source code instead of limiting to the `dist` folder.
+**Learning:** `pathlib` concatenation and `is_file()` alone provide NO boundary checks against path traversal payloads. TestClient also normalizes `../` automatically, masking the vulnerability in naive unit tests.
+**Prevention:** Always use `path.resolve().is_relative_to(base_dir.resolve())` when manually serving files based on user-provided path parameters to guarantee the file exists strictly within the intended base directory.
