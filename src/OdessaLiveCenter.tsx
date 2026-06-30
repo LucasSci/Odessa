@@ -867,7 +867,7 @@ export default function OdessaLiveCenter({
       processedGiftIdsRef.current.add(event.id);
       void previewEvent(event);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [capturedText, runtime.autopilotEnabled, view.videos, view.triggers]);
 
   // ── Espelho da decisão da Diretora no Palco (ao vivo) ───────────────────────
