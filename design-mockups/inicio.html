@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Odessa Studio 2.0 — Início</title>
+<link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="logo"><svg data-lucide="orbit"></svg></span>
+      <div><div class="name">Odessa</div><div class="sub">Studio</div></div>
+    </div>
+
+    <div class="nav-group">
+      <div class="label">Operação</div>
+      <div class="nav-item active"><svg data-lucide="layout-dashboard"></svg>Início</div>
+      <div class="nav-item"><svg data-lucide="monitor-play"></svg>Palco</div>
+      <div class="nav-item"><svg data-lucide="bot"></svg>Diretora IA</div>
+    </div>
+    <div class="nav-group">
+      <div class="label">Conteúdo</div>
+      <div class="nav-item"><svg data-lucide="film"></svg>Biblioteca <span class="badge">10</span></div>
+      <div class="nav-item"><svg data-lucide="git-fork"></svg>Fluxo</div>
+      <div class="nav-item"><svg data-lucide="sticky-note"></svg>Mural</div>
+    </div>
+    <div class="nav-group">
+      <div class="label">Sistema</div>
+      <div class="nav-item"><svg data-lucide="scan-eye"></svg>Fontes / OCR</div>
+      <div class="nav-item"><svg data-lucide="scroll-text"></svg>Logs</div>
+      <div class="nav-item"><svg data-lucide="settings"></svg>Config</div>
+    </div>
+
+    <div class="director-card">
+      <div class="top"><span class="dot warn"></span><span class="title">Diretora</span>
+        <span class="pill gold" style="margin-left:auto">Mock</span></div>
+      <div class="meta">Conduzindo por <b>regras locais</b>.<br/>Adicione a chave Gemini p/ IA real.</div>
+      <div class="row"><span class="pill violet">Autônomo</span>
+        <button class="btn-mini"><svg data-lucide="play"></svg>Iniciar</button></div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+    <header class="topbar">
+      <div><div class="crumb">Operação</div><h1>Início</h1></div>
+      <div class="right">
+        <span class="live-pill"><span class="d"></span>Pronta</span>
+        <button class="btn primary"><svg data-lucide="play"></svg>Iniciar live</button>
+        <button class="icon-btn"><svg data-lucide="settings"></svg></button>
+      </div>
+    </header>
+
+    <div class="content">
+      <div class="grid" style="grid-template-columns: 348px 1fr; align-items:start;">
+        <!-- Stage preview -->
+        <div class="stage" style="height:592px; background:radial-gradient(120% 80% at 50% 18%, #2a2336, #0a0a10 70%);">
+          <div class="chips"><span class="chip gold">Em ensaio</span><span class="chip">1080×1920</span></div>
+          <div style="position:absolute; inset:0; display:grid; place-items:center;">
+            <div style="width:120px;height:120px;border-radius:50%;background:linear-gradient(135deg,#8b7cf6,#46c2f0);opacity:.9;filter:blur(2px);box-shadow:0 0 80px rgba(139,124,246,.5)"></div>
+          </div>
+          <div class="scanline"></div>
+          <div class="footer">IDLE_LOOP_COMPLETE</div>
+        </div>
+
+        <!-- Right column -->
+        <div class="grid" style="gap:16px;">
+          <!-- Diretora ao vivo -->
+          <div class="card">
+            <div class="head"><svg data-lucide="bot"></svg><span class="ttl">Diretora ao vivo</span>
+              <span class="more">ver tudo →</span></div>
+            <div class="flex gap16">
+              <div style="flex:1">
+                <div class="decision" style="margin:0">
+                  <div class="dh"><span class="kind">gift_reaction</span><span class="conf">92%</span></div>
+                  <div class="speech">"Aii que amor, obrigada pela Rosa! 🌹"</div>
+                  <div class="reason">Presente Rosa detectado · reação imediata, alta prioridade</div>
+                  <div class="acts"><span class="act">play_video → Bye Bey</span><span class="act">speak</span></div>
+                </div>
+              </div>
+              <div style="width:150px; display:flex; flex-direction:column; gap:8px;">
+                <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);font-weight:600">Humor</div>
+                <div class="serif" style="font-size:26px;color:var(--gold)">Hype</div>
+                <div style="height:6px;border-radius:6px;background:var(--surface-3);overflow:hidden"><div style="height:100%;width:78%;background:var(--accent)"></div></div>
+                <div class="muted" style="font-size:11px">energia 78 · acolhimento 84</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Stats -->
+          <div class="grid" style="grid-template-columns: repeat(4,1fr); gap:14px;">
+            <div class="stat"><div class="v accent">14</div><div class="l">Gatilhos ativos</div></div>
+            <div class="stat"><div class="v">0</div><div class="l">Clipes na fila</div></div>
+            <div class="stat"><div class="v serif">136</div><div class="l">Eventos</div><div class="trend">+12 / min</div></div>
+            <div class="stat"><div class="v">3</div><div class="l">Cenas OK</div></div>
+          </div>
+
+          <!-- Events -->
+          <div class="card">
+            <div class="head"><svg data-lucide="radio"></svg><span class="ttl">Eventos · ao vivo</span><span class="more">Captura ●</span></div>
+            <div class="evt"><div class="av">🌹</div><div class="body"><div class="who">Ana enviou Rosa ×5</div><div class="msg">Presente · reação disparada pela Diretora</div></div><div class="time">17:03</div></div>
+            <div class="evt"><div class="av">💬</div><div class="body"><div class="who">@lucas_vk</div><div class="msg">linda demais, toca uma música!</div></div><div class="time">17:03</div></div>
+            <div class="evt"><div class="av">👋</div><div class="body"><div class="who">Novo seguidor · marina.s</div><div class="msg">Boas-vindas programada</div></div><div class="time">17:02</div></div>
+            <div class="evt"><div class="av">🌐</div><div class="body"><div class="who">@kenji (日本語)</div><div class="msg">かわいい！ → entendido como elogio</div></div><div class="time">17:02</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>

@@ -66,3 +66,26 @@ def test_ocr_endpoint_new_content_logic(client, sample_image_base64):
         json={"image": sample_image_base64, "zone_id": "zone-persistent"},
     )
     assert response2.status_code in [200, 400, 422]
+
+
+@pytest.mark.unit
+def test_ocr_ingest_endpoint_routes_text(client):
+    """Test local parity endpoint used by CaptureStudio."""
+    response = client.post(
+        "/api/v1/ocr/ingest",
+        json={
+            "lines": ["Lucas enviou Rosa"],
+            "text": "Lucas enviou Rosa",
+            "source": "ocr",
+            "zoneName": "Chat",
+            "zoneRole": "chat",
+            "zoneId": "zone-chat",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert data["linesProcessed"] == 1
+    assert "triggered" in data
+    assert "noMatch" in data
+    assert data["mode"] == "local"

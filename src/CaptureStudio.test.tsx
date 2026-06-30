@@ -2,8 +2,21 @@ import React from 'react';
 import { readFileSync } from 'node:fs';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import CaptureStudio from './CaptureStudio';
 import type { CapturedMessage } from './types';
+
+vi.mock('tesseract.js', () => ({
+  createWorker: async () => ({
+    recognize: async () => ({
+      data: {
+        text: 'Lucas enviou Rosa',
+        blocks: [],
+      },
+    }),
+    terminate: async () => undefined,
+  }),
+}));
+
+import CaptureStudio from './CaptureStudio';
 
 function jsonResponse(data: unknown, ok = true) {
   return new Response(JSON.stringify(data), {
@@ -41,7 +54,10 @@ function createDisplayMediaMock() {
 function setupCanvasMock() {
   const context = {
     drawImage: vi.fn(),
+    fillRect: vi.fn(),
+    getImageData: vi.fn(() => ({ data: new Uint8ClampedArray(32 * 32 * 4) })),
     filter: 'none',
+    fillStyle: '#000',
     imageSmoothingEnabled: true,
   } as unknown as CanvasRenderingContext2D;
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => context);
@@ -94,13 +110,26 @@ function setupFetchMock() {
         created_at: new Date().toISOString(),
       });
     }
-    if (url.includes('/automation/ingest')) {
+    if (url.includes('/ocr/ingest')) {
       return jsonResponse({
-        status: 'processed',
-        error: null,
-        summary: { actionsExecuted: 1 },
-        executions: [{ status: 'executed' }],
-        videoState: { current_video_id: 'rosa-video', state: 'ACTION' },
+        ok: true,
+        linesProcessed: 1,
+        triggered: [
+          {
+            triggerId: 'gift-rosa',
+            triggerName: 'Rosa',
+            targetVideoId: 'rosa-video',
+            queueSize: 1,
+            line: 'Lucas enviou Rosa',
+            eventType: 'gift',
+            kind: 'gift',
+            giftKey: 'Rosa',
+            sender: 'Lucas',
+          },
+        ],
+        noMatch: [],
+        triggerQueueSize: 1,
+        mode: 'local',
       });
     }
     return jsonResponse({ ok: true });
@@ -212,6 +241,13 @@ describe('CaptureStudio screen capture', () => {
     window.localStorage.clear();
     setupVideoMock();
     setupCanvasMock();
+    mockImageLoad();
+    vi.stubGlobal(
+      'TextDetector',
+      class {
+        detect = async () => [{ rawValue: 'Lucas enviou Rosa' }];
+      },
+    );
   });
 
   afterEach(() => {
@@ -221,7 +257,7 @@ describe('CaptureStudio screen capture', () => {
     window.localStorage.clear();
   });
 
-  it('starts live display capture and routes OCR through automation ingest', async () => {
+  it('starts live display capture and routes OCR through OCR ingest', async () => {
     const media = createDisplayMediaMock();
     const getDisplayMedia = vi.fn().mockResolvedValue(media.stream);
     Object.defineProperty(navigator, 'mediaDevices', {
@@ -230,7 +266,7 @@ describe('CaptureStudio screen capture', () => {
     });
     const fetchMock = setupFetchMock();
 
-    renderCaptureStudio();
+    const view = renderCaptureStudio();
 
     const startButton = await screen.findByRole('button', { name: /iniciar/i });
     await waitFor(() => expect((startButton as HTMLButtonElement).disabled).toBe(false));
@@ -239,16 +275,23 @@ describe('CaptureStudio screen capture', () => {
 
     await waitFor(() => expect(getDisplayMedia).toHaveBeenCalledWith({ video: true, audio: false }));
     await screen.findByText('Janela ao vivo');
-    await waitFor(() => {
-      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ocr/process'))).toBe(true);
-    });
-
-    const ingestCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/automation/ingest'));
-    expect(ingestCall).toBeTruthy();
-    const body = JSON.parse(String(ingestCall?.[1]?.body || '{}')) as { execute?: boolean; text?: string };
-    expect(body.execute).toBe(true);
+    const video = view.container.querySelector('video');
+    expect(video).toBeTruthy();
+    fireEvent.loadedMetadata(video as HTMLVideoElement);
+    await waitFor(
+      () => {
+        expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(
+          expect.arrayContaining([expect.stringContaining('/ocr/ingest')]),
+        );
+      },
+      { timeout: 5000 },
+    );
+    const latestIngestCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/ocr/ingest'));
+    expect(latestIngestCall).toBeTruthy();
+    const body = JSON.parse(String(latestIngestCall?.[1]?.body || '{}')) as { lines?: string[]; text?: string };
+    expect(body.lines).toContain('Lucas enviou Rosa');
     expect(body.text).toContain('Lucas enviou Rosa');
-  });
+  }, 10000);
 
   it('ignores an old stored OBS mode and opens on live screen capture', async () => {
     window.localStorage.setItem(

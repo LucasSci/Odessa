@@ -152,10 +152,11 @@ function storePasswordHash(hash) {
 }
 
 function verifyCredentials(email, password) {
-  if (!password || password.trim() === '') return false;
-  const normalizedEmail = String(email).trim().toLowerCase();
-  if (normalizedEmail !== ADMIN_EMAIL) return false;
-  const incomingHash = hashPassword(password);
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!safeEqual(normalizedEmail, ADMIN_EMAIL)) return false;
+  const normalizedPassword = String(password || '').trim();
+  if (!normalizedPassword) return false;
+  const incomingHash = hashPassword(normalizedPassword);
   const storedHash = getStoredPasswordHash();
   if (!storedHash) return false;
   return safeEqual(incomingHash, storedHash);
