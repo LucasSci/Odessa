@@ -28,6 +28,14 @@ interface ObsSwitchSceneResult {
   error?: string;
 }
 
+interface ChatAutomationSendResult {
+  status?: string;
+  allowed?: boolean;
+  reason?: string;
+  text?: string;
+  wouldSend?: boolean;
+}
+
 export function actionSummary(action: AutopilotAction) {
   const payload = action.payload || {};
   const detail =
@@ -53,7 +61,7 @@ export function actionSummary(action: AutopilotAction) {
 
 function simulatedActionResult(action: AutopilotAction, capability: string) {
   const payload = action.payload || {};
-  if (capability === 'chat.reply') {
+  if (capability === 'chat.reply' && !base.simulated) {
     const message =
       typeof payload.message === 'string'
         ? payload.message
@@ -150,6 +158,30 @@ async function dispatchWebhookAction(
   const data = (await response.json().catch(() => ({}))) as WebhookDispatchResult;
   if (!response.ok) {
     throw new Error(data.error || `Falha ao chamar webhook: HTTP ${response.status}`);
+  }
+  return data;
+}
+
+async function dispatchChatReplyAction(action: AutopilotAction): Promise<ChatAutomationSendResult> {
+  const text = String(action.payload?.message || action.payload?.text || '').trim();
+  const targetUrl = String(action.payload?.targetUrl || action.payload?.url || '').trim();
+  const inputSelector = String(action.payload?.inputSelector || '').trim();
+  if (!text) return { status: 'blocked', allowed: false, reason: 'empty_text' };
+  if (!targetUrl) return { status: 'blocked', allowed: false, reason: 'target_url_missing' };
+
+  const response = await fetch(apiUrl('/chat-automation/send'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      url: targetUrl,
+      text,
+      inputSelector: inputSelector || undefined,
+      dryRun: action.payload?.dryRun !== false,
+    }),
+  });
+  const data = (await response.json().catch(() => ({}))) as ChatAutomationSendResult;
+  if (!response.ok) {
+    throw new Error(data.reason || `HTTP ${response.status}`);
   }
   return data;
 }
@@ -346,6 +378,39 @@ export async function executeAction(
         status: 'error',
         simulated: false,
         result: err instanceof Error ? err.message : 'Falha ao chamar webhook',
+      };
+    }
+  }
+
+  if (capability === 'chat.reply') {
+    try {
+      const chatResult = await dispatchChatReplyAction(base);
+      if (!chatResult.allowed) {
+        return {
+          ...base,
+          status: 'blocked',
+          simulated: false,
+          result:
+            chatResult.reason === 'target_url_missing'
+              ? 'Resposta no chat bloqueada: configure targetUrl/inputSelector para envio real.'
+              : `Resposta no chat bloqueada: ${chatResult.reason || chatResult.status || 'nao permitido'}`,
+        };
+      }
+      return {
+        ...base,
+        status: chatResult.status === 'ready' ? 'done' : 'simulated',
+        simulated: chatResult.status !== 'ready',
+        result:
+          chatResult.status === 'ready'
+            ? 'Resposta enviada para a automacao de chat.'
+            : `Resposta validada em dry-run: ${chatResult.text || actionSummary(base)}`,
+      };
+    } catch (err) {
+      return {
+        ...base,
+        status: 'error',
+        simulated: false,
+        result: err instanceof Error ? err.message : 'Falha ao enviar resposta no chat',
       };
     }
   }

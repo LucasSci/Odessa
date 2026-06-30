@@ -49,6 +49,7 @@ import type { CapturedMessage } from './types';
 import { Badge, Button, Card, ConfirmButton, Input, StatusDot, Tooltip } from './components/ui';
 import { AiDecisionPanel } from './components/AiDecisionPanel';
 import { AiConfigPanel } from './components/AiConfigPanel';
+import { DirectorOneToOnePanel } from './components/DirectorOneToOnePanel';
 import VideoEditor from './components/VideoEditor';
 import { DebugLogPanel, logEntry } from './components/DebugLogPanel';
 import { StatusBadge, deriveStageStatus } from './components/StatusBadge';
@@ -1029,7 +1030,12 @@ export default function OdessaLiveCenter({
           />
         )}
         {activeTab === 'ai' && (
-          <AiConfigPanel videos={view.videos} triggers={view.triggers} runtime={runtime} />
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <div className="grid gap-4 2xl:grid-cols-[minmax(520px,0.95fr)_minmax(620px,1.05fr)]">
+              <DirectorOneToOnePanel />
+              <AiConfigPanel videos={view.videos} triggers={view.triggers} runtime={runtime} />
+            </div>
+          </div>
         )}
         {activeTab === 'flow' && (
           <Suspense fallback={<PanelLoading label="Carregando fluxo reativo" />}>

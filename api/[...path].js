@@ -11,6 +11,7 @@ const __dirname = nodePath.dirname(fileURLToPath(_metaUrl));
 
 const SESSION_COOKIE_NAME = 'odessa_admin_session';
 const PERSONA_CONFIG_KEY = 'persona_config';
+const CONVERSATIONS_KEY = 'conversations';
 const AUTH_BUILD = 'ai-decide-2026-05-27-gemini-v1';
 const SESSION_TTL_SECONDS = Number(process.env.ODESSA_SESSION_TTL_SECONDS || 12 * 60 * 60);
 const DEFAULT_ADMIN_EMAIL = 'lucasbatista.c.l@gmail.com';
@@ -433,6 +434,216 @@ function setCloudValue(key, value) {
   store[key] = { value, updatedAt: now };
   writeKv(store);
   return now;
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function loadConversations() {
+  const stored = getCloudValue(CONVERSATIONS_KEY);
+  const conversations = Array.isArray(stored?.value?.conversations)
+    ? stored.value.conversations
+    : Array.isArray(stored?.value)
+      ? stored.value
+      : [];
+  return { conversations };
+}
+
+function saveConversations(conversations) {
+  setCloudValue(CONVERSATIONS_KEY, { conversations });
+  return { conversations };
+}
+
+function sortConversations(conversations) {
+  return [...conversations].sort((a, b) =>
+    String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')),
+  );
+}
+
+function findConversation(conversationId) {
+  return loadConversations().conversations.find((item) => item.id === conversationId) || null;
+}
+
+function upsertConversation(conversation) {
+  const data = loadConversations();
+  const next = data.conversations.filter((item) => item.id !== conversation.id);
+  next.push(conversation);
+  saveConversations(next);
+  return conversation;
+}
+
+function createConversationRecord(body) {
+  const participantId = String(body?.participantId || '').trim();
+  if (!participantId) {
+    const error = new Error('participantId e obrigatorio');
+    error.statusCode = 400;
+    throw error;
+  }
+  const at = nowIso();
+  const conversation = {
+    id: `conv-${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`,
+    source: String(body?.source || 'generic'),
+    participantId,
+    participantName: String(body?.participantName || participantId),
+    status: 'open',
+    metadata: body?.metadata && typeof body.metadata === 'object' ? body.metadata : {},
+    messages: [],
+    createdAt: at,
+    updatedAt: at,
+  };
+  upsertConversation(conversation);
+  return conversation;
+}
+
+function addConversationMessageRecord(conversationId, body, status = 'received') {
+  const conversation = findConversation(conversationId);
+  if (!conversation) {
+    const error = new Error('Conversation not found');
+    error.statusCode = 404;
+    throw error;
+  }
+  const text = String(body?.text || '').trim();
+  if (!text) {
+    const error = new Error('text e obrigatorio');
+    error.statusCode = 400;
+    throw error;
+  }
+  const at = nowIso();
+  const message = {
+    id: `msg-${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`,
+    role: String(body?.role || 'user'),
+    text,
+    status,
+    metadata: body?.metadata && typeof body.metadata === 'object' ? body.metadata : {},
+    createdAt: at,
+  };
+  conversation.messages = Array.isArray(conversation.messages) ? conversation.messages : [];
+  conversation.messages.push(message);
+  conversation.updatedAt = at;
+  upsertConversation(conversation);
+  return message;
+}
+
+function buildConversationPrompt(conversation) {
+  const history = (conversation.messages || [])
+    .slice(-12)
+    .map((message) => `${message.role}: ${message.text}`)
+    .join('\n');
+  return (
+    'Conversa privada 1-1. Responda em tom natural, seguro e coerente com Odessa.\n' +
+    `Participante: ${conversation.participantName || conversation.participantId}\n` +
+    `Historico recente:\n${history}\n\n` +
+    'Gere uma resposta curta pronta para aprovacao humana.'
+  );
+}
+
+async function callConversationGemini({ systemPrompt, userPrompt, model, temperature }) {
+  if (!GEMINI_KEY) throw new Error('GEMINI_API_KEY nao configurada');
+  const upstream = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model || GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+        generationConfig: { maxOutputTokens: 220, temperature },
+      }),
+      signal: AbortSignal.timeout(20_000),
+    },
+  );
+  if (!upstream.ok) {
+    const err = await upstream.text().catch(() => `HTTP ${upstream.status}`);
+    throw new Error(`Gemini ${upstream.status}: ${err.slice(0, 160)}`);
+  }
+  const data = await upstream.json();
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+
+async function callConversationOpenAi({ systemPrompt, userPrompt, temperature }) {
+  if (!OPENAI_KEY) throw new Error('OPENAI_API_KEY nao configurada');
+  const upstream = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_KEY}` },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      max_tokens: 220,
+      temperature,
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!upstream.ok) {
+    const err = await upstream.text().catch(() => `HTTP ${upstream.status}`);
+    throw new Error(`OpenAI ${upstream.status}: ${err.slice(0, 160)}`);
+  }
+  const data = await upstream.json();
+  return data?.choices?.[0]?.message?.content || '';
+}
+
+async function generateConversationReplyRecord(conversationId, body) {
+  const conversation = findConversation(conversationId);
+  if (!conversation) {
+    const error = new Error('Conversation not found');
+    error.statusCode = 404;
+    throw error;
+  }
+  const systemPrompt = String(body?.personaPrompt || AI_SYSTEM_PROMPT);
+  const userPrompt = buildConversationPrompt(conversation);
+  const temperature = Math.max(0, Math.min(1.2, Number(body?.temperature ?? 0.72)));
+  const model = String(body?.model || GEMINI_MODEL);
+  const providers = AI_PROVIDER === 'openai' ? ['openai', 'gemini'] : ['gemini', 'openai'];
+  const errors = [];
+  for (const provider of providers) {
+    try {
+      const text = provider === 'openai'
+        ? await callConversationOpenAi({ systemPrompt, userPrompt, temperature })
+        : await callConversationGemini({ systemPrompt, userPrompt, model, temperature });
+      if (text.trim()) {
+        const message = addConversationMessageRecord(conversationId, {
+          role: 'assistant',
+          text: text.trim(),
+          metadata: { provider, generated: true },
+        }, 'draft');
+        return { message, provider };
+      }
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : String(err));
+    }
+  }
+  const fallbackText = 'Entendi. Vou responder com calma e manter a conversa leve por aqui.';
+  const message = addConversationMessageRecord(conversationId, {
+    role: 'assistant',
+    text: fallbackText,
+    metadata: { provider: 'local_fallback', generated: true, errors },
+  }, 'draft');
+  return { message, provider: 'local_fallback' };
+}
+
+function approveConversationMessageRecord(conversationId, body) {
+  const messageId = String(body?.messageId || '').trim();
+  const conversation = findConversation(conversationId);
+  if (!conversation || !messageId) {
+    const error = new Error('Message not found');
+    error.statusCode = 404;
+    throw error;
+  }
+  const message = (conversation.messages || []).find((item) => item.id === messageId);
+  if (!message) {
+    const error = new Error('Message not found');
+    error.statusCode = 404;
+    throw error;
+  }
+  const at = nowIso();
+  message.status = 'approved';
+  message.approvedAt = at;
+  conversation.updatedAt = at;
+  upsertConversation(conversation);
+  return message;
 }
 
 function stateFromAgentStatus(_agentStatus) {
@@ -2343,8 +2554,47 @@ async function protectedResponse(req, res, rawPath) {
     return json(res, 200, { profiles: [], items: [], context: null, ...cloudState() });
   }
 
+  if (path === '/conversations' && req.method === 'GET') {
+    return json(res, 200, {
+      conversations: sortConversations(loadConversations().conversations),
+      total: loadConversations().conversations.length,
+      ...cloudState(),
+    });
+  }
+
+  if (path === '/conversations' && req.method === 'POST') {
+    const body = await readBody(req);
+    return json(res, 200, createConversationRecord(body));
+  }
+
   if (path.startsWith('/conversations/')) {
-    return json(res, 200, { conversations: [], messages: [], ...cloudState() });
+    const parts = path.split('/').filter(Boolean);
+    const conversationId = decodeURIComponent(parts[1] || '');
+    const action = parts[2] || '';
+    if (!conversationId) return json(res, 400, { detail: 'conversation_id ausente' });
+
+    if (!action && req.method === 'GET') {
+      const conversation = findConversation(conversationId);
+      if (!conversation) return json(res, 404, { detail: 'Conversation not found' });
+      return json(res, 200, conversation);
+    }
+
+    if (action === 'messages' && req.method === 'POST') {
+      const body = await readBody(req);
+      return json(res, 200, addConversationMessageRecord(conversationId, body));
+    }
+
+    if (action === 'reply' && req.method === 'POST') {
+      const body = await readBody(req);
+      return json(res, 200, await generateConversationReplyRecord(conversationId, body));
+    }
+
+    if (action === 'approve' && req.method === 'POST') {
+      const body = await readBody(req);
+      return json(res, 200, approveConversationMessageRecord(conversationId, body));
+    }
+
+    return json(res, 405, { detail: 'Metodo ou acao de conversa nao suportado' });
   }
 
   // ── Proxy genérico da Gemini ───────────────────────────────────────────────
