@@ -168,6 +168,17 @@ class OdessaAgent:
                 return {"ok": False, "error": "sceneName is required"}
             return await obs_service.switch_scene(scene_name)
 
+        if command_type == "chat.reply":
+            from server.services.chat_automation_service import chat_automation_service
+
+            text = str(payload.get("text") or payload.get("message") or "").strip()
+            result = chat_automation_service.execute_visual_send(
+                text,
+                payload.get("inputPoint"),
+                send_point=payload.get("sendPoint"),
+            )
+            return {"ok": bool(result.get("executed")), "result": result}
+
         if command_type == "obs.screenshot":
             from server.services.obs_service import obs_service
 

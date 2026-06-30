@@ -1,5 +1,8 @@
 import json
+import os
+import platform
 import re
+import subprocess
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -122,8 +125,47 @@ class ChatAutomationService:
             "wouldType": True,
             "wouldSend": not dry_run,
         }
+        if visual and not dry_run:
+            execution = self._execute_visual_desktop_send(
+                text=text,
+                input_point=result.get("inputPoint"),
+                send_point=result.get("sendPoint"),
+            )
+            result["execution"] = execution
+            result["executed"] = bool(execution.get("ok"))
+            if not execution.get("ok"):
+                result["status"] = "blocked"
+                result["reason"] = execution.get("error") or "desktop_execution_failed"
         self._log(url, text, result, input_selector, mode, input_point)
         return result
+
+    def execute_visual_send(
+        self,
+        text: str,
+        input_point: dict[str, Any] | None,
+        send_point: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if not text.strip():
+            return {"status": "blocked", "allowed": False, "reason": "empty_text"}
+        execution = self._execute_visual_desktop_send(
+            text=text,
+            input_point=input_point,
+            send_point=send_point,
+        )
+        return {
+            "status": "ready" if execution.get("ok") else "blocked",
+            "allowed": True,
+            "mode": "visual",
+            "text": text,
+            "inputPoint": self._normalize_point(input_point),
+            "sendPoint": self._normalize_point(send_point),
+            "wouldClick": True,
+            "wouldType": True,
+            "wouldSend": True,
+            "executed": bool(execution.get("ok")),
+            "execution": execution,
+            "reason": None if execution.get("ok") else execution.get("error") or "desktop_execution_failed",
+        }
 
     def _match_target(
         self,
@@ -185,6 +227,98 @@ class ChatAutomationService:
         if width < 1 or height < 1:
             return None
         return {"width": width, "height": height}
+
+    def _execute_visual_desktop_send(
+        self,
+        text: str,
+        input_point: dict[str, Any] | None,
+        send_point: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if os.getenv("ODESSA_CHAT_AUTOMATION_DISABLED") == "1":
+            return {"ok": False, "error": "desktop_chat_automation_disabled"}
+        if platform.system().lower() != "windows":
+            return {"ok": False, "error": "desktop_visual_send_requires_windows"}
+        point = self._normalize_point(input_point)
+        if not point:
+            return {"ok": False, "error": "input_point_missing"}
+        send = self._normalize_point(send_point)
+        try:
+            script = r"""
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class MouseBridge {
+  [DllImport("user32.dll")]
+  public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")]
+  public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+}
+"@
+$payload = [Console]::In.ReadToEnd() | ConvertFrom-Json
+$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+function Click-Normalized($point) {
+  $x = [Math]::Round($screen.Left + ($screen.Width * [double]$point.x))
+  $y = [Math]::Round($screen.Top + ($screen.Height * [double]$point.y))
+  [MouseBridge]::SetCursorPos([int]$x, [int]$y) | Out-Null
+  Start-Sleep -Milliseconds 90
+  [MouseBridge]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+  [MouseBridge]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+  return @{ x = $x; y = $y }
+}
+$clickedInput = Click-Normalized $payload.inputPoint
+Start-Sleep -Milliseconds 120
+[System.Windows.Forms.Clipboard]::SetText([string]$payload.text)
+[System.Windows.Forms.SendKeys]::SendWait("^v")
+Start-Sleep -Milliseconds 120
+$clickedSend = $null
+if ($payload.sendPoint -and $payload.sendPoint.x -ne $null -and $payload.sendPoint.y -ne $null) {
+  $clickedSend = Click-Normalized $payload.sendPoint
+} else {
+  [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+}
+@{
+  ok = $true
+  screen = @{ width = $screen.Width; height = $screen.Height; left = $screen.Left; top = $screen.Top }
+  clickedInput = $clickedInput
+  clickedSend = $clickedSend
+  submittedWithEnter = ($clickedSend -eq $null)
+} | ConvertTo-Json -Depth 5 -Compress
+"""
+            payload = json.dumps({"text": text, "inputPoint": point, "sendPoint": send}, ensure_ascii=False)
+            completed = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-STA",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    script,
+                ],
+                input=payload,
+                text=True,
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+            if completed.returncode != 0:
+                return {
+                    "ok": False,
+                    "error": "powershell_send_failed",
+                    "stderr": completed.stderr[-500:],
+                }
+            output = completed.stdout.strip()
+            if not output:
+                return {"ok": False, "error": "empty_desktop_executor_output"}
+            data = json.loads(output)
+            data["executor"] = "windows-powershell-sendkeys"
+            return data
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": "desktop_executor_timeout"}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
 
     def _log(
         self,

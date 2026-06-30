@@ -35,6 +35,12 @@ interface ChatAutomationSendResult {
   reason?: string;
   text?: string;
   wouldSend?: boolean;
+  executed?: boolean;
+  queued?: boolean;
+  execution?: {
+    ok?: boolean;
+    error?: string;
+  };
 }
 
 export function actionSummary(action: AutopilotAction) {
@@ -413,13 +419,25 @@ export async function executeAction(
               : `Resposta no chat bloqueada: ${chatResult.reason || chatResult.status || 'nao permitido'}`,
         };
       }
+      if (chatResult.status === 'blocked') {
+        return {
+          ...base,
+          status: 'blocked',
+          simulated: false,
+          result: `Resposta no chat bloqueada: ${chatResult.reason || chatResult.execution?.error || 'execucao pendente'}`,
+        };
+      }
       return {
         ...base,
         status: chatResult.status === 'ready' ? 'done' : 'simulated',
         simulated: chatResult.status !== 'ready',
         result:
           chatResult.status === 'ready'
-            ? 'Resposta enviada para a automacao de chat.'
+            ? chatResult.executed
+              ? 'Resposta digitada e enviada no chat visual.'
+              : chatResult.queued
+                ? 'Resposta enfileirada para o agente local enviar no chat visual.'
+                : 'Resposta enviada para a automacao de chat.'
             : `Resposta validada em dry-run: ${chatResult.text || actionSummary(base)}`,
       };
     } catch (err) {

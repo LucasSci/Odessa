@@ -803,6 +803,21 @@ function sendChatAutomationMessageRecord(body) {
     wouldType: true,
     wouldSend: !dryRun,
   };
+  if (mode === 'visual' && !dryRun) {
+    const queued = enqueueAgentCommand({
+      type: 'chat.reply',
+      payload: {
+        text,
+        inputPoint: result.inputPoint,
+        sendPoint: result.sendPoint,
+        viewport: result.viewport,
+      },
+    });
+    result.queued = true;
+    result.command = queued.command;
+    result.queueSize = queued.queueSize;
+    result.executionMode = 'cloud-agent';
+  }
   logChatAutomationAttempt(url, text, result, inputSelector, mode, inputPoint);
   return result;
 }

@@ -53,6 +53,20 @@ export type ChatAutomationSendResult = {
   wouldType?: boolean;
   wouldSend?: boolean;
   wouldClick?: boolean;
+  executed?: boolean;
+  queued?: boolean;
+  queueSize?: number;
+  executionMode?: string;
+  command?: Record<string, unknown>;
+  execution?: {
+    ok?: boolean;
+    error?: string;
+    executor?: string;
+    screen?: Record<string, unknown>;
+    clickedInput?: Record<string, unknown>;
+    clickedSend?: Record<string, unknown> | null;
+    submittedWithEnter?: boolean;
+  };
 };
 
 export const LIVE_CHAT_SCREENSHOT_TARGET: ChatAutomationTarget = {
