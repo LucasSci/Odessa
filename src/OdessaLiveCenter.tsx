@@ -788,9 +788,7 @@ export default function OdessaLiveCenter({
     const activeTriggers = triggers.filter((item) => item.enabled);
     const connections = config?.flowConnections || [];
     const flowNodes = config?.flowNodes || [];
-    // Optimization: Avoid [...array].reverse().find() which creates a shallow copy
-    // and reverses the array on every render, causing O(N) memory allocation.
-    // A backward for-loop achieves O(1) space complexity and is much faster.
+    // ⚡ Bolt: Using a backward for-loop to prevent O(N) memory allocation and iteration on every render.
     let lastOcr;
     for (let i = capturedText.length - 1; i >= 0; i--) {
       if (capturedText[i].source === 'ocr') {
@@ -869,7 +867,7 @@ export default function OdessaLiveCenter({
       processedGiftIdsRef.current.add(event.id);
       void previewEvent(event);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [capturedText, runtime.autopilotEnabled, view.videos, view.triggers]);
 
   // ── Espelho da decisão da Diretora no Palco (ao vivo) ───────────────────────

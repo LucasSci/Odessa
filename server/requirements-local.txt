@@ -1,0 +1,16 @@
+edge-tts
+fastapi
+google-genai
+httpx
+numpy
+openai
+Pillow
+pydantic
+pyautogui
+pytest>=9.0.3
+pytest-asyncio>=0.21.0
+python-dotenv
+simpleobsws
+soundfile
+uvicorn[standard]
+python-multipart

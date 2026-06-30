@@ -128,5 +128,5 @@ export function useServiceHealth(checks: Array<{ name: string; url: string }>) {
   return services;
 }
 
-// eslint-disable-next-line react-hooks/rules-of-hooks
+
 import { useEffect, useState } from 'react';

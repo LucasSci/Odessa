@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Odessa Studio 2.0 — Palco</title>
+<link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="logo"><svg data-lucide="orbit"></svg></span>
+      <div><div class="name">Odessa</div><div class="sub">Studio</div></div>
+    </div>
+    <div class="nav-group">
+      <div class="label">Operação</div>
+      <div class="nav-item"><svg data-lucide="layout-dashboard"></svg>Início</div>
+      <div class="nav-item active"><svg data-lucide="monitor-play"></svg>Palco</div>
+      <div class="nav-item"><svg data-lucide="bot"></svg>Diretora IA</div>
+    </div>
+    <div class="nav-group">
+      <div class="label">Conteúdo</div>
+      <div class="nav-item"><svg data-lucide="film"></svg>Biblioteca <span class="badge">10</span></div>
+      <div class="nav-item"><svg data-lucide="git-fork"></svg>Fluxo</div>
+      <div class="nav-item"><svg data-lucide="sticky-note"></svg>Mural</div>
+    </div>
+    <div class="nav-group">
+      <div class="label">Sistema</div>
+      <div class="nav-item"><svg data-lucide="scan-eye"></svg>Fontes / OCR</div>
+      <div class="nav-item"><svg data-lucide="scroll-text"></svg>Logs</div>
+      <div class="nav-item"><svg data-lucide="settings"></svg>Config</div>
+    </div>
+    <div class="director-card">
+      <div class="top"><span class="dot live"></span><span class="title">Diretora</span>
+        <span class="pill violet" style="margin-left:auto">Gemini</span></div>
+      <div class="meta">No ar · conduzindo a live.</div>
+      <div class="row"><span class="pill gold">Assistido</span>
+        <button class="btn-mini"><svg data-lucide="pause"></svg>Pausar</button></div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div><div class="crumb">Operação</div><h1>Palco</h1></div>
+      <div class="right">
+        <span class="live-pill" style="color:var(--emerald);border-color:rgba(52,211,153,.35)"><span class="d" style="background:var(--emerald)"></span>Ao vivo</span>
+        <button class="btn"><svg data-lucide="cast"></svg>Preparar OBS</button>
+        <button class="btn primary"><svg data-lucide="radio"></svg>Transmitir</button>
+      </div>
+    </header>
+
+    <div class="content">
+      <div class="grid" style="grid-template-columns: 320px 1fr; align-items:start; margin-bottom:16px;">
+        <!-- Preview -->
+        <div class="stage" style="height:404px; background:radial-gradient(120% 80% at 50% 18%, #2a2336, #0a0a10 70%);">
+          <div class="chips"><span class="chip gold">No ar</span></div>
+          <div style="position:absolute;inset:0;display:grid;place-items:center"><div style="width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#8b7cf6,#46c2f0);opacity:.9;filter:blur(2px);box-shadow:0 0 70px rgba(139,124,246,.5)"></div></div>
+          <div class="scanline"></div>
+          <div class="footer">Bye Bey · 0.0s → 6.0s</div>
+        </div>
+
+        <div class="grid" style="gap:16px;">
+          <!-- Transport / agora -->
+          <div class="card">
+            <div class="head"><svg data-lucide="play-circle"></svg><span class="ttl">No ar agora</span><span class="more">trocar →</span></div>
+            <div class="flex between center">
+              <div><div style="font-size:15px;font-weight:600">Bye Bey</div><div class="muted" style="font-size:12px">reação a presente · 2 cortes · áudio original</div></div>
+              <div class="flex center gap8">
+                <button class="icon-btn"><svg data-lucide="skip-back"></svg></button>
+                <button class="icon-btn" style="background:var(--accent);border:none;color:#fff"><svg data-lucide="pause"></svg></button>
+                <button class="icon-btn"><svg data-lucide="skip-forward"></svg></button>
+              </div>
+            </div>
+            <div class="flex center gap8" style="margin-top:14px">
+              <svg data-lucide="volume-2" style="width:15px;height:15px;color:var(--t3)"></svg>
+              <input class="range" type="range" min="0" max="100" value="80" style="flex:1" />
+              <span class="muted" style="font-size:11px;font-family:monospace">80%</span>
+            </div>
+          </div>
+          <!-- A seguir -->
+          <div class="card">
+            <div class="head"><svg data-lucide="list-video"></svg><span class="ttl">A seguir na fila</span></div>
+            <div class="evt"><div class="av">▶</div><div class="body"><div class="who">Return To Loop</div><div class="msg">idle · crossfade 220ms</div></div><div class="time">auto</div></div>
+            <div class="evt"><div class="av">🌹</div><div class="body"><div class="who">Cora O</div><div class="msg">enfileirado pela Diretora</div></div><div class="time">fila</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Editor de cortes -->
+      <div class="card">
+        <div class="head"><svg data-lucide="scissors"></svg><span class="ttl">Editor · Bye Bey</span>
+          <div style="margin-left:auto" class="flex gap8">
+            <button class="btn ghost" style="padding:6px 12px"><svg data-lucide="play"></svg>Prévia dos cortes</button>
+            <button class="btn primary" style="padding:6px 14px"><svg data-lucide="save"></svg>Salvar</button>
+          </div>
+        </div>
+        <div class="grid" style="grid-template-columns: 1fr 260px; gap:16px; align-items:start;">
+          <div>
+            <!-- timeline / waveform -->
+            <div style="position:relative;height:74px;border-radius:12px;border:1px solid var(--border-2);background:var(--surface-2);overflow:hidden">
+              <!-- waveform bars -->
+              <div style="position:absolute;inset:0;display:flex;align-items:center;gap:2px;padding:0 4px;opacity:.35">
+                <!-- generated bars -->
+                <div style="flex:1;background:var(--t2);height:30%"></div><div style="flex:1;background:var(--t2);height:55%"></div><div style="flex:1;background:var(--t2);height:80%"></div><div style="flex:1;background:var(--t2);height:45%"></div><div style="flex:1;background:var(--t2);height:65%"></div><div style="flex:1;background:var(--t2);height:90%"></div><div style="flex:1;background:var(--t2);height:40%"></div><div style="flex:1;background:var(--t2);height:70%"></div><div style="flex:1;background:var(--t2);height:50%"></div><div style="flex:1;background:var(--t2);height:85%"></div><div style="flex:1;background:var(--t2);height:35%"></div><div style="flex:1;background:var(--t2);height:60%"></div><div style="flex:1;background:var(--t2);height:75%"></div><div style="flex:1;background:var(--t2);height:48%"></div><div style="flex:1;background:var(--t2);height:88%"></div><div style="flex:1;background:var(--t2);height:42%"></div><div style="flex:1;background:var(--t2);height:66%"></div><div style="flex:1;background:var(--t2);height:52%"></div>
+              </div>
+              <!-- segment 1 -->
+              <div style="position:absolute;top:0;bottom:0;left:4%;width:26%;border-left:2px solid var(--gold);border-right:2px solid var(--gold);background:rgba(232,193,120,.16)"></div>
+              <!-- segment 2 (skips middle) -->
+              <div style="position:absolute;top:0;bottom:0;left:58%;width:30%;border-left:2px solid var(--gold);border-right:2px solid var(--gold);background:rgba(232,193,120,.16)"></div>
+              <!-- playhead -->
+              <div style="position:absolute;top:0;bottom:0;left:14%;width:2px;background:#fb923c"></div>
+            </div>
+            <div class="flex between" style="margin-top:8px"><span class="muted" style="font-size:10px;font-family:monospace">0.0s</span><span class="muted" style="font-size:10px;font-family:monospace">trecho do meio removido</span><span class="muted" style="font-size:10px;font-family:monospace">6.0s</span></div>
+            <div class="flex gap8" style="margin-top:10px">
+              <span class="tag">#1 · 0.2s → 1.8s</span><span class="tag">#2 · 3.5s → 5.4s</span>
+              <span class="tag on" style="cursor:pointer">+ segmento</span>
+            </div>
+          </div>
+          <!-- properties -->
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <div>
+              <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);font-weight:600;margin-bottom:7px">Áudio</div>
+              <div class="flex gap8"><span class="tag">Mudo</span><span class="tag on">Original</span><span class="tag">Trilha</span></div>
+            </div>
+            <div>
+              <div class="flex between center"><span style="font-size:11px;color:var(--t2)">Volume</span><span class="muted" style="font-size:11px;font-family:monospace">80%</span></div>
+              <input class="range" type="range" min="0" max="100" value="80" style="width:100%;margin-top:6px" />
+            </div>
+            <div>
+              <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);font-weight:600;margin-bottom:7px">Transição</div>
+              <div class="flex gap8"><span class="tag">Corte</span><span class="tag">Fade</span><span class="tag on">Crossfade</span></div>
+            </div>
+            <button class="btn ghost" style="justify-content:center"><svg data-lucide="music"></svg>Anexar efeito sonoro</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>

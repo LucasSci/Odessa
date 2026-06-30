@@ -698,7 +698,7 @@ async function findHotspotCrop(
  * available via hoisting and avoid any TDZ issues in the production bundle.
  */
 function getGiftHuePrior(key: string): [number, number, number] | null {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   const p: Record<string, [number, number, number]> = {
     'gift.rosa':             [340, 0.85, 0.80],  // rose: hot magenta-pink
     'gift.coracao':          [  5, 0.90, 0.75],  // heart: pure red
@@ -1827,7 +1827,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
     const line = `[${formatClock()}] ${msg}`;
     setWebviewLogs((prev) => [...prev.slice(-80), line]);
     if (settingsRef.current.debugMode) {
-      // eslint-disable-next-line no-console
+
       console.log(line);
     }
   }, []);
@@ -2213,7 +2213,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
       const line = `[${ts}] [LinkDireto] ${msg}`;
       setWebviewLogs((prev) => [...prev.slice(-80), line]);
       if (settings.debugMode) {
-        // eslint-disable-next-line no-console
+
         console.log(line);
       }
     };
