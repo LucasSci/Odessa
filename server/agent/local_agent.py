@@ -176,6 +176,7 @@ class OdessaAgent:
                 text,
                 payload.get("inputPoint"),
                 send_point=payload.get("sendPoint"),
+                viewport=payload.get("viewport"),
             )
             return {"ok": bool(result.get("executed")), "result": result}
 

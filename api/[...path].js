@@ -721,6 +721,16 @@ function normalizeChatAutomationViewport(viewport) {
   return { width, height };
 }
 
+function plannedChatAutomationPixel(point, viewport) {
+  const normalizedPoint = normalizeChatAutomationPoint(point);
+  const normalizedViewport = normalizeChatAutomationViewport(viewport);
+  if (!normalizedPoint || !normalizedViewport) return null;
+  return {
+    x: Math.round(normalizedPoint.x * normalizedViewport.width),
+    y: Math.round(normalizedPoint.y * normalizedViewport.height),
+  };
+}
+
 function matchChatAutomationTarget(url, inputSelector = '', mode = 'selector', inputPoint = null) {
   if (mode === 'visual') {
     if (!normalizeChatAutomationPoint(inputPoint)) return null;
@@ -799,6 +809,8 @@ function sendChatAutomationMessageRecord(body) {
     inputPoint: inputPoint || target.inputPoint || null,
     sendPoint: sendPoint || target.sendPoint || null,
     viewport: viewport || target.viewport || null,
+    plannedInputPixel: plannedChatAutomationPixel(inputPoint || target.inputPoint, viewport || target.viewport),
+    plannedSendPixel: plannedChatAutomationPixel(sendPoint || target.sendPoint, viewport || target.viewport),
     wouldClick: mode === 'visual',
     wouldType: true,
     wouldSend: !dryRun,

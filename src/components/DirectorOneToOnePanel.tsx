@@ -141,6 +141,9 @@ export function DirectorOneToOnePanel() {
   const [target, setTarget] = useState<ChatAutomationTarget>(() => loadChatAutomationTarget());
   const [bridgeStatus, setBridgeStatus] = useState<'unknown' | 'ready' | 'blocked' | 'saving'>('unknown');
   const [bridgeMessage, setBridgeMessage] = useState('');
+  const [bridgeTestText, setBridgeTestText] = useState('Teste Odessa: ponte do chat ao vivo calibrada.');
+  const [bridgeTestBusy, setBridgeTestBusy] = useState<'dry' | 'real' | null>(null);
+  const [bridgeLastResult, setBridgeLastResult] = useState<Record<string, unknown> | null>(null);
   const selectedIdRef = useRef<string | null>(null);
 
   const draftCount = useMemo(
@@ -345,6 +348,46 @@ export function DirectorOneToOnePanel() {
       setError(err instanceof Error ? err.message : 'Falha ao aprovar resposta');
     } finally {
       setApprovingId(null);
+    }
+  };
+
+  const handleTestBridge = async (dryRun: boolean) => {
+    const text = bridgeTestText.trim();
+    if (!text) {
+      setBridgeStatus('blocked');
+      setBridgeMessage('Mensagem de teste obrigatoria');
+      return;
+    }
+    setBridgeTestBusy(dryRun ? 'dry' : 'real');
+    setBridgeLastResult(null);
+    try {
+      const result = await sendChatAutomationMessage({
+        mode: target.mode,
+        url: target.url,
+        inputSelector: target.inputSelector,
+        inputPoint: target.inputPoint,
+        sendPoint: target.sendPoint,
+        viewport: target.viewport,
+        text,
+        dryRun,
+      });
+      setBridgeLastResult(result as unknown as Record<string, unknown>);
+      const ok = result.allowed && result.status !== 'blocked';
+      setBridgeStatus(ok ? 'ready' : 'blocked');
+      if (result.executed) {
+        setBridgeMessage('Teste real executado no chat visual');
+      } else if (result.queued) {
+        setBridgeMessage(`Teste enfileirado para o agente (${result.queueSize ?? 0})`);
+      } else if (dryRun && ok) {
+        setBridgeMessage('Dry-run validado');
+      } else {
+        setBridgeMessage(result.reason || result.execution?.error || 'Teste bloqueado');
+      }
+    } catch (err) {
+      setBridgeStatus('blocked');
+      setBridgeMessage(err instanceof Error ? err.message : 'Falha no teste');
+    } finally {
+      setBridgeTestBusy(null);
     }
   };
 
@@ -560,6 +603,41 @@ export function DirectorOneToOnePanel() {
                 <RefreshCw className="h-4 w-4" />
                 Validar
               </Button>
+            </div>
+            <div className="space-y-2 rounded-xl border border-white/10 bg-black/15 p-2">
+              <Input
+                label="Mensagem de teste"
+                value={bridgeTestText}
+                onChange={(event) => setBridgeTestText(event.target.value)}
+                placeholder="Mensagem curta para testar"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  loading={bridgeTestBusy === 'dry'}
+                  disabled={!isBridgeTargetReady(target)}
+                  onClick={() => void handleTestBridge(true)}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Dry-run
+                </Button>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  loading={bridgeTestBusy === 'real'}
+                  disabled={!isBridgeTargetReady(target)}
+                  onClick={() => void handleTestBridge(false)}
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  Teste real
+                </Button>
+              </div>
+              {bridgeLastResult && (
+                <pre className="max-h-52 overflow-auto rounded-lg border border-white/10 bg-black/30 p-2 text-[10px] leading-relaxed text-slate-300">
+                  {JSON.stringify(bridgeLastResult, null, 2)}
+                </pre>
+              )}
             </div>
             {bridgeStatus === 'blocked' && (
               <div className="flex gap-2 rounded-xl border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">

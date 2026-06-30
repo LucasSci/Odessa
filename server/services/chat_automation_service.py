@@ -125,11 +125,14 @@ class ChatAutomationService:
             "wouldType": True,
             "wouldSend": not dry_run,
         }
+        result["plannedInputPixel"] = self._planned_pixel(result.get("inputPoint"), result.get("viewport"))
+        result["plannedSendPixel"] = self._planned_pixel(result.get("sendPoint"), result.get("viewport"))
         if visual and not dry_run:
             execution = self._execute_visual_desktop_send(
                 text=text,
                 input_point=result.get("inputPoint"),
                 send_point=result.get("sendPoint"),
+                viewport=result.get("viewport"),
             )
             result["execution"] = execution
             result["executed"] = bool(execution.get("ok"))
@@ -144,6 +147,7 @@ class ChatAutomationService:
         text: str,
         input_point: dict[str, Any] | None,
         send_point: dict[str, Any] | None = None,
+        viewport: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not text.strip():
             return {"status": "blocked", "allowed": False, "reason": "empty_text"}
@@ -151,6 +155,7 @@ class ChatAutomationService:
             text=text,
             input_point=input_point,
             send_point=send_point,
+            viewport=viewport,
         )
         return {
             "status": "ready" if execution.get("ok") else "blocked",
@@ -228,11 +233,26 @@ class ChatAutomationService:
             return None
         return {"width": width, "height": height}
 
+    def _planned_pixel(
+        self,
+        point: dict[str, Any] | None,
+        viewport: dict[str, Any] | None,
+    ) -> dict[str, int] | None:
+        normalized_point = self._normalize_point(point)
+        normalized_viewport = self._normalize_viewport(viewport)
+        if not normalized_point or not normalized_viewport:
+            return None
+        return {
+            "x": round(normalized_point["x"] * normalized_viewport["width"]),
+            "y": round(normalized_point["y"] * normalized_viewport["height"]),
+        }
+
     def _execute_visual_desktop_send(
         self,
         text: str,
         input_point: dict[str, Any] | None,
         send_point: dict[str, Any] | None = None,
+        viewport: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if os.getenv("ODESSA_CHAT_AUTOMATION_DISABLED") == "1":
             return {"ok": False, "error": "desktop_chat_automation_disabled"}
@@ -242,6 +262,7 @@ class ChatAutomationService:
         if not point:
             return {"ok": False, "error": "input_point_missing"}
         send = self._normalize_point(send_point)
+        normalized_viewport = self._normalize_viewport(viewport)
         try:
             script = r"""
 Add-Type -AssemblyName System.Windows.Forms
@@ -258,9 +279,11 @@ public class MouseBridge {
 "@
 $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json
 $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$targetWidth = if ($payload.viewport -and $payload.viewport.width) { [int]$payload.viewport.width } else { $screen.Width }
+$targetHeight = if ($payload.viewport -and $payload.viewport.height) { [int]$payload.viewport.height } else { $screen.Height }
 function Click-Normalized($point) {
-  $x = [Math]::Round($screen.Left + ($screen.Width * [double]$point.x))
-  $y = [Math]::Round($screen.Top + ($screen.Height * [double]$point.y))
+  $x = [Math]::Round($screen.Left + ($targetWidth * [double]$point.x))
+  $y = [Math]::Round($screen.Top + ($targetHeight * [double]$point.y))
   [MouseBridge]::SetCursorPos([int]$x, [int]$y) | Out-Null
   Start-Sleep -Milliseconds 90
   [MouseBridge]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
@@ -281,12 +304,21 @@ if ($payload.sendPoint -and $payload.sendPoint.x -ne $null -and $payload.sendPoi
 @{
   ok = $true
   screen = @{ width = $screen.Width; height = $screen.Height; left = $screen.Left; top = $screen.Top }
+  targetViewport = @{ width = $targetWidth; height = $targetHeight }
   clickedInput = $clickedInput
   clickedSend = $clickedSend
   submittedWithEnter = ($clickedSend -eq $null)
 } | ConvertTo-Json -Depth 5 -Compress
 """
-            payload = json.dumps({"text": text, "inputPoint": point, "sendPoint": send}, ensure_ascii=False)
+            payload = json.dumps(
+                {
+                    "text": text,
+                    "inputPoint": point,
+                    "sendPoint": send,
+                    "viewport": normalized_viewport,
+                },
+                ensure_ascii=False,
+            )
             completed = subprocess.run(
                 [
                     "powershell",
