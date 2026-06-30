@@ -22,7 +22,7 @@
     "test:backend": "venv\\Scripts\\python.exe -m pytest"
   },
   "dependencies": {
-    "@xyflow/react": "^12.10.2",
+    "@xyflow/react": "^12.11.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.14.0",
     "obs-websocket-js": "^5.0.8",
