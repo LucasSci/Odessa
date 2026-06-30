@@ -40,7 +40,7 @@ jobs:
         cache: 'npm'
         
     - name: Install dependencies
-      run: npm ci
+      run: npm install
       
     - name: Run Frontend Tests
       run: npx vitest run
