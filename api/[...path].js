@@ -14,7 +14,7 @@ const PERSONA_CONFIG_KEY = 'persona_config';
 const AUTH_BUILD = 'ai-decide-2026-05-27-gemini-v1';
 const SESSION_TTL_SECONDS = Number(process.env.ODESSA_SESSION_TTL_SECONDS || 12 * 60 * 60);
 const DEFAULT_ADMIN_EMAIL = 'lucasbatista.c.l@gmail.com';
-const DEFAULT_PASSWORD_HASH = 'ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f'; // 12345678
+const DEFAULT_PASSWORD_HASH = '';
 const ADMIN_EMAIL = (process.env.ODESSA_ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL).trim().toLowerCase();
 const _rawAdminHash = (process.env.ODESSA_ADMIN_PASSWORD_HASH || '').trim();
 const ADMIN_PASSWORD_HASH = _rawAdminHash && /^[0-9a-f]{64}$/i.test(_rawAdminHash) ? _rawAdminHash : _rawAdminHash ? crypto.createHash('sha256').update(_rawAdminHash).digest('hex') : '';
@@ -155,8 +155,10 @@ function verifyCredentials(email, password) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   if (!safeEqual(normalizedEmail, ADMIN_EMAIL)) return false;
   const normalizedPassword = String(password || '').trim();
+  if (!normalizedPassword) return false;
   const incomingHash = hashPassword(normalizedPassword);
   const storedHash = getStoredPasswordHash();
+  if (!storedHash) return false;
   return safeEqual(incomingHash, storedHash);
 }
 
