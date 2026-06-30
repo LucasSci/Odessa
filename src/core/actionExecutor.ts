@@ -166,18 +166,33 @@ async function dispatchWebhookAction(
 async function dispatchChatReplyAction(action: AutopilotAction): Promise<ChatAutomationSendResult> {
   const text = String(action.payload?.message || action.payload?.text || '').trim();
   const savedTarget = loadChatAutomationTarget();
+  const targetMode = action.payload?.targetMode === 'visual' || savedTarget.mode === 'visual' ? 'visual' : 'selector';
   const targetUrl = String(action.payload?.targetUrl || action.payload?.url || savedTarget.url).trim();
   const inputSelector = String(action.payload?.inputSelector || savedTarget.inputSelector).trim();
+  const inputPoint = action.payload?.inputPoint || savedTarget.inputPoint;
+  const sendPoint = action.payload?.sendPoint || savedTarget.sendPoint;
+  const viewport = action.payload?.viewport || savedTarget.viewport;
   if (!text) return { status: 'blocked', allowed: false, reason: 'empty_text' };
-  if (!targetUrl) return { status: 'blocked', allowed: false, reason: 'target_url_missing' };
+  if (targetMode === 'visual') {
+    const point = inputPoint as { x?: unknown; y?: unknown } | undefined;
+    if (typeof point?.x !== 'number' || typeof point?.y !== 'number') {
+      return { status: 'blocked', allowed: false, reason: 'input_point_missing' };
+    }
+  } else if (!targetUrl) {
+    return { status: 'blocked', allowed: false, reason: 'target_url_missing' };
+  }
 
   const response = await fetch(apiUrl('/chat-automation/send'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      mode: targetMode,
       url: targetUrl,
       text,
       inputSelector: inputSelector || undefined,
+      inputPoint,
+      sendPoint,
+      viewport,
       dryRun: action.payload?.dryRun !== false,
     }),
   });

@@ -43,18 +43,31 @@ class ChatAutomationService:
         for entry in allowlist:
             if not isinstance(entry, dict):
                 continue
+            mode = "visual" if entry.get("mode") == "visual" else "selector"
             domain = str(entry.get("domain") or "").strip().lower()
             input_selector = str(entry.get("inputSelector") or "").strip()
-            if not domain or not input_selector:
+            input_point = self._normalize_point(entry.get("inputPoint"))
+            send_point = self._normalize_point(entry.get("sendPoint"))
+            viewport = self._normalize_viewport(entry.get("viewport"))
+            if mode == "visual":
+                domain = domain or "visual:tango-live"
+                input_selector = input_selector or "visual-point"
+                if not input_point:
+                    continue
+            elif not domain or not input_selector:
                 continue
             cleaned.append(
                 {
                     "id": str(entry.get("id") or f"allow-{uuid.uuid4()}"),
                     "label": str(entry.get("label") or domain),
+                    "mode": mode,
                     "domain": domain,
                     "urlPattern": str(entry.get("urlPattern") or "").strip(),
                     "inputSelector": input_selector,
                     "sendSelector": str(entry.get("sendSelector") or "").strip(),
+                    "inputPoint": input_point,
+                    "sendPoint": send_point,
+                    "viewport": viewport,
                     "submitWithEnter": bool(entry.get("submitWithEnter", True)),
                     "typingDelayMs": max(0, min(int(entry.get("typingDelayMs", 25) or 25), 2000)),
                     "maxPerMinute": max(1, min(int(entry.get("maxPerMinute", 6) or 6), 60)),
@@ -65,37 +78,78 @@ class ChatAutomationService:
         data["allowlist"] = cleaned
         return self._save(data)
 
-    def validate_target(self, url: str, input_selector: str | None = None) -> dict[str, Any]:
-        match = self._match_target(url, input_selector)
+    def validate_target(
+        self,
+        url: str = "",
+        input_selector: str | None = None,
+        mode: str = "selector",
+        input_point: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        match = self._match_target(url, input_selector, mode, input_point)
         return {"allowed": bool(match), "target": match, "reason": None if match else "not_allowlisted"}
 
-    def send(self, url: str, text: str, input_selector: str | None = None, dry_run: bool = True) -> dict[str, Any]:
-        target = self._match_target(url, input_selector)
+    def send(
+        self,
+        url: str,
+        text: str,
+        input_selector: str | None = None,
+        dry_run: bool = True,
+        mode: str = "selector",
+        input_point: dict[str, Any] | None = None,
+        send_point: dict[str, Any] | None = None,
+        viewport: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        target = self._match_target(url, input_selector, mode, input_point)
         if not target:
             result = {"status": "blocked", "allowed": False, "reason": "not_allowlisted"}
-            self._log(url, text, result, input_selector)
+            self._log(url, text, result, input_selector, mode, input_point)
             return result
         if not text.strip():
             result = {"status": "blocked", "allowed": False, "reason": "empty_text", "target": target}
-            self._log(url, text, result, input_selector)
+            self._log(url, text, result, input_selector, mode, input_point)
             return result
+        visual = mode == "visual"
         result = {
             "status": "dry_run" if dry_run else "ready",
             "allowed": True,
             "target": target,
             "text": text,
+            "mode": mode,
+            "inputPoint": self._normalize_point(input_point) or target.get("inputPoint"),
+            "sendPoint": self._normalize_point(send_point) or target.get("sendPoint"),
+            "viewport": self._normalize_viewport(viewport) or target.get("viewport"),
+            "wouldClick": visual,
             "wouldType": True,
             "wouldSend": not dry_run,
         }
-        self._log(url, text, result, input_selector)
+        self._log(url, text, result, input_selector, mode, input_point)
         return result
 
-    def _match_target(self, url: str, input_selector: str | None = None) -> dict[str, Any] | None:
+    def _match_target(
+        self,
+        url: str,
+        input_selector: str | None = None,
+        mode: str = "selector",
+        input_point: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        if mode == "visual":
+            point = self._normalize_point(input_point)
+            if not point:
+                return None
+            data = self._load()
+            for entry in data.get("allowlist", []):
+                if not entry.get("enabled", True) or entry.get("mode") != "visual":
+                    continue
+                return entry
+            return None
+
         parsed = urlparse(url)
         host = (parsed.hostname or "").lower()
         data = self._load()
         for entry in data.get("allowlist", []):
             if not entry.get("enabled", True):
+                continue
+            if entry.get("mode", "selector") == "visual":
                 continue
             domain = str(entry.get("domain") or "").lower()
             if host != domain and not host.endswith(f".{domain}"):
@@ -108,14 +162,48 @@ class ChatAutomationService:
             return entry
         return None
 
-    def _log(self, url: str, text: str, result: dict[str, Any], input_selector: str | None):
+    def _normalize_point(self, point: Any) -> dict[str, float] | None:
+        if not isinstance(point, dict):
+            return None
+        try:
+            x = float(point.get("x"))
+            y = float(point.get("y"))
+        except (TypeError, ValueError):
+            return None
+        if not 0 <= x <= 1 or not 0 <= y <= 1:
+            return None
+        return {"x": round(x, 4), "y": round(y, 4)}
+
+    def _normalize_viewport(self, viewport: Any) -> dict[str, int] | None:
+        if not isinstance(viewport, dict):
+            return None
+        try:
+            width = int(viewport.get("width"))
+            height = int(viewport.get("height"))
+        except (TypeError, ValueError):
+            return None
+        if width < 1 or height < 1:
+            return None
+        return {"width": width, "height": height}
+
+    def _log(
+        self,
+        url: str,
+        text: str,
+        result: dict[str, Any],
+        input_selector: str | None,
+        mode: str = "selector",
+        input_point: dict[str, Any] | None = None,
+    ):
         data = self._load()
         data.setdefault("logs", []).append(
             {
                 "id": f"chatlog-{uuid.uuid4()}",
                 "createdAt": datetime.now(timezone.utc).isoformat(),
+                "mode": mode,
                 "url": url,
                 "inputSelector": input_selector,
+                "inputPoint": self._normalize_point(input_point),
                 "text": text[:500],
                 "result": result,
             }

@@ -14,8 +14,12 @@ class ChatAutomationConfigRequest(BaseModel):
 
 
 class ChatAutomationTargetRequest(BaseModel):
-    url: str
+    mode: str = "selector"
+    url: str = ""
     inputSelector: str | None = None
+    inputPoint: dict[str, Any] | None = None
+    sendPoint: dict[str, Any] | None = None
+    viewport: dict[str, Any] | None = None
 
 
 class ChatAutomationSendRequest(ChatAutomationTargetRequest):
@@ -35,7 +39,12 @@ def update_chat_automation_config(request: ChatAutomationConfigRequest):
 
 @router.post("/validate")
 def validate_chat_automation_target(request: ChatAutomationTargetRequest):
-    return chat_automation_service.validate_target(request.url, request.inputSelector)
+    return chat_automation_service.validate_target(
+        request.url,
+        request.inputSelector,
+        mode=request.mode,
+        input_point=request.inputPoint,
+    )
 
 
 @router.post("/send")
@@ -45,4 +54,8 @@ def send_chat_automation_message(request: ChatAutomationSendRequest):
         request.text,
         input_selector=request.inputSelector,
         dry_run=request.dryRun,
+        mode=request.mode,
+        input_point=request.inputPoint,
+        send_point=request.sendPoint,
+        viewport=request.viewport,
     )

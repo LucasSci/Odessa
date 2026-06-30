@@ -673,16 +673,28 @@ function normalizeChatAutomationAllowlist(allowlist) {
   const cleaned = [];
   for (const entry of Array.isArray(allowlist) ? allowlist : []) {
     if (!entry || typeof entry !== 'object') continue;
+    const mode = entry.mode === 'visual' ? 'visual' : 'selector';
     const domain = String(entry.domain || '').trim().toLowerCase();
     const inputSelector = String(entry.inputSelector || '').trim();
-    if (!domain || !inputSelector) continue;
+    const inputPoint = normalizeChatAutomationPoint(entry.inputPoint);
+    const sendPoint = normalizeChatAutomationPoint(entry.sendPoint);
+    const viewport = normalizeChatAutomationViewport(entry.viewport);
+    if (mode === 'visual') {
+      if (!inputPoint) continue;
+    } else if (!domain || !inputSelector) {
+      continue;
+    }
     cleaned.push({
       id: String(entry.id || `allow-${crypto.randomUUID()}`),
-      label: String(entry.label || domain),
-      domain,
+      label: String(entry.label || domain || 'Chat visual'),
+      mode,
+      domain: mode === 'visual' ? domain || 'visual:tango-live' : domain,
       urlPattern: String(entry.urlPattern || '').trim(),
-      inputSelector,
+      inputSelector: mode === 'visual' ? inputSelector || 'visual-point' : inputSelector,
       sendSelector: String(entry.sendSelector || '').trim(),
+      inputPoint,
+      sendPoint,
+      viewport,
       submitWithEnter: entry.submitWithEnter !== false,
       typingDelayMs: Math.max(0, Math.min(Number(entry.typingDelayMs || 25), 2000)),
       maxPerMinute: Math.max(1, Math.min(Number(entry.maxPerMinute || 6), 60)),
@@ -692,7 +704,30 @@ function normalizeChatAutomationAllowlist(allowlist) {
   return cleaned;
 }
 
-function matchChatAutomationTarget(url, inputSelector = '') {
+function normalizeChatAutomationPoint(point) {
+  if (!point || typeof point !== 'object') return null;
+  const x = Number(point.x);
+  const y = Number(point.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+  return { x: Math.round(x * 10000) / 10000, y: Math.round(y * 10000) / 10000 };
+}
+
+function normalizeChatAutomationViewport(viewport) {
+  if (!viewport || typeof viewport !== 'object') return null;
+  const width = Math.round(Number(viewport.width));
+  const height = Math.round(Number(viewport.height));
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) return null;
+  return { width, height };
+}
+
+function matchChatAutomationTarget(url, inputSelector = '', mode = 'selector', inputPoint = null) {
+  if (mode === 'visual') {
+    if (!normalizeChatAutomationPoint(inputPoint)) return null;
+    const config = loadChatAutomationConfig();
+    return config.allowlist.find((entry) => entry.enabled !== false && entry.mode === 'visual') || null;
+  }
+
   let parsed;
   try {
     parsed = new URL(String(url || ''));
@@ -703,6 +738,7 @@ function matchChatAutomationTarget(url, inputSelector = '') {
   const config = loadChatAutomationConfig();
   for (const entry of config.allowlist) {
     if (entry.enabled === false) continue;
+    if (entry.mode === 'visual') continue;
     const domain = String(entry.domain || '').toLowerCase();
     if (host !== domain && !host.endsWith(`.${domain}`)) continue;
     const pattern = String(entry.urlPattern || '').trim();
@@ -713,13 +749,15 @@ function matchChatAutomationTarget(url, inputSelector = '') {
   return null;
 }
 
-function logChatAutomationAttempt(url, text, result, inputSelector = '') {
+function logChatAutomationAttempt(url, text, result, inputSelector = '', mode = 'selector', inputPoint = null) {
   const config = loadChatAutomationConfig();
   config.logs.push({
     id: `chatlog-${crypto.randomUUID()}`,
     createdAt: nowIso(),
+    mode,
     url: String(url || ''),
     inputSelector: inputSelector || null,
+    inputPoint: normalizeChatAutomationPoint(inputPoint),
     text: String(text || '').slice(0, 500),
     result,
   });
@@ -727,7 +765,8 @@ function logChatAutomationAttempt(url, text, result, inputSelector = '') {
 }
 
 function validateChatAutomationTarget(body) {
-  const target = matchChatAutomationTarget(body?.url, body?.inputSelector);
+  const mode = body?.mode === 'visual' ? 'visual' : 'selector';
+  const target = matchChatAutomationTarget(body?.url, body?.inputSelector, mode, body?.inputPoint);
   return { allowed: Boolean(target), target, reason: target ? null : 'not_allowlisted' };
 }
 
@@ -735,15 +774,19 @@ function sendChatAutomationMessageRecord(body) {
   const url = String(body?.url || '').trim();
   const text = String(body?.text || '').trim();
   const inputSelector = String(body?.inputSelector || '').trim();
-  const target = matchChatAutomationTarget(url, inputSelector);
+  const mode = body?.mode === 'visual' ? 'visual' : 'selector';
+  const inputPoint = normalizeChatAutomationPoint(body?.inputPoint);
+  const sendPoint = normalizeChatAutomationPoint(body?.sendPoint);
+  const viewport = normalizeChatAutomationViewport(body?.viewport);
+  const target = matchChatAutomationTarget(url, inputSelector, mode, inputPoint);
   if (!target) {
     const result = { status: 'blocked', allowed: false, reason: 'not_allowlisted' };
-    logChatAutomationAttempt(url, text, result, inputSelector);
+    logChatAutomationAttempt(url, text, result, inputSelector, mode, inputPoint);
     return result;
   }
   if (!text) {
     const result = { status: 'blocked', allowed: false, reason: 'empty_text', target };
-    logChatAutomationAttempt(url, text, result, inputSelector);
+    logChatAutomationAttempt(url, text, result, inputSelector, mode, inputPoint);
     return result;
   }
   const dryRun = body?.dryRun !== false;
@@ -752,10 +795,15 @@ function sendChatAutomationMessageRecord(body) {
     allowed: true,
     target,
     text,
+    mode,
+    inputPoint: inputPoint || target.inputPoint || null,
+    sendPoint: sendPoint || target.sendPoint || null,
+    viewport: viewport || target.viewport || null,
+    wouldClick: mode === 'visual',
     wouldType: true,
     wouldSend: !dryRun,
   };
-  logChatAutomationAttempt(url, text, result, inputSelector);
+  logChatAutomationAttempt(url, text, result, inputSelector, mode, inputPoint);
   return result;
 }
 

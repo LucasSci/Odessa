@@ -213,7 +213,10 @@ export default function App() {
         capability: 'tts.speak',
         patch: { enabled: liveConfig.voiceEnabled ?? runtime.voiceEnabled },
       },
-      { capability: 'chat.reply', patch: { enabled: !!liveConfig.enableChat } },
+      {
+        capability: 'chat.reply',
+        patch: { enabled: !!liveConfig.enableChat, simulated: !liveConfig.enableChat },
+      },
     ];
     runtime.start({ voiceEnabled: liveConfig.voiceEnabled, toolPatches });
 
@@ -304,4 +307,3 @@ export default function App() {
     />
   );
 }
-

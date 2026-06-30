@@ -5,20 +5,38 @@ const TARGET_STORAGE_KEY = 'odessa:chat-automation-target:v1';
 export type ChatAutomationAllowEntry = {
   id: string;
   label: string;
+  mode?: 'selector' | 'visual';
   domain: string;
   urlPattern: string;
   inputSelector: string;
   sendSelector: string;
+  inputPoint?: ChatAutomationPoint;
+  sendPoint?: ChatAutomationPoint;
+  viewport?: ChatAutomationViewport;
   submitWithEnter: boolean;
   typingDelayMs: number;
   maxPerMinute: number;
   enabled: boolean;
 };
 
+export type ChatAutomationPoint = {
+  x: number;
+  y: number;
+};
+
+export type ChatAutomationViewport = {
+  width: number;
+  height: number;
+};
+
 export type ChatAutomationTarget = {
+  mode: 'selector' | 'visual';
   url: string;
   inputSelector: string;
   sendSelector?: string;
+  inputPoint?: ChatAutomationPoint;
+  sendPoint?: ChatAutomationPoint;
+  viewport?: ChatAutomationViewport;
 };
 
 export type ChatAutomationConfig = {
@@ -34,6 +52,16 @@ export type ChatAutomationSendResult = {
   text?: string;
   wouldType?: boolean;
   wouldSend?: boolean;
+  wouldClick?: boolean;
+};
+
+export const LIVE_CHAT_SCREENSHOT_TARGET: ChatAutomationTarget = {
+  mode: 'visual',
+  url: 'tango-live-window',
+  inputSelector: '',
+  sendSelector: '',
+  inputPoint: { x: 0.097, y: 0.928 },
+  viewport: { width: 1920, height: 938 },
 };
 
 async function parseJson<T>(response: Response): Promise<T> {
@@ -46,25 +74,33 @@ async function parseJson<T>(response: Response): Promise<T> {
 
 export function loadChatAutomationTarget(): ChatAutomationTarget {
   try {
-    if (typeof window === 'undefined') return { url: '', inputSelector: '', sendSelector: '' };
+    if (typeof window === 'undefined') return { mode: 'selector', url: '', inputSelector: '', sendSelector: '' };
     const raw = window.localStorage.getItem(TARGET_STORAGE_KEY);
-    if (!raw) return { url: '', inputSelector: '', sendSelector: '' };
+    if (!raw) return { mode: 'selector', url: '', inputSelector: '', sendSelector: '' };
     const parsed = JSON.parse(raw) as Partial<ChatAutomationTarget>;
     return {
+      mode: parsed.mode === 'visual' ? 'visual' : 'selector',
       url: typeof parsed.url === 'string' ? parsed.url : '',
       inputSelector: typeof parsed.inputSelector === 'string' ? parsed.inputSelector : '',
       sendSelector: typeof parsed.sendSelector === 'string' ? parsed.sendSelector : '',
+      inputPoint: normalizePoint(parsed.inputPoint),
+      sendPoint: normalizePoint(parsed.sendPoint),
+      viewport: normalizeViewport(parsed.viewport),
     };
   } catch {
-    return { url: '', inputSelector: '', sendSelector: '' };
+    return { mode: 'selector', url: '', inputSelector: '', sendSelector: '' };
   }
 }
 
 export function saveChatAutomationTarget(target: ChatAutomationTarget): ChatAutomationTarget {
   const normalized = {
+    mode: target.mode === 'visual' ? 'visual' : 'selector',
     url: target.url.trim(),
     inputSelector: target.inputSelector.trim(),
     sendSelector: target.sendSelector?.trim() || '',
+    inputPoint: normalizePoint(target.inputPoint),
+    sendPoint: normalizePoint(target.sendPoint),
+    viewport: normalizeViewport(target.viewport),
   };
   try {
     if (typeof window === 'undefined') return normalized;
@@ -81,6 +117,24 @@ export function domainFromUrl(url: string): string {
   } catch {
     return '';
   }
+}
+
+function normalizePoint(point?: Partial<ChatAutomationPoint>): ChatAutomationPoint | undefined {
+  if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') return undefined;
+  if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return undefined;
+  return {
+    x: Math.max(0, Math.min(point.x, 1)),
+    y: Math.max(0, Math.min(point.y, 1)),
+  };
+}
+
+function normalizeViewport(viewport?: Partial<ChatAutomationViewport>): ChatAutomationViewport | undefined {
+  if (!viewport || typeof viewport.width !== 'number' || typeof viewport.height !== 'number') return undefined;
+  if (!Number.isFinite(viewport.width) || !Number.isFinite(viewport.height)) return undefined;
+  return {
+    width: Math.max(1, Math.round(viewport.width)),
+    height: Math.max(1, Math.round(viewport.height)),
+  };
 }
 
 export async function getChatAutomationConfig(): Promise<ChatAutomationConfig> {
@@ -107,16 +161,24 @@ export async function validateChatAutomationTarget(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        mode: target.mode,
         url: target.url,
         inputSelector: target.inputSelector || undefined,
+        inputPoint: target.inputPoint,
+        sendPoint: target.sendPoint,
+        viewport: target.viewport,
       }),
     }),
   );
 }
 
 export async function sendChatAutomationMessage(payload: {
+  mode?: 'selector' | 'visual';
   url: string;
   inputSelector?: string;
+  inputPoint?: ChatAutomationPoint;
+  sendPoint?: ChatAutomationPoint;
+  viewport?: ChatAutomationViewport;
   text: string;
   dryRun?: boolean;
 }): Promise<ChatAutomationSendResult> {

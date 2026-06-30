@@ -3,6 +3,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Loader2,
+  MapPin,
   MessageCircle,
   Plus,
   RefreshCw,
@@ -24,6 +25,7 @@ import {
   type ConversationMessage,
 } from '../lib/conversations';
 import {
+  LIVE_CHAT_SCREENSHOT_TARGET,
   domainFromUrl,
   getChatAutomationConfig,
   loadChatAutomationTarget,
@@ -53,6 +55,24 @@ function messageStatusVariant(status?: string): 'default' | 'success' | 'warning
   if (status === 'draft') return 'lavender';
   if (status === 'received') return 'warning';
   return 'default';
+}
+
+function percentFromPoint(value?: number) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '';
+  return String(Math.round(value * 1000) / 10);
+}
+
+function pointFromPercent(value: string) {
+  const parsed = Number(value.replace(',', '.'));
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.min(parsed / 100, 1));
+}
+
+function isBridgeTargetReady(target: ChatAutomationTarget) {
+  if (target.mode === 'visual') {
+    return typeof target.inputPoint?.x === 'number' && typeof target.inputPoint?.y === 'number';
+  }
+  return Boolean(target.url && target.inputSelector);
 }
 
 function MessageBubble({
@@ -133,12 +153,12 @@ export function DirectorOneToOnePanel() {
     [conversations],
   );
 
-  const bridgeReady = bridgeStatus === 'ready' && Boolean(target.url && target.inputSelector);
+  const bridgeReady = bridgeStatus === 'ready' && isBridgeTargetReady(target);
 
   const refreshBridge = useCallback(async () => {
     const savedTarget = loadChatAutomationTarget();
     setTarget(savedTarget);
-    if (!savedTarget.url || !savedTarget.inputSelector) {
+    if (!isBridgeTargetReady(savedTarget)) {
       setBridgeStatus('unknown');
       setBridgeMessage('Pendente');
       return;
@@ -146,10 +166,10 @@ export function DirectorOneToOnePanel() {
     try {
       const validation = await validateChatAutomationTarget(savedTarget);
       setBridgeStatus(validation.allowed ? 'ready' : 'blocked');
-      setBridgeMessage(validation.allowed ? 'Tango validado' : validation.reason || 'Bloqueado');
+      setBridgeMessage(validation.allowed ? 'Chat da live validado' : validation.reason || 'Bloqueado');
     } catch (err) {
       setBridgeStatus('blocked');
-      setBridgeMessage(err instanceof Error ? err.message : 'Falha ao validar Tango');
+      setBridgeMessage(err instanceof Error ? err.message : 'Falha ao validar chat');
     }
   }, []);
 
@@ -184,14 +204,19 @@ export function DirectorOneToOnePanel() {
 
   const handleSaveBridge = async () => {
     const normalized = {
+      mode: target.mode,
       url: target.url.trim(),
       inputSelector: target.inputSelector.trim(),
       sendSelector: target.sendSelector?.trim() || '',
+      inputPoint: target.inputPoint,
+      sendPoint: target.sendPoint,
+      viewport: target.viewport,
     };
-    const domain = domainFromUrl(normalized.url);
-    if (!domain || !normalized.inputSelector) {
+    const visualMode = normalized.mode === 'visual';
+    const domain = visualMode ? 'visual:tango-live' : domainFromUrl(normalized.url);
+    if (!isBridgeTargetReady(normalized) || (!visualMode && !domain)) {
       setBridgeStatus('blocked');
-      setBridgeMessage('URL e selector obrigatorios');
+      setBridgeMessage(visualMode ? 'Ponto do campo obrigatorio' : 'URL e selector obrigatorios');
       return;
     }
     setBridgeStatus('saving');
@@ -199,12 +224,16 @@ export function DirectorOneToOnePanel() {
     try {
       const config = await getChatAutomationConfig().catch(() => ({ allowlist: [], logs: [] }));
       const entry: ChatAutomationAllowEntry = {
-        id: 'tango-1to1',
-        label: 'Tango 1:1',
+        id: visualMode ? 'tango-live-chat' : 'tango-1to1',
+        label: visualMode ? 'Tango live chat' : 'Tango 1:1',
+        mode: visualMode ? 'visual' : 'selector',
         domain,
         urlPattern: '.*',
-        inputSelector: normalized.inputSelector,
+        inputSelector: visualMode ? 'visual-point' : normalized.inputSelector,
         sendSelector: normalized.sendSelector || '',
+        inputPoint: normalized.inputPoint,
+        sendPoint: normalized.sendPoint,
+        viewport: normalized.viewport,
         submitWithEnter: true,
         typingDelayMs: 25,
         maxPerMinute: 6,
@@ -218,7 +247,7 @@ export function DirectorOneToOnePanel() {
       saveChatAutomationTarget(normalized);
       const validation = await validateChatAutomationTarget(normalized);
       setBridgeStatus(validation.allowed ? 'ready' : 'blocked');
-      setBridgeMessage(validation.allowed ? 'Tango validado' : validation.reason || 'Bloqueado');
+      setBridgeMessage(validation.allowed ? 'Chat da live validado' : validation.reason || 'Bloqueado');
     } catch (err) {
       setBridgeStatus('blocked');
       setBridgeMessage(err instanceof Error ? err.message : 'Falha ao salvar ponte');
@@ -299,12 +328,16 @@ export function DirectorOneToOnePanel() {
       const approved = await approveConversationReply(selected.id, messageId);
       if (bridgeReady && approved.text.trim()) {
         const result = await sendChatAutomationMessage({
+          mode: target.mode,
           url: target.url,
           inputSelector: target.inputSelector,
+          inputPoint: target.inputPoint,
+          sendPoint: target.sendPoint,
+          viewport: target.viewport,
           text: approved.text,
           dryRun: false,
         });
-        setBridgeMessage(result.allowed ? 'Resposta liberada para o Tango' : result.reason || 'Envio bloqueado');
+        setBridgeMessage(result.allowed ? 'Resposta liberada para o chat' : result.reason || 'Envio bloqueado');
         setBridgeStatus(result.allowed ? 'ready' : 'blocked');
       }
       await refreshList(selected.id);
@@ -380,7 +413,7 @@ export function DirectorOneToOnePanel() {
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
                 <ShieldCheck className="h-3.5 w-3.5" />
-                Ponte Tango
+                Chat ao vivo
               </div>
               <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
                 <StatusDot
@@ -390,28 +423,130 @@ export function DirectorOneToOnePanel() {
                 {bridgeMessage || 'Pendente'}
               </div>
             </div>
-            <Input
-              label="URL da conversa"
-              value={target.url}
-              onChange={(event) => setTarget((current) => ({ ...current, url: event.target.value }))}
-              placeholder="https://www.tango.me/..."
-            />
-            <Input
-              label="Campo de mensagem"
-              value={target.inputSelector}
-              onChange={(event) =>
-                setTarget((current) => ({ ...current, inputSelector: event.target.value }))
-              }
-              placeholder='textarea, [contenteditable="true"]...'
-            />
-            <Input
-              label="Botao enviar"
-              value={target.sendSelector || ''}
-              onChange={(event) =>
-                setTarget((current) => ({ ...current, sendSelector: event.target.value }))
-              }
-              placeholder="Opcional se Enter envia"
-            />
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                size="sm"
+                variant={target.mode === 'visual' ? 'primary' : 'secondary'}
+                onClick={() =>
+                  setTarget((current) => ({
+                    ...LIVE_CHAT_SCREENSHOT_TARGET,
+                    ...current,
+                    mode: 'visual',
+                    inputPoint: current.inputPoint || LIVE_CHAT_SCREENSHOT_TARGET.inputPoint,
+                    viewport: current.viewport || LIVE_CHAT_SCREENSHOT_TARGET.viewport,
+                  }))
+                }
+              >
+                <MapPin className="h-3.5 w-3.5" />
+                Visual
+              </Button>
+              <Button
+                size="sm"
+                variant={target.mode === 'selector' ? 'primary' : 'secondary'}
+                onClick={() => setTarget((current) => ({ ...current, mode: 'selector' }))}
+              >
+                <ShieldCheck className="h-3.5 w-3.5" />
+                DOM
+              </Button>
+            </div>
+
+            {target.mode === 'visual' ? (
+              <div className="space-y-3">
+                <Button
+                  className="w-full"
+                  variant="ghost"
+                  onClick={() => setTarget(LIVE_CHAT_SCREENSHOT_TARGET)}
+                >
+                  <MapPin className="h-4 w-4" />
+                  Usar layout do print
+                </Button>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    label="Campo X (%)"
+                    value={percentFromPoint(target.inputPoint?.x)}
+                    onChange={(event) =>
+                      setTarget((current) => ({
+                        ...current,
+                        inputPoint: {
+                          x: pointFromPercent(event.target.value),
+                          y: current.inputPoint?.y ?? LIVE_CHAT_SCREENSHOT_TARGET.inputPoint?.y ?? 0,
+                        },
+                      }))
+                    }
+                    placeholder="9.7"
+                  />
+                  <Input
+                    label="Campo Y (%)"
+                    value={percentFromPoint(target.inputPoint?.y)}
+                    onChange={(event) =>
+                      setTarget((current) => ({
+                        ...current,
+                        inputPoint: {
+                          x: current.inputPoint?.x ?? LIVE_CHAT_SCREENSHOT_TARGET.inputPoint?.x ?? 0,
+                          y: pointFromPercent(event.target.value),
+                        },
+                      }))
+                    }
+                    placeholder="92.8"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    label="Largura"
+                    value={String(target.viewport?.width || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.width || 1920)}
+                    onChange={(event) =>
+                      setTarget((current) => ({
+                        ...current,
+                        viewport: {
+                          width: Math.max(1, Number(event.target.value) || 1),
+                          height: current.viewport?.height || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.height || 938,
+                        },
+                      }))
+                    }
+                    placeholder="1920"
+                  />
+                  <Input
+                    label="Altura"
+                    value={String(target.viewport?.height || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.height || 938)}
+                    onChange={(event) =>
+                      setTarget((current) => ({
+                        ...current,
+                        viewport: {
+                          width: current.viewport?.width || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.width || 1920,
+                          height: Math.max(1, Number(event.target.value) || 1),
+                        },
+                      }))
+                    }
+                    placeholder="938"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <Input
+                  label="URL da conversa"
+                  value={target.url}
+                  onChange={(event) => setTarget((current) => ({ ...current, url: event.target.value }))}
+                  placeholder="https://www.tango.me/..."
+                />
+                <Input
+                  label="Campo de mensagem"
+                  value={target.inputSelector}
+                  onChange={(event) =>
+                    setTarget((current) => ({ ...current, inputSelector: event.target.value }))
+                  }
+                  placeholder='textarea, [contenteditable="true"]...'
+                />
+                <Input
+                  label="Botao enviar"
+                  value={target.sendSelector || ''}
+                  onChange={(event) =>
+                    setTarget((current) => ({ ...current, sendSelector: event.target.value }))
+                  }
+                  placeholder="Opcional se Enter envia"
+                />
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <Button
                 variant="secondary"
