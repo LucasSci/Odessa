@@ -1,3 +1,3 @@
-## 2025-03-09 - Avoid O(N) Array Replication for Latest Item Searches
-**Learning:** In React components (like `OdessaLiveCenter.tsx`), repeatedly calling `[...array].reverse().find(...)` on a continuously growing state array (e.g., event logs or chat messages) forces O(N) memory allocation and iteration on every render. This creates a significant performance bottleneck. In this project's TS config (ES2020), native ES2023 `findLast()` is not available.
-**Action:** Replace `[...array].reverse().find()` with a simple, allocation-free backward `for` loop to find the latest matching item efficiently without copying the array.
+## 2026-06-30 - Optimizing Array Searches in React Renders
+**Learning:** Using `[...array].reverse().find(...)` inside a React component's render function (like in `OdessaLiveCenter.tsx`) creates a severe performance bottleneck for continuously growing arrays (like event logs). It forces O(N) memory allocation (shallow copy) and O(N) iteration on *every single render cycle*.
+**Action:** Always replace this pattern with a backward `for` loop when you only need to find the most recent matching element. This achieves the same result with O(1) memory and stops immediately upon finding the match, preventing micro-stutters in UI.

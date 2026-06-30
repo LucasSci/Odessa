@@ -26,7 +26,7 @@ type ObsResult = { ok: boolean; error?: string };
 type Listener = (status: ObsDirectStatus) => void;
 
 const obs = new OBSWebSocket();
-let state: ObsDirectStatus = {
+const state: ObsDirectStatus = {
   state: 'disconnected',
   error: null,
   scenes: [],
