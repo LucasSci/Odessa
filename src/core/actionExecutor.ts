@@ -1,4 +1,5 @@
 import { apiUrl } from '../lib/api';
+import { loadChatAutomationTarget } from '../lib/chatAutomation';
 import { loadTtsSettings } from '../lib/ttsSettings';
 import type { AutopilotAction, PersonaDecision, PersonaTool } from '../types';
 import { capabilityForAction, findTool } from './toolRegistry';
@@ -61,7 +62,7 @@ export function actionSummary(action: AutopilotAction) {
 
 function simulatedActionResult(action: AutopilotAction, capability: string) {
   const payload = action.payload || {};
-  if (capability === 'chat.reply' && !base.simulated) {
+  if (capability === 'chat.reply') {
     const message =
       typeof payload.message === 'string'
         ? payload.message
@@ -164,8 +165,9 @@ async function dispatchWebhookAction(
 
 async function dispatchChatReplyAction(action: AutopilotAction): Promise<ChatAutomationSendResult> {
   const text = String(action.payload?.message || action.payload?.text || '').trim();
-  const targetUrl = String(action.payload?.targetUrl || action.payload?.url || '').trim();
-  const inputSelector = String(action.payload?.inputSelector || '').trim();
+  const savedTarget = loadChatAutomationTarget();
+  const targetUrl = String(action.payload?.targetUrl || action.payload?.url || savedTarget.url).trim();
+  const inputSelector = String(action.payload?.inputSelector || savedTarget.inputSelector).trim();
   if (!text) return { status: 'blocked', allowed: false, reason: 'empty_text' };
   if (!targetUrl) return { status: 'blocked', allowed: false, reason: 'target_url_missing' };
 
@@ -382,7 +384,7 @@ export async function executeAction(
     }
   }
 
-  if (capability === 'chat.reply') {
+  if (capability === 'chat.reply' && !base.simulated) {
     try {
       const chatResult = await dispatchChatReplyAction(base);
       if (!chatResult.allowed) {

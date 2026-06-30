@@ -12,6 +12,7 @@ const __dirname = nodePath.dirname(fileURLToPath(_metaUrl));
 const SESSION_COOKIE_NAME = 'odessa_admin_session';
 const PERSONA_CONFIG_KEY = 'persona_config';
 const CONVERSATIONS_KEY = 'conversations';
+const CHAT_AUTOMATION_KEY = 'chat_automation';
 const AUTH_BUILD = 'ai-decide-2026-05-27-gemini-v1';
 const SESSION_TTL_SECONDS = Number(process.env.ODESSA_SESSION_TTL_SECONDS || 12 * 60 * 60);
 const DEFAULT_ADMIN_EMAIL = 'lucasbatista.c.l@gmail.com';
@@ -644,6 +645,118 @@ function approveConversationMessageRecord(conversationId, body) {
   conversation.updatedAt = at;
   upsertConversation(conversation);
   return message;
+}
+
+function emptyChatAutomationConfig() {
+  return { allowlist: [], logs: [] };
+}
+
+function loadChatAutomationConfig() {
+  const stored = getCloudValue(CHAT_AUTOMATION_KEY);
+  const value = stored?.value && typeof stored.value === 'object' ? stored.value : emptyChatAutomationConfig();
+  return {
+    allowlist: Array.isArray(value.allowlist) ? value.allowlist : [],
+    logs: Array.isArray(value.logs) ? value.logs : [],
+  };
+}
+
+function saveChatAutomationConfig(config) {
+  const next = {
+    allowlist: Array.isArray(config.allowlist) ? config.allowlist : [],
+    logs: Array.isArray(config.logs) ? config.logs.slice(-300) : [],
+  };
+  setCloudValue(CHAT_AUTOMATION_KEY, next);
+  return next;
+}
+
+function normalizeChatAutomationAllowlist(allowlist) {
+  const cleaned = [];
+  for (const entry of Array.isArray(allowlist) ? allowlist : []) {
+    if (!entry || typeof entry !== 'object') continue;
+    const domain = String(entry.domain || '').trim().toLowerCase();
+    const inputSelector = String(entry.inputSelector || '').trim();
+    if (!domain || !inputSelector) continue;
+    cleaned.push({
+      id: String(entry.id || `allow-${crypto.randomUUID()}`),
+      label: String(entry.label || domain),
+      domain,
+      urlPattern: String(entry.urlPattern || '').trim(),
+      inputSelector,
+      sendSelector: String(entry.sendSelector || '').trim(),
+      submitWithEnter: entry.submitWithEnter !== false,
+      typingDelayMs: Math.max(0, Math.min(Number(entry.typingDelayMs || 25), 2000)),
+      maxPerMinute: Math.max(1, Math.min(Number(entry.maxPerMinute || 6), 60)),
+      enabled: entry.enabled !== false,
+    });
+  }
+  return cleaned;
+}
+
+function matchChatAutomationTarget(url, inputSelector = '') {
+  let parsed;
+  try {
+    parsed = new URL(String(url || ''));
+  } catch {
+    return null;
+  }
+  const host = (parsed.hostname || '').toLowerCase();
+  const config = loadChatAutomationConfig();
+  for (const entry of config.allowlist) {
+    if (entry.enabled === false) continue;
+    const domain = String(entry.domain || '').toLowerCase();
+    if (host !== domain && !host.endsWith(`.${domain}`)) continue;
+    const pattern = String(entry.urlPattern || '').trim();
+    if (pattern && !(new RegExp(pattern).test(String(url)))) continue;
+    if (inputSelector && inputSelector !== entry.inputSelector) continue;
+    return entry;
+  }
+  return null;
+}
+
+function logChatAutomationAttempt(url, text, result, inputSelector = '') {
+  const config = loadChatAutomationConfig();
+  config.logs.push({
+    id: `chatlog-${crypto.randomUUID()}`,
+    createdAt: nowIso(),
+    url: String(url || ''),
+    inputSelector: inputSelector || null,
+    text: String(text || '').slice(0, 500),
+    result,
+  });
+  saveChatAutomationConfig(config);
+}
+
+function validateChatAutomationTarget(body) {
+  const target = matchChatAutomationTarget(body?.url, body?.inputSelector);
+  return { allowed: Boolean(target), target, reason: target ? null : 'not_allowlisted' };
+}
+
+function sendChatAutomationMessageRecord(body) {
+  const url = String(body?.url || '').trim();
+  const text = String(body?.text || '').trim();
+  const inputSelector = String(body?.inputSelector || '').trim();
+  const target = matchChatAutomationTarget(url, inputSelector);
+  if (!target) {
+    const result = { status: 'blocked', allowed: false, reason: 'not_allowlisted' };
+    logChatAutomationAttempt(url, text, result, inputSelector);
+    return result;
+  }
+  if (!text) {
+    const result = { status: 'blocked', allowed: false, reason: 'empty_text', target };
+    logChatAutomationAttempt(url, text, result, inputSelector);
+    return result;
+  }
+  const dryRun = body?.dryRun !== false;
+  const result = {
+    status: dryRun ? 'dry_run' : 'ready',
+    allowed: true,
+    target,
+    text,
+    wouldType: true,
+    wouldSend: !dryRun,
+  };
+  logChatAutomationAttempt(url, text, result, inputSelector);
+  return result;
 }
 
 function stateFromAgentStatus(_agentStatus) {
@@ -2552,6 +2665,31 @@ async function protectedResponse(req, res, rawPath) {
 
   if (path.startsWith('/memory/')) {
     return json(res, 200, { profiles: [], items: [], context: null, ...cloudState() });
+  }
+
+  if (path === '/chat-automation/config' && req.method === 'GET') {
+    const config = loadChatAutomationConfig();
+    return json(res, 200, { allowlist: config.allowlist, logs: config.logs.slice(-100) });
+  }
+
+  if (path === '/chat-automation/config' && req.method === 'POST') {
+    const body = await readBody(req);
+    const current = loadChatAutomationConfig();
+    const next = saveChatAutomationConfig({
+      allowlist: normalizeChatAutomationAllowlist(body?.allowlist),
+      logs: current.logs,
+    });
+    return json(res, 200, { allowlist: next.allowlist, logs: next.logs.slice(-100) });
+  }
+
+  if (path === '/chat-automation/validate' && req.method === 'POST') {
+    const body = await readBody(req);
+    return json(res, 200, validateChatAutomationTarget(body));
+  }
+
+  if (path === '/chat-automation/send' && req.method === 'POST') {
+    const body = await readBody(req);
+    return json(res, 200, sendChatAutomationMessageRecord(body));
   }
 
   if (path === '/conversations' && req.method === 'GET') {

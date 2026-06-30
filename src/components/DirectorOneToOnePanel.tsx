@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertCircle,
   CheckCircle2,
   Loader2,
   MessageCircle,
   Plus,
   RefreshCw,
+  Save,
   Send,
+  ShieldCheck,
   Sparkles,
   UserRound,
 } from 'lucide-react';
@@ -20,6 +23,17 @@ import {
   type Conversation,
   type ConversationMessage,
 } from '../lib/conversations';
+import {
+  domainFromUrl,
+  getChatAutomationConfig,
+  loadChatAutomationTarget,
+  saveChatAutomationConfig,
+  saveChatAutomationTarget,
+  sendChatAutomationMessage,
+  validateChatAutomationTarget,
+  type ChatAutomationAllowEntry,
+  type ChatAutomationTarget,
+} from '../lib/chatAutomation';
 import { cn } from '../lib/utils';
 import { Badge, Button, Input, StatusDot } from './ui';
 
@@ -45,10 +59,12 @@ function MessageBubble({
   message,
   onApprove,
   approving,
+  canSend,
 }: {
   message: ConversationMessage;
   onApprove: (messageId: string) => void;
   approving: boolean;
+  canSend: boolean;
 }) {
   const isAssistant = message.role === 'assistant';
   return (
@@ -82,7 +98,7 @@ function MessageBubble({
               onClick={() => onApprove(message.id)}
             >
               <CheckCircle2 className="h-3.5 w-3.5" />
-              Aprovar
+              {canSend ? 'Aprovar e enviar' : 'Aprovar'}
             </Button>
           </div>
         )}
@@ -102,6 +118,9 @@ export function DirectorOneToOnePanel() {
   const [participantName, setParticipantName] = useState('');
   const [participantId, setParticipantId] = useState('');
   const [messageText, setMessageText] = useState('');
+  const [target, setTarget] = useState<ChatAutomationTarget>(() => loadChatAutomationTarget());
+  const [bridgeStatus, setBridgeStatus] = useState<'unknown' | 'ready' | 'blocked' | 'saving'>('unknown');
+  const [bridgeMessage, setBridgeMessage] = useState('');
   const selectedIdRef = useRef<string | null>(null);
 
   const draftCount = useMemo(
@@ -113,6 +132,26 @@ export function DirectorOneToOnePanel() {
       ),
     [conversations],
   );
+
+  const bridgeReady = bridgeStatus === 'ready' && Boolean(target.url && target.inputSelector);
+
+  const refreshBridge = useCallback(async () => {
+    const savedTarget = loadChatAutomationTarget();
+    setTarget(savedTarget);
+    if (!savedTarget.url || !savedTarget.inputSelector) {
+      setBridgeStatus('unknown');
+      setBridgeMessage('Pendente');
+      return;
+    }
+    try {
+      const validation = await validateChatAutomationTarget(savedTarget);
+      setBridgeStatus(validation.allowed ? 'ready' : 'blocked');
+      setBridgeMessage(validation.allowed ? 'Tango validado' : validation.reason || 'Bloqueado');
+    } catch (err) {
+      setBridgeStatus('blocked');
+      setBridgeMessage(err instanceof Error ? err.message : 'Falha ao validar Tango');
+    }
+  }, []);
 
   const refreshList = useCallback(async (nextSelectedId?: string | null) => {
     setLoading(true);
@@ -138,9 +177,53 @@ export function DirectorOneToOnePanel() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void refreshList(null);
+      void refreshBridge();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [refreshList]);
+  }, [refreshBridge, refreshList]);
+
+  const handleSaveBridge = async () => {
+    const normalized = {
+      url: target.url.trim(),
+      inputSelector: target.inputSelector.trim(),
+      sendSelector: target.sendSelector?.trim() || '',
+    };
+    const domain = domainFromUrl(normalized.url);
+    if (!domain || !normalized.inputSelector) {
+      setBridgeStatus('blocked');
+      setBridgeMessage('URL e selector obrigatorios');
+      return;
+    }
+    setBridgeStatus('saving');
+    setBridgeMessage('Salvando...');
+    try {
+      const config = await getChatAutomationConfig().catch(() => ({ allowlist: [], logs: [] }));
+      const entry: ChatAutomationAllowEntry = {
+        id: 'tango-1to1',
+        label: 'Tango 1:1',
+        domain,
+        urlPattern: '.*',
+        inputSelector: normalized.inputSelector,
+        sendSelector: normalized.sendSelector || '',
+        submitWithEnter: true,
+        typingDelayMs: 25,
+        maxPerMinute: 6,
+        enabled: true,
+      };
+      const nextAllowlist = [
+        entry,
+        ...config.allowlist.filter((item) => item.id !== entry.id),
+      ];
+      await saveChatAutomationConfig(nextAllowlist);
+      saveChatAutomationTarget(normalized);
+      const validation = await validateChatAutomationTarget(normalized);
+      setBridgeStatus(validation.allowed ? 'ready' : 'blocked');
+      setBridgeMessage(validation.allowed ? 'Tango validado' : validation.reason || 'Bloqueado');
+    } catch (err) {
+      setBridgeStatus('blocked');
+      setBridgeMessage(err instanceof Error ? err.message : 'Falha ao salvar ponte');
+    }
+  };
 
   const selectConversation = async (conversationId: string) => {
     setSelectedId(conversationId);
@@ -213,7 +296,17 @@ export function DirectorOneToOnePanel() {
     setApprovingId(messageId);
     setError(null);
     try {
-      await approveConversationReply(selected.id, messageId);
+      const approved = await approveConversationReply(selected.id, messageId);
+      if (bridgeReady && approved.text.trim()) {
+        const result = await sendChatAutomationMessage({
+          url: target.url,
+          inputSelector: target.inputSelector,
+          text: approved.text,
+          dryRun: false,
+        });
+        setBridgeMessage(result.allowed ? 'Resposta liberada para o Tango' : result.reason || 'Envio bloqueado');
+        setBridgeStatus(result.allowed ? 'ready' : 'blocked');
+      }
       await refreshList(selected.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao aprovar resposta');
@@ -237,6 +330,9 @@ export function DirectorOneToOnePanel() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Badge variant={bridgeReady ? 'success' : bridgeStatus === 'blocked' ? 'danger' : 'warning'}>
+            Tango {bridgeReady ? 'ok' : 'pendente'}
+          </Badge>
           <Badge variant={draftCount ? 'lavender' : 'default'}>{draftCount} rascunho(s)</Badge>
           <Button size="icon" variant="secondary" loading={loading} onClick={() => void refreshList()}>
             {!loading && <RefreshCw className="h-4 w-4" />}
@@ -278,6 +374,64 @@ export function DirectorOneToOnePanel() {
             >
               Criar
             </Button>
+          </div>
+
+          <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                Ponte Tango
+              </div>
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                <StatusDot
+                  status={bridgeReady ? 'online' : bridgeStatus === 'blocked' ? 'error' : 'warn'}
+                  pulse={bridgeStatus === 'saving'}
+                />
+                {bridgeMessage || 'Pendente'}
+              </div>
+            </div>
+            <Input
+              label="URL da conversa"
+              value={target.url}
+              onChange={(event) => setTarget((current) => ({ ...current, url: event.target.value }))}
+              placeholder="https://www.tango.me/..."
+            />
+            <Input
+              label="Campo de mensagem"
+              value={target.inputSelector}
+              onChange={(event) =>
+                setTarget((current) => ({ ...current, inputSelector: event.target.value }))
+              }
+              placeholder='textarea, [contenteditable="true"]...'
+            />
+            <Input
+              label="Botao enviar"
+              value={target.sendSelector || ''}
+              onChange={(event) =>
+                setTarget((current) => ({ ...current, sendSelector: event.target.value }))
+              }
+              placeholder="Opcional se Enter envia"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="secondary"
+                loading={bridgeStatus === 'saving'}
+                onClick={() => void handleSaveBridge()}
+              >
+                <Save className="h-4 w-4" />
+                Salvar
+              </Button>
+              <Button variant="ghost" onClick={() => void refreshBridge()}>
+                <RefreshCw className="h-4 w-4" />
+                Validar
+              </Button>
+            </div>
+            {bridgeStatus === 'blocked' && (
+              <div className="flex gap-2 rounded-xl border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{bridgeMessage || 'A ponte ainda nao esta validada.'}</span>
+              </div>
+            )}
           </div>
 
           <div className="mt-4 space-y-2">
@@ -346,6 +500,7 @@ export function DirectorOneToOnePanel() {
                       key={message.id}
                       message={message}
                       approving={approvingId === message.id}
+                      canSend={bridgeReady}
                       onApprove={handleApprove}
                     />
                   ))
