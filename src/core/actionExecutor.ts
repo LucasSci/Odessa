@@ -36,6 +36,7 @@ interface ChatAutomationSendResult {
   text?: string;
   wouldSend?: boolean;
   executed?: boolean;
+  submit?: boolean;
   queued?: boolean;
   execution?: {
     ok?: boolean;
@@ -200,6 +201,7 @@ async function dispatchChatReplyAction(action: AutopilotAction): Promise<ChatAut
       sendPoint,
       viewport,
       dryRun: action.payload?.dryRun !== false,
+      submit: action.payload?.submit !== false,
     }),
   });
   const data = (await response.json().catch(() => ({}))) as ChatAutomationSendResult;
@@ -434,7 +436,9 @@ export async function executeAction(
         result:
           chatResult.status === 'ready'
             ? chatResult.executed
-              ? 'Resposta digitada e enviada no chat visual.'
+              ? chatResult.submit === false
+                ? 'Resposta digitada no chat visual sem enviar.'
+                : 'Resposta digitada e enviada no chat visual.'
               : chatResult.queued
                 ? 'Resposta enfileirada para o agente local enviar no chat visual.'
                 : 'Resposta enviada para a automacao de chat.'

@@ -25,6 +25,7 @@ class ChatAutomationTargetRequest(BaseModel):
 class ChatAutomationSendRequest(ChatAutomationTargetRequest):
     text: str
     dryRun: bool = True
+    submit: bool = True
 
 
 @router.get("/config")
@@ -54,6 +55,7 @@ def send_chat_automation_message(request: ChatAutomationSendRequest):
         request.text,
         input_selector=request.inputSelector,
         dry_run=request.dryRun,
+        submit=request.submit,
         mode=request.mode,
         input_point=request.inputPoint,
         send_point=request.sendPoint,

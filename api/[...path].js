@@ -800,6 +800,7 @@ function sendChatAutomationMessageRecord(body) {
     return result;
   }
   const dryRun = body?.dryRun !== false;
+  const submit = body?.submit !== false;
   const result = {
     status: dryRun ? 'dry_run' : 'ready',
     allowed: true,
@@ -811,9 +812,10 @@ function sendChatAutomationMessageRecord(body) {
     viewport: viewport || target.viewport || null,
     plannedInputPixel: plannedChatAutomationPixel(inputPoint || target.inputPoint, viewport || target.viewport),
     plannedSendPixel: plannedChatAutomationPixel(sendPoint || target.sendPoint, viewport || target.viewport),
+    submit,
     wouldClick: mode === 'visual',
     wouldType: true,
-    wouldSend: !dryRun,
+    wouldSend: !dryRun && submit,
   };
   if (mode === 'visual' && !dryRun) {
     const queued = enqueueAgentCommand({
@@ -823,6 +825,7 @@ function sendChatAutomationMessageRecord(body) {
         inputPoint: result.inputPoint,
         sendPoint: result.sendPoint,
         viewport: result.viewport,
+        submit,
       },
     });
     result.queued = true;

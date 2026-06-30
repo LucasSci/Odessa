@@ -97,6 +97,7 @@ class ChatAutomationService:
         text: str,
         input_selector: str | None = None,
         dry_run: bool = True,
+        submit: bool = True,
         mode: str = "selector",
         input_point: dict[str, Any] | None = None,
         send_point: dict[str, Any] | None = None,
@@ -123,16 +124,18 @@ class ChatAutomationService:
             "viewport": self._normalize_viewport(viewport) or target.get("viewport"),
             "wouldClick": visual,
             "wouldType": True,
-            "wouldSend": not dry_run,
+            "wouldSend": (not dry_run) and bool(submit),
         }
         result["plannedInputPixel"] = self._planned_pixel(result.get("inputPoint"), result.get("viewport"))
         result["plannedSendPixel"] = self._planned_pixel(result.get("sendPoint"), result.get("viewport"))
+        result["submit"] = bool(submit)
         if visual and not dry_run:
             execution = self._execute_visual_desktop_send(
                 text=text,
                 input_point=result.get("inputPoint"),
                 send_point=result.get("sendPoint"),
                 viewport=result.get("viewport"),
+                submit=submit,
             )
             result["execution"] = execution
             result["executed"] = bool(execution.get("ok"))
@@ -148,6 +151,7 @@ class ChatAutomationService:
         input_point: dict[str, Any] | None,
         send_point: dict[str, Any] | None = None,
         viewport: dict[str, Any] | None = None,
+        submit: bool = True,
     ) -> dict[str, Any]:
         if not text.strip():
             return {"status": "blocked", "allowed": False, "reason": "empty_text"}
@@ -156,6 +160,7 @@ class ChatAutomationService:
             input_point=input_point,
             send_point=send_point,
             viewport=viewport,
+            submit=submit,
         )
         return {
             "status": "ready" if execution.get("ok") else "blocked",
@@ -164,9 +169,10 @@ class ChatAutomationService:
             "text": text,
             "inputPoint": self._normalize_point(input_point),
             "sendPoint": self._normalize_point(send_point),
+            "submit": bool(submit),
             "wouldClick": True,
             "wouldType": True,
-            "wouldSend": True,
+            "wouldSend": bool(submit),
             "executed": bool(execution.get("ok")),
             "execution": execution,
             "reason": None if execution.get("ok") else execution.get("error") or "desktop_execution_failed",
@@ -253,6 +259,7 @@ class ChatAutomationService:
         input_point: dict[str, Any] | None,
         send_point: dict[str, Any] | None = None,
         viewport: dict[str, Any] | None = None,
+        submit: bool = True,
     ) -> dict[str, Any]:
         if os.getenv("ODESSA_CHAT_AUTOMATION_DISABLED") == "1":
             return {"ok": False, "error": "desktop_chat_automation_disabled"}
@@ -296,10 +303,12 @@ Start-Sleep -Milliseconds 120
 [System.Windows.Forms.SendKeys]::SendWait("^v")
 Start-Sleep -Milliseconds 120
 $clickedSend = $null
-if ($payload.sendPoint -and $payload.sendPoint.x -ne $null -and $payload.sendPoint.y -ne $null) {
-  $clickedSend = Click-Normalized $payload.sendPoint
-} else {
-  [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+if ($payload.submit) {
+  if ($payload.sendPoint -and $payload.sendPoint.x -ne $null -and $payload.sendPoint.y -ne $null) {
+    $clickedSend = Click-Normalized $payload.sendPoint
+  } else {
+    [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+  }
 }
 @{
   ok = $true
@@ -307,7 +316,8 @@ if ($payload.sendPoint -and $payload.sendPoint.x -ne $null -and $payload.sendPoi
   targetViewport = @{ width = $targetWidth; height = $targetHeight }
   clickedInput = $clickedInput
   clickedSend = $clickedSend
-  submittedWithEnter = ($clickedSend -eq $null)
+  submitted = [bool]$payload.submit
+  submittedWithEnter = ([bool]$payload.submit -and $clickedSend -eq $null)
 } | ConvertTo-Json -Depth 5 -Compress
 """
             payload = json.dumps(
@@ -316,6 +326,7 @@ if ($payload.sendPoint -and $payload.sendPoint.x -ne $null -and $payload.sendPoi
                     "inputPoint": point,
                     "sendPoint": send,
                     "viewport": normalized_viewport,
+                    "submit": bool(submit),
                 },
                 ensure_ascii=False,
             )

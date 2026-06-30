@@ -142,7 +142,7 @@ export function DirectorOneToOnePanel() {
   const [bridgeStatus, setBridgeStatus] = useState<'unknown' | 'ready' | 'blocked' | 'saving'>('unknown');
   const [bridgeMessage, setBridgeMessage] = useState('');
   const [bridgeTestText, setBridgeTestText] = useState('Teste Odessa: ponte do chat ao vivo calibrada.');
-  const [bridgeTestBusy, setBridgeTestBusy] = useState<'dry' | 'real' | null>(null);
+  const [bridgeTestBusy, setBridgeTestBusy] = useState<'dry' | 'fill' | 'send' | null>(null);
   const [bridgeLastResult, setBridgeLastResult] = useState<Record<string, unknown> | null>(null);
   const selectedIdRef = useRef<string | null>(null);
 
@@ -351,14 +351,16 @@ export function DirectorOneToOnePanel() {
     }
   };
 
-  const handleTestBridge = async (dryRun: boolean) => {
+  const handleTestBridge = async (mode: 'dry' | 'fill' | 'send') => {
     const text = bridgeTestText.trim();
     if (!text) {
       setBridgeStatus('blocked');
       setBridgeMessage('Mensagem de teste obrigatoria');
       return;
     }
-    setBridgeTestBusy(dryRun ? 'dry' : 'real');
+    const dryRun = mode === 'dry';
+    const submit = mode === 'send';
+    setBridgeTestBusy(mode);
     setBridgeLastResult(null);
     try {
       const result = await sendChatAutomationMessage({
@@ -370,12 +372,13 @@ export function DirectorOneToOnePanel() {
         viewport: target.viewport,
         text,
         dryRun,
+        submit,
       });
       setBridgeLastResult(result as unknown as Record<string, unknown>);
       const ok = result.allowed && result.status !== 'blocked';
       setBridgeStatus(ok ? 'ready' : 'blocked');
       if (result.executed) {
-        setBridgeMessage('Teste real executado no chat visual');
+        setBridgeMessage(result.submit === false ? 'Campo preenchido sem enviar' : 'Teste real enviado no chat visual');
       } else if (result.queued) {
         setBridgeMessage(`Teste enfileirado para o agente (${result.queueSize ?? 0})`);
       } else if (dryRun && ok) {
@@ -611,26 +614,36 @@ export function DirectorOneToOnePanel() {
                 onChange={(event) => setBridgeTestText(event.target.value)}
                 placeholder="Mensagem curta para testar"
               />
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <Button
                   size="sm"
                   variant="secondary"
                   loading={bridgeTestBusy === 'dry'}
                   disabled={!isBridgeTargetReady(target)}
-                  onClick={() => void handleTestBridge(true)}
+                  onClick={() => void handleTestBridge('dry')}
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                   Dry-run
                 </Button>
                 <Button
                   size="sm"
-                  variant="primary"
-                  loading={bridgeTestBusy === 'real'}
+                  variant="secondary"
+                  loading={bridgeTestBusy === 'fill'}
                   disabled={!isBridgeTargetReady(target)}
-                  onClick={() => void handleTestBridge(false)}
+                  onClick={() => void handleTestBridge('fill')}
+                >
+                  <MapPin className="h-3.5 w-3.5" />
+                  Preencher
+                </Button>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  loading={bridgeTestBusy === 'send'}
+                  disabled={!isBridgeTargetReady(target)}
+                  onClick={() => void handleTestBridge('send')}
                 >
                   <Send className="h-3.5 w-3.5" />
-                  Teste real
+                  Enviar
                 </Button>
               </div>
               {bridgeLastResult && (

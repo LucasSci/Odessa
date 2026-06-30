@@ -54,6 +54,7 @@ export type ChatAutomationSendResult = {
   wouldSend?: boolean;
   wouldClick?: boolean;
   executed?: boolean;
+  submit?: boolean;
   queued?: boolean;
   queueSize?: number;
   executionMode?: string;
@@ -195,6 +196,7 @@ export async function sendChatAutomationMessage(payload: {
   viewport?: ChatAutomationViewport;
   text: string;
   dryRun?: boolean;
+  submit?: boolean;
 }): Promise<ChatAutomationSendResult> {
   return parseJson<ChatAutomationSendResult>(
     await fetch(apiUrl('/chat-automation/send'), {
