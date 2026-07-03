@@ -11,6 +11,7 @@ import { capabilityForAction } from './toolRegistry';
 import { callDirectorDecision } from './aiDecisionContract';
 import { recordChatLearning, buildChatInsightsContext } from './chatLearning';
 import { recordGiftLearning, buildGiftInsightsContext } from './giftLearning';
+import { governPersonaDecision } from './liveAutonomyGovernor';
 import { buildVideoPresetsContext, markVideoPlayed } from './videoPresets';
 import { apiUrl } from '../lib/api';
 import {
@@ -644,18 +645,20 @@ export async function runPersonaRound(
     }
 
     const mergedActions = mergeActions(ruleActions, baseDecision.actions);
-    const decision = { ...baseDecision, actions: mergedActions };
+    const governed = governPersonaDecision(classifiedEvents, { ...baseDecision, actions: mergedActions });
+    const decision = governed.decision;
     update(
       {
         decision,
-        actions: mergedActions,
+        actions: decision.actions,
         stage: 'decidido',
       },
       `Decisao de diretor: ${decision.intent} (${Math.round(decision.confidence * 100)}%)`,
     );
+    governed.logs.forEach((entry) => update({}, entry));
 
     update({ stage: 'executando' }, 'Executando fila auditavel de acoes', 'running');
-    const executedActions = await executeActionQueue(mergedActions, decision, {
+    const executedActions = await executeActionQueue(decision.actions, decision, {
       tools: options.tools,
       voiceEnabled: options.voiceEnabled,
       onAction: options.onAction,

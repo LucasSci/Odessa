@@ -27,6 +27,7 @@ import {
 import { emitEvent } from './core/eventBus';
 import { buildOcrEvent } from './core/ocrEventContract';
 import type { OcrEvent } from './core/ocrEventContract';
+import { processChatCapture } from './core/chatCapturePipeline';
 import { type GiftCatalogEntry, loadGiftCatalog, saveGiftCatalog } from './core/giftCatalog';
 import { apiUrl, API_BASE_URL } from './lib/api';
 import { cn } from './lib/utils';
@@ -3250,6 +3251,45 @@ const CaptureStudio = React.memo(function CaptureStudio({
               },
             });
 
+            const chatLikeZone =
+              zone.role === 'chat' || /chat|tango|coment/i.test(captureEvent.zoneName);
+            if (chatLikeZone) {
+              const chatPipeline = processChatCapture({
+                lines: resolvedLines,
+                zoneName: captureEvent.zoneName,
+                confidence: captureEvent.confidence ?? 1,
+                captureMode: captureEvent.captureMode,
+              });
+              const emittedEvents = chatPipeline.events.map((event) =>
+                emitEvent({
+                  ...event,
+                  metadata: {
+                    ...event.metadata,
+                    zoneId: captureEvent.zoneId,
+                    zoneRole: zone.role,
+                    latencyMs: captureEvent.latencyMs,
+                    triggersFired: captureEvent.triggersFired,
+                    triggerName: captureEvent.triggerName,
+                    triggeredVideoId: captureEvent.triggeredVideoId,
+                    giftName: event.metadata?.giftName ?? giftKey,
+                    giftKey,
+                    author: event.metadata?.user ?? eventAuthor,
+                    ocrEvent: canonicalOcrEvent,
+                  },
+                }),
+              );
+              if (emittedEvents.length > 0) {
+                setCapturedText((current) =>
+                  [
+                    ...current.filter(
+                      (event) => !emittedEvents.some((emitted) => emitted.id === event.id),
+                    ),
+                    ...emittedEvents,
+                  ].slice(MAX_PERSONA_MESSAGES * -1),
+                );
+              }
+            }
+            if (!chatLikeZone) {
             const liveEvent = emitEvent({
               id: captureEvent.id,
               source: 'ocr',
@@ -3280,6 +3320,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 MAX_PERSONA_MESSAGES * -1,
               ),
             );
+            }
             // Show trigger feedback in the error bar
             if ((captureEvent.triggersFired ?? 0) > 0) {
               setError(null);

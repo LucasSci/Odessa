@@ -20,6 +20,129 @@ global.Audio = vi.fn().mockImplementation(function () {
   return instance;
 });
 
+describe('actionExecutor chat.reply visual safety', () => {
+  const tools: PersonaTool[] = [
+    {
+      id: 'chat',
+      label: 'Chat',
+      capability: 'chat.reply',
+      enabled: true,
+      simulated: true,
+      requiresApproval: false,
+    },
+  ];
+  const decision: PersonaDecision = {
+    speech: 'Oi!',
+    intent: 'respond_chat',
+    confidence: 0.9,
+    reason: 'Teste',
+    priority: 'normal',
+    actions: [],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    window.localStorage.setItem(
+      'odessa:ai:config:v2',
+      JSON.stringify({
+        autoChatReplyEnabled: true,
+        autoChatReplyMode: 'dry_run',
+        chatReplyCooldownMs: 15000,
+        chatReplyMaxPerMinute: 4,
+        chatReplyMinConfidence: 0.65,
+      }),
+    );
+    window.localStorage.setItem(
+      'odessa:chat-automation-target:v1',
+      JSON.stringify({
+        mode: 'visual',
+        url: 'tango-live-window',
+        inputSelector: '',
+        inputPoint: { x: 0.1, y: 0.9 },
+        viewport: { width: 1920, height: 1080 },
+      }),
+    );
+  });
+
+  it('dispatches allowed dry-run chat replies to visual automation', async () => {
+    (fetch as any).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ status: 'dry_run', allowed: true, text: 'Oi!' }),
+    });
+
+    const result = await executeAction(
+      {
+        id: 'chat-1',
+        type: 'chat_reply',
+        label: 'Responder',
+        capability: 'chat.reply',
+        payload: { message: 'Oi!', governorAllowed: true, dryRun: true },
+        simulated: true,
+        status: 'queued',
+      },
+      decision,
+      { tools, voiceEnabled: false },
+    );
+
+    expect(result.status).toBe('simulated');
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/chat-automation/send'),
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"mode":"visual"'),
+      }),
+    );
+    const body = JSON.parse((fetch as any).mock.calls[0][1].body);
+    expect(body.dryRun).toBe(true);
+    expect(body.submit).toBe(true);
+    expect(body.inputPoint).toEqual({ x: 0.1, y: 0.9 });
+  });
+
+  it('blocks governor-denied chat replies before fetch', async () => {
+    const result = await executeAction(
+      {
+        id: 'chat-2',
+        type: 'chat_reply',
+        label: 'Responder',
+        capability: 'chat.reply',
+        payload: { message: 'Oi!', governorBlockedReason: 'cooldown' },
+        simulated: false,
+        status: 'queued',
+      },
+      decision,
+      { tools: [{ ...tools[0], simulated: false }], voiceEnabled: false },
+    );
+
+    expect(result.status).toBe('blocked');
+    expect(result.result).toContain('cooldown');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('blocks real chat replies when the visual target is missing', async () => {
+    window.localStorage.setItem(
+      'odessa:chat-automation-target:v1',
+      JSON.stringify({ mode: 'visual', url: 'tango-live-window', inputSelector: '' }),
+    );
+    const result = await executeAction(
+      {
+        id: 'chat-3',
+        type: 'chat_reply',
+        label: 'Responder',
+        capability: 'chat.reply',
+        payload: { message: 'Oi!', governorAllowed: true, dryRun: false },
+        simulated: false,
+        status: 'queued',
+      },
+      decision,
+      { tools: [{ ...tools[0], simulated: false }], voiceEnabled: false },
+    );
+
+    expect(result.status).toBe('blocked');
+    expect(result.result).toContain('input_point_missing');
+  });
+});
+
 // Mock URL.createObjectURL and revokeObjectURL
 global.URL.createObjectURL = vi.fn(() => 'blob:abc');
 global.URL.revokeObjectURL = vi.fn();

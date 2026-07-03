@@ -10,9 +10,9 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Brain, Zap, Key, Sliders, FlaskConical, CheckCircle, XCircle, AlertCircle, Loader2, Eye, EyeOff, RotateCcw, Bot, Activity, Pause, Radio, Sparkles, Gift, MessageCircle, Trash2, Film, Clock } from 'lucide-react';
+import { Brain, Zap, Key, Sliders, FlaskConical, CheckCircle, XCircle, AlertCircle, Loader2, Eye, EyeOff, RotateCcw, Bot, Activity, Pause, Radio, Sparkles, Gift, MessageCircle, Trash2, Film, Clock, MapPin, RefreshCw, Save, ShieldCheck } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { Button, Input } from './ui';
+import { Badge, Button, Input, StatusDot } from './ui';
 import { AiDecisionPanel } from './AiDecisionPanel';
 import {
   getChatInsights,
@@ -46,6 +46,16 @@ import {
 import { buildOcrEvent } from '../core/ocrEventContract';
 import type { OcrEvent } from '../core/ocrEventContract';
 import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
+import {
+  LIVE_CHAT_SCREENSHOT_TARGET,
+  getChatAutomationConfig,
+  loadChatAutomationTarget,
+  saveChatAutomationConfig,
+  saveChatAutomationTarget,
+  validateChatAutomationTarget,
+  type ChatAutomationAllowEntry,
+  type ChatAutomationTarget,
+} from '../lib/chatAutomation';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -128,6 +138,26 @@ function deriveStatusInfo(provider: AiProvider): {
   };
 }
 
+function percentFromPoint(value?: number) {
+  return value === undefined ? '' : String(Math.round(value * 1000) / 10);
+}
+
+function pointFromPercent(value: string) {
+  return Math.max(0, Math.min(1, (Number(value) || 0) / 100));
+}
+
+function isVisualTargetReady(target: ChatAutomationTarget) {
+  return Boolean(
+    target.mode === 'visual' &&
+      target.inputPoint &&
+      typeof target.inputPoint.x === 'number' &&
+      typeof target.inputPoint.y === 'number' &&
+      target.viewport &&
+      typeof target.viewport.width === 'number' &&
+      typeof target.viewport.height === 'number',
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Sub-components
 // ─────────────────────────────────────────────────────────────────────────────
@@ -207,6 +237,24 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
   const [testPrompt, setTestPrompt] = useState('');
   const testAbortRef = useRef<AbortController | null>(null);
 
+  // Chat autonomo OCR -> IA -> resposta visual
+  const [autoChatEnabled, setAutoChatEnabled] = useState(cfg.autoChatReplyEnabled);
+  const [autoChatMode, setAutoChatMode] = useState<'dry_run' | 'real'>(cfg.autoChatReplyMode);
+  const [autoChatCooldownSec, setAutoChatCooldownSec] = useState(
+    Math.round(cfg.chatReplyCooldownMs / 1000),
+  );
+  const [autoChatMaxPerMinute, setAutoChatMaxPerMinute] = useState(cfg.chatReplyMaxPerMinute);
+  const [autoChatMinConfidence, setAutoChatMinConfidence] = useState(cfg.chatReplyMinConfidence);
+  const [chatTarget, setChatTarget] = useState<ChatAutomationTarget>(() => ({
+    ...LIVE_CHAT_SCREENSHOT_TARGET,
+    ...loadChatAutomationTarget(),
+    mode: 'visual',
+  }));
+  const [chatBridgeStatus, setChatBridgeStatus] = useState<'unknown' | 'ready' | 'blocked' | 'saving'>('unknown');
+  const [chatBridgeMessage, setChatBridgeMessage] = useState('Pendente');
+  const [chatAutomationLogs, setChatAutomationLogs] = useState<Array<Record<string, unknown>>>([]);
+  const [autoChatSaved, setAutoChatSaved] = useState(false);
+
   // ── Aprendizado (chat + presentes) ──────────────────────────────────────────
   const [chatInsights, setChatInsights] = useState(() => getChatInsights());
   const [giftStats, setGiftStats] = useState<GiftStat[]>(() => getGiftLearning());
@@ -217,17 +265,98 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
   const statusInfo = deriveStatusInfo(currentProvider);
   const storedKey = cfg.geminiKey;
 
+  const refreshChatAutomation = useCallback(async () => {
+    const savedTarget = { ...LIVE_CHAT_SCREENSHOT_TARGET, ...loadChatAutomationTarget(), mode: 'visual' as const };
+    setChatTarget(savedTarget);
+    try {
+      const config = await getChatAutomationConfig();
+      setChatAutomationLogs(config.logs.slice(-8).reverse());
+      if (!isVisualTargetReady(savedTarget)) {
+        setChatBridgeStatus('unknown');
+        setChatBridgeMessage('Ponto visual pendente');
+        return;
+      }
+      const validation = await validateChatAutomationTarget(savedTarget);
+      setChatBridgeStatus(validation.allowed ? 'ready' : 'blocked');
+      setChatBridgeMessage(validation.allowed ? 'Alvo visual validado' : validation.reason || 'Bloqueado');
+    } catch (err) {
+      setChatBridgeStatus('blocked');
+      setChatBridgeMessage(err instanceof Error ? err.message : 'Falha ao validar chat');
+    }
+  }, []);
+
   // Atualiza os insights periodicamente (a rodada escreve nos stores enquanto no ar).
   useEffect(() => {
     const refresh = () => {
       setChatInsights(getChatInsights());
       setGiftStats(getGiftLearning());
       setVideoPresets(loadVideoPresets());
+      void getChatAutomationConfig()
+        .then((config) => setChatAutomationLogs(config.logs.slice(-8).reverse()))
+        .catch(() => undefined);
     };
     refresh();
+    void refreshChatAutomation();
     const timer = window.setInterval(refresh, 4000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [refreshChatAutomation]);
+
+  const handleSaveAutoChat = useCallback(async () => {
+    setChatBridgeStatus('saving');
+    setChatBridgeMessage('Salvando...');
+    const normalized: ChatAutomationTarget = {
+      ...chatTarget,
+      mode: 'visual',
+      url: chatTarget.url || LIVE_CHAT_SCREENSHOT_TARGET.url,
+      inputSelector: '',
+      sendSelector: '',
+    };
+    saveAiConfig({
+      autoChatReplyEnabled: autoChatEnabled,
+      autoChatReplyMode: autoChatMode,
+      chatReplyCooldownMs: Math.max(3, autoChatCooldownSec) * 1000,
+      chatReplyMaxPerMinute: autoChatMaxPerMinute,
+      chatReplyMinConfidence: autoChatMinConfidence,
+    });
+    try {
+      const config = await getChatAutomationConfig().catch(() => ({ allowlist: [], logs: [] }));
+      const entry: ChatAutomationAllowEntry = {
+        id: 'tango-live-chat',
+        label: 'Tango live chat',
+        mode: 'visual',
+        domain: 'visual:tango-live',
+        urlPattern: '.*',
+        inputSelector: 'visual-point',
+        sendSelector: '',
+        inputPoint: normalized.inputPoint,
+        sendPoint: normalized.sendPoint,
+        viewport: normalized.viewport,
+        submitWithEnter: true,
+        typingDelayMs: 25,
+        maxPerMinute: autoChatMaxPerMinute,
+        enabled: true,
+      };
+      await saveChatAutomationConfig([
+        entry,
+        ...config.allowlist.filter((item) => item.id !== entry.id),
+      ]);
+      saveChatAutomationTarget(normalized);
+      setAutoChatSaved(true);
+      await refreshChatAutomation();
+      window.setTimeout(() => setAutoChatSaved(false), 1800);
+    } catch (err) {
+      setChatBridgeStatus('blocked');
+      setChatBridgeMessage(err instanceof Error ? err.message : 'Falha ao salvar chat autonomo');
+    }
+  }, [
+    autoChatCooldownSec,
+    autoChatEnabled,
+    autoChatMaxPerMinute,
+    autoChatMinConfidence,
+    autoChatMode,
+    chatTarget,
+    refreshChatAutomation,
+  ]);
 
   const handleSummarizeLearning = useCallback(async () => {
     setSummarizing(true);
@@ -512,6 +641,171 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                 ))}
               </div>
               <p className="text-[11px] text-slate-600">{AUTONOMY_INFO[runtime.autonomyLevel].desc}</p>
+            </div>
+
+            <div className="space-y-3 rounded-xl border border-white/8 bg-[#0a0b0d] p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <MessageCircle className="h-3.5 w-3.5 text-sky-400" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                    Chat autonomo
+                  </span>
+                  <Badge variant={chatBridgeStatus === 'ready' ? 'success' : chatBridgeStatus === 'blocked' ? 'danger' : 'warning'}>
+                    <StatusDot status={chatBridgeStatus === 'ready' ? 'online' : chatBridgeStatus === 'blocked' ? 'error' : 'warn'} pulse={chatBridgeStatus === 'saving'} />
+                    {chatBridgeMessage}
+                  </Badge>
+                </div>
+                <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={autoChatEnabled}
+                    onChange={(event) => setAutoChatEnabled(event.target.checked)}
+                  />
+                  Responder chat automaticamente
+                </label>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-3">
+                <label className="block">
+                  <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
+                    Modo
+                  </span>
+                  <select
+                    value={autoChatMode}
+                    onChange={(event) => setAutoChatMode(event.target.value === 'real' ? 'real' : 'dry_run')}
+                    className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
+                  >
+                    <option value="dry_run">Simular</option>
+                    <option value="real">Enviar real</option>
+                  </select>
+                </label>
+                <Input
+                  label="Cooldown (s)"
+                  type="number"
+                  min={3}
+                  max={120}
+                  value={autoChatCooldownSec}
+                  onChange={(event) => setAutoChatCooldownSec(Math.max(3, Number(event.target.value) || 3))}
+                />
+                <Input
+                  label="Limite/min"
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={autoChatMaxPerMinute}
+                  onChange={(event) => setAutoChatMaxPerMinute(Math.max(1, Math.min(20, Number(event.target.value) || 1)))}
+                />
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-5">
+                <Input
+                  label="Campo X (%)"
+                  value={percentFromPoint(chatTarget.inputPoint?.x)}
+                  onChange={(event) =>
+                    setChatTarget((current) => ({
+                      ...current,
+                      inputPoint: {
+                        x: pointFromPercent(event.target.value),
+                        y: current.inputPoint?.y ?? LIVE_CHAT_SCREENSHOT_TARGET.inputPoint?.y ?? 0,
+                      },
+                    }))
+                  }
+                />
+                <Input
+                  label="Campo Y (%)"
+                  value={percentFromPoint(chatTarget.inputPoint?.y)}
+                  onChange={(event) =>
+                    setChatTarget((current) => ({
+                      ...current,
+                      inputPoint: {
+                        x: current.inputPoint?.x ?? LIVE_CHAT_SCREENSHOT_TARGET.inputPoint?.x ?? 0,
+                        y: pointFromPercent(event.target.value),
+                      },
+                    }))
+                  }
+                />
+                <Input
+                  label="Viewport W"
+                  type="number"
+                  value={chatTarget.viewport?.width || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.width || 1920}
+                  onChange={(event) =>
+                    setChatTarget((current) => ({
+                      ...current,
+                      viewport: {
+                        width: Math.max(1, Number(event.target.value) || 1),
+                        height: current.viewport?.height || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.height || 938,
+                      },
+                    }))
+                  }
+                />
+                <Input
+                  label="Viewport H"
+                  type="number"
+                  value={chatTarget.viewport?.height || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.height || 938}
+                  onChange={(event) =>
+                    setChatTarget((current) => ({
+                      ...current,
+                      viewport: {
+                        width: current.viewport?.width || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.width || 1920,
+                        height: Math.max(1, Number(event.target.value) || 1),
+                      },
+                    }))
+                  }
+                />
+                <Input
+                  label="Conf. min."
+                  type="number"
+                  min={0.1}
+                  max={0.99}
+                  step={0.01}
+                  value={autoChatMinConfidence}
+                  onChange={(event) => setAutoChatMinConfidence(Math.max(0.1, Math.min(0.99, Number(event.target.value) || 0.65)))}
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="secondary" size="sm" onClick={() => setChatTarget(LIVE_CHAT_SCREENSHOT_TARGET)}>
+                  <MapPin className="h-3.5 w-3.5" />
+                  Layout do print
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => void refreshChatAutomation()}>
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Validar
+                </Button>
+                <Button variant="primary" size="sm" loading={chatBridgeStatus === 'saving'} onClick={() => void handleSaveAutoChat()}>
+                  <Save className="h-3.5 w-3.5" />
+                  {autoChatSaved ? 'Salvo' : 'Salvar chat'}
+                </Button>
+                {autoChatMode === 'real' && (
+                  <span className="flex items-center gap-1 text-[10px] text-amber-300">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    Envio real depende de autonomia, ferramenta ativa e ponto visual validado.
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">
+                  Ultimos logs de envio
+                </span>
+                {chatAutomationLogs.length === 0 ? (
+                  <p className="text-[11px] text-slate-600">Nenhum envio ou bloqueio registrado.</p>
+                ) : (
+                  <div className="grid gap-1">
+                    {chatAutomationLogs.map((entry, index) => {
+                      const result = entry.result as Record<string, unknown> | undefined;
+                      return (
+                        <div key={String(entry.id || index)} className="flex items-center justify-between gap-2 rounded-lg border border-white/8 bg-black/20 px-2 py-1.5 text-[10px]">
+                          <span className="truncate text-slate-300">{String(entry.text || '')}</span>
+                          <span className={cn('shrink-0 font-mono', result?.status === 'blocked' ? 'text-red-300' : result?.status === 'ready' ? 'text-emerald-300' : 'text-sky-300')}>
+                            {String(result?.reason || result?.status || 'log')}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Feed de decisões da Diretora */}

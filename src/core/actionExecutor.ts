@@ -2,6 +2,8 @@ import { apiUrl } from '../lib/api';
 import { loadChatAutomationTarget } from '../lib/chatAutomation';
 import { loadTtsSettings } from '../lib/ttsSettings';
 import type { AutopilotAction, PersonaDecision, PersonaTool } from '../types';
+import { getAiConfig } from './aiConfig';
+import { recordLiveAutonomyReply } from './liveAutonomyGovernor';
 import { capabilityForAction, findTool } from './toolRegistry';
 
 export interface ActionExecutionOptions {
@@ -173,9 +175,9 @@ async function dispatchWebhookAction(
 async function dispatchChatReplyAction(action: AutopilotAction): Promise<ChatAutomationSendResult> {
   const text = String(action.payload?.message || action.payload?.text || '').trim();
   const savedTarget = loadChatAutomationTarget();
-  const targetMode = action.payload?.targetMode === 'visual' || savedTarget.mode === 'visual' ? 'visual' : 'selector';
+  const targetMode = 'visual';
   const targetUrl = String(action.payload?.targetUrl || action.payload?.url || savedTarget.url).trim();
-  const inputSelector = String(action.payload?.inputSelector || savedTarget.inputSelector).trim();
+  const inputSelector = '';
   const inputPoint = action.payload?.inputPoint || savedTarget.inputPoint;
   const sendPoint = action.payload?.sendPoint || savedTarget.sendPoint;
   const viewport = action.payload?.viewport || savedTarget.viewport;
@@ -185,8 +187,10 @@ async function dispatchChatReplyAction(action: AutopilotAction): Promise<ChatAut
     if (typeof point?.x !== 'number' || typeof point?.y !== 'number') {
       return { status: 'blocked', allowed: false, reason: 'input_point_missing' };
     }
-  } else if (!targetUrl) {
-    return { status: 'blocked', allowed: false, reason: 'target_url_missing' };
+    const view = viewport as { width?: unknown; height?: unknown } | undefined;
+    if (typeof view?.width !== 'number' || typeof view?.height !== 'number') {
+      return { status: 'blocked', allowed: false, reason: 'viewport_missing' };
+    }
   }
 
   const response = await fetch(apiUrl('/chat-automation/send'), {
@@ -262,6 +266,17 @@ export async function executeAction(
   }
   if (tool.requiresApproval || action.requiresApproval) {
     return { ...base, status: 'approval_required', result: `Aguardando aprovacao: ${tool.label}` };
+  }
+
+  if (capability === 'chat.reply' && typeof base.payload?.governorBlockedReason === 'string') {
+    const reason = base.payload.governorBlockedReason;
+    recordLiveAutonomyReply('blocked', reason);
+    return {
+      ...base,
+      status: 'blocked',
+      simulated: false,
+      result: `Resposta no chat bloqueada: ${reason}`,
+    };
   }
 
   if (capability === 'tts.speak') {
@@ -407,10 +422,21 @@ export async function executeAction(
     }
   }
 
-  if (capability === 'chat.reply' && !base.simulated) {
+  if (capability === 'chat.reply' && (base.payload?.governorAllowed === true || !base.simulated)) {
+    const cfg = getAiConfig();
+    if (!cfg.autoChatReplyEnabled) {
+      recordLiveAutonomyReply('blocked', 'auto_chat_disabled');
+      return {
+        ...base,
+        status: 'blocked',
+        simulated: false,
+        result: 'Resposta no chat bloqueada: auto_chat_disabled',
+      };
+    }
     try {
       const chatResult = await dispatchChatReplyAction(base);
       if (!chatResult.allowed) {
+        recordLiveAutonomyReply('blocked', chatResult.reason || chatResult.status || 'not_allowed');
         return {
           ...base,
           status: 'blocked',
@@ -422,6 +448,7 @@ export async function executeAction(
         };
       }
       if (chatResult.status === 'blocked') {
+        recordLiveAutonomyReply('blocked', chatResult.reason || chatResult.execution?.error || 'blocked');
         return {
           ...base,
           status: 'blocked',
@@ -429,6 +456,7 @@ export async function executeAction(
           result: `Resposta no chat bloqueada: ${chatResult.reason || chatResult.execution?.error || 'execucao pendente'}`,
         };
       }
+      recordLiveAutonomyReply(chatResult.status === 'ready' ? 'sent' : 'dry_run');
       return {
         ...base,
         status: chatResult.status === 'ready' ? 'done' : 'simulated',
