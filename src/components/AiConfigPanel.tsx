@@ -190,6 +190,48 @@ function StatusIcon({ kind }: { kind: 'online' | 'mock' | 'warn' }) {
   return <XCircle className="h-4 w-4 text-slate-500" />;
 }
 
+function ReadinessItem({
+  status,
+  title,
+  detail,
+  action,
+}: {
+  status: 'ready' | 'warning' | 'blocked';
+  title: string;
+  detail: string;
+  action?: string;
+}) {
+  const icon =
+    status === 'ready' ? (
+      <CheckCircle className="h-4 w-4 text-emerald-300" />
+    ) : status === 'warning' ? (
+      <AlertCircle className="h-4 w-4 text-amber-300" />
+    ) : (
+      <XCircle className="h-4 w-4 text-red-300" />
+    );
+  return (
+    <div
+      className={cn(
+        'rounded-xl border p-3',
+        status === 'ready' && 'border-emerald-400/20 bg-emerald-500/8',
+        status === 'warning' && 'border-amber-400/20 bg-amber-500/8',
+        status === 'blocked' && 'border-red-400/20 bg-red-500/8',
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <span className="mt-0.5 shrink-0">{icon}</span>
+        <div className="min-w-0">
+          <p className="text-[11px] font-bold uppercase tracking-widest text-slate-200">
+            {title}
+          </p>
+          <p className="mt-1 text-[11px] leading-relaxed text-slate-400">{detail}</p>
+          {action && <p className="mt-1 text-[10px] text-sky-300">{action}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -264,6 +306,26 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
   const [currentProvider, setCurrentProvider] = useState<AiProvider>(cfg.provider);
   const statusInfo = deriveStatusInfo(currentProvider);
   const storedKey = cfg.geminiKey;
+  const geminiReady = hasActiveGeminiKey() && currentProvider !== 'mock';
+  const chatReplyTool = runtime.tools.find((tool) => tool.capability === 'chat.reply');
+  const visualTargetReady = isVisualTargetReady(chatTarget) && chatBridgeStatus === 'ready';
+  const chatReplyReady = Boolean(chatReplyTool?.enabled) && autoChatEnabled;
+  const realSendReady =
+    autoChatMode === 'real' &&
+    autoChatEnabled &&
+    visualTargetReady &&
+    runtime.autonomyLevel === 'auto';
+  const nextSetupAction = !geminiReady
+    ? 'Cole uma chave Gemini ou configure VITE_GEMINI_API_KEY.'
+    : !visualTargetReady
+      ? 'Salve e valide o ponto visual onde o Tango recebe mensagens.'
+      : !autoChatEnabled
+        ? 'Ative "Responder chat automaticamente" e salve.'
+        : runtime.autonomyLevel !== 'auto'
+          ? 'Use Autonomo para envio real sem aprovacao.'
+          : autoChatMode !== 'real'
+            ? 'Troque de Simular para Enviar real quando estiver pronto.'
+            : 'Pronto para live: mantenha OCR e Diretora ligados.';
 
   const refreshChatAutomation = useCallback(async () => {
     const savedTarget = { ...LIVE_CHAT_SCREENSHOT_TARGET, ...loadChatAutomationTarget(), mode: 'visual' as const };
@@ -578,6 +640,71 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
           </SectionCard>
 
           {/* ── Diretora ao vivo (cockpit) ────────────────────────────────── */}
+          <SectionCard icon={<ShieldCheck className="h-4 w-4" />} title="Prontidao para responder no Tango" className="lg:col-span-2">
+            <div className="rounded-xl border border-sky-400/20 bg-sky-500/8 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-sky-100">
+                    Google Gemini + OCR do chat + envio visual seguro
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                    A resposta automatica so sai quando estes blocos estao prontos: IA generativa,
+                    captura OCR do chat Tango, ponto onde escrever, Diretora ligada e permissao de envio.
+                  </p>
+                </div>
+                <Badge variant={realSendReady ? 'success' : 'warning'}>
+                  {realSendReady ? 'Pronto para envio real' : 'Faltam ajustes'}
+                </Badge>
+              </div>
+              <p className="mt-3 rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-[11px] text-sky-200">
+                Proximo passo: {nextSetupAction}
+              </p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <ReadinessItem
+                status={geminiReady ? 'ready' : 'blocked'}
+                title="1. Gemini"
+                detail={geminiReady ? 'IA generativa do Google disponivel.' : 'Sem chave ativa ou provedor em mock.'}
+                action={!geminiReady ? 'Configure a chave na secao Chave da API.' : undefined}
+              />
+              <ReadinessItem
+                status="warning"
+                title="2. OCR do chat"
+                detail="A zona de captura precisa ler as linhas do chat Tango."
+                action="Em Fontes / OCR, use uma zona de chat chamada Chat Tango."
+              />
+              <ReadinessItem
+                status={visualTargetReady ? 'ready' : 'blocked'}
+                title="3. Onde escrever"
+                detail={visualTargetReady ? 'Ponto visual e viewport validados.' : 'Falta validar inputPoint e viewport do chat.'}
+                action={!visualTargetReady ? 'Ajuste Campo X/Y, viewport e clique Salvar chat.' : undefined}
+              />
+              <ReadinessItem
+                status={chatReplyReady ? 'ready' : 'blocked'}
+                title="4. Diretora"
+                detail={
+                  chatReplyReady
+                    ? 'Resposta automatica habilitada para as rodadas.'
+                    : 'A ferramenta chat.reply ou o toggle automatico estao desligados.'
+                }
+                action={!chatReplyReady ? 'Ative o toggle e mantenha chat.reply habilitada.' : undefined}
+              />
+              <ReadinessItem
+                status={realSendReady ? 'ready' : autoChatMode === 'dry_run' ? 'warning' : 'blocked'}
+                title="5. Envio"
+                detail={
+                  autoChatMode === 'dry_run'
+                    ? 'Modo seguro: so registra dry-run.'
+                    : runtime.autonomyLevel === 'auto'
+                      ? 'Modo real liberado pelo cockpit.'
+                      : 'Modo real requer autonomia Autonomo.'
+                }
+                action={autoChatMode === 'dry_run' ? 'Troque para Enviar real apenas depois dos testes.' : undefined}
+              />
+            </div>
+          </SectionCard>
+
           <SectionCard icon={<Bot className="h-4 w-4" />} title="Diretora ao vivo" className="lg:col-span-2">
             {/* Estado + controle */}
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/8 bg-[#0a0b0d] p-3">
@@ -648,7 +775,7 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                 <div className="flex items-center gap-2">
                   <MessageCircle className="h-3.5 w-3.5 text-sky-400" />
                   <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                    Chat autonomo
+                    Resposta automatica Tango
                   </span>
                   <Badge variant={chatBridgeStatus === 'ready' ? 'success' : chatBridgeStatus === 'blocked' ? 'danger' : 'warning'}>
                     <StatusDot status={chatBridgeStatus === 'ready' ? 'online' : chatBridgeStatus === 'blocked' ? 'error' : 'warn'} pulse={chatBridgeStatus === 'saving'} />
@@ -663,6 +790,27 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                   />
                   Responder chat automaticamente
                 </label>
+              </div>
+
+              <div className="grid gap-2 text-[11px] md:grid-cols-3">
+                <div className="rounded-lg border border-white/8 bg-black/20 px-3 py-2">
+                  <span className="block text-[9px] font-bold uppercase tracking-widest text-slate-600">
+                    Entrada
+                  </span>
+                  <span className="text-slate-300">OCR da zona Chat Tango</span>
+                </div>
+                <div className="rounded-lg border border-white/8 bg-black/20 px-3 py-2">
+                  <span className="block text-[9px] font-bold uppercase tracking-widest text-slate-600">
+                    Decisao
+                  </span>
+                  <span className="text-slate-300">Gemini ou fallback local</span>
+                </div>
+                <div className="rounded-lg border border-white/8 bg-black/20 px-3 py-2">
+                  <span className="block text-[9px] font-bold uppercase tracking-widest text-slate-600">
+                    Saida
+                  </span>
+                  <span className="text-slate-300">Clique/digitacao no input visual</span>
+                </div>
               </div>
 
               <div className="grid gap-3 lg:grid-cols-3">
