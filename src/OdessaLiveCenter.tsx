@@ -509,7 +509,9 @@ export default function OdessaLiveCenter({
     }
   }, []);
 
-  const processedGiftIdsRef = useRef<Set<string>>(new Set(capturedText.map((event) => event.id)));
+  // ⚡ Bolt: Using lazy initialization for expensive Set creation to prevent O(N) execution on every render cycle
+  const [initialProcessedIds] = useState(() => new Set(capturedText.map((event) => event.id)));
+  const processedGiftIdsRef = useRef<Set<string>>(initialProcessedIds);
 
   const drainReactiveQueue = useCallback(async () => {
     const executions: AutomationExecutionResponse[] = [];
