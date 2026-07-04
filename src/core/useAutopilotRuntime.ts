@@ -225,9 +225,11 @@ export function useAutopilotRuntime({
   const [currentObsScene, setCurrentObsScene] = useState<string | null>(null);
   const [obsError, setObsError] = useState<string | null>(null);
   const [autonomyLevel, setAutonomyLevelState] = useState<AiAutonomyLevel>(() => getAiConfig().autonomyLevel);
-  const queuedOrProcessedIdsRef = useRef<Set<string>>(
-    new Set(capturedText.filter((event) => event.processedAt).map((event) => event.id)),
-  );
+
+  // ⚡ Bolt: Using lazy initialization for the initial Set to prevent O(N) filtering, mapping, and Set construction on every render.
+  const [initialQueuedIds] = useState(() => new Set(capturedText.filter((event) => event.processedAt).map((event) => event.id)));
+  const queuedOrProcessedIdsRef = useRef<Set<string>>(initialQueuedIds);
+
   const pendingEventsRef = useRef<LiveEvent[]>([]);
   const roundTimerRef = useRef<number | null>(null);
   const lastSpeechAtRef = useRef(0);
