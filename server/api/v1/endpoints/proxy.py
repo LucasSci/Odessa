@@ -9,8 +9,11 @@ All responses have X-Frame-Options and Content-Security-Policy removed
 so the iframe can render them without being blocked.
 """
 
+import asyncio
+import ipaddress
 import logging
 import re
+import socket
 from urllib.parse import urljoin, urlparse, quote
 
 import httpx
@@ -244,11 +247,52 @@ def _rewrite_js(js: str, js_url: str, server_base: str) -> str:
     return js
 
 
+async def _resolve_and_check_url(url: str) -> str | None:
+    """
+    Resolves the hostname and returns the safe IP string.
+    Returns None if the URL is unsafe or resolution fails.
+    """
+    parsed = urlparse(str(url))
+    hostname = parsed.hostname
+    if not hostname:
+        return None
+
+    try:
+        loop = asyncio.get_running_loop()
+        # Non-blocking DNS resolution
+        addr_info = await loop.getaddrinfo(hostname, None, family=socket.AF_INET)
+        valid_ip_str = None
+        for info in addr_info:
+            ip_str = info[4][0]
+            if '%' in ip_str:
+                ip_str = ip_str.split('%')[0]
+            ip = ipaddress.ip_address(ip_str)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast:
+                return None
+            if valid_ip_str is None:
+                valid_ip_str = ip_str
+        return valid_ip_str
+    except Exception as e:
+        logger.warning("[proxy] URL %s resolution failed or is unsafe: %s", url, e)
+        return None
+
+async def _on_request(request: httpx.Request):
+    original_host = request.url.host
+    safe_ip = await _resolve_and_check_url(str(request.url))
+    if not safe_ip:
+        raise httpx.RequestError(f"SSRF blocked: Unsafe URL {request.url}", request=request)
+
+    # Prevent DNS rebinding (TOCTOU) by forcing httpx to connect directly to the resolved IP
+    # while preserving the original Host header for correct virtual hosting.
+    request.headers["Host"] = original_host
+    request.url = request.url.copy_with(host=safe_ip)
+
 async def _fetch(url: str, headers: dict) -> httpx.Response:
     async with httpx.AsyncClient(
         follow_redirects=True,
         timeout=PROXY_TIMEOUT,
         verify=False,  # noqa: S501 — proxy needs to reach any site
+        event_hooks={"request": [_on_request]},
     ) as client:
         return await client.get(url, headers=headers)
 
