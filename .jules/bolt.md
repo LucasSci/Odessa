@@ -1,3 +1,6 @@
 ## 2026-06-30 - Optimizing Array Searches in React Renders
 **Learning:** Using `[...array].reverse().find(...)` inside a React component's render function (like in `OdessaLiveCenter.tsx`) creates a severe performance bottleneck for continuously growing arrays (like event logs). It forces O(N) memory allocation (shallow copy) and O(N) iteration on *every single render cycle*.
 **Action:** Always replace this pattern with a backward `for` loop when you only need to find the most recent matching element. This achieves the same result with O(1) memory and stops immediately upon finding the match, preventing micro-stutters in UI.
+## 2026-07-04 - Lazy Initialization of refs with useState
+**Learning:** Using `useRef(new Set(array.map(...)))` forces O(N) evaluation on every render cycle because the argument is evaluated before being passed to `useRef`, even though `useRef` ignores it after the initial render.
+**Action:** Instead of eagerly evaluating the initial value, use `useState` with a lazy initialization function (e.g., `const [initialValue] = useState(() => new Set(...)); const myRef = useRef(initialValue);`) to guarantee the expensive calculation is executed exactly once during the component's lifecycle.
