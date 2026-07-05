@@ -509,7 +509,9 @@ export default function OdessaLiveCenter({
     }
   }, []);
 
-  const processedGiftIdsRef = useRef<Set<string>>(new Set(capturedText.map((event) => event.id)));
+  // ⚡ Bolt: Using lazy initialization for useRef to avoid O(N) Set creation and array mapping on every render.
+  const [initialSet] = useState(() => new Set(capturedText.map((event) => event.id)));
+  const processedGiftIdsRef = useRef<Set<string>>(initialSet);
 
   const drainReactiveQueue = useCallback(async () => {
     const executions: AutomationExecutionResponse[] = [];
