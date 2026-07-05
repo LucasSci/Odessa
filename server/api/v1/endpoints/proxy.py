@@ -9,8 +9,11 @@ All responses have X-Frame-Options and Content-Security-Policy removed
 so the iframe can render them without being blocked.
 """
 
+import asyncio
+import ipaddress
 import logging
 import re
+import socket
 from urllib.parse import urljoin, urlparse, quote
 
 import httpx
@@ -119,10 +122,10 @@ def _rewrite_html(html: str, page_url: str, server_base: str) -> str:
     # attributes, not just a known whitelist, because SPAs dynamically create
     # many different tags.
     def rewrite_attr(m: re.Match) -> str:
-        before = m.group(1)      # everything before the URL value
+        before = m.group(1)  # everything before the URL value
         quote_char = m.group(2)  # " or '
-        url_val = m.group(3)     # the raw URL
-        after = m.group(4)       # everything after the closing quote
+        url_val = m.group(3)  # the raw URL
+        after = m.group(4)  # everything after the closing quote
 
         if not url_val or url_val.startswith(("data:", "javascript:", "#", "mailto:", "blob:")):
             return m.group(0)
@@ -153,8 +156,8 @@ def _rewrite_html(html: str, page_url: str, server_base: str) -> str:
 
     def rewrite_style_attr(m: re.Match) -> str:
         before = m.group(1)  # e.g. ' style='
-        quote = m.group(2)   # e.g. '"'
-        content = m.group(3) # e.g. 'background: url(...)'
+        quote = m.group(2)  # e.g. '"'
+        content = m.group(3)  # e.g. 'background: url(...)'
         new_content = re.sub(r"url\(([^)]+)\)", rewrite_css_url, content, flags=re.IGNORECASE)
         return f"{before}{quote}{new_content}{quote}"
 
@@ -237,11 +240,34 @@ def _rewrite_js(js: str, js_url: str, server_base: str) -> str:
     Only touches obvious string literals like "/path/..." to avoid breaking
     code logic.  This is best-effort and won't catch everything.
     """
-    parsed = urlparse(js_url)
-    origin = f"{parsed.scheme}://{parsed.netloc}"
     # We don't rewrite JS broadly to avoid breaking code.
     # The <base> tag handles most cases.
     return js
+
+
+async def _ssrf_hook(request: httpx.Request) -> None:
+    hostname = request.url.host
+    try:
+        ipaddress.ip_address(hostname)
+        ip = hostname
+    except ValueError:
+        loop = asyncio.get_running_loop()
+        try:
+            addr_info = await loop.getaddrinfo(
+                hostname,
+                request.url.port or (443 if request.url.scheme == "https" else 80),
+                family=socket.AF_INET
+            )
+            ip = addr_info[0][4][0]
+        except socket.gaierror as exc:
+            raise httpx.RequestError(f"DNS resolution failed for {hostname}", request=request) from exc
+
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+        if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_multicast:
+            raise httpx.RequestError("Access to internal networks is forbidden", request=request)
+    except ValueError:
+        pass
 
 
 async def _fetch(url: str, headers: dict) -> httpx.Response:
@@ -249,6 +275,7 @@ async def _fetch(url: str, headers: dict) -> httpx.Response:
         follow_redirects=True,
         timeout=PROXY_TIMEOUT,
         verify=False,  # noqa: S501 — proxy needs to reach any site
+        event_hooks={"request": [_ssrf_hook]},
     ) as client:
         return await client.get(url, headers=headers)
 
