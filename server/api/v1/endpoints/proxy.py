@@ -9,8 +9,11 @@ All responses have X-Frame-Options and Content-Security-Policy removed
 so the iframe can render them without being blocked.
 """
 
+import asyncio
+import ipaddress
 import logging
 import re
+import socket
 from urllib.parse import urljoin, urlparse, quote
 
 import httpx
@@ -244,11 +247,29 @@ def _rewrite_js(js: str, js_url: str, server_base: str) -> str:
     return js
 
 
+async def verify_public_ip(request: httpx.Request):
+    """Event hook to prevent SSRF by checking the resolved IP address."""
+    host = request.url.host
+    try:
+        ip_addr = ipaddress.ip_address(host)
+    except ValueError:
+        try:
+            loop = asyncio.get_running_loop()
+            addr_info = await loop.getaddrinfo(host, request.url.port, proto=socket.IPPROTO_TCP)
+            ip_addr = ipaddress.ip_address(addr_info[0][4][0])
+        except Exception as e:
+            raise httpx.RequestError(f"DNS resolution failed: {e}", request=request) from e
+
+    if (ip_addr.is_private or ip_addr.is_loopback or ip_addr.is_link_local or
+        ip_addr.is_multicast or ip_addr.is_unspecified or ip_addr.is_reserved):
+        raise httpx.RequestError(f"Access to private/internal IP {ip_addr} is blocked.", request=request)
+
 async def _fetch(url: str, headers: dict) -> httpx.Response:
     async with httpx.AsyncClient(
         follow_redirects=True,
         timeout=PROXY_TIMEOUT,
         verify=False,  # noqa: S501 — proxy needs to reach any site
+        event_hooks={'request': [verify_public_ip]}
     ) as client:
         return await client.get(url, headers=headers)
 
