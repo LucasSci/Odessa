@@ -246,24 +246,13 @@ def _rewrite_js(js: str, js_url: str, server_base: str) -> str:
     return js
 
 
-async def _fetch(url: str, headers: dict, redirect_count: int = 0) -> httpx.Response:
-    if redirect_count > 5:
-        raise HTTPException(status_code=502, detail="Too many redirects")
-
+async def _fetch(url: str, headers: dict) -> httpx.Response:
     async with httpx.AsyncClient(
         follow_redirects=False,
         timeout=PROXY_TIMEOUT,
         verify=False,  # noqa: S501 — proxy needs to reach any site
     ) as client:
-        resp = await client.get(url, headers=headers)
-        if 300 <= resp.status_code < 400 and "location" in resp.headers:
-            next_url = resp.headers["location"]
-            if not next_url.startswith(("http://", "https://")):
-                next_url = urljoin(url, next_url)
-            if not await _is_safe_url(next_url):
-                raise HTTPException(status_code=403, detail="Unsafe redirect requested")
-            return await _fetch(next_url, headers, redirect_count=redirect_count + 1)
-        return resp
+        return await client.get(url, headers=headers)
 
 
 def _clean_response_headers(resp: httpx.Response) -> dict:
