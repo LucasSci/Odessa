@@ -10,6 +10,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
+import type { MouseEvent } from 'react';
 import { Brain, Zap, Key, Sliders, FlaskConical, CheckCircle, XCircle, AlertCircle, Loader2, Eye, EyeOff, RotateCcw, Bot, Activity, Pause, Radio, Sparkles, Gift, MessageCircle, Trash2, Film, Clock, MapPin, RefreshCw, Save, ShieldCheck } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Badge, Button, Input, StatusDot } from './ui';
@@ -52,8 +53,10 @@ import {
   loadChatAutomationTarget,
   saveChatAutomationConfig,
   saveChatAutomationTarget,
+  sendChatAutomationMessage,
   validateChatAutomationTarget,
   type ChatAutomationAllowEntry,
+  type ChatAutomationSendResult,
   type ChatAutomationTarget,
 } from '../lib/chatAutomation';
 
@@ -138,14 +141,6 @@ function deriveStatusInfo(provider: AiProvider): {
   };
 }
 
-function percentFromPoint(value?: number) {
-  return value === undefined ? '' : String(Math.round(value * 1000) / 10);
-}
-
-function pointFromPercent(value: string) {
-  return Math.max(0, Math.min(1, (Number(value) || 0) / 100));
-}
-
 function isVisualTargetReady(target: ChatAutomationTarget) {
   return Boolean(
     target.mode === 'visual' &&
@@ -156,6 +151,28 @@ function isVisualTargetReady(target: ChatAutomationTarget) {
       typeof target.viewport.width === 'number' &&
       typeof target.viewport.height === 'number',
   );
+}
+
+function pixelFromPoint(target: ChatAutomationTarget, point = target.inputPoint) {
+  if (!point || !target.viewport) return null;
+  return {
+    x: Math.round(point.x * target.viewport.width),
+    y: Math.round(point.y * target.viewport.height),
+  };
+}
+
+function visualTargetErrors(target: ChatAutomationTarget, allowlistReady = true) {
+  const errors: string[] = [];
+  if (!target.viewport?.width || !target.viewport?.height) {
+    errors.push('Viewport ausente: informe largura e altura antes de validar.');
+  }
+  if (typeof target.inputPoint?.x !== 'number' || typeof target.inputPoint?.y !== 'number') {
+    errors.push('inputPoint ausente: clique no preview para marcar onde digitar.');
+  }
+  if (!allowlistReady) {
+    errors.push('Allowlist ausente: salve o alvo visual no backend como tango-live-chat.');
+  }
+  return errors;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -296,6 +313,10 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
   const [chatBridgeMessage, setChatBridgeMessage] = useState('Pendente');
   const [chatAutomationLogs, setChatAutomationLogs] = useState<Array<Record<string, unknown>>>([]);
   const [autoChatSaved, setAutoChatSaved] = useState(false);
+  const [calibrationPoint, setCalibrationPoint] = useState<'input' | 'send'>('input');
+  const [chatBridgeTestText, setChatBridgeTestText] = useState('Teste Odessa: alvo visual calibrado.');
+  const [chatBridgeTestBusy, setChatBridgeTestBusy] = useState<'dry' | 'fill' | null>(null);
+  const [chatBridgeLastResult, setChatBridgeLastResult] = useState<ChatAutomationSendResult | null>(null);
 
   // ── Aprendizado (chat + presentes) ──────────────────────────────────────────
   const [chatInsights, setChatInsights] = useState(() => getChatInsights());
@@ -309,6 +330,9 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
   const geminiReady = hasActiveGeminiKey() && currentProvider !== 'mock';
   const chatReplyTool = runtime.tools.find((tool) => tool.capability === 'chat.reply');
   const visualTargetReady = isVisualTargetReady(chatTarget) && chatBridgeStatus === 'ready';
+  const inputPixel = pixelFromPoint(chatTarget, chatTarget.inputPoint);
+  const sendPixel = pixelFromPoint(chatTarget, chatTarget.sendPoint);
+  const visualErrors = visualTargetErrors(chatTarget, chatBridgeStatus === 'ready');
   const chatReplyReady = Boolean(chatReplyTool?.enabled) && autoChatEnabled;
   const realSendReady =
     autoChatMode === 'real' &&
@@ -333,14 +357,15 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
     try {
       const config = await getChatAutomationConfig();
       setChatAutomationLogs(config.logs.slice(-8).reverse());
-      if (!isVisualTargetReady(savedTarget)) {
+      const localErrors = visualTargetErrors(savedTarget);
+      if (localErrors.length > 0) {
         setChatBridgeStatus('unknown');
-        setChatBridgeMessage('Ponto visual pendente');
+        setChatBridgeMessage(localErrors[0]);
         return;
       }
       const validation = await validateChatAutomationTarget(savedTarget);
       setChatBridgeStatus(validation.allowed ? 'ready' : 'blocked');
-      setChatBridgeMessage(validation.allowed ? 'Alvo visual validado' : validation.reason || 'Bloqueado');
+      setChatBridgeMessage(validation.allowed ? 'Alvo visual validado' : 'Allowlist ausente: salve o alvo visual no backend como tango-live-chat.');
     } catch (err) {
       setChatBridgeStatus('blocked');
       setChatBridgeMessage(err instanceof Error ? err.message : 'Falha ao validar chat');
@@ -373,6 +398,12 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
       inputSelector: '',
       sendSelector: '',
     };
+    const localErrors = visualTargetErrors(normalized);
+    if (localErrors.length > 0) {
+      setChatBridgeStatus('blocked');
+      setChatBridgeMessage(localErrors[0]);
+      return;
+    }
     saveAiConfig({
       autoChatReplyEnabled: autoChatEnabled,
       autoChatReplyMode: autoChatMode,
@@ -419,6 +450,69 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
     chatTarget,
     refreshChatAutomation,
   ]);
+
+  const handlePreviewClick = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const point = {
+      x: Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)),
+      y: Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height)),
+    };
+    setChatTarget((current) => ({
+      ...current,
+      mode: 'visual',
+      url: current.url || LIVE_CHAT_SCREENSHOT_TARGET.url,
+      inputSelector: '',
+      sendSelector: '',
+      [calibrationPoint === 'send' ? 'sendPoint' : 'inputPoint']: point,
+    }));
+    setChatBridgeStatus('unknown');
+    setChatBridgeMessage(calibrationPoint === 'send' ? 'Ponto de envio capturado. Salve para validar.' : 'Ponto de entrada capturado. Salve para validar.');
+  }, [calibrationPoint]);
+
+  const handleChatBridgeTest = useCallback(async (mode: 'dry' | 'fill') => {
+    const text = chatBridgeTestText.trim();
+    if (!text) {
+      setChatBridgeStatus('blocked');
+      setChatBridgeMessage('Texto de teste ausente.');
+      return;
+    }
+    const localErrors = visualTargetErrors(chatTarget, chatBridgeStatus === 'ready');
+    if (localErrors.length > 0) {
+      setChatBridgeStatus('blocked');
+      setChatBridgeMessage(localErrors[0]);
+      return;
+    }
+    setChatBridgeTestBusy(mode);
+    setChatBridgeLastResult(null);
+    try {
+      const result = await sendChatAutomationMessage({
+        mode: 'visual',
+        url: chatTarget.url || LIVE_CHAT_SCREENSHOT_TARGET.url,
+        inputSelector: '',
+        inputPoint: chatTarget.inputPoint,
+        sendPoint: chatTarget.sendPoint,
+        viewport: chatTarget.viewport,
+        text,
+        dryRun: mode === 'dry',
+        submit: false,
+      });
+      setChatBridgeLastResult(result);
+      const ok = result.allowed && result.status !== 'blocked';
+      setChatBridgeStatus(ok ? 'ready' : 'blocked');
+      if (mode === 'dry' && ok) {
+        setChatBridgeMessage('Dry-run validado: texto, ponto clicado e envio planejado conferidos.');
+      } else if (ok && result.queued) {
+        setChatBridgeMessage('Digitacao enfileirada sem enviar. O agente vai clicar e colar sem Enter.');
+      } else {
+        setChatBridgeMessage(result.reason || result.execution?.error || 'Teste bloqueado');
+      }
+    } catch (err) {
+      setChatBridgeStatus('blocked');
+      setChatBridgeMessage(err instanceof Error ? err.message : 'Falha no teste do alvo visual');
+    } finally {
+      setChatBridgeTestBusy(null);
+    }
+  }, [chatBridgeStatus, chatBridgeTestText, chatTarget]);
 
   const handleSummarizeLearning = useCallback(async () => {
     setSummarizing(true);
@@ -845,70 +939,132 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                 />
               </div>
 
-              <div className="grid gap-3 lg:grid-cols-5">
-                <Input
-                  label="Campo X (%)"
-                  value={percentFromPoint(chatTarget.inputPoint?.x)}
-                  onChange={(event) =>
-                    setChatTarget((current) => ({
-                      ...current,
-                      inputPoint: {
-                        x: pointFromPercent(event.target.value),
-                        y: current.inputPoint?.y ?? LIVE_CHAT_SCREENSHOT_TARGET.inputPoint?.y ?? 0,
-                      },
-                    }))
-                  }
-                />
-                <Input
-                  label="Campo Y (%)"
-                  value={percentFromPoint(chatTarget.inputPoint?.y)}
-                  onChange={(event) =>
-                    setChatTarget((current) => ({
-                      ...current,
-                      inputPoint: {
-                        x: current.inputPoint?.x ?? LIVE_CHAT_SCREENSHOT_TARGET.inputPoint?.x ?? 0,
-                        y: pointFromPercent(event.target.value),
-                      },
-                    }))
-                  }
-                />
-                <Input
-                  label="Viewport W"
-                  type="number"
-                  value={chatTarget.viewport?.width || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.width || 1920}
-                  onChange={(event) =>
-                    setChatTarget((current) => ({
-                      ...current,
-                      viewport: {
-                        width: Math.max(1, Number(event.target.value) || 1),
-                        height: current.viewport?.height || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.height || 938,
-                      },
-                    }))
-                  }
-                />
-                <Input
-                  label="Viewport H"
-                  type="number"
-                  value={chatTarget.viewport?.height || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.height || 938}
-                  onChange={(event) =>
-                    setChatTarget((current) => ({
-                      ...current,
-                      viewport: {
-                        width: current.viewport?.width || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.width || 1920,
-                        height: Math.max(1, Number(event.target.value) || 1),
-                      },
-                    }))
-                  }
-                />
-                <Input
-                  label="Conf. min."
-                  type="number"
-                  min={0.1}
-                  max={0.99}
-                  step={0.01}
-                  value={autoChatMinConfidence}
-                  onChange={(event) => setAutoChatMinConfidence(Math.max(0.1, Math.min(0.99, Number(event.target.value) || 0.65)))}
-                />
+              <div className="grid gap-3 2xl:grid-cols-[minmax(0,1.4fr)_minmax(260px,0.9fr)]">
+                <div className="rounded-xl border border-white/8 bg-black/20 p-3">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={calibrationPoint === 'input' ? 'primary' : 'secondary'}
+                        onClick={() => setCalibrationPoint('input')}
+                      >
+                        <MapPin className="h-3.5 w-3.5" />
+                        Capturar entrada
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={calibrationPoint === 'send' ? 'primary' : 'secondary'}
+                        onClick={() => setCalibrationPoint('send')}
+                      >
+                        <MapPin className="h-3.5 w-3.5" />
+                        Capturar envio
+                      </Button>
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-500">
+                      {chatTarget.viewport?.width || 0}x{chatTarget.viewport?.height || 0}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid="chat-calibration-preview"
+                    onClick={handlePreviewClick}
+                    className="relative block aspect-[16/9] w-full overflow-hidden rounded-lg border border-slate-700 bg-[#07090d] text-left outline-none ring-0 transition hover:border-sky-400/40 focus:border-sky-300"
+                  >
+                    <div className="absolute inset-0 bg-[linear-gradient(rgba(148,163,184,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.08)_1px,transparent_1px)] bg-[size:10%_10%]" />
+                    <div className="absolute inset-x-[6%] top-[7%] h-[58%] rounded-md border border-slate-700/70 bg-slate-900/40" />
+                    <div className="absolute inset-x-[6%] bottom-[7%] h-[13%] rounded-md border border-slate-600/80 bg-slate-950/80" />
+                    {chatTarget.inputPoint && (
+                      <span
+                        className="absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-sky-200 bg-sky-400 shadow-[0_0_18px_rgba(56,189,248,0.65)]"
+                        style={{ left: `${chatTarget.inputPoint.x * 100}%`, top: `${chatTarget.inputPoint.y * 100}%` }}
+                      />
+                    )}
+                    {chatTarget.sendPoint && (
+                      <span
+                        className="absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-emerald-200 bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.65)]"
+                        style={{ left: `${chatTarget.sendPoint.x * 100}%`, top: `${chatTarget.sendPoint.y * 100}%` }}
+                      />
+                    )}
+                  </button>
+                  <div className="mt-3 grid gap-2 text-[10px] sm:grid-cols-2">
+                    <div className="rounded-lg border border-sky-400/20 bg-sky-500/8 px-2 py-1.5 text-sky-100">
+                      <span className="block font-bold uppercase tracking-widest text-sky-300">inputPoint</span>
+                      <span className="font-mono">
+                        {chatTarget.inputPoint
+                          ? `${chatTarget.inputPoint.x.toFixed(4)}, ${chatTarget.inputPoint.y.toFixed(4)}`
+                          : 'ausente'}
+                      </span>
+                      <span className="block font-mono text-sky-200/70">
+                        {inputPixel ? `${inputPixel.x}px, ${inputPixel.y}px` : 'pixel pendente'}
+                      </span>
+                    </div>
+                    <div className="rounded-lg border border-emerald-400/20 bg-emerald-500/8 px-2 py-1.5 text-emerald-100">
+                      <span className="block font-bold uppercase tracking-widest text-emerald-300">sendPoint</span>
+                      <span className="font-mono">
+                        {chatTarget.sendPoint
+                          ? `${chatTarget.sendPoint.x.toFixed(4)}, ${chatTarget.sendPoint.y.toFixed(4)}`
+                          : 'Enter'}
+                      </span>
+                      <span className="block font-mono text-emerald-200/70">
+                        {sendPixel ? `${sendPixel.x}px, ${sendPixel.y}px` : 'sem clique de envio'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3 rounded-xl border border-white/8 bg-black/20 p-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      label="Viewport W"
+                      type="number"
+                      value={chatTarget.viewport?.width || ''}
+                      onChange={(event) =>
+                        setChatTarget((current) => ({
+                          ...current,
+                          viewport: {
+                            width: Math.max(1, Number(event.target.value) || 1),
+                            height: current.viewport?.height || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.height || 938,
+                          },
+                        }))
+                      }
+                    />
+                    <Input
+                      label="Viewport H"
+                      type="number"
+                      value={chatTarget.viewport?.height || ''}
+                      onChange={(event) =>
+                        setChatTarget((current) => ({
+                          ...current,
+                          viewport: {
+                            width: current.viewport?.width || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.width || 1920,
+                            height: Math.max(1, Number(event.target.value) || 1),
+                          },
+                        }))
+                      }
+                    />
+                  </div>
+                  <Input
+                    label="Conf. min."
+                    type="number"
+                    min={0.1}
+                    max={0.99}
+                    step={0.01}
+                    value={autoChatMinConfidence}
+                    onChange={(event) => setAutoChatMinConfidence(Math.max(0.1, Math.min(0.99, Number(event.target.value) || 0.65)))}
+                  />
+                  <Input
+                    label="Texto de teste"
+                    value={chatBridgeTestText}
+                    onChange={(event) => setChatBridgeTestText(event.target.value)}
+                  />
+                  {visualErrors.length > 0 && (
+                    <div className="rounded-lg border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+                      {visualErrors[0]}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -924,6 +1080,24 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                   <Save className="h-3.5 w-3.5" />
                   {autoChatSaved ? 'Salvo' : 'Salvar chat'}
                 </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={chatBridgeTestBusy === 'dry'}
+                  onClick={() => void handleChatBridgeTest('dry')}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Testar sem enviar
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={chatBridgeTestBusy === 'fill'}
+                  onClick={() => void handleChatBridgeTest('fill')}
+                >
+                  <MessageCircle className="h-3.5 w-3.5" />
+                  Digitar sem enviar
+                </Button>
                 {autoChatMode === 'real' && (
                   <span className="flex items-center gap-1 text-[10px] text-amber-300">
                     <ShieldCheck className="h-3.5 w-3.5" />
@@ -931,6 +1105,33 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                   </span>
                 )}
               </div>
+
+              {chatBridgeLastResult && (
+                <div data-testid="chat-calibration-test-result" className="grid gap-2 rounded-xl border border-white/8 bg-black/20 p-3 text-[11px] md:grid-cols-3">
+                  <div>
+                    <span className="block text-[9px] font-bold uppercase tracking-widest text-slate-600">Texto</span>
+                    <span className="text-slate-300">{chatBridgeLastResult.text || chatBridgeTestText}</span>
+                  </div>
+                  <div>
+                    <span className="block text-[9px] font-bold uppercase tracking-widest text-slate-600">Ponto clicado</span>
+                    <span className="font-mono text-sky-300">
+                      {chatBridgeLastResult.plannedInputPixel
+                        ? `${chatBridgeLastResult.plannedInputPixel.x}px, ${chatBridgeLastResult.plannedInputPixel.y}px`
+                        : 'pendente'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-[9px] font-bold uppercase tracking-widest text-slate-600">Envio planejado</span>
+                    <span className="text-slate-300">
+                      {chatBridgeLastResult.submit === false
+                        ? 'digitar sem Enter'
+                        : chatBridgeLastResult.plannedSendPixel
+                          ? `clicar envio em ${chatBridgeLastResult.plannedSendPixel.x}px, ${chatBridgeLastResult.plannedSendPixel.y}px`
+                          : 'Enter'}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-1">
                 <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">

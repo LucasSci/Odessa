@@ -53,6 +53,11 @@ export type ChatAutomationSendResult = {
   wouldType?: boolean;
   wouldSend?: boolean;
   wouldClick?: boolean;
+  inputPoint?: ChatAutomationPoint | null;
+  sendPoint?: ChatAutomationPoint | null;
+  viewport?: ChatAutomationViewport | null;
+  plannedInputPixel?: { x: number; y: number } | null;
+  plannedSendPixel?: { x: number; y: number } | null;
   executed?: boolean;
   submit?: boolean;
   queued?: boolean;
