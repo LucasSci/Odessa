@@ -85,15 +85,16 @@ class OdessaAgent:
 
     async def send_heartbeat(self) -> None:
         health = await self.probe_local_health()
+        capabilities = ["obs", "capture", "ocr-local", "video-local", "tts-local", "chat.send_visual"]
         payload = {
             "agentId": self.config.agent_id,
             "host": socket.gethostname(),
             "version": "0.1.0",
-            "capabilities": ["obs", "capture", "ocr-local", "video-local", "tts-local"],
+            "capabilities": capabilities,
             "health": health,
         }
         response = await self.client.post(
-            f"{self.config.cloud_url}/api/agent?action=heartbeat",
+            f"{self.config.cloud_url}/api/agent/heartbeat",
             headers=self.headers,
             json=payload,
         )
@@ -103,7 +104,7 @@ class OdessaAgent:
     async def report_event(self, event: dict[str, Any]) -> None:
         try:
             response = await self.client.post(
-                f"{self.config.cloud_url}/api/agent?action=events",
+                f"{self.config.cloud_url}/api/agent/events",
                 headers=self.headers,
                 json=event,
             )
@@ -113,7 +114,7 @@ class OdessaAgent:
 
     async def fetch_command(self) -> dict[str, Any] | None:
         response = await self.client.get(
-            f"{self.config.cloud_url}/api/agent?action=commands-next",
+            f"{self.config.cloud_url}/api/agent/commands/next",
             headers=self.headers,
         )
         response.raise_for_status()
@@ -168,7 +169,7 @@ class OdessaAgent:
                 return {"ok": False, "error": "sceneName is required"}
             return await obs_service.switch_scene(scene_name)
 
-        if command_type == "chat.reply":
+        if command_type in {"chat.send_visual", "chat.reply"}:
             from server.services.chat_automation_service import chat_automation_service
 
             text = str(payload.get("text") or payload.get("message") or "").strip()
@@ -179,7 +180,20 @@ class OdessaAgent:
                 viewport=payload.get("viewport"),
                 submit=payload.get("submit", True) is not False,
             )
-            return {"ok": bool(result.get("executed")), "result": result}
+            execution = result.get("execution") or {}
+            coordinates = {
+                "clickedInput": execution.get("clickedInput"),
+                "clickedSend": execution.get("clickedSend"),
+                "submittedWithEnter": execution.get("submittedWithEnter"),
+            }
+            return {
+                "ok": bool(result.get("executed")),
+                "status": "executed" if result.get("executed") else "failed",
+                "commandId": payload.get("commandId"),
+                "coordinates": coordinates,
+                "error": None if result.get("executed") else result.get("reason") or execution.get("error"),
+                "result": result,
+            }
 
         if command_type == "obs.screenshot":
             from server.services.obs_service import obs_service
@@ -270,7 +284,7 @@ class OdessaAgent:
                     "agentId": self.config.agent_id,
                     "host": socket.gethostname(),
                     "version": "0.1.0",
-                    "capabilities": ["obs", "capture", "ocr-local", "video-local", "tts-local"],
+                    "capabilities": ["obs", "capture", "ocr-local", "video-local", "tts-local", "chat.send_visual"],
                     "health": health,
                 },
                 "queueSize": 0,
@@ -285,7 +299,15 @@ class OdessaAgent:
                 "payload": request.payload,
             }
             result = await self.execute_command(command_payload)
-            await self.report_event({"kind": "local_command_result", "command": command_payload, "result": result})
+            await self.report_event({
+                "kind": "local_command_result",
+                "commandId": command_payload.get("id"),
+                "status": result.get("status") or ("executed" if result.get("ok") else "failed"),
+                "coordinates": result.get("coordinates"),
+                "error": result.get("error"),
+                "command": command_payload,
+                "result": result,
+            })
             return {"ok": bool(result.get("ok")), "command": command_payload, "result": result}
 
         return app
@@ -304,7 +326,15 @@ class OdessaAgent:
                 command = await self.fetch_command()
                 if command:
                     result = await self.execute_command(command)
-                    await self.report_event({"kind": "command_result", "command": command, "result": result})
+                    await self.report_event({
+                        "kind": "command_result",
+                        "commandId": command.get("id") or result.get("commandId"),
+                        "status": result.get("status") or ("executed" if result.get("ok") else "failed"),
+                        "coordinates": result.get("coordinates"),
+                        "error": result.get("error"),
+                        "command": command,
+                        "result": result,
+                    })
             except Exception as exc:
                 logger.warning("Command loop failed: %s", exc)
             await asyncio.sleep(self.config.command_interval)

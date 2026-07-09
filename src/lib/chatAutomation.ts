@@ -45,7 +45,7 @@ export type ChatAutomationConfig = {
 };
 
 export type ChatAutomationSendResult = {
-  status: 'blocked' | 'dry_run' | 'ready' | string;
+  status: 'blocked' | 'dry_run' | 'ready' | 'queued' | string;
   allowed: boolean;
   reason?: string;
   target?: ChatAutomationAllowEntry;
@@ -63,6 +63,7 @@ export type ChatAutomationSendResult = {
   queued?: boolean;
   queueSize?: number;
   executionMode?: string;
+  commandId?: string;
   command?: Record<string, unknown>;
   execution?: {
     ok?: boolean;

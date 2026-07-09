@@ -1229,11 +1229,22 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                   <div className="grid gap-1">
                     {chatAutomationLogs.map((entry, index) => {
                       const result = entry.result as Record<string, unknown> | undefined;
+                      const status = String(result?.status || 'log');
+                      const coordinates = result?.coordinates as Record<string, unknown> | undefined;
+                      const detail = [
+                        result?.commandId ? `cmd ${String(result.commandId)}` : '',
+                        coordinates?.clickedInput ? `input ${JSON.stringify(coordinates.clickedInput)}` : '',
+                        result?.error ? `erro ${String(result.error)}` : '',
+                      ].filter(Boolean).join(' | ');
                       return (
-                        <div key={String(entry.id || index)} className="flex items-center justify-between gap-2 rounded-lg border border-white/8 bg-black/20 px-2 py-1.5 text-[10px]">
+                        <div
+                          key={String(entry.id || index)}
+                          title={detail || String(result?.reason || status)}
+                          className="flex items-center justify-between gap-2 rounded-lg border border-white/8 bg-black/20 px-2 py-1.5 text-[10px]"
+                        >
                           <span className="truncate text-slate-300">{String(entry.text || '')}</span>
-                          <span className={cn('shrink-0 font-mono', result?.status === 'blocked' ? 'text-red-300' : result?.status === 'ready' ? 'text-emerald-300' : 'text-sky-300')}>
-                            {String(result?.reason || result?.status || 'log')}
+                          <span className={cn('shrink-0 font-mono', status === 'blocked' || status === 'failed' ? 'text-red-300' : status === 'ready' || status === 'executed' ? 'text-emerald-300' : 'text-sky-300')}>
+                            {String(result?.reason || status)}
                           </span>
                         </div>
                       );

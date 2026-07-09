@@ -44,6 +44,7 @@ try { fs.mkdirSync(nodePath.join(UPLOADS_DIR, 'videos'), { recursive: true }); }
 const cloudStore = (globalThis.__ODESSA_CLOUD_STORE ||= {
   agentStatus: null,
   commandQueue: [],
+  commandRecords: {},
   events: [],
   pendingTriggerQueue: [],
 });
@@ -774,6 +775,26 @@ function logChatAutomationAttempt(url, text, result, inputSelector = '', mode = 
   saveChatAutomationConfig(config);
 }
 
+function updateChatAutomationCommandLog(commandId, patch) {
+  if (!commandId) return;
+  const config = loadChatAutomationConfig();
+  let changed = false;
+  config.logs = config.logs.map((entry) => {
+    const result = entry?.result || {};
+    if (result.commandId !== commandId && result.command?.id !== commandId) return entry;
+    changed = true;
+    return {
+      ...entry,
+      updatedAt: nowIso(),
+      result: {
+        ...result,
+        ...patch,
+      },
+    };
+  });
+  if (changed) saveChatAutomationConfig(config);
+}
+
 function validateChatAutomationTarget(body) {
   const mode = body?.mode === 'visual' ? 'visual' : 'selector';
   const target = matchChatAutomationTarget(body?.url, body?.inputSelector, mode, body?.inputPoint);
@@ -818,20 +839,32 @@ function sendChatAutomationMessageRecord(body) {
     wouldSend: !dryRun && submit,
   };
   if (mode === 'visual' && !dryRun) {
+    const commandId = crypto.randomUUID();
     const queued = enqueueAgentCommand({
-      type: 'chat.reply',
+      id: commandId,
+      type: 'chat.send_visual',
+      timeoutMs: Number(body?.timeoutMs || 20_000),
+      maxAttempts: Number(body?.maxAttempts || 2),
       payload: {
+        commandId,
         text,
+        mode,
+        targetUrl: url,
         inputPoint: result.inputPoint,
         sendPoint: result.sendPoint,
         viewport: result.viewport,
+        plannedInputPixel: result.plannedInputPixel,
+        plannedSendPixel: result.plannedSendPixel,
         submit,
       },
     });
+    result.status = 'queued';
     result.queued = true;
+    result.commandId = commandId;
     result.command = queued.command;
     result.queueSize = queued.queueSize;
     result.executionMode = 'cloud-agent';
+    result.reason = 'queued_for_local_agent';
   }
   logChatAutomationAttempt(url, text, result, inputSelector, mode, inputPoint);
   return result;
@@ -896,26 +929,132 @@ function saveProfiles(kind, profiles) {
 }
 
 function enqueueAgentCommand(command) {
+  const id = command.id || crypto.randomUUID();
+  const now = new Date().toISOString();
   const normalized = {
-    id: command.id || crypto.randomUUID(),
+    id,
     type: command.type || 'noop',
     payload: command.payload || {},
-    createdAt: command.createdAt || new Date().toISOString(),
+    createdAt: command.createdAt || now,
+    updatedAt: now,
+    status: 'queued',
+    attempts: 0,
+    maxAttempts: Math.max(1, Math.min(Number(command.maxAttempts || 2), 5)),
+    timeoutMs: Math.max(5_000, Math.min(Number(command.timeoutMs || 20_000), 120_000)),
   };
-  cloudStore.commandQueue.push(normalized);
-  return { command: normalized, queueSize: cloudStore.commandQueue.length, persisted: false };
+  cloudStore.commandRecords ||= {};
+  cloudStore.commandRecords[id] = normalized;
+  cloudStore.commandQueue.push(id);
+  return { command: publicAgentCommand(normalized), queueSize: cloudStore.commandQueue.length, persisted: false };
+}
+
+function publicAgentCommand(command) {
+  if (!command) return null;
+  return {
+    id: command.id,
+    type: command.type,
+    payload: command.payload || {},
+    createdAt: command.createdAt,
+    attempt: command.attempts || 0,
+    timeoutMs: command.timeoutMs,
+  };
+}
+
+function refreshTimedOutCommands(now = Date.now()) {
+  cloudStore.commandRecords ||= {};
+  for (const command of Object.values(cloudStore.commandRecords)) {
+    if (!command || command.status !== 'in_flight') continue;
+    const claimedAtMs = Date.parse(command.claimedAt || '');
+    if (!Number.isFinite(claimedAtMs) || now - claimedAtMs <= command.timeoutMs) continue;
+    if ((command.attempts || 0) < command.maxAttempts) {
+      command.status = 'queued';
+      command.updatedAt = new Date(now).toISOString();
+      command.lastError = 'agent_command_timeout';
+      cloudStore.commandQueue.push(command.id);
+      updateChatAutomationCommandLog(command.id, {
+        status: 'queued',
+        reason: 'retry_after_agent_timeout',
+        attempts: command.attempts || 0,
+        error: 'agent_command_timeout',
+      });
+    } else {
+      command.status = 'failed';
+      command.updatedAt = new Date(now).toISOString();
+      command.completedAt = new Date(now).toISOString();
+      command.error = 'agent_command_timeout';
+      updateChatAutomationCommandLog(command.id, {
+        status: 'failed',
+        executed: false,
+        completedAt: command.completedAt,
+        error: 'agent_command_timeout',
+      });
+    }
+  }
 }
 
 function claimNextAgentCommand() {
-  return { command: cloudStore.commandQueue.shift() || null, queueSize: cloudStore.commandQueue.length };
+  refreshTimedOutCommands();
+  cloudStore.commandRecords ||= {};
+  while (cloudStore.commandQueue.length) {
+    const queued = cloudStore.commandQueue.shift();
+    let command = typeof queued === 'string' ? cloudStore.commandRecords[queued] : queued;
+    if (!command) continue;
+    if (typeof queued !== 'string') {
+      command = {
+        id: command.id || crypto.randomUUID(),
+        type: command.type || 'noop',
+        payload: command.payload || {},
+        createdAt: command.createdAt || new Date().toISOString(),
+        status: 'queued',
+        attempts: command.attempts || 0,
+        maxAttempts: command.maxAttempts || 2,
+        timeoutMs: command.timeoutMs || 20_000,
+      };
+      cloudStore.commandRecords[command.id] = command;
+    }
+    if (command.status !== 'queued') continue;
+    command.status = 'in_flight';
+    command.claimedAt = new Date().toISOString();
+    command.updatedAt = command.claimedAt;
+    command.attempts = (command.attempts || 0) + 1;
+    return { command: publicAgentCommand(command), queueSize: cloudStore.commandQueue.length };
+  }
+  return { command: null, queueSize: cloudStore.commandQueue.length };
 }
 
 function queuedCommandCount() {
-  return cloudStore.commandQueue.length;
+  refreshTimedOutCommands();
+  cloudStore.commandRecords ||= {};
+  return Object.values(cloudStore.commandRecords).filter((command) =>
+    command && (command.status === 'queued' || command.status === 'in_flight')
+  ).length;
 }
 
 function recordAgentEvent(event) {
   const payload = { ...event, receivedAt: new Date().toISOString() };
+  const commandId = payload.commandId || payload.command?.id || payload.command?.commandId;
+  if (commandId) {
+    cloudStore.commandRecords ||= {};
+    const record = cloudStore.commandRecords[commandId];
+    const result = payload.result || {};
+    const status = payload.status || (result.ok === true ? 'executed' : result.ok === false ? 'failed' : 'reported');
+    if (record) {
+      record.status = status === 'executed' || status === 'sent' || status === 'done' ? 'executed' : status === 'queued' ? 'queued' : status === 'sending' ? 'in_flight' : 'failed';
+      record.updatedAt = payload.receivedAt;
+      record.completedAt = payload.receivedAt;
+      record.result = result.result || result;
+      record.coordinates = payload.coordinates || result.coordinates || result.result?.coordinates || null;
+      record.error = payload.error || result.error || result.result?.reason || null;
+    }
+    updateChatAutomationCommandLog(commandId, {
+      status: status === 'executed' || status === 'sent' || status === 'done' ? 'executed' : 'failed',
+      executed: status === 'executed' || status === 'sent' || status === 'done',
+      completedAt: payload.receivedAt,
+      coordinates: payload.coordinates || result.coordinates || result.result?.coordinates || null,
+      error: payload.error || result.error || result.result?.reason || null,
+      agentResult: result,
+    });
+  }
   cloudStore.events.push(payload);
   cloudStore.events = cloudStore.events.slice(-100);
   return { persisted: false };
@@ -923,6 +1062,27 @@ function recordAgentEvent(event) {
 
 function recentAgentEvents() {
   return cloudStore.events.slice(-20);
+}
+
+function recentAgentCommands() {
+  refreshTimedOutCommands();
+  cloudStore.commandRecords ||= {};
+  return Object.values(cloudStore.commandRecords)
+    .filter(Boolean)
+    .sort((a, b) => Date.parse(a.updatedAt || a.createdAt || '') - Date.parse(b.updatedAt || b.createdAt || ''))
+    .slice(-20)
+    .map((command) => ({
+      id: command.id,
+      type: command.type,
+      status: command.status,
+      attempts: command.attempts || 0,
+      maxAttempts: command.maxAttempts,
+      createdAt: command.createdAt,
+      updatedAt: command.updatedAt,
+      completedAt: command.completedAt,
+      coordinates: command.coordinates || null,
+      error: command.error || null,
+    }));
 }
 
 // ── Trigger queue helpers ──────────────────────────────────────────────────
@@ -1372,6 +1532,7 @@ async function agentResponse(req, res, path) {
       ok: true,
       queueSize: queuedCommandCount(),
       recentEvents: recentAgentEvents(),
+      recentCommands: recentAgentCommands(),
       ...stateFromAgentStatus(agentStatus),
     });
   }

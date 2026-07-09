@@ -469,15 +469,15 @@ export async function executeAction(
         };
       }
       recordLiveAutonomyReply(
-        chatResult.status === 'ready' ? 'sent' : 'dry_run',
+        chatResult.status === 'ready' || chatResult.status === 'queued' ? 'sent' : 'dry_run',
         undefined,
         Date.now(),
         chatResult.text || replyText,
       );
       return {
         ...base,
-        status: chatResult.status === 'ready' ? 'done' : 'simulated',
-        simulated: chatResult.status !== 'ready',
+        status: chatResult.status === 'ready' || chatResult.status === 'queued' ? 'done' : 'simulated',
+        simulated: chatResult.status !== 'ready' && chatResult.status !== 'queued',
         result:
           chatResult.status === 'ready'
             ? chatResult.executed
@@ -487,6 +487,8 @@ export async function executeAction(
               : chatResult.queued
                 ? 'Resposta enfileirada para o agente local enviar no chat visual.'
                 : 'Resposta enviada para a automacao de chat.'
+            : chatResult.status === 'queued'
+              ? `Resposta enfileirada para agente local (${chatResult.commandId || 'sem id'}).`
             : `Resposta validada em dry-run: ${chatResult.text || actionSummary(base)}`,
       };
     } catch (err) {
