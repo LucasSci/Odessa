@@ -48,6 +48,11 @@ import { buildOcrEvent } from '../core/ocrEventContract';
 import type { OcrEvent } from '../core/ocrEventContract';
 import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
 import {
+  AUTONOMY_MATRIX_CAPABILITIES,
+  buildAutonomyToolPolicies,
+  type AutonomyToolStatus,
+} from '../core/autonomyMatrix';
+import {
   LIVE_CHAT_SCREENSHOT_TARGET,
   getChatAutomationConfig,
   loadChatAutomationTarget,
@@ -249,6 +254,16 @@ function ReadinessItem({
   );
 }
 
+const TOOL_STATUS_STYLE: Record<
+  AutonomyToolStatus,
+  { label: string; className: string }
+> = {
+  real: { label: 'Real', className: 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300' },
+  simulated: { label: 'Simulado', className: 'border-sky-400/30 bg-sky-500/10 text-sky-300' },
+  approval: { label: 'Aprovacao', className: 'border-amber-400/30 bg-amber-500/10 text-amber-300' },
+  blocked: { label: 'Bloqueado', className: 'border-red-400/30 bg-red-500/10 text-red-300' },
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -333,16 +348,25 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
   const inputPixel = pixelFromPoint(chatTarget, chatTarget.inputPoint);
   const sendPixel = pixelFromPoint(chatTarget, chatTarget.sendPoint);
   const visualErrors = visualTargetErrors(chatTarget, chatBridgeStatus === 'ready');
+  const autonomyPolicies = buildAutonomyToolPolicies(runtime.tools, runtime.autonomyLevel, {
+    autoChatEnabled,
+    chatRealRequested: autoChatMode === 'real',
+    visualTargetReady,
+    localAgentReady: runtime.localAgentReady,
+  }).filter((policy) => AUTONOMY_MATRIX_CAPABILITIES.includes(policy.capability));
   const chatReplyReady = Boolean(chatReplyTool?.enabled) && autoChatEnabled;
   const realSendReady =
     autoChatMode === 'real' &&
     autoChatEnabled &&
     visualTargetReady &&
+    runtime.localAgentReady &&
     runtime.autonomyLevel === 'auto';
   const nextSetupAction = !geminiReady
     ? 'Cole uma chave Gemini ou configure VITE_GEMINI_API_KEY.'
     : !visualTargetReady
       ? 'Salve e valide o ponto visual onde o Tango recebe mensagens.'
+      : !runtime.localAgentReady
+        ? 'Conecte o agente local para liberar clique/clipboard real.'
       : !autoChatEnabled
         ? 'Ative "Responder chat automaticamente" e salve.'
         : runtime.autonomyLevel !== 'auto'
@@ -755,7 +779,7 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
               </p>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
               <ReadinessItem
                 status={geminiReady ? 'ready' : 'blocked'}
                 title="1. Gemini"
@@ -785,8 +809,14 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                 action={!chatReplyReady ? 'Ative o toggle e mantenha chat.reply habilitada.' : undefined}
               />
               <ReadinessItem
+                status={runtime.localAgentReady ? 'ready' : 'blocked'}
+                title="5. Agente"
+                detail={runtime.localAgentReady ? runtime.localAgentMessage : 'Agente local precisa estar online para clique/clipboard real.'}
+                action={!runtime.localAgentReady ? 'Inicie o agente local antes de liberar envio real.' : undefined}
+              />
+              <ReadinessItem
                 status={realSendReady ? 'ready' : autoChatMode === 'dry_run' ? 'warning' : 'blocked'}
-                title="5. Envio"
+                title="6. Envio"
                 detail={
                   autoChatMode === 'dry_run'
                     ? 'Modo seguro: so registra dry-run.'
@@ -862,6 +892,35 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                 ))}
               </div>
               <p className="text-[11px] text-slate-600">{AUTONOMY_INFO[runtime.autonomyLevel].desc}</p>
+            </div>
+
+            <div className="space-y-3 rounded-xl border border-white/8 bg-[#0a0b0d] p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  Matriz de permissões da próxima rodada
+                </span>
+                <span className="text-[10px] text-slate-600">
+                  {runtime.localAgentReady ? runtime.localAgentMessage : 'Agente local offline para chat real'}
+                </span>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {autonomyPolicies.map((policy) => {
+                  const style = TOOL_STATUS_STYLE[policy.status];
+                  return (
+                    <div key={policy.capability} className="rounded-lg border border-white/8 bg-black/20 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate font-mono text-[11px] text-slate-200">
+                          {policy.capability}
+                        </span>
+                        <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest', style.className)}>
+                          {style.label}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[10px] leading-relaxed text-slate-500">{policy.reason}</p>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="space-y-3 rounded-xl border border-white/8 bg-[#0a0b0d] p-3">

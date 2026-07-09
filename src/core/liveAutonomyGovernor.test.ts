@@ -94,4 +94,14 @@ describe('liveAutonomyGovernor', () => {
     });
     expect(result.decision.actions[0].payload.governorBlockedReason).toBe('moderation_risk');
   });
+
+  it('blocks real chat replies when local agent is missing', () => {
+    const result = governPersonaDecision([event], decision, {
+      config: { ...config, autoChatReplyMode: 'real' },
+      hasVisualTarget: true,
+      hasLocalAgent: false,
+    });
+
+    expect(result.decision.actions[0].payload.governorBlockedReason).toBe('local_agent_missing');
+  });
 });

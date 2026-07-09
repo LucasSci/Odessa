@@ -69,6 +69,8 @@ export interface PersonaRuntimeOptions {
   triggers?: Array<{ id: string; name?: string; label?: string; enabled?: boolean }>;
   /** Cenas de OBS permitidas (switch_scene). */
   scenes?: string[];
+  /** Se true, o agente local pode executar clique/clipboard no chat visual. */
+  localAgentReady?: boolean;
   onUpdate?: (cycle: AutopilotCycle) => void;
   onAction?: (action: AutopilotAction) => void;
 }
@@ -645,7 +647,9 @@ export async function runPersonaRound(
     }
 
     const mergedActions = mergeActions(ruleActions, baseDecision.actions);
-    const governed = governPersonaDecision(classifiedEvents, { ...baseDecision, actions: mergedActions });
+    const governed = governPersonaDecision(classifiedEvents, { ...baseDecision, actions: mergedActions }, {
+      hasLocalAgent: options.localAgentReady,
+    });
     const decision = governed.decision;
     update(
       {

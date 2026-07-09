@@ -6,6 +6,7 @@ export interface LiveAutonomyGovernorOptions {
   now?: number;
   config?: ReturnType<typeof getAiConfig>;
   hasVisualTarget?: boolean;
+  hasLocalAgent?: boolean;
 }
 
 export interface LiveAutonomyGovernorResult {
@@ -134,6 +135,7 @@ export function governPersonaDecision(
     ? Math.max(0, config.chatReplyCooldownMs - (now - lastPublic.at))
     : 0;
   const visualReady = options.hasVisualTarget ?? hasVisualTargetConfigured();
+  const localAgentReady = options.hasLocalAgent ?? false;
   let publicReplySeen = false;
 
   const actions = decision.actions.map((action) => {
@@ -159,6 +161,10 @@ export function governPersonaDecision(
     if (!visualReady) {
       logs.push('Resposta no chat bloqueada: visual_target_missing');
       return blockAction(action, 'visual_target_missing');
+    }
+    if (config.autoChatReplyMode === 'real' && !localAgentReady) {
+      logs.push('Resposta no chat bloqueada: local_agent_missing');
+      return blockAction(action, 'local_agent_missing');
     }
     if (cooldownRemaining > 0) {
       logs.push('Resposta no chat bloqueada: cooldown');

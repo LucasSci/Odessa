@@ -10,10 +10,12 @@ import {
   runPersonaRound,
 } from './personaRuntime';
 import { loadToolRegistry, updateToolRegistry } from './toolRegistry';
+import { applyAutonomyToTools } from './autonomyMatrix';
 import { getAiConfig, saveAiConfig, type AiAutonomyLevel } from './aiConfig';
 import { apiUrl } from '../lib/api';
 import { isObsDirectAvailable, getObsStatus } from '../lib/obsWebSocket';
 import { loadMemory } from '../lib/memory';
+import { loadChatAutomationTarget } from '../lib/chatAutomation';
 import type {
   AutopilotAction,
   AutopilotCycle,
@@ -60,6 +62,18 @@ interface BackendHealth {
   };
 }
 
+interface AgentBridgeStatus {
+  ok?: boolean;
+  queueSize?: number;
+  mode?: string;
+  message?: string;
+  localAgent?: {
+    online?: boolean;
+    lastSeenAt?: string | null;
+    capabilities?: string[];
+  };
+}
+
 export interface AutopilotRuntimeState {
   autopilotEnabled: boolean;
   testMode: boolean;
@@ -80,6 +94,8 @@ export interface AutopilotRuntimeState {
   obsScenes: string[];
   currentObsScene: string | null;
   obsError: string | null;
+  localAgentReady: boolean;
+  localAgentMessage: string;
   completedCycles: number;
   failedCycles: number;
   averageConfidence: number;
@@ -227,27 +243,13 @@ function loadInitialActions() {
 }
 
 // Sempre executam sem aprovação (não são ações "para o público").
-const AUTONOMY_SAFE_CAPS = new Set(['log.event', 'memory.remember']);
 // No nível "assistido", apenas estas pedem aprovação.
-const AUTONOMY_GUARDED_CAPS = new Set(['moderation.message', 'webhook.call']);
 
 /**
  * Deriva `requiresApproval` das ferramentas a partir do nível de autonomia da
  * Diretora — sem persistir no registry (cópia só para a rodada). Assim o cockpit
  * pode mudar a autonomia e a próxima rodada já reflete.
  */
-function applyAutonomyToTools(tools: PersonaTool[], level: AiAutonomyLevel): PersonaTool[] {
-  if (level === 'auto') {
-    return tools.map((t) => ({ ...t, requiresApproval: false }));
-  }
-  if (level === 'manual') {
-    return tools.map((t) =>
-      AUTONOMY_SAFE_CAPS.has(t.capability) ? t : { ...t, requiresApproval: true },
-    );
-  }
-  // 'assistido'
-  return tools.map((t) => ({ ...t, requiresApproval: AUTONOMY_GUARDED_CAPS.has(t.capability) }));
-}
 
 export function useAutopilotRuntime({
   capturedText,
@@ -272,6 +274,8 @@ export function useAutopilotRuntime({
   const [obsScenes, setObsScenes] = useState<string[]>([]);
   const [currentObsScene, setCurrentObsScene] = useState<string | null>(null);
   const [obsError, setObsError] = useState<string | null>(null);
+  const [localAgentReady, setLocalAgentReady] = useState(false);
+  const [localAgentMessage, setLocalAgentMessage] = useState('Agente local nao verificado');
   const [autonomyLevel, setAutonomyLevelState] = useState<AiAutonomyLevel>(() => getAiConfig().autonomyLevel);
   const queuedOrProcessedIdsRef = useRef<Set<string>>(
     new Set(capturedText.filter((event) => event.processedAt).map((event) => event.id)),
@@ -367,6 +371,23 @@ export function useAutopilotRuntime({
     }
   }, []);
 
+  const refreshAgentStatus = useCallback(async () => {
+    try {
+      const response = await fetch(apiUrl('/agent/status'));
+      const data = (await response.json().catch(() => ({}))) as AgentBridgeStatus;
+      const ready = data.ok === true && data.localAgent?.online === true;
+      setLocalAgentReady(ready);
+      setLocalAgentMessage(
+        ready
+          ? `Agente local pronto${data.localAgent?.lastSeenAt ? ` (${formatClock(new Date(data.localAgent.lastSeenAt))})` : ''}`
+          : data.message || 'Agente local offline',
+      );
+    } catch (err) {
+      setLocalAgentReady(false);
+      setLocalAgentMessage(err instanceof Error ? err.message : 'Falha ao consultar agente local');
+    }
+  }, []);
+
   const enqueueEvent = useCallback((event: LiveEvent) => {
     const normalizedEvent = normalizeDirectorEvent(event);
     if (normalizedEvent.processedAt || queuedOrProcessedIdsRef.current.has(normalizedEvent.id)) return;
@@ -409,18 +430,22 @@ export function useAutopilotRuntime({
     const firstRun = window.setTimeout(refreshHealth, 0);
     const obsFirstRun = window.setTimeout(refreshObsScenes, 700);
     const catalogFirstRun = window.setTimeout(refreshCatalog, 300);
+    const agentFirstRun = window.setTimeout(refreshAgentStatus, 1000);
     const interval = window.setInterval(refreshHealth, 15000);
     const obsInterval = window.setInterval(refreshObsScenes, 20000);
     const catalogInterval = window.setInterval(refreshCatalog, 30000);
+    const agentInterval = window.setInterval(refreshAgentStatus, 10000);
     return () => {
       window.clearTimeout(firstRun);
       window.clearTimeout(obsFirstRun);
       window.clearTimeout(catalogFirstRun);
+      window.clearTimeout(agentFirstRun);
       window.clearInterval(interval);
       window.clearInterval(obsInterval);
       window.clearInterval(catalogInterval);
+      window.clearInterval(agentInterval);
     };
-  }, [refreshHealth, refreshObsScenes, refreshCatalog]);
+  }, [refreshHealth, refreshObsScenes, refreshCatalog, refreshAgentStatus]);
 
   useEffect(() => {
     capturedText.forEach(enqueueEvent);
@@ -482,7 +507,23 @@ export function useAutopilotRuntime({
 
       // Autonomia atual da Diretora → define o que executa sozinho nesta rodada.
       const autonomy = getAiConfig().autonomyLevel;
-      const effectiveTools = applyAutonomyToTools(tools, autonomy);
+      const chatConfig = getAiConfig();
+      const target = loadChatAutomationTarget();
+      const visualTargetReady = Boolean(
+        target.mode === 'visual' &&
+          target.inputPoint &&
+          typeof target.inputPoint.x === 'number' &&
+          typeof target.inputPoint.y === 'number' &&
+          target.viewport &&
+          typeof target.viewport.width === 'number' &&
+          typeof target.viewport.height === 'number',
+      );
+      const effectiveTools = applyAutonomyToTools(tools, autonomy, {
+        autoChatEnabled: chatConfig.autoChatReplyEnabled,
+        chatRealRequested: chatConfig.autoChatReplyMode === 'real',
+        visualTargetReady,
+        localAgentReady,
+      });
 
       runPersonaRound(batch, {
         personaPrompt: PERSONA_AUTOPILOT_PROMPT,
@@ -492,6 +533,7 @@ export function useAutopilotRuntime({
         videos: catalogRef.current.videos,
         triggers: catalogRef.current.triggers,
         scenes: obsScenesRef.current,
+        localAgentReady,
         onUpdate: (cycle) => setCycles((current) => upsertCycle(current, cycle)),
         onAction: (action) => setActionQueue((current) => upsertAction(current, action)),
       })
@@ -534,6 +576,7 @@ export function useAutopilotRuntime({
     rules,
     setCapturedText,
     tools,
+    localAgentReady,
     voiceEnabled,
   ]);
 
@@ -668,6 +711,8 @@ export function useAutopilotRuntime({
     obsScenes,
     currentObsScene,
     obsError,
+    localAgentReady,
+    localAgentMessage,
     completedCycles,
     failedCycles,
     averageConfidence,

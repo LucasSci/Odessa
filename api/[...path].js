@@ -837,10 +837,17 @@ function sendChatAutomationMessageRecord(body) {
   return result;
 }
 
-function stateFromAgentStatus(_agentStatus) {
+function stateFromAgentStatus(agentStatus) {
+  const lastSeenMs = Date.parse(agentStatus?.lastSeenAt || '');
+  const online = Number.isFinite(lastSeenMs) && Date.now() - lastSeenMs < 45_000;
   return {
-    mode: 'cloud',
-    message: 'Odessa Cloud esta online.',
+    mode: online ? 'local-agent' : 'cloud',
+    message: online ? 'Agente local conectado.' : 'Odessa Cloud esta online; agente local offline.',
+    localAgent: {
+      online,
+      lastSeenAt: agentStatus?.lastSeenAt || null,
+      capabilities: Array.isArray(agentStatus?.capabilities) ? agentStatus.capabilities : [],
+    },
   };
 }
 
