@@ -225,9 +225,11 @@ export function useAutopilotRuntime({
   const [currentObsScene, setCurrentObsScene] = useState<string | null>(null);
   const [obsError, setObsError] = useState<string | null>(null);
   const [autonomyLevel, setAutonomyLevelState] = useState<AiAutonomyLevel>(() => getAiConfig().autonomyLevel);
-  const queuedOrProcessedIdsRef = useRef<Set<string>>(
-    new Set(capturedText.filter((event) => event.processedAt).map((event) => event.id)),
-  );
+  // ⚡ Bolt: Using lazy initialization pattern to prevent O(N) memory allocation and iteration on every render
+  const queuedOrProcessedIdsRef = useRef<Set<string> | null>(null);
+  if (queuedOrProcessedIdsRef.current === null) {
+    queuedOrProcessedIdsRef.current = new Set(capturedText.filter((event) => event.processedAt).map((event) => event.id));
+  }
   const pendingEventsRef = useRef<LiveEvent[]>([]);
   const roundTimerRef = useRef<number | null>(null);
   const lastSpeechAtRef = useRef(0);
@@ -320,8 +322,8 @@ export function useAutopilotRuntime({
   }, []);
 
   const enqueueEvent = useCallback((event: LiveEvent) => {
-    if (event.processedAt || queuedOrProcessedIdsRef.current.has(event.id)) return;
-    queuedOrProcessedIdsRef.current.add(event.id);
+    if (event.processedAt || queuedOrProcessedIdsRef.current!.has(event.id)) return;
+    queuedOrProcessedIdsRef.current!.add(event.id);
     lastEventAtRef.current = Date.now();
     setPendingEvents((current) => {
       const next = [...current, event].slice(-60);
