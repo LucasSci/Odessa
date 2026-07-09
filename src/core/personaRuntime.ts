@@ -8,7 +8,7 @@ import {
 import { classifyEvent } from './eventClassifier';
 import { markEventProcessed } from './eventBus';
 import { capabilityForAction } from './toolRegistry';
-import { callDirectorDecision } from './aiDecisionContract';
+import { callDirectorDecision, normalizeDirectorDecision } from './aiDecisionContract';
 import { recordChatLearning, buildChatInsightsContext } from './chatLearning';
 import { recordGiftLearning, buildGiftInsightsContext } from './giftLearning';
 import { governPersonaDecision } from './liveAutonomyGovernor';
@@ -215,36 +215,6 @@ function normalizeAction(
   return { ...action, capability: capabilityForAction(action) };
 }
 
-function normalizeDecision(raw: Partial<PersonaDecision>, fallbackText: string): PersonaDecision {
-  const actions = Array.isArray(raw.actions) ? raw.actions : [];
-  const speech = raw.speech || 'Vou acompanhar isso com cuidado na live.';
-  const normalizedActions = actions.map((action, index) => normalizeAction(action, index, 'ai'));
-  if (!normalizedActions.some((action) => action.type === 'speak')) {
-    normalizedActions.unshift(
-      normalizeAction(
-        {
-          id: 'action-speak',
-          type: 'speak',
-          label: 'Falar via TTS',
-          payload: { text: speech || fallbackText },
-          simulated: false,
-        },
-        0,
-        'ai',
-      ),
-    );
-  }
-
-  return {
-    speech,
-    intent: raw.intent || 'respond_live_event',
-    confidence: Math.max(0, Math.min(1, Number(raw.confidence ?? 0.7))),
-    reason: raw.reason || 'Decisao gerada a partir do evento atual.',
-    priority: raw.priority || 'normal',
-    actions: normalizedActions,
-  };
-}
-
 function metadataText(event: LiveEvent, key: string, fallback = '') {
   const value = event.metadata?.[key];
   if (value === undefined || value === null || value === '') return fallback;
@@ -265,6 +235,15 @@ function localAction(
     index,
     'system',
   );
+}
+
+function buildLocalChatReply(event: LiveEvent, speech: string) {
+  const user = metadataText(event, 'user', '').trim();
+  const message = metadataText(event, 'message', event.text).trim();
+  if (user) return `@${user} vi sua mensagem, obrigada por chegar junto.`;
+  if (message && message.length <= 60) return `Vi aqui: ${message}`;
+  if (speech) return 'Vi sua mensagem e ja estou acompanhando daqui.';
+  return 'Vi sua mensagem no chat.';
 }
 
 function buildLocalDecision(
@@ -392,7 +371,12 @@ function buildLocalDecision(
         type: 'chat_reply',
         label: 'Resposta no chat',
         capability: 'chat.reply',
-        payload: { message: speech, text: event.text },
+        payload: {
+          message: buildLocalChatReply(event, speech).slice(0, 140),
+          text: event.text,
+          dryRun: true,
+          fallbackSource: 'director_offline',
+        },
         simulated: true,
       }),
     );
@@ -531,7 +515,12 @@ async function requestDecision(
 
   // null = sem chave de IA → lança para o chamador usar buildLocalDecision (offline).
   if (!raw) throw new Error('Diretora offline: nenhuma chave de IA configurada');
-  return normalizeDecision(raw as unknown as Partial<PersonaDecision>, primaryEvent.text);
+  return normalizeDirectorDecision(raw, {
+    videos: options.videos,
+    scenes: options.scenes,
+    tools: options.tools.map(({ capability, label, enabled }) => ({ capability, label, enabled })),
+    fallbackText: primaryEvent.text,
+  });
 }
 
 export async function runPersonaRound(
