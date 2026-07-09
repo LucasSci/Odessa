@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { updateAutomationRule, loadAutomationRules } from './automationRules';
+import { executeAction } from './actionExecutor';
 import { loadContentItems } from './contentLibrary';
 import { clearEvents, emitEvent, getRecentEvents } from './eventBus';
 import {
@@ -11,6 +12,11 @@ import {
 } from './personaRuntime';
 import { loadToolRegistry, updateToolRegistry } from './toolRegistry';
 import { applyAutonomyToTools } from './autonomyMatrix';
+import {
+  mergeChatReplyQueue,
+  prepareChatReplyQueue,
+  updateChatReplyQueueFromAction,
+} from './chatReplyQueue';
 import { getAiConfig, saveAiConfig, type AiAutonomyLevel } from './aiConfig';
 import { apiUrl } from '../lib/api';
 import { isObsDirectAvailable, getObsStatus } from '../lib/obsWebSocket';
@@ -21,6 +27,7 @@ import type {
   AutopilotCycle,
   AutomationRule,
   CapturedMessage,
+  ChatReplyQueueItem,
   LiveEvent,
   LiveEventKind,
   PersonaDecision,
@@ -82,6 +89,7 @@ export interface AutopilotRuntimeState {
   currentRoundEvents: LiveEvent[];
   cycles: AutopilotCycle[];
   actionQueue: AutopilotAction[];
+  chatReplyQueue: ChatReplyQueueItem[];
   tools: PersonaTool[];
   rules: AutomationRule[];
   health: BackendHealth | null;
@@ -118,6 +126,10 @@ export interface AutopilotRuntimeState {
     patch: Partial<Pick<PersonaTool, 'enabled' | 'requiresApproval' | 'simulated'>>,
   ) => void;
   toggleRule: (ruleId: string, enabled: boolean) => void;
+  approveChatReply: (id: string) => void;
+  editChatReply: (id: string, text: string) => void;
+  discardChatReply: (id: string) => void;
+  sendChatReplyNow: (id: string) => Promise<void>;
   refreshHealth: () => Promise<void>;
   refreshObsScenes: () => Promise<void>;
 }
@@ -262,6 +274,7 @@ export function useAutopilotRuntime({
   const [currentRoundEvents, setCurrentRoundEvents] = useState<LiveEvent[]>([]);
   const [cycles, setCycles] = useState<AutopilotCycle[]>(() => loadAuditSession());
   const [actionQueue, setActionQueue] = useState<AutopilotAction[]>(loadInitialActions);
+  const [chatReplyQueue, setChatReplyQueue] = useState<ChatReplyQueueItem[]>([]);
   const [tools, setTools] = useState<PersonaTool[]>(() => loadToolRegistry());
   const [rules, setRules] = useState<AutomationRule[]>(() => loadAutomationRules());
   const [health, setHealth] = useState<BackendHealth | null>(null);
@@ -534,8 +547,18 @@ export function useAutopilotRuntime({
         triggers: catalogRef.current.triggers,
         scenes: obsScenesRef.current,
         localAgentReady,
+        prepareActions: (actions, decision, cycle) => {
+          const prepared = prepareChatReplyQueue(actions, cycle, decision, autonomy);
+          if (prepared.queueItems.length) {
+            setChatReplyQueue((current) => mergeChatReplyQueue(current, prepared.queueItems));
+          }
+          return prepared.executableActions;
+        },
         onUpdate: (cycle) => setCycles((current) => upsertCycle(current, cycle)),
-        onAction: (action) => setActionQueue((current) => upsertAction(current, action)),
+        onAction: (action) => {
+          setActionQueue((current) => upsertAction(current, action));
+          setChatReplyQueue((current) => updateChatReplyQueueFromAction(current, action));
+        },
       })
         .then((cycle) => {
           if (cycle.actions.some((action) => action.type === 'speak')) {
@@ -651,6 +674,7 @@ export function useAutopilotRuntime({
     setCurrentRoundEvents([]);
     setCycles([]);
     setActionQueue([]);
+    setChatReplyQueue([]);
     setLastError(null);
     lastSpeechAtRef.current = 0;
     clearEvents();
@@ -691,6 +715,134 @@ export function useAutopilotRuntime({
     setRules((current) => updateAutomationRule(current, ruleId, { enabled }));
   }, []);
 
+  const approveChatReply = useCallback((id: string) => {
+    const approvedAt = new Date().toISOString();
+    setChatReplyQueue((current) =>
+      current.map((item) =>
+        item.id === id && item.status === 'approval_required'
+          ? { ...item, status: 'queued', approvedAt, updatedAt: approvedAt, result: 'Aprovada pelo operador.' }
+          : item,
+      ),
+    );
+  }, []);
+
+  const editChatReply = useCallback((id: string, text: string) => {
+    const updatedAt = new Date().toISOString();
+    setChatReplyQueue((current) =>
+      current.map((item) =>
+        item.id === id && (item.status === 'approval_required' || item.status === 'queued')
+          ? {
+              ...item,
+              text,
+              action: {
+                ...item.action,
+                payload: { ...item.action.payload, message: text },
+              },
+              updatedAt,
+              result: 'Texto editado pelo operador.',
+            }
+          : item,
+      ),
+    );
+  }, []);
+
+  const discardChatReply = useCallback((id: string) => {
+    const updatedAt = new Date().toISOString();
+    setChatReplyQueue((current) =>
+      current.map((item) =>
+        item.id === id && item.status !== 'sent'
+          ? { ...item, status: 'blocked', result: 'Descartada pelo operador.', updatedAt }
+          : item,
+      ),
+    );
+  }, []);
+
+  const sendChatReplyNow = useCallback(
+    async (id: string) => {
+      const item = chatReplyQueue.find((entry) => entry.id === id);
+      if (!item) return;
+      const updatedAt = new Date().toISOString();
+      if (item.status === 'approval_required' && !item.approvedAt) {
+        setChatReplyQueue((current) =>
+          current.map((entry) =>
+            entry.id === id
+              ? {
+                  ...entry,
+                  status: 'approval_required',
+                  result: 'Aprove a resposta antes de enviar.',
+                  updatedAt,
+                }
+              : entry,
+          ),
+        );
+        return;
+      }
+      if (item.governorBlockedReason) {
+        setChatReplyQueue((current) =>
+          current.map((entry) =>
+            entry.id === id
+              ? {
+                  ...entry,
+                  status: 'blocked',
+                  result: `Bloqueada pelo governador: ${item.governorBlockedReason}`,
+                  updatedAt,
+                }
+              : entry,
+          ),
+        );
+        return;
+      }
+
+      const action: AutopilotAction = {
+        ...item.action,
+        payload: { ...item.action.payload, message: item.text },
+        requiresApproval: false,
+        status: 'queued',
+      };
+      const executionTools = tools.map((tool) =>
+        tool.capability === 'chat.reply'
+          ? { ...tool, requiresApproval: false, simulated: action.simulated }
+          : tool,
+      );
+      const cycleDecision =
+        cycles.find((cycle) => cycle.id === item.cycleId)?.decision ||
+        latestDecision || {
+          speech: '',
+          intent: 'chat_reply_manual_send',
+          confidence: item.confidence,
+          reason: item.reason,
+          priority: 'normal' as const,
+          actions: [action],
+        };
+
+      setChatReplyQueue((current) =>
+        current.map((entry) =>
+          entry.id === id ? { ...entry, status: 'sending', result: 'Enviando agora...', updatedAt } : entry,
+        ),
+      );
+      const result = await executeAction(action, cycleDecision, {
+        tools: executionTools,
+        voiceEnabled,
+      });
+      setActionQueue((current) => upsertAction(current, result));
+      setChatReplyQueue((current) =>
+        updateChatReplyQueueFromAction(
+          current.map((entry) =>
+            entry.id === id
+              ? {
+                  ...entry,
+                  action: result,
+                  text: String(result.payload?.message || entry.text),
+                }
+              : entry,
+          ),
+          result,
+        ),
+      );
+    },
+    [chatReplyQueue, cycles, latestDecision, tools, voiceEnabled],
+  );
+
   return {
     autopilotEnabled,
     testMode,
@@ -699,6 +851,7 @@ export function useAutopilotRuntime({
     currentRoundEvents,
     cycles,
     actionQueue,
+    chatReplyQueue,
     tools,
     rules,
     health,
@@ -732,6 +885,10 @@ export function useAutopilotRuntime({
     exportSession,
     toggleTool,
     toggleRule,
+    approveChatReply,
+    editChatReply,
+    discardChatReply,
+    sendChatReplyNow,
     refreshHealth,
     refreshObsScenes,
   };

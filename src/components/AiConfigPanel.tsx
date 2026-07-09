@@ -332,6 +332,8 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
   const [chatBridgeTestText, setChatBridgeTestText] = useState('Teste Odessa: alvo visual calibrado.');
   const [chatBridgeTestBusy, setChatBridgeTestBusy] = useState<'dry' | 'fill' | null>(null);
   const [chatBridgeLastResult, setChatBridgeLastResult] = useState<ChatAutomationSendResult | null>(null);
+  const [chatReplyDrafts, setChatReplyDrafts] = useState<Record<string, string>>({});
+  const [chatReplySendingId, setChatReplySendingId] = useState<string | null>(null);
 
   // ── Aprendizado (chat + presentes) ──────────────────────────────────────────
   const [chatInsights, setChatInsights] = useState(() => getChatInsights());
@@ -374,6 +376,31 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
           : autoChatMode !== 'real'
             ? 'Troque de Simular para Enviar real quando estiver pronto.'
             : 'Pronto para live: mantenha OCR e Diretora ligados.';
+
+  useEffect(() => {
+    setChatReplyDrafts((current) => {
+      const next = { ...current };
+      for (const item of runtime.chatReplyQueue) {
+        if (next[item.id] === undefined) next[item.id] = item.text;
+      }
+      for (const id of Object.keys(next)) {
+        if (!runtime.chatReplyQueue.some((item) => item.id === id)) delete next[id];
+      }
+      return next;
+    });
+  }, [runtime.chatReplyQueue]);
+
+  const handleSendQueuedReply = useCallback(
+    async (id: string) => {
+      setChatReplySendingId(id);
+      try {
+        await runtime.sendChatReplyNow(id);
+      } finally {
+        setChatReplySendingId(null);
+      }
+    },
+    [runtime],
+  );
 
   const refreshChatAutomation = useCallback(async () => {
     const savedTarget = { ...LIVE_CHAT_SCREENSHOT_TARGET, ...loadChatAutomationTarget(), mode: 'visual' as const };
@@ -1214,6 +1241,124 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* Fila de respostas publicas */}
+            <div className="space-y-2 rounded-xl border border-white/8 bg-[#0a0b0d] p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <MessageCircle className="h-3.5 w-3.5 text-sky-400" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                    Fila de resposta publica
+                  </span>
+                </div>
+                <span className="font-mono text-[10px] text-slate-500">
+                  {runtime.chatReplyQueue.length} item(s)
+                </span>
+              </div>
+
+              {runtime.chatReplyQueue.length === 0 ? (
+                <p className="text-[11px] text-slate-600">
+                  Nenhuma sugestao de chat na fila. Em Manual/Assistido, a proxima resposta aparece aqui antes do envio.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {runtime.chatReplyQueue
+                    .slice(-5)
+                    .reverse()
+                    .map((item) => {
+                      const draft = chatReplyDrafts[item.id] ?? item.text;
+                      const canEdit = item.status === 'approval_required' || item.status === 'queued';
+                      const canApprove = item.status === 'approval_required';
+                      const canSend =
+                        item.status === 'queued' &&
+                        !item.governorBlockedReason &&
+                        draft.trim().length > 0;
+                      const canDiscard = item.status !== 'sent' && item.status !== 'sending';
+                      const statusClass =
+                        item.status === 'sent'
+                          ? 'bg-emerald-500/10 text-emerald-300'
+                          : item.status === 'blocked' || item.status === 'error'
+                            ? 'bg-red-500/10 text-red-300'
+                            : item.status === 'approval_required'
+                              ? 'bg-amber-500/10 text-amber-300'
+                              : item.status === 'sending'
+                                ? 'bg-sky-500/10 text-sky-300'
+                                : 'bg-slate-700/30 text-slate-300';
+
+                      return (
+                        <div key={item.id} className="rounded-lg border border-white/8 bg-black/20 p-2.5">
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <span className="truncate text-[11px] text-slate-400">
+                              <span className="text-slate-600">[{item.sourceEvent.kind}]</span>{' '}
+                              {item.sourceEvent.text}
+                            </span>
+                            <span className={cn('shrink-0 rounded px-1.5 py-0.5 font-mono text-[9px]', statusClass)}>
+                              {item.status}
+                            </span>
+                          </div>
+
+                          <textarea
+                            value={draft}
+                            disabled={!canEdit}
+                            onChange={(event) =>
+                              setChatReplyDrafts((current) => ({
+                                ...current,
+                                [item.id]: event.target.value,
+                              }))
+                            }
+                            className="min-h-[58px] w-full resize-none rounded-lg border border-white/8 bg-black/30 px-2 py-1.5 text-[11px] text-slate-200 outline-none focus:border-sky-400/40 disabled:opacity-70"
+                          />
+
+                          <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-slate-500 md:grid-cols-4">
+                            <span>Conf. {Math.round(item.confidence * 100)}%</span>
+                            <span>Cooldown {Math.ceil(item.cooldownMs / 1000)}s</span>
+                            <span className="truncate">Motivo: {item.reason}</span>
+                            <span className="truncate">
+                              Resultado: {item.result || item.governorBlockedReason || 'aguardando'}
+                            </span>
+                          </div>
+
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="success"
+                              disabled={!canApprove}
+                              onClick={() => runtime.approveChatReply(item.id)}
+                            >
+                              Aprovar
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={!canEdit || draft === item.text}
+                              onClick={() => runtime.editChatReply(item.id, draft)}
+                            >
+                              Salvar edicao
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              disabled={!canSend || chatReplySendingId === item.id}
+                              loading={chatReplySendingId === item.id}
+                              onClick={() => handleSendQueuedReply(item.id)}
+                            >
+                              Enviar agora
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="danger"
+                              disabled={!canDiscard}
+                              onClick={() => runtime.discardChatReply(item.id)}
+                            >
+                              Descartar
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
             </div>
 
             {/* Feed de decisões da Diretora */}

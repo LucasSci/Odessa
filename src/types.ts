@@ -129,6 +129,34 @@ export interface AutopilotAction {
   createdAt?: string;
 }
 
+export type ChatReplyQueueStatus =
+  | 'queued'
+  | 'approval_required'
+  | 'sending'
+  | 'sent'
+  | 'blocked'
+  | 'error';
+
+export interface ChatReplyQueueItem {
+  id: string;
+  actionId: string;
+  cycleId: string;
+  sourceEvent: LiveEvent;
+  action: AutopilotAction;
+  status: ChatReplyQueueStatus;
+  text: string;
+  originalText: string;
+  reason: string;
+  confidence: number;
+  cooldownMs: number;
+  result?: string;
+  governorBlockedReason?: string;
+  approvedAt?: string;
+  sentAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PersonaDecision {
   context_analysis?: string;
   sentiment?: string;

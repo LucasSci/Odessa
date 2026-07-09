@@ -71,6 +71,11 @@ export interface PersonaRuntimeOptions {
   scenes?: string[];
   /** Se true, o agente local pode executar clique/clipboard no chat visual. */
   localAgentReady?: boolean;
+  prepareActions?: (
+    actions: AutopilotAction[],
+    decision: PersonaDecision,
+    cycle: AutopilotCycle,
+  ) => AutopilotAction[];
   onUpdate?: (cycle: AutopilotCycle) => void;
   onAction?: (action: AutopilotAction) => void;
 }
@@ -650,8 +655,17 @@ export async function runPersonaRound(
     );
     governed.logs.forEach((entry) => update({}, entry));
 
-    update({ stage: 'executando' }, 'Executando fila auditavel de acoes', 'running');
-    const executedActions = await executeActionQueue(decision.actions, decision, {
+    const executableActions = options.prepareActions
+      ? options.prepareActions(decision.actions, decision, cycle)
+      : decision.actions;
+    update(
+      { actions: executableActions, stage: 'executando' },
+      executableActions.length === decision.actions.length
+        ? 'Executando fila auditavel de acoes'
+        : `Executando fila auditavel de acoes (${decision.actions.length - executableActions.length} resposta(s) no preview do chat)`,
+      'running',
+    );
+    const executedActions = await executeActionQueue(executableActions, decision, {
       tools: options.tools,
       voiceEnabled: options.voiceEnabled,
       onAction: options.onAction,

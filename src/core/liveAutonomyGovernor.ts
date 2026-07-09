@@ -218,10 +218,10 @@ function hasVisualTargetConfigured() {
   );
 }
 
-function blockAction(action: AutopilotAction, reason: string): AutopilotAction {
+function blockAction(action: AutopilotAction, reason: string, extraPayload: Record<string, unknown> = {}): AutopilotAction {
   return {
     ...action,
-    payload: { ...action.payload, governorBlockedReason: reason },
+    payload: { ...action.payload, ...extraPayload, governorBlockedReason: reason },
     simulated: false,
   };
 }
@@ -320,7 +320,7 @@ export function governPersonaDecision(
     }
     if (cooldownRemaining > 0) {
       logs.push('Resposta no chat bloqueada: cooldown');
-      return blockAction(action, 'cooldown');
+      return blockAction(action, 'cooldown', { governorCooldownMs: cooldownRemaining });
     }
     if (recent.filter((entry) => entry.status === 'sent' || entry.status === 'dry_run').length >= config.chatReplyMaxPerMinute) {
       logs.push('Resposta no chat bloqueada: rate_limited');
