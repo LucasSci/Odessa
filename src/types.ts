@@ -124,6 +124,8 @@ export interface AutopilotAction {
     | 'blocked'
     | 'approval_required';
   result?: string;
+  executionMode?: 'simulated' | 'approval_required' | 'real';
+  chatAutomationStatus?: 'dry-run' | 'queued' | 'sent' | 'blocked' | 'error';
   source?: 'ai' | 'rule' | 'system';
   ruleId?: string;
   createdAt?: string;
@@ -204,6 +206,32 @@ export interface CycleLog {
   status: 'done' | 'running' | 'error';
 }
 
+export type AuditTimelineType =
+  | 'capture'
+  | 'classification'
+  | 'decision'
+  | 'governor'
+  | 'execution'
+  | 'chat'
+  | 'gift'
+  | 'video'
+  | 'obs'
+  | 'moderation'
+  | 'error';
+
+export interface AuditTimelineEntry {
+  id: string;
+  at: string;
+  time: string;
+  type: AuditTimelineType;
+  title: string;
+  status: 'done' | 'running' | 'blocked' | 'error' | 'queued';
+  eventId?: string;
+  actionId?: string;
+  payload?: Record<string, unknown>;
+  result?: string;
+}
+
 export interface AutopilotCycle {
   id: string;
   event: LiveEvent;
@@ -214,6 +242,7 @@ export interface AutopilotCycle {
   matchedRules: string[];
   contentUsed?: UsedContentItem[];
   memoryUsed?: string[];
+  timeline?: AuditTimelineEntry[];
   logs: CycleLog[];
   createdAt: string;
   completedAt?: string;

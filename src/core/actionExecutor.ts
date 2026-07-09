@@ -40,6 +40,7 @@ interface ChatAutomationSendResult {
   executed?: boolean;
   submit?: boolean;
   queued?: boolean;
+  commandId?: string;
   execution?: {
     ok?: boolean;
     error?: string;
@@ -257,15 +258,20 @@ export async function executeAction(
     simulated: tool?.simulated ?? action.simulated,
     requiresApproval: tool?.requiresApproval ?? action.requiresApproval,
   };
+  const baseMode: AutopilotAction['executionMode'] = base.requiresApproval
+    ? 'approval_required'
+    : base.simulated
+      ? 'simulated'
+      : 'real';
 
   if (!tool) {
-    return { ...base, status: 'blocked', result: `Ferramenta nao registrada: ${capability}` };
+    return { ...base, executionMode: baseMode, status: 'blocked', result: `Ferramenta nao registrada: ${capability}` };
   }
   if (!tool.enabled) {
-    return { ...base, status: 'blocked', result: `Ferramenta desativada: ${tool.label}` };
+    return { ...base, executionMode: baseMode, status: 'blocked', result: `Ferramenta desativada: ${tool.label}` };
   }
   if (tool.requiresApproval || action.requiresApproval) {
-    return { ...base, status: 'approval_required', result: `Aguardando aprovacao: ${tool.label}` };
+    return { ...base, executionMode: 'approval_required', status: 'approval_required', result: `Aguardando aprovacao: ${tool.label}` };
   }
 
   if (capability === 'chat.reply' && typeof base.payload?.governorBlockedReason === 'string') {
@@ -274,6 +280,8 @@ export async function executeAction(
     recordLiveAutonomyReply('blocked', reason, Date.now(), message);
     return {
       ...base,
+      executionMode: 'real',
+      chatAutomationStatus: 'blocked',
       status: 'blocked',
       simulated: false,
       result: `Resposta no chat bloqueada: ${reason}`,
@@ -287,10 +295,11 @@ export async function executeAction(
         : decision.speech;
     try {
       const result = await playTts(text, options.voiceEnabled);
-      return { ...base, status: 'done', simulated: false, result };
+      return { ...base, executionMode: 'real', status: 'done', simulated: false, result };
     } catch (err) {
       return {
         ...base,
+        executionMode: 'real',
         status: 'error',
         simulated: false,
         result: err instanceof Error ? err.message : 'Falha ao executar TTS',
@@ -301,6 +310,7 @@ export async function executeAction(
   if (capability === 'log.event') {
     return {
       ...base,
+      executionMode: 'real',
       status: 'done',
       simulated: false,
       result: `Log local: ${actionSummary(base)}`,
@@ -310,7 +320,7 @@ export async function executeAction(
   if (capability === 'media.play_video') {
     const requestedVideo = String(base.payload?.videoId || base.payload?.video || '').trim();
     if (!requestedVideo) {
-      return { ...base, status: 'blocked', result: 'Video ausente no payload da acao' };
+      return { ...base, executionMode: 'real', status: 'blocked', result: 'Video ausente no payload da acao' };
     }
 
     try {
@@ -323,6 +333,7 @@ export async function executeAction(
       if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
       return {
         ...base,
+        executionMode: 'real',
         status: 'done',
         simulated: false,
         result: `Video acionado: ${requestedVideo}`,
@@ -330,6 +341,7 @@ export async function executeAction(
     } catch (err) {
       return {
         ...base,
+        executionMode: 'real',
         status: 'error',
         simulated: false,
         result: err instanceof Error ? err.message : 'Falha ao acionar video',
@@ -342,13 +354,14 @@ export async function executeAction(
       base.payload?.sceneName || base.payload?.scene || base.payload?.requestedScene || '',
     ).trim();
     if (!requestedScene) {
-      return { ...base, status: 'blocked', result: 'Cena OBS ausente no payload da acao' };
+      return { ...base, executionMode: 'real', status: 'blocked', result: 'Cena OBS ausente no payload da acao' };
     }
 
     const readiness = await getObsSceneReadiness();
     if (readiness.error) {
       return {
         ...base,
+        executionMode: 'real',
         status: 'blocked',
         result: readiness.error,
       };
@@ -360,6 +373,7 @@ export async function executeAction(
     if (!allowedScene) {
       return {
         ...base,
+        executionMode: 'real',
         status: 'blocked',
         result: `Cena bloqueada nas configuracoes OBS: ${requestedScene}`,
       };
@@ -379,6 +393,7 @@ export async function executeAction(
       const sceneDetail = data.currentScene || data.sceneName || data.scene || allowedScene;
       return {
         ...base,
+        executionMode: 'real',
         status: 'done',
         simulated: false,
         result: `OBS WebSocket: cena alterada para ${sceneDetail}`,
@@ -386,6 +401,7 @@ export async function executeAction(
     } catch (err) {
       return {
         ...base,
+        executionMode: 'real',
         status: 'error',
         simulated: false,
         result: err instanceof Error ? err.message : 'Falha ao trocar cena no OBS',
@@ -399,6 +415,7 @@ export async function executeAction(
       if (!webhookResult.ok) {
         return {
           ...base,
+          executionMode: 'real',
           status: webhookResult.status === 'blocked' ? 'blocked' : 'error',
           simulated: false,
           result: webhookResult.error || 'Webhook nao foi executado',
@@ -406,6 +423,7 @@ export async function executeAction(
       }
       return {
         ...base,
+        executionMode: 'real',
         status: 'done',
         simulated: false,
         result:
@@ -416,6 +434,7 @@ export async function executeAction(
     } catch (err) {
       return {
         ...base,
+        executionMode: 'real',
         status: 'error',
         simulated: false,
         result: err instanceof Error ? err.message : 'Falha ao chamar webhook',
@@ -430,6 +449,8 @@ export async function executeAction(
       recordLiveAutonomyReply('blocked', 'auto_chat_disabled', Date.now(), replyText);
       return {
         ...base,
+        executionMode: 'real',
+        chatAutomationStatus: 'blocked',
         status: 'blocked',
         simulated: false,
         result: 'Resposta no chat bloqueada: auto_chat_disabled',
@@ -446,6 +467,8 @@ export async function executeAction(
         );
         return {
           ...base,
+          executionMode: 'real',
+          chatAutomationStatus: 'blocked',
           status: 'blocked',
           simulated: false,
           result:
@@ -463,6 +486,8 @@ export async function executeAction(
         );
         return {
           ...base,
+          executionMode: 'real',
+          chatAutomationStatus: 'blocked',
           status: 'blocked',
           simulated: false,
           result: `Resposta no chat bloqueada: ${chatResult.reason || chatResult.execution?.error || 'execucao pendente'}`,
@@ -476,6 +501,13 @@ export async function executeAction(
       );
       return {
         ...base,
+        executionMode: chatResult.status === 'ready' || chatResult.status === 'queued' ? 'real' : 'simulated',
+        chatAutomationStatus:
+          chatResult.status === 'ready'
+            ? 'sent'
+            : chatResult.status === 'queued'
+              ? 'queued'
+              : 'dry-run',
         status: chatResult.status === 'ready' || chatResult.status === 'queued' ? 'done' : 'simulated',
         simulated: chatResult.status !== 'ready' && chatResult.status !== 'queued',
         result:
@@ -494,6 +526,8 @@ export async function executeAction(
     } catch (err) {
       return {
         ...base,
+        executionMode: 'real',
+        chatAutomationStatus: 'error',
         status: 'error',
         simulated: false,
         result: err instanceof Error ? err.message : 'Falha ao enviar resposta no chat',
@@ -506,6 +540,7 @@ export async function executeAction(
     const simulatedResult = simulatedActionResult(base, capability);
     return {
       ...base,
+      executionMode: 'simulated',
       status: 'simulated',
       simulated: true,
       result: simulatedResult,
@@ -514,6 +549,7 @@ export async function executeAction(
 
   return {
     ...base,
+    executionMode: 'real',
     status: 'blocked',
     result: `Adaptador real ainda nao implementado: ${capability}`,
   };

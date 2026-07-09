@@ -27,6 +27,8 @@ import type {
   AutopilotAction,
   AutopilotActionType,
   AutopilotCycle,
+  AuditTimelineEntry,
+  AuditTimelineType,
   AutomationRule,
   CycleLog,
   CycleStage,
@@ -112,6 +114,44 @@ function log(label: string, status: CycleLog['status']): CycleLog {
   };
 }
 
+function auditTimeline(
+  type: AuditTimelineType,
+  title: string,
+  status: AuditTimelineEntry['status'],
+  payload?: Record<string, unknown>,
+  refs: Pick<AuditTimelineEntry, 'eventId' | 'actionId' | 'result'> = {},
+): AuditTimelineEntry {
+  const now = new Date();
+  return {
+    id: makeId('audit'),
+    at: now.toISOString(),
+    time: formatClock(now),
+    type,
+    title,
+    status,
+    payload,
+    ...refs,
+  };
+}
+
+function timelineTypeForAction(action: AutopilotAction): AuditTimelineType {
+  const capability = action.capability || capabilityForAction(action);
+  if (action.status === 'error') return 'error';
+  if (capability === 'chat.reply') return 'chat';
+  if (capability === 'gift.acknowledge') return 'gift';
+  if (capability === 'media.play_video' || capability === 'media.play_music' || capability === 'media.stop') return 'video';
+  if (capability === 'obs.switch_scene' || capability === 'obs.show_overlay') return 'obs';
+  if (capability === 'moderation.message') return 'moderation';
+  return 'execution';
+}
+
+function timelineStatusForAction(action: AutopilotAction): AuditTimelineEntry['status'] {
+  if (action.status === 'error') return 'error';
+  if (action.status === 'blocked' || action.status === 'approval_required') return 'blocked';
+  if (action.status === 'queued' || action.status === 'running' || action.status === 'n8n_dispatched') return 'queued';
+  return 'done';
+}
+
 type RuleMatches = ReturnType<typeof applyAutomationRules>;
 
 interface BackendMemoryRoundContext {
@@ -190,13 +230,27 @@ export function exportAuditSession(payload: {
   cycles: AutopilotCycle[];
   tools: PersonaTool[];
   rules: AutomationRule[];
+  chatReplyQueue?: unknown[];
   contentItems?: unknown[];
 }) {
+  const errors = payload.cycles.flatMap((cycle) => [
+    ...(cycle.error ? [{ cycleId: cycle.id, stage: cycle.stage, message: cycle.error }] : []),
+    ...cycle.actions
+      .filter((action) => action.status === 'error' || action.status === 'blocked')
+      .map((action) => ({
+        cycleId: cycle.id,
+        actionId: action.id,
+        capability: action.capability,
+        status: action.status,
+        result: action.result,
+      })),
+  ]);
   return JSON.stringify(
     {
       product: 'Odessa',
       version: 'mvp-runtime-v1',
       exportedAt: new Date().toISOString(),
+      errors,
       ...payload,
     },
     null,
@@ -577,6 +631,13 @@ export async function runPersonaRound(
         'done',
       ),
     ],
+    timeline: [
+      auditTimeline('capture', 'Eventos capturados para a rodada', 'done', {
+        count: initialEvents.length,
+        events: initialEvents,
+        primaryEventId: initialPrimary.id,
+      }),
+    ],
     createdAt: new Date().toISOString(),
   };
 
@@ -600,7 +661,25 @@ export async function runPersonaRound(
     const primaryEvent = choosePrimaryEvent(classifiedEvents);
     classifiedEvents.forEach((event) => markEventProcessed(event.id));
     update(
-      { event: primaryEvent, events: classifiedEvents, stage: 'interpretado' },
+      {
+        event: primaryEvent,
+        events: classifiedEvents,
+        stage: 'interpretado',
+        timeline: [
+          ...(cycle.timeline || []),
+          auditTimeline('classification', 'Eventos classificados', 'done', {
+            count: classifiedEvents.length,
+            primaryEvent: primaryEvent.kind,
+            events: classifiedEvents.map((event) => ({
+              id: event.id,
+              kind: event.kind,
+              source: event.source,
+              text: event.text,
+              metadata: event.metadata,
+            })),
+          }),
+        ],
+      },
       `Rodada classificada: ${classifiedEvents.length} evento(s), principal ${primaryEvent.kind}`,
     );
 
@@ -690,6 +769,34 @@ export async function runPersonaRound(
         decision,
         actions: decision.actions,
         stage: 'decidido',
+        timeline: [
+          ...(cycle.timeline || []),
+          auditTimeline('decision', 'Decisao da IA/Diretora', 'done', {
+            intent: decision.intent,
+            confidence: decision.confidence,
+            priority: decision.priority,
+            reason: decision.reason,
+            speech: decision.speech,
+            actions: decision.actions.map((action) => ({
+              id: action.id,
+              type: action.type,
+              capability: action.capability,
+              payload: action.payload,
+              simulated: action.simulated,
+              requiresApproval: action.requiresApproval,
+            })),
+          }),
+          auditTimeline('governor', 'Governador aplicado', 'done', {
+            logs: governed.logs,
+            actions: decision.actions.map((action) => ({
+              id: action.id,
+              capability: action.capability,
+              payload: action.payload,
+              simulated: action.simulated,
+              requiresApproval: action.requiresApproval,
+            })),
+          }),
+        ],
       },
       `Decisao de diretor: ${decision.intent} (${Math.round(decision.confidence * 100)}%)`,
     );
@@ -702,7 +809,27 @@ export async function runPersonaRound(
     const plannedActions = prepared.plannedActions;
     prepared.logs.forEach((entry) => update({}, entry));
     update(
-      { actions: plannedActions, stage: 'executando' },
+      {
+        actions: plannedActions,
+        stage: 'executando',
+        timeline: [
+          ...(cycle.timeline || []),
+          auditTimeline('execution', 'Fila de acoes preparada', 'running', {
+            planned: plannedActions.map((action) => ({
+              id: action.id,
+              label: action.label,
+              capability: action.capability,
+              mode: action.requiresApproval
+                ? 'approval_required'
+                : action.simulated
+                  ? 'simulated'
+                  : 'real',
+              payload: action.payload,
+            })),
+            executableActionIds: executableActions.map((action) => action.id),
+          }),
+        ],
+      },
       executableActions.length === decision.actions.length
         ? 'Executando fila auditavel de acoes'
         : `Executando fila auditavel de acoes (${decision.actions.length - executableActions.length} resposta(s) no preview do chat)`,
@@ -717,6 +844,23 @@ export async function runPersonaRound(
       cycle.logs.push(
         log(action.result || action.label, action.status === 'error' ? 'error' : 'done'),
       );
+      cycle.timeline = [
+        ...(cycle.timeline || []),
+        auditTimeline(
+          timelineTypeForAction(action),
+          action.label,
+          timelineStatusForAction(action),
+          {
+            type: action.type,
+            capability: action.capability,
+            mode: action.executionMode || (action.requiresApproval ? 'approval_required' : action.simulated ? 'simulated' : 'real'),
+            chatAutomationStatus: action.chatAutomationStatus,
+            status: action.status,
+            payload: action.payload,
+          },
+          { actionId: action.id, result: action.result },
+        ),
+      ];
     }
 
     cycle = {
@@ -730,6 +874,12 @@ export async function runPersonaRound(
       ],
       completedAt: new Date().toISOString(),
       logs: [...cycle.logs, log('Ciclo concluido e registrado', 'done')],
+      timeline: [
+        ...(cycle.timeline || []),
+        auditTimeline('execution', 'Ciclo concluido e registrado', 'done', {
+          actionCount: executedActions.length,
+        }),
+      ],
     };
 
     const currentMemory = loadMemory();
@@ -759,6 +909,13 @@ export async function runPersonaRound(
       error: err instanceof Error ? err.message : 'Erro desconhecido',
       completedAt: new Date().toISOString(),
       logs: [...cycle.logs, log(err instanceof Error ? err.message : 'Erro desconhecido', 'error')],
+      timeline: [
+        ...(cycle.timeline || []),
+        auditTimeline('error', 'Erro na rodada', 'error', {
+          stage: cycle.stage,
+          error: err instanceof Error ? err.message : 'Erro desconhecido',
+        }),
+      ],
     };
     appendAuditCycle(cycle);
     options.onUpdate?.({ ...cycle, logs: [...cycle.logs], actions: [...cycle.actions] });

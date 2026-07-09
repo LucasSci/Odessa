@@ -157,6 +157,7 @@ export interface AutopilotRuntimeState {
   editChatReply: (id: string, text: string) => void;
   discardChatReply: (id: string) => void;
   sendChatReplyNow: (id: string) => Promise<void>;
+  replayRound: (cycleId: string) => Promise<void>;
   refreshHealth: () => Promise<void>;
   refreshObsScenes: () => Promise<void>;
   refreshReadiness: () => Promise<void>;
@@ -959,6 +960,7 @@ export function useAutopilotRuntime({
       cycles,
       tools,
       rules,
+      chatReplyQueue,
       contentItems: loadContentItems(),
     });
     const blob = new Blob([json], { type: 'application/json' });
@@ -968,7 +970,7 @@ export function useAutopilotRuntime({
     link.download = `odessa-session-${new Date().toISOString().slice(0, 19).replaceAll(':', '-')}.json`;
     link.click();
     URL.revokeObjectURL(url);
-  }, [cycles, rules, tools]);
+  }, [chatReplyQueue, cycles, rules, tools]);
 
   const toggleTool = useCallback(
     (
@@ -1112,6 +1114,93 @@ export function useAutopilotRuntime({
     [chatReplyQueue, cycles, latestDecision, tools, voiceEnabled],
   );
 
+  const replayRound = useCallback(
+    async (cycleId: string) => {
+      const original = cycles.find((cycle) => cycle.id === cycleId);
+      if (!original || original.events.length === 0 || isProcessing) return;
+
+      setTestMode(true);
+      setIsProcessing(true);
+      setLastError(null);
+      const replayEvents = original.events.map((event) => ({
+        ...event,
+        id: makeId('replay-event'),
+        source: 'test' as const,
+        zoneName: 'Replay de teste',
+        createdAt: new Date().toISOString(),
+        time: formatClock(),
+        metadata: {
+          ...event.metadata,
+          replayOfCycleId: original.id,
+          replayOfEventId: event.id,
+        },
+      }));
+      setCurrentRoundEvents(replayEvents);
+
+      try {
+        const replayTools = tools.map((tool) => ({
+          ...tool,
+          simulated: true,
+          requiresApproval: false,
+        }));
+        const cycle = await runPersonaRound(replayEvents, {
+          personaPrompt: `${PERSONA_AUTOPILOT_PROMPT}\n\n[MODO REPLAY]\nEsta rodada e um replay de teste. Nao afirme execucao real; use dry-run/simulacao.`,
+          tools: replayTools,
+          rules,
+          voiceEnabled: false,
+          videos: catalogRef.current.videos,
+          triggers: catalogRef.current.triggers,
+          scenes: obsScenesRef.current,
+          localAgentReady: false,
+          prepareActions: (actions, decision, cycleDraft) => {
+            const simulatedActions = actions.map((action) => ({
+              ...action,
+              simulated: true,
+              requiresApproval: false,
+              payload: {
+                ...action.payload,
+                dryRun: true,
+                replayMode: true,
+                replayOfCycleId: original.id,
+              },
+            }));
+            const prepared = prepareChatReplyQueue(simulatedActions, cycleDraft, decision, 'auto');
+            if (prepared.queueItems.length) {
+              setChatReplyQueue((current) => mergeChatReplyQueue(current, prepared.queueItems));
+            }
+            return {
+              executableActions: prepared.executableActions,
+              plannedActions: simulatedActions,
+              logs: [`Replay de teste da rodada ${original.id}`],
+            };
+          },
+          onUpdate: (cycleUpdate) => setCycles((current) => upsertCycle(current, cycleUpdate)),
+          onAction: (action) => {
+            setActionQueue((current) => upsertAction(current, action));
+            setChatReplyQueue((current) => updateChatReplyQueueFromAction(current, action));
+          },
+        });
+        setCycles((current) => upsertCycle(current, cycle));
+        setActionQueue((current) => {
+          const cycleActionIds = new Set(cycle.actions.map((action) => action.id));
+          return [
+            ...current.filter((action) => !cycleActionIds.has(action.id)),
+            ...cycle.actions,
+          ].slice(-100);
+        });
+        if (cycle.stage === 'erro') {
+          setLastError(cycle.error || 'Erro ao reproduzir rodada');
+        }
+      } catch (err) {
+        setLastError(err instanceof Error ? err.message : 'Erro ao reproduzir rodada');
+      } finally {
+        setCurrentRoundEvents([]);
+        setIsProcessing(false);
+      }
+    },
+    [cycles, isProcessing, rules, tools],
+  );
+
   return {
     autopilotEnabled,
     testMode,
@@ -1161,6 +1250,7 @@ export function useAutopilotRuntime({
     editChatReply,
     discardChatReply,
     sendChatReplyNow,
+    replayRound,
     refreshHealth,
     refreshObsScenes,
     refreshReadiness,
