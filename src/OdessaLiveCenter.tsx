@@ -7,6 +7,7 @@ import {
   ClipboardCheck,
   Copy,
   Database,
+  Download,
   FastForward,
   Film,
   Home,
@@ -2863,30 +2864,33 @@ function auditEntriesForCycle(cycle: AutopilotCycle): AuditTimelineEntry[] {
           payload: cycle.decision as unknown as Record<string, unknown>,
         }]
       : []),
-    ...cycle.actions.map((action) => ({
-      id: `${cycle.id}-${action.id}`,
-      at: action.createdAt || createdAt,
-      time: cycle.event.time,
-      type: actionAuditType(action),
-      title: action.label,
-      status:
+    ...cycle.actions.map((action): AuditTimelineEntry => {
+      const status: AuditTimelineEntry['status'] =
         action.status === 'error'
           ? 'error'
           : action.status === 'blocked' || action.status === 'approval_required'
             ? 'blocked'
             : action.status === 'queued' || action.status === 'running'
               ? 'queued'
-              : 'done',
-      actionId: action.id,
-      payload: {
-        capability: action.capability,
-        mode: action.executionMode || (action.requiresApproval ? 'approval_required' : action.simulated ? 'simulated' : 'real'),
-        chatAutomationStatus: action.chatAutomationStatus,
-        status: action.status,
-        payload: action.payload,
-      },
-      result: action.result,
-    })),
+              : 'done';
+      return {
+        id: `${cycle.id}-${action.id}`,
+        at: action.createdAt || createdAt,
+        time: cycle.event.time,
+        type: actionAuditType(action),
+        title: action.label,
+        status,
+        actionId: action.id,
+        payload: {
+          capability: action.capability,
+          mode: action.executionMode || (action.requiresApproval ? 'approval_required' : action.simulated ? 'simulated' : 'real'),
+          chatAutomationStatus: action.chatAutomationStatus,
+          status: action.status,
+          payload: action.payload,
+        },
+        result: action.result,
+      };
+    }),
     ...(cycle.error
       ? [{
           id: `${cycle.id}-error`,

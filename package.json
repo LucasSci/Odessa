@@ -19,6 +19,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "test": "vitest",
+    "simulate:live": "node scripts/simulate-live-round.mjs",
     "test:backend": "venv\\Scripts\\python.exe -m pytest"
   },
   "dependencies": {
