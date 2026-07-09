@@ -75,7 +75,13 @@ export interface PersonaRuntimeOptions {
     actions: AutopilotAction[],
     decision: PersonaDecision,
     cycle: AutopilotCycle,
-  ) => AutopilotAction[];
+  ) =>
+    | AutopilotAction[]
+    | {
+        executableActions: AutopilotAction[];
+        plannedActions?: AutopilotAction[];
+        logs?: string[];
+      };
   onUpdate?: (cycle: AutopilotCycle) => void;
   onAction?: (action: AutopilotAction) => void;
 }
@@ -441,6 +447,19 @@ function mergeActions(ruleActions: AutopilotAction[], aiActions: AutopilotAction
   return merged;
 }
 
+function normalizePreparedActions(
+  prepared: ReturnType<NonNullable<PersonaRuntimeOptions['prepareActions']>>,
+) {
+  if (Array.isArray(prepared)) {
+    return { executableActions: prepared, plannedActions: prepared, logs: [] as string[] };
+  }
+  return {
+    executableActions: prepared.executableActions,
+    plannedActions: prepared.plannedActions || prepared.executableActions,
+    logs: prepared.logs || [],
+  };
+}
+
 import { globalMoodEngine } from './moodEngine';
 import { globalRAGMemory } from './longTermMemory';
 
@@ -655,11 +674,14 @@ export async function runPersonaRound(
     );
     governed.logs.forEach((entry) => update({}, entry));
 
-    const executableActions = options.prepareActions
-      ? options.prepareActions(decision.actions, decision, cycle)
-      : decision.actions;
+    const prepared = options.prepareActions
+      ? normalizePreparedActions(options.prepareActions(decision.actions, decision, cycle))
+      : { executableActions: decision.actions, plannedActions: decision.actions, logs: [] as string[] };
+    const executableActions = prepared.executableActions;
+    const plannedActions = prepared.plannedActions;
+    prepared.logs.forEach((entry) => update({}, entry));
     update(
-      { actions: executableActions, stage: 'executando' },
+      { actions: plannedActions, stage: 'executando' },
       executableActions.length === decision.actions.length
         ? 'Executando fila auditavel de acoes'
         : `Executando fila auditavel de acoes (${decision.actions.length - executableActions.length} resposta(s) no preview do chat)`,
@@ -679,7 +701,12 @@ export async function runPersonaRound(
     cycle = {
       ...cycle,
       stage: 'concluido' as CycleStage,
-      actions: executedActions,
+      actions: [
+        ...executedActions,
+        ...plannedActions.filter(
+          (planned) => !executedActions.some((executed) => executed.id === planned.id),
+        ),
+      ],
       completedAt: new Date().toISOString(),
       logs: [...cycle.logs, log('Ciclo concluido e registrado', 'done')],
     };

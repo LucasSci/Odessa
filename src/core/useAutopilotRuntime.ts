@@ -22,6 +22,11 @@ import {
   type LiveSupervisorSnapshot,
   type RecoveryAction,
 } from './liveReadinessSupervisor';
+import {
+  applyLiveActionPolicy,
+  eventPriorityScore,
+  selectDirectorEventBatch,
+} from './liveActionPolicy';
 import { getAiConfig, saveAiConfig, type AiAutonomyLevel } from './aiConfig';
 import { apiUrl } from '../lib/api';
 import { isObsDirectAvailable, getObsStatus } from '../lib/obsWebSocket';
@@ -256,6 +261,8 @@ export function partitionDirectorEvents(events: LiveEvent[]): LiveEvent[] {
   };
 
   return [...events].sort((a, b) => {
+    const byPriority = eventPriorityScore(b) - eventPriorityScore(a);
+    if (byPriority !== 0) return byPriority;
     const byKind = (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9);
     if (byKind !== 0) return byKind;
     return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
@@ -276,6 +283,22 @@ function loadInitialActions() {
   return loadAuditSession()
     .flatMap((cycle) => cycle.actions)
     .slice(-100);
+}
+
+function auditLogAction(label: string, result: string): AutopilotAction {
+  return {
+    id: makeId('policy'),
+    type: 'log_event',
+    label,
+    capability: 'log.event',
+    payload: { message: result },
+    simulated: false,
+    requiresApproval: false,
+    status: 'done',
+    result,
+    source: 'system',
+    createdAt: new Date().toISOString(),
+  };
 }
 
 // Sempre executam sem aprovação (não são ações "para o público").
@@ -720,11 +743,20 @@ export function useAutopilotRuntime({
     roundTimerRef.current = window.setTimeout(() => {
       roundTimerRef.current = null;
 
-      const batch = partitionDirectorEvents(pendingEventsRef.current.slice(0, MAX_EVENTS_PER_ROUND));
+      const selection = selectDirectorEventBatch(pendingEventsRef.current, {
+        now: Date.now(),
+        maxEvents: MAX_EVENTS_PER_ROUND,
+      });
+      const batch = selection.batch;
+      pendingEventsRef.current = selection.remaining;
+      setPendingEvents(selection.remaining);
+      if (selection.discarded.length) {
+        const auditActions = selection.discarded.map(({ event, reason }) =>
+          auditLogAction('Evento descartado pela politica', `${reason} ${event.kind}: ${event.text}`),
+        );
+        setActionQueue((current) => [...current, ...auditActions].slice(-100));
+      }
       if (batch.length === 0) return;
-      const remaining = pendingEventsRef.current.slice(batch.length);
-      pendingEventsRef.current = remaining;
-      setPendingEvents(remaining);
 
       setCurrentRoundEvents(batch);
       setIsProcessing(true);
@@ -760,11 +792,35 @@ export function useAutopilotRuntime({
         scenes: obsScenesRef.current,
         localAgentReady,
         prepareActions: (actions, decision, cycle) => {
-          const prepared = prepareChatReplyQueue(actions, cycle, decision, autonomy);
+          const policy = applyLiveActionPolicy(actions, {
+            events: cycle.events,
+            primaryEvent: cycle.event,
+            decision,
+            now: Date.now(),
+            video: videoMonitor,
+          });
+          const policyActions = [...policy.executableActions, ...policy.heldActions];
+          policy.logs.forEach((entry) => {
+            setActionQueue((current) =>
+              upsertAction(current, auditLogAction('Politica de acoes', entry)),
+            );
+          });
+          if (policy.heldActions.length) {
+            setActionQueue((current) =>
+              policy.heldActions.reduce((next, action) => upsertAction(next, action), current),
+            );
+          }
+          const prepared = prepareChatReplyQueue(policyActions, cycle, decision, autonomy);
           if (prepared.queueItems.length) {
             setChatReplyQueue((current) => mergeChatReplyQueue(current, prepared.queueItems));
           }
-          return prepared.executableActions;
+          const heldIds = new Set(policy.heldActions.map((action) => action.id));
+          const executableActions = prepared.executableActions.filter((action) => !heldIds.has(action.id));
+          return {
+            executableActions,
+            plannedActions: policyActions,
+            logs: policy.logs,
+          };
         },
         onUpdate: (cycle) => setCycles((current) => upsertCycle(current, cycle)),
         onAction: (action) => {
@@ -813,6 +869,7 @@ export function useAutopilotRuntime({
     tools,
     localAgentReady,
     voiceEnabled,
+    videoMonitor,
   ]);
 
   useEffect(() => {
