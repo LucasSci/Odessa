@@ -2669,10 +2669,17 @@ function ReactiveFlowLogLab({
               {capturedText.slice(-10).reverse().map((event) => (
                 <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
                   <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-[var(--t3)]">
-                    <span>{event.kind}</span>
+                    <span>{event.kind} / {event.source}</span>
                     <span>{event.time}</span>
                   </div>
                   <div className="line-clamp-2 text-sm text-slate-200">{event.text}</div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-wide text-slate-500">
+                    <span>{event.zoneName || 'sem zona'}</span>
+                    {typeof event.metadata?.confidence === 'number' && (
+                      <span>{Math.round(event.metadata.confidence * 100)}% conf.</span>
+                    )}
+                    {event.metadata?.backendIngested === true && <span>backend</span>}
+                  </div>
                 </div>
               ))}
               {!capturedText.length && <div className="text-sm text-slate-500">Nenhum evento capturado.</div>}

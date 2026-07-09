@@ -162,6 +162,54 @@ function createLiveEvent(
   };
 }
 
+function metadataString(value: unknown, fallback = '') {
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+
+function metadataConfidence(value: unknown, fallback: number) {
+  const confidence = Number(value);
+  return Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : fallback;
+}
+
+export function normalizeDirectorEvent(event: LiveEvent): LiveEvent {
+  const text = String(event.text || event.metadata?.message || event.metadata?.rawText || '').trim();
+  const fallbackMessage = text.replace(/^[^:]{1,40}:\s*/, '').trim() || text;
+  const metadata = event.metadata || {};
+  const confidenceFallback = event.source === 'ocr' ? 0.85 : 1;
+
+  return {
+    ...event,
+    source: event.source || 'ocr',
+    zoneName: event.zoneName || (event.source === 'ocr' ? 'Chat Tango' : 'Controle Live'),
+    text,
+    kind: event.kind || 'chat',
+    metadata: {
+      ...metadata,
+      ...(event.source === 'ocr' ? { platform: metadata.platform || 'tango' } : {}),
+      user: metadataString(metadata.user, metadataString(metadata.author, '')),
+      message: metadataString(metadata.message, fallbackMessage),
+      confidence: metadataConfidence(metadata.confidence, confidenceFallback),
+    },
+  };
+}
+
+export function partitionDirectorEvents(events: LiveEvent[]): LiveEvent[] {
+  const rank: Record<string, number> = {
+    moderation: 0,
+    gift: 1,
+    alert: 2,
+    scene: 3,
+    system: 4,
+    chat: 5,
+  };
+
+  return [...events].sort((a, b) => {
+    const byKind = (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9);
+    if (byKind !== 0) return byKind;
+    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+  });
+}
+
 function upsertCycle(cycles: AutopilotCycle[], cycle: AutopilotCycle) {
   const next = cycles.filter((item) => item.id !== cycle.id);
   return [...next, cycle].slice(-80);
@@ -320,11 +368,12 @@ export function useAutopilotRuntime({
   }, []);
 
   const enqueueEvent = useCallback((event: LiveEvent) => {
-    if (event.processedAt || queuedOrProcessedIdsRef.current.has(event.id)) return;
-    queuedOrProcessedIdsRef.current.add(event.id);
+    const normalizedEvent = normalizeDirectorEvent(event);
+    if (normalizedEvent.processedAt || queuedOrProcessedIdsRef.current.has(normalizedEvent.id)) return;
+    queuedOrProcessedIdsRef.current.add(normalizedEvent.id);
     lastEventAtRef.current = Date.now();
     setPendingEvents((current) => {
-      const next = [...current, event].slice(-60);
+      const next = [...current, normalizedEvent].slice(-60);
       pendingEventsRef.current = next;
       return next;
     });
@@ -421,7 +470,7 @@ export function useAutopilotRuntime({
     roundTimerRef.current = window.setTimeout(() => {
       roundTimerRef.current = null;
 
-      const batch = pendingEventsRef.current.slice(0, MAX_EVENTS_PER_ROUND);
+      const batch = partitionDirectorEvents(pendingEventsRef.current.slice(0, MAX_EVENTS_PER_ROUND));
       if (batch.length === 0) return;
       const remaining = pendingEventsRef.current.slice(batch.length);
       pendingEventsRef.current = remaining;

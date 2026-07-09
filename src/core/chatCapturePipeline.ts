@@ -10,10 +10,12 @@ export interface ChatCapturePipelineInput {
   zoneName?: string;
   confidence?: number | null;
   captureMode?: string | null;
+  backendIngested?: boolean;
   now?: Date;
   dedupe?: ChatDedupeCache;
   ownNames?: string[];
   minConfidence?: number;
+  dedupeWindowMs?: number;
 }
 
 export interface ChatCapturePipelineResult {
@@ -71,7 +73,7 @@ export function processChatCapture(input: ChatCapturePipelineInput): ChatCapture
       continue;
     }
 
-    const rowHash = hashChatRow(`${parsed.kind}:${parsed.user || ''}:${parsed.message}:${line}`);
+    const rowHash = hashChatRow(`${parsed.user || 'anon'}:${parsed.message}`);
     const dedupeResult = dedupe.check({
       kind: parsed.kind,
       user: parsed.user,
@@ -79,6 +81,10 @@ export function processChatCapture(input: ChatCapturePipelineInput): ChatCapture
       rawText: parsed.rawText,
       rowHash,
       confidence: parsed.confidence,
+    }, {
+      now: now.getTime(),
+      ttlMs: input.dedupeWindowMs,
+      minConfidence: input.minConfidence,
     });
     if (dedupeResult.duplicate) {
       discarded.push({ line, reason: dedupeResult.reason || 'duplicate' });
@@ -95,12 +101,14 @@ export function processChatCapture(input: ChatCapturePipelineInput): ChatCapture
       time: formatClock(now),
       metadata: {
         platform: 'tango',
-        user: parsed.user,
+        user: parsed.user ?? '',
         message: parsed.message,
         rawText: parsed.rawText,
         confidence: parsed.confidence,
         rowHash,
+        dedupeHash: dedupeResult.key,
         captureMode,
+        backendIngested: input.backendIngested === true,
         ...(parsed.metadata || {}),
       },
     });

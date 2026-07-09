@@ -3243,6 +3243,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
               confidence: captureEvent.confidence ?? 1,
               author: eventAuthor,
               metadata: {
+                backendIngested: Boolean(ingestResult),
                 giftName: giftKey,
                 giftKey,
                 giftValue: null,
@@ -3259,6 +3260,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 zoneName: captureEvent.zoneName,
                 confidence: captureEvent.confidence ?? 1,
                 captureMode: captureEvent.captureMode,
+                backendIngested: Boolean(ingestResult),
               });
               const emittedEvents = chatPipeline.events.map((event) =>
                 emitEvent({
@@ -3271,6 +3273,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                     triggersFired: captureEvent.triggersFired,
                     triggerName: captureEvent.triggerName,
                     triggeredVideoId: captureEvent.triggeredVideoId,
+                    backendIngested: Boolean(ingestResult),
                     giftName: event.metadata?.giftName ?? giftKey,
                     giftKey,
                     author: event.metadata?.user ?? eventAuthor,
@@ -3302,6 +3305,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 zoneId: captureEvent.zoneId,
                 zoneRole: zone.role,
                 rawText: captureEvent.rawText,
+                backendIngested: Boolean(ingestResult),
                 confidence: captureEvent.confidence,
                 latencyMs: captureEvent.latencyMs,
                 triggersFired: captureEvent.triggersFired,
