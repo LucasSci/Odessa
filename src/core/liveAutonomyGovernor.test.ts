@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { governPersonaDecision, resetLiveAutonomyGovernorHistory } from './liveAutonomyGovernor';
+import {
+  governPersonaDecision,
+  recordLiveAutonomyReply,
+  resetLiveAutonomyGovernorHistory,
+} from './liveAutonomyGovernor';
 import type { LiveEvent, PersonaDecision } from '../types';
 
 const event: LiveEvent = {
@@ -93,6 +97,110 @@ describe('liveAutonomyGovernor', () => {
       hasVisualTarget: true,
     });
     expect(result.decision.actions[0].payload.governorBlockedReason).toBe('moderation_risk');
+  });
+
+  it('blocks public replies when any event in the round is moderation', () => {
+    const result = governPersonaDecision(
+      [event, { ...event, id: 'mod', kind: 'moderation', text: 'spam detectado' }],
+      decision,
+      {
+        config,
+        hasVisualTarget: true,
+      },
+    );
+
+    expect(result.decision.actions[0].payload.governorBlockedReason).toBe('moderation_risk');
+    expect(result.logs.join('\n')).toContain('moderation_risk');
+  });
+
+  it('blocks problematic event text and unsafe public reply text', () => {
+    const problematic = governPersonaDecision(
+      [{ ...event, text: 'Bot: compre seguidores em www.fake.test', metadata: { confidence: 0.9 } }],
+      decision,
+      {
+        config,
+        hasVisualTarget: true,
+      },
+    );
+    expect(problematic.decision.actions[0].payload.governorBlockedReason).toBe('problematic_event');
+
+    const spendPressure = governPersonaDecision(
+      [event],
+      {
+        ...decision,
+        actions: [decision.actions[0]],
+        speech: 'manda presente',
+        intent: 'bad_reply',
+      },
+      {
+        config,
+        hasVisualTarget: true,
+      },
+    );
+    spendPressure.decision.actions[0].payload.message = 'manda presente agora pra bater a meta';
+    const checked = governPersonaDecision([event], spendPressure.decision, {
+      config,
+      hasVisualTarget: true,
+    });
+    expect(checked.decision.actions[0].payload.governorBlockedReason).toBe('spend_pressure');
+
+    const blockedTopic = governPersonaDecision(
+      [event],
+      {
+        ...decision,
+        actions: [{ ...decision.actions[0], payload: { message: 'me chama no whatsapp' } }],
+      },
+      {
+        config,
+        hasVisualTarget: true,
+      },
+    );
+    expect(blockedTopic.decision.actions[0].payload.governorBlockedReason).toBe(
+      'blocked_public_topic',
+    );
+  });
+
+  it('blocks semantically similar public replies across recent rounds', () => {
+    recordLiveAutonomyReply('dry_run', undefined, 1_000, 'Oi Lucas, bem-vindo ao chat!');
+
+    const result = governPersonaDecision(
+      [event],
+      {
+        ...decision,
+        actions: [{ ...decision.actions[0], payload: { message: 'Lucas, bem vindo no chat' } }],
+      },
+      {
+        config,
+        hasVisualTarget: true,
+        now: 2_000,
+      },
+    );
+
+    expect(result.decision.actions[0].payload.governorBlockedReason).toBe('semantic_duplicate');
+  });
+
+  it('deprioritizes casual chat replies when a gift is the primary event', () => {
+    const gift: LiveEvent = {
+      ...event,
+      id: 'gift',
+      kind: 'gift',
+      text: 'Ana enviou Rosa',
+      metadata: { confidence: 0.95, user: 'Ana', giftName: 'Rosa' },
+    };
+
+    const result = governPersonaDecision(
+      [event, gift],
+      {
+        ...decision,
+        actions: [{ ...decision.actions[0], payload: { message: 'Oi Lucas, tudo bem?' } }],
+      },
+      {
+        config,
+        hasVisualTarget: true,
+      },
+    );
+
+    expect(result.decision.actions[0].payload.governorBlockedReason).toBe('gift_priority');
   });
 
   it('blocks real chat replies when local agent is missing', () => {

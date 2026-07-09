@@ -270,7 +270,8 @@ export async function executeAction(
 
   if (capability === 'chat.reply' && typeof base.payload?.governorBlockedReason === 'string') {
     const reason = base.payload.governorBlockedReason;
-    recordLiveAutonomyReply('blocked', reason);
+    const message = String(base.payload?.message || base.payload?.text || '').trim();
+    recordLiveAutonomyReply('blocked', reason, Date.now(), message);
     return {
       ...base,
       status: 'blocked',
@@ -424,8 +425,9 @@ export async function executeAction(
 
   if (capability === 'chat.reply' && (base.payload?.governorAllowed === true || !base.simulated)) {
     const cfg = getAiConfig();
+    const replyText = String(base.payload?.message || base.payload?.text || '').trim();
     if (!cfg.autoChatReplyEnabled) {
-      recordLiveAutonomyReply('blocked', 'auto_chat_disabled');
+      recordLiveAutonomyReply('blocked', 'auto_chat_disabled', Date.now(), replyText);
       return {
         ...base,
         status: 'blocked',
@@ -436,7 +438,12 @@ export async function executeAction(
     try {
       const chatResult = await dispatchChatReplyAction(base);
       if (!chatResult.allowed) {
-        recordLiveAutonomyReply('blocked', chatResult.reason || chatResult.status || 'not_allowed');
+        recordLiveAutonomyReply(
+          'blocked',
+          chatResult.reason || chatResult.status || 'not_allowed',
+          Date.now(),
+          replyText,
+        );
         return {
           ...base,
           status: 'blocked',
@@ -448,7 +455,12 @@ export async function executeAction(
         };
       }
       if (chatResult.status === 'blocked') {
-        recordLiveAutonomyReply('blocked', chatResult.reason || chatResult.execution?.error || 'blocked');
+        recordLiveAutonomyReply(
+          'blocked',
+          chatResult.reason || chatResult.execution?.error || 'blocked',
+          Date.now(),
+          replyText,
+        );
         return {
           ...base,
           status: 'blocked',
@@ -456,7 +468,12 @@ export async function executeAction(
           result: `Resposta no chat bloqueada: ${chatResult.reason || chatResult.execution?.error || 'execucao pendente'}`,
         };
       }
-      recordLiveAutonomyReply(chatResult.status === 'ready' ? 'sent' : 'dry_run');
+      recordLiveAutonomyReply(
+        chatResult.status === 'ready' ? 'sent' : 'dry_run',
+        undefined,
+        Date.now(),
+        chatResult.text || replyText,
+      );
       return {
         ...base,
         status: chatResult.status === 'ready' ? 'done' : 'simulated',
