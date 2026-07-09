@@ -68,6 +68,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start-odessa.ps1 -Ba
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start-odessa.ps1 -FrontendOnly
 ```
 
+## Central de IA e chat autonomo
+
+A aba `Diretora IA` agora funciona como cockpit operacional da live. Antes de
+ligar envio real no chat, confira:
+
+- `Prontidao da Live`: Gemini, OCR, OBS, Agente Local, alvo visual e autonomia.
+- `Chat Autonomo`: modo dry-run/real, cooldown, limite por minuto e confianca minima.
+- `Acoes Pendentes`: fila publica com aprovar, editar, enviar agora e descartar.
+- CTA `Calibrar chat`: leva direto para o alvo visual usado pelo agente local.
+
+Estados visuais:
+
+- `pronto`: envio real pode operar se a Diretora estiver ligada.
+- `atencao`: falta algum ajuste, mas o cockpit ainda pode operar em modo seguro.
+- `bloqueado`: existe impedimento para envio real.
+- `simulado`: dry-run ativo; nada publico deve ser enviado.
+
+O cockpit tambem mostra a ultima resposta enviada, a ultima bloqueada e o motivo
+do bloqueio. Use isso para descobrir rapidamente onde um erro aconteceu durante
+a rodada.
+
 ## Modo simulado
 
 Para trabalhar sem chaves externas, mantenha no `.env`:
@@ -88,6 +109,28 @@ o painel deve continuar utilizavel, apenas mostrando o estado offline da conexao
 npm test -- --run
 npm run test:backend
 ```
+
+Testes recomendados para a live simulada e para o cockpit:
+
+```powershell
+npm run build
+npm test -- --run src/core/liveSimulation.test.ts src/core/liveAutonomyGovernor.test.ts src/core/chatAutomationApi.test.ts src/core/actionExecutor.test.ts src/core/chatReplyQueue.test.ts src/core/liveReadinessSupervisor.test.ts
+npm run simulate:live
+```
+
+O script `npm run simulate:live` executa o caminho:
+
+```text
+OCR fake -> evento -> decisao -> governador -> fila -> executor -> cloud-agent
+```
+
+Ele nao depende de Tango, OBS nem OCR real. Use este fluxo para reproduzir uma
+conversa com chat e detectar regressao em cooldown, duplicidade, baixa confianca
+de OCR e envio sem alvo visual.
+
+Relatorio detalhado das alteracoes recentes:
+
+- `docs/ai-live-operations-report.md`
 
 Se o backend ainda nao estiver preparado, rode o setup primeiro. Artefatos locais
 como `.env`, `venv`, `server/runtime` e modelos `*.traineddata` nao entram no Git.
