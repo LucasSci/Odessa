@@ -135,3 +135,25 @@ npm run simulate:live
 - A pasta `.codex/` segue local e nao foi versionada.
 - A checagem visual automatizada por Playwright nao foi usada neste relatorio porque o projeto nao declara Playwright nas dependencias locais.
 - O estado publicado no GitHub esta na branch `main`.
+
+## Atualizacao de ergonomia da Diretoria
+
+Data da atualizacao: 2026-07-09
+
+A Diretoria foi simplificada para ficar focada em configuracao de IA e memoria.
+A calibracao fisica do chat saiu da Diretoria e passou para `Fontes / OCR`, onde
+ja ficam as zonas de captura, fonte OBS/janela/link direto e diagnosticos de OCR.
+
+Mudancas de uso:
+
+- `Diretoria IA`: chave/provedor, personalidade, politica de resposta publica,
+  autonomia, memoria, aprendizado e teste manual.
+- `Fontes / OCR`: captura do chat, `inputPoint`, `sendPoint`, viewport, dry-run
+  visual e teste de digitar sem enviar.
+- A fila de respostas publicas ficou recolhida na Diretoria e abre
+  automaticamente quando existem pendencias.
+- A matriz tecnica de permissoes ficou recolhida para reduzir ruido visual.
+- O painel de conversas 1:1 deixou de ocupar a aba `Diretoria IA`, que agora
+  abre diretamente na configuracao de IA e memoria.
+- O historico detalhado de decisoes permanece na timeline/auditoria da live,
+  evitando duplicidade visual dentro da Diretoria.

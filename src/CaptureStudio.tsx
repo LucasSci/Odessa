@@ -31,6 +31,7 @@ import { processChatCapture } from './core/chatCapturePipeline';
 import { type GiftCatalogEntry, loadGiftCatalog, saveGiftCatalog } from './core/giftCatalog';
 import { apiUrl, API_BASE_URL } from './lib/api';
 import { cn } from './lib/utils';
+import { ChatVisualTargetPanel } from './components/ChatVisualTargetPanel';
 import type { CapturedMessage, LiveEventKind } from './types';
 
 interface CaptureStudioProps {
@@ -4499,6 +4500,8 @@ const CaptureStudio = React.memo(function CaptureStudio({
 
         <aside className="border-t border-[var(--odessa-border)] bg-[var(--odessa-surface)] xl:overflow-y-auto xl:border-l xl:border-t-0">
           <div className="space-y-4 p-4">
+            <ChatVisualTargetPanel />
+
             <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>

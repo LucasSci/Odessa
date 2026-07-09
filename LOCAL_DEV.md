@@ -68,15 +68,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start-odessa.ps1 -Ba
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start-odessa.ps1 -FrontendOnly
 ```
 
-## Central de IA e chat autonomo
+## Diretoria IA, memoria e captura do chat
 
-A aba `Diretora IA` agora funciona como cockpit operacional da live. Antes de
-ligar envio real no chat, confira:
+A aba `Diretoria IA` agora e focada em configurar a IA e a memoria:
 
-- `Prontidao da Live`: Gemini, OCR, OBS, Agente Local, alvo visual e autonomia.
-- `Chat Autonomo`: modo dry-run/real, cooldown, limite por minuto e confianca minima.
-- `Acoes Pendentes`: fila publica com aprovar, editar, enviar agora e descartar.
-- CTA `Calibrar chat`: leva direto para o alvo visual usado pelo agente local.
+- `Cerebro`: provedor, chave Gemini, ponte da IA e status de conexao.
+- `Politica da IA no chat`: dry-run/real, cooldown, limite por minuto e confianca minima.
+- `Aprendizado`: memoria de chat, usuarios recorrentes e presentes aprendidos.
+- `Teste manual`: simula uma mensagem do chat e mostra a decisao antes da live.
+
+A parte fisica do chat fica em `Fontes / OCR`:
+
+- zonas de captura do OCR;
+- source OBS/janela/link direto;
+- `Alvo visual do chat`, com inputPoint, sendPoint, viewport, dry-run e teste de digitar sem enviar.
+
+Na Diretoria, use `Abrir OCR do chat` quando precisar calibrar a captura ou o
+alvo visual usado pelo agente local.
 
 Estados visuais:
 
@@ -85,9 +93,10 @@ Estados visuais:
 - `bloqueado`: existe impedimento para envio real.
 - `simulado`: dry-run ativo; nada publico deve ser enviado.
 
-O cockpit tambem mostra a ultima resposta enviada, a ultima bloqueada e o motivo
-do bloqueio. Use isso para descobrir rapidamente onde um erro aconteceu durante
-a rodada.
+Os detalhes de auditoria e replay continuam na timeline da live. A Diretoria
+mantem apenas a configuracao e uma fila recolhida de respostas publicas quando
+existirem pendencias. A matriz tecnica de permissoes tambem fica recolhida por
+padrao para manter a tela mais limpa.
 
 ## Modo simulado
 

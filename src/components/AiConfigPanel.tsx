@@ -10,8 +10,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { MouseEvent } from 'react';
-import { Brain, Zap, Key, Sliders, FlaskConical, CheckCircle, XCircle, AlertCircle, Loader2, Eye, EyeOff, RotateCcw, Bot, Activity, Pause, Radio, Sparkles, Gift, MessageCircle, Trash2, Film, Clock, MapPin, RefreshCw, Save, ShieldCheck } from 'lucide-react';
+import { Brain, Zap, Key, Sliders, FlaskConical, CheckCircle, XCircle, AlertCircle, Loader2, Eye, EyeOff, RotateCcw, Bot, Activity, Pause, Radio, Sparkles, Gift, MessageCircle, Trash2, Film, Clock, RefreshCw, ShieldCheck } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Badge, Button, Input, StatusDot } from './ui';
 import { AiDecisionPanel } from './AiDecisionPanel';
@@ -57,11 +56,7 @@ import {
   getChatAutomationConfig,
   loadChatAutomationTarget,
   saveChatAutomationConfig,
-  saveChatAutomationTarget,
-  sendChatAutomationMessage,
   validateChatAutomationTarget,
-  type ChatAutomationAllowEntry,
-  type ChatAutomationSendResult,
   type ChatAutomationTarget,
 } from '../lib/chatAutomation';
 import {
@@ -80,6 +75,7 @@ interface AiConfigPanelProps {
   videos: Array<{ id: string; label?: string; name?: string; title?: string }>;
   triggers: Array<{ id: string; name?: string; label?: string; enabled?: boolean }>;
   runtime: AutopilotRuntimeState;
+  onOpenCapture?: () => void;
 }
 
 // Tipos de evento selecionáveis no perfil de reação.
@@ -163,14 +159,6 @@ function isVisualTargetReady(target: ChatAutomationTarget) {
       typeof target.viewport.width === 'number' &&
       typeof target.viewport.height === 'number',
   );
-}
-
-function pixelFromPoint(target: ChatAutomationTarget, point = target.inputPoint) {
-  if (!point || !target.viewport) return null;
-  return {
-    x: Math.round(point.x * target.viewport.width),
-    y: Math.round(point.y * target.viewport.height),
-  };
 }
 
 function visualTargetErrors(target: ChatAutomationTarget, allowlistReady = true) {
@@ -314,7 +302,7 @@ const AUTONOMY_INFO: Record<AiAutonomyLevel, { label: string; desc: string }> = 
   auto: { label: 'Autônomo', desc: 'A Diretora conduz tudo sozinha dentro do que está habilitado.' },
 };
 
-export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps) {
+export function AiConfigPanel({ videos, triggers, runtime, onOpenCapture }: AiConfigPanelProps) {
   const cfg = getAiConfig();
 
   // ── Status section ─────────────────────────────────────────────────────────
@@ -366,15 +354,9 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
   }));
   const [chatBridgeStatus, setChatBridgeStatus] = useState<'unknown' | 'ready' | 'blocked' | 'saving'>('unknown');
   const [chatBridgeMessage, setChatBridgeMessage] = useState('Pendente');
-  const [chatAutomationLogs, setChatAutomationLogs] = useState<Array<Record<string, unknown>>>([]);
   const [autoChatSaved, setAutoChatSaved] = useState(false);
-  const [calibrationPoint, setCalibrationPoint] = useState<'input' | 'send'>('input');
-  const [chatBridgeTestText, setChatBridgeTestText] = useState('Teste Odessa: alvo visual calibrado.');
-  const [chatBridgeTestBusy, setChatBridgeTestBusy] = useState<'dry' | 'fill' | null>(null);
-  const [chatBridgeLastResult, setChatBridgeLastResult] = useState<ChatAutomationSendResult | null>(null);
   const [chatReplyDrafts, setChatReplyDrafts] = useState<Record<string, string>>({});
   const [chatReplySendingId, setChatReplySendingId] = useState<string | null>(null);
-  const chatCalibrationRef = useRef<HTMLDivElement | null>(null);
 
   // ── Aprendizado (chat + presentes) ──────────────────────────────────────────
   const [chatInsights, setChatInsights] = useState(() => getChatInsights());
@@ -391,9 +373,6 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
   const geminiReady = hasActiveGeminiKey() && currentProvider !== 'mock';
   const chatReplyTool = runtime.tools.find((tool) => tool.capability === 'chat.reply');
   const visualTargetReady = isVisualTargetReady(chatTarget) && chatBridgeStatus === 'ready';
-  const inputPixel = pixelFromPoint(chatTarget, chatTarget.inputPoint);
-  const sendPixel = pixelFromPoint(chatTarget, chatTarget.sendPoint);
-  const visualErrors = visualTargetErrors(chatTarget, chatBridgeStatus === 'ready');
   const autonomyPolicies = buildAutonomyToolPolicies(runtime.tools, runtime.autonomyLevel, {
     autoChatEnabled,
     chatRealRequested: autoChatMode === 'real',
@@ -408,7 +387,6 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
     runtime.localAgentReady &&
     runtime.autonomyLevel === 'auto';
   const ocrCheck = runtime.readiness.checklist.find((item) => item.id === 'ocr');
-  const obsCheck = runtime.readiness.checklist.find((item) => item.id === 'obs');
   const chatCheck = runtime.readiness.checklist.find((item) => item.id === 'chat');
   const cockpitState: 'ready' | 'attention' | 'blocked' | 'simulated' =
     autoChatMode === 'dry_run'
@@ -426,36 +404,6 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
         : cockpitState === 'blocked'
           ? 'Bloqueado'
           : 'Atencao';
-  const pendingPublicReplies = runtime.chatReplyQueue.filter((item) =>
-    item.status === 'approval_required' || item.status === 'queued' || item.status === 'sending',
-  );
-  const lastSentReply = [...runtime.chatReplyQueue]
-    .reverse()
-    .find((item) => item.status === 'sent');
-  const lastBlockedReply =
-    [...runtime.chatReplyQueue].reverse().find((item) => item.status === 'blocked' || item.status === 'error') ||
-    chatAutomationLogs
-      .map((entry) => {
-        const result = entry.result as Record<string, unknown> | undefined;
-        const status = String(result?.status || '');
-        if (status !== 'blocked' && status !== 'failed' && status !== 'error') return null;
-        return {
-          text: String(entry.text || ''),
-          reason: String(result?.reason || result?.error || status),
-        };
-      })
-      .find(Boolean);
-  const lastBlockedSummary = lastBlockedReply
-    ? 'sourceEvent' in lastBlockedReply
-      ? {
-          text: lastBlockedReply.text,
-          reason:
-            lastBlockedReply.governorBlockedReason ||
-            lastBlockedReply.result ||
-            lastBlockedReply.status,
-        }
-      : lastBlockedReply
-    : null;
   const nextSetupAction = !geminiReady
     ? 'Cole uma chave Gemini ou configure VITE_GEMINI_API_KEY.'
     : !visualTargetReady
@@ -499,8 +447,7 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
     const savedTarget = { ...LIVE_CHAT_SCREENSHOT_TARGET, ...loadChatAutomationTarget(), mode: 'visual' as const };
     setChatTarget(savedTarget);
     try {
-      const config = await getChatAutomationConfig();
-      setChatAutomationLogs(config.logs.slice(-8).reverse());
+      await getChatAutomationConfig();
       const localErrors = visualTargetErrors(savedTarget);
       if (localErrors.length > 0) {
         setChatBridgeStatus('unknown');
@@ -523,9 +470,6 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
       setGiftStats(getGiftLearning());
       setUserMemories(getUserProfileList(loadUserProfiles()).slice(0, 12));
       setVideoPresets(loadVideoPresets());
-      void getChatAutomationConfig()
-        .then((config) => setChatAutomationLogs(config.logs.slice(-8).reverse()))
-        .catch(() => undefined);
     };
     refresh();
     void refreshChatAutomation();
@@ -533,22 +477,9 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
     return () => window.clearInterval(timer);
   }, [refreshChatAutomation]);
 
-  const handleSaveAutoChat = useCallback(async () => {
+  const handleSaveAutoChatPolicy = useCallback(async () => {
     setChatBridgeStatus('saving');
-    setChatBridgeMessage('Salvando...');
-    const normalized: ChatAutomationTarget = {
-      ...chatTarget,
-      mode: 'visual',
-      url: chatTarget.url || LIVE_CHAT_SCREENSHOT_TARGET.url,
-      inputSelector: '',
-      sendSelector: '',
-    };
-    const localErrors = visualTargetErrors(normalized);
-    if (localErrors.length > 0) {
-      setChatBridgeStatus('blocked');
-      setChatBridgeMessage(localErrors[0]);
-      return;
-    }
+    setChatBridgeMessage('Salvando politica...');
     saveAiConfig({
       autoChatReplyEnabled: autoChatEnabled,
       autoChatReplyMode: autoChatMode,
@@ -557,34 +488,21 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
       chatReplyMinConfidence: autoChatMinConfidence,
     });
     try {
-      const config = await getChatAutomationConfig().catch(() => ({ allowlist: [], logs: [] }));
-      const entry: ChatAutomationAllowEntry = {
-        id: 'tango-live-chat',
-        label: 'Tango live chat',
-        mode: 'visual',
-        domain: 'visual:tango-live',
-        urlPattern: '.*',
-        inputSelector: 'visual-point',
-        sendSelector: '',
-        inputPoint: normalized.inputPoint,
-        sendPoint: normalized.sendPoint,
-        viewport: normalized.viewport,
-        submitWithEnter: true,
-        typingDelayMs: 25,
-        maxPerMinute: autoChatMaxPerMinute,
-        enabled: true,
-      };
-      await saveChatAutomationConfig([
-        entry,
-        ...config.allowlist.filter((item) => item.id !== entry.id),
-      ]);
-      saveChatAutomationTarget(normalized);
+      const config = await getChatAutomationConfig();
+      const allowlist = config.allowlist.map((item) =>
+        item.id === 'tango-live-chat'
+          ? { ...item, maxPerMinute: autoChatMaxPerMinute }
+          : item,
+      );
+      if (allowlist.some((item) => item.id === 'tango-live-chat')) {
+        await saveChatAutomationConfig(allowlist);
+      }
       setAutoChatSaved(true);
       await refreshChatAutomation();
       window.setTimeout(() => setAutoChatSaved(false), 1800);
     } catch (err) {
-      setChatBridgeStatus('blocked');
-      setChatBridgeMessage(err instanceof Error ? err.message : 'Falha ao salvar chat autonomo');
+      setChatBridgeStatus(visualTargetReady ? 'ready' : 'unknown');
+      setChatBridgeMessage(err instanceof Error ? err.message : 'Politica salva localmente; alvo visual nao foi revalidado.');
     }
   }, [
     autoChatCooldownSec,
@@ -592,72 +510,9 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
     autoChatMaxPerMinute,
     autoChatMinConfidence,
     autoChatMode,
-    chatTarget,
     refreshChatAutomation,
+    visualTargetReady,
   ]);
-
-  const handlePreviewClick = useCallback((event: MouseEvent<HTMLButtonElement>) => {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const point = {
-      x: Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)),
-      y: Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height)),
-    };
-    setChatTarget((current) => ({
-      ...current,
-      mode: 'visual',
-      url: current.url || LIVE_CHAT_SCREENSHOT_TARGET.url,
-      inputSelector: '',
-      sendSelector: '',
-      [calibrationPoint === 'send' ? 'sendPoint' : 'inputPoint']: point,
-    }));
-    setChatBridgeStatus('unknown');
-    setChatBridgeMessage(calibrationPoint === 'send' ? 'Ponto de envio capturado. Salve para validar.' : 'Ponto de entrada capturado. Salve para validar.');
-  }, [calibrationPoint]);
-
-  const handleChatBridgeTest = useCallback(async (mode: 'dry' | 'fill') => {
-    const text = chatBridgeTestText.trim();
-    if (!text) {
-      setChatBridgeStatus('blocked');
-      setChatBridgeMessage('Texto de teste ausente.');
-      return;
-    }
-    const localErrors = visualTargetErrors(chatTarget, chatBridgeStatus === 'ready');
-    if (localErrors.length > 0) {
-      setChatBridgeStatus('blocked');
-      setChatBridgeMessage(localErrors[0]);
-      return;
-    }
-    setChatBridgeTestBusy(mode);
-    setChatBridgeLastResult(null);
-    try {
-      const result = await sendChatAutomationMessage({
-        mode: 'visual',
-        url: chatTarget.url || LIVE_CHAT_SCREENSHOT_TARGET.url,
-        inputSelector: '',
-        inputPoint: chatTarget.inputPoint,
-        sendPoint: chatTarget.sendPoint,
-        viewport: chatTarget.viewport,
-        text,
-        dryRun: mode === 'dry',
-        submit: false,
-      });
-      setChatBridgeLastResult(result);
-      const ok = result.allowed && result.status !== 'blocked';
-      setChatBridgeStatus(ok ? 'ready' : 'blocked');
-      if (mode === 'dry' && ok) {
-        setChatBridgeMessage('Dry-run validado: texto, ponto clicado e envio planejado conferidos.');
-      } else if (ok && result.queued) {
-        setChatBridgeMessage('Digitacao enfileirada sem enviar. O agente vai clicar e colar sem Enter.');
-      } else {
-        setChatBridgeMessage(result.reason || result.execution?.error || 'Teste bloqueado');
-      }
-    } catch (err) {
-      setChatBridgeStatus('blocked');
-      setChatBridgeMessage(err instanceof Error ? err.message : 'Falha no teste do alvo visual');
-    } finally {
-      setChatBridgeTestBusy(null);
-    }
-  }, [chatBridgeStatus, chatBridgeTestText, chatTarget]);
 
   const handleSummarizeLearning = useCallback(async () => {
     setSummarizing(true);
@@ -832,10 +687,10 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
           Odessa console
         </div>
         <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-white">
-          Central de IA
+          Diretoria IA
         </h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-400">
-          Configure a chave da API, personalidade e parâmetros da IA. Teste em tempo real antes de ir ao ar.
+          Configure o cerebro, a personalidade, a politica de resposta e a memoria da Odessa. A captura fisica do chat fica em Fontes / OCR.
         </p>
       </div>
 
@@ -844,50 +699,52 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
           <OperationalStateBadge state={cockpitState} label={cockpitLabel} />
           <Button
             size="sm"
-            variant="secondary"
-            onClick={() => chatCalibrationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
-          >
-            <MapPin className="h-3.5 w-3.5" />
-            Calibrar chat
-          </Button>
-          <Button
-            size="sm"
             variant={runtime.autopilotEnabled ? 'danger' : 'primary'}
             onClick={() => (runtime.autopilotEnabled ? runtime.pause() : runtime.start())}
           >
             {runtime.autopilotEnabled ? <Pause className="h-3.5 w-3.5" /> : <Activity className="h-3.5 w-3.5" />}
             {runtime.autopilotEnabled ? 'Pausar Diretora' : 'Iniciar dry-run'}
           </Button>
+          {onOpenCapture && (
+            <Button size="sm" variant="secondary" onClick={onOpenCapture}>
+              <MessageCircle className="h-3.5 w-3.5" />
+              Abrir OCR do chat
+            </Button>
+          )}
           <span className="ml-auto text-xs text-slate-500">
-            {pendingPublicReplies.length} resposta(s) publica(s) pendente(s)
+            {runtime.autopilotEnabled ? 'Diretora observando eventos da live.' : 'Configure e teste antes de ir ao ar.'}
           </span>
         </div>
-        <div className="mt-3 grid gap-2 md:grid-cols-3">
+        <div className="mt-3 grid gap-2 md:grid-cols-4">
           <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
-            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Ultima enviada</div>
-            <div className="mt-1 line-clamp-2 text-sm text-slate-200">
-              {lastSentReply?.text || 'Nenhuma resposta enviada ainda.'}
-            </div>
-          </div>
-          <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
-            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Ultima bloqueada</div>
-            <div className="mt-1 line-clamp-2 text-sm text-slate-200">
-              {lastBlockedSummary
-                ? lastBlockedSummary.text
-                : 'Nenhum bloqueio registrado.'}
-            </div>
-            {lastBlockedSummary && (
-              <div className="mt-1 truncate text-xs text-red-300">
-                Motivo: {lastBlockedSummary.reason}
-              </div>
-            )}
-          </div>
-          <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
-            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Modo do chat</div>
+            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Cerebro</div>
             <div className="mt-1 text-sm font-semibold text-white">
-              {autoChatMode === 'real' ? 'Envio real selecionado' : 'Dry-run seguro'}
+              {geminiReady ? 'Gemini pronto' : currentProvider === 'mock' ? 'Mock ativo' : 'Sem chave'}
             </div>
-            <div className="mt-1 text-xs text-slate-500">{nextSetupAction}</div>
+            <div className="mt-1 line-clamp-2 text-xs text-slate-500">{statusInfo.sublabel}</div>
+          </div>
+          <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Memoria</div>
+            <div className="mt-1 text-sm font-semibold text-white">
+              {chatInsights.totalMessages} msgs / {userMemories.length} perfis
+            </div>
+            <div className="mt-1 text-xs text-slate-500">{giftStats.length} presentes aprendidos</div>
+          </div>
+          <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Chat publico</div>
+            <div className="mt-1 text-sm font-semibold text-white">
+              {autoChatEnabled ? (autoChatMode === 'real' ? 'Envio real selecionado' : 'Dry-run seguro') : 'Desligado'}
+            </div>
+            <div className="mt-1 text-xs text-slate-500">
+              {autoChatCooldownSec}s cooldown / {autoChatMaxPerMinute} por min
+            </div>
+          </div>
+          <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Ambiente visual</div>
+            <div className="mt-1 text-sm font-semibold text-white">
+              {visualTargetReady ? 'Alvo validado' : 'Configurar em OCR'}
+            </div>
+            <div className="mt-1 line-clamp-2 text-xs text-slate-500">{chatBridgeMessage}</div>
           </div>
         </div>
       </div>
@@ -941,92 +798,59 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
             )}
           </SectionCard>
 
-          {/* ── Diretora ao vivo (cockpit) ────────────────────────────────── */}
-          <SectionCard icon={<ShieldCheck className="h-4 w-4" />} title="Prontidao da Live" className="lg:col-span-2">
-            <div className="rounded-xl border border-sky-400/20 bg-sky-500/8 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-sky-100">
-                    Checklist unico de prontidao da live
-                  </p>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-400">
-                    {runtime.readiness.summary}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant={runtime.readiness.readyToStart ? 'success' : runtime.readiness.state === 'blocked' ? 'danger' : 'warning'}>
-                    {runtime.readiness.state}
-                  </Badge>
-                  <Button variant="secondary" size="sm" onClick={() => void runtime.refreshReadiness()}>
-                    <RefreshCw className="h-3 w-3" />
-                    Atualizar
-                  </Button>
-                </div>
+          {/* ── Saude do ambiente usado pela IA ───────────────────────────── */}
+          <SectionCard icon={<ShieldCheck className="h-4 w-4" />} title="Ambiente da IA" className="lg:col-span-2">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-400/20 bg-sky-500/8 p-4">
+              <div>
+                <p className="text-sm font-semibold text-sky-100">Sinais que a Diretoria usa para decidir</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-400">{runtime.readiness.summary}</p>
               </div>
-              <p className="mt-3 rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-[11px] text-sky-200">
-                Proximo passo: {runtime.readiness.diagnostics[0] || nextSetupAction}
-              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={runtime.readiness.readyToStart ? 'success' : runtime.readiness.state === 'blocked' ? 'danger' : 'warning'}>
+                  {runtime.readiness.state}
+                </Badge>
+                <Button variant="secondary" size="sm" onClick={() => void runtime.refreshReadiness()}>
+                  <RefreshCw className="h-3 w-3" />
+                  Atualizar
+                </Button>
+                {onOpenCapture && (
+                  <Button variant="secondary" size="sm" onClick={onOpenCapture}>
+                    <MessageCircle className="h-3 w-3" />
+                    Ajustar OCR/chat
+                  </Button>
+                )}
+              </div>
             </div>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              {runtime.readiness.checklist.map((item) => (
-                <ReadinessItem
-                  key={item.id}
-                  status={item.state === 'healthy' ? 'ready' : item.state === 'blocked' ? 'blocked' : 'warning'}
-                  title={item.label}
-                  detail={item.detail}
-                  action={item.suggestedAction}
-                />
-              ))}
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
               <ReadinessItem
                 status={geminiReady ? 'ready' : 'blocked'}
-                title="1. Gemini"
-                detail={geminiReady ? 'IA generativa do Google disponivel.' : 'Sem chave ativa ou provedor em mock.'}
-                action={!geminiReady ? 'Configure a chave na secao Chave da API.' : undefined}
+                title="Gemini"
+                detail={geminiReady ? 'IA generativa disponivel.' : 'Sem chave ativa ou provedor em mock.'}
+                action={!geminiReady ? 'Configure a chave da API nesta tela.' : undefined}
               />
               <ReadinessItem
                 status={ocrCheck?.state === 'healthy' ? 'ready' : ocrCheck?.state === 'blocked' ? 'blocked' : 'warning'}
-                title="2. OCR do chat"
-                detail={ocrCheck?.detail || 'A zona de captura precisa ler as linhas do chat Tango.'}
-                action={ocrCheck?.suggestedAction || 'Em Fontes / OCR, use uma zona de chat chamada Chat Tango.'}
-              />
-              <ReadinessItem
-                status={obsCheck?.state === 'healthy' ? 'ready' : obsCheck?.state === 'blocked' ? 'blocked' : 'warning'}
-                title="3. OBS"
-                detail={obsCheck?.detail || 'OBS ainda nao confirmado.'}
-                action={obsCheck?.suggestedAction}
-              />
-              <ReadinessItem
-                status={runtime.localAgentReady ? 'ready' : 'blocked'}
-                title="4. Agente local"
-                detail={runtime.localAgentReady ? runtime.localAgentMessage : 'Agente local precisa estar online para clique/clipboard real.'}
-                action={!runtime.localAgentReady ? 'Inicie o agente local antes de liberar envio real.' : undefined}
+                title="OCR do chat"
+                detail={ocrCheck?.detail || 'A zona Chat Tango alimenta a memoria e as respostas.'}
+                action={ocrCheck?.suggestedAction || 'Configure em Fontes / OCR.'}
               />
               <ReadinessItem
                 status={visualTargetReady ? 'ready' : 'blocked'}
-                title="5. Alvo visual"
-                detail={visualTargetReady ? 'Ponto visual e viewport validados.' : chatCheck?.detail || 'Falta validar inputPoint e viewport do chat.'}
-                action={!visualTargetReady ? 'Clique em Calibrar chat e salve o alvo visual.' : undefined}
+                title="Alvo visual"
+                detail={visualTargetReady ? 'Campo de chat validado em Fontes / OCR.' : chatCheck?.detail || 'Falta calibrar inputPoint e viewport.'}
+                action={!visualTargetReady ? 'Abra Fontes / OCR e salve o alvo visual do chat.' : undefined}
               />
               <ReadinessItem
-                status={realSendReady ? 'ready' : autoChatMode === 'dry_run' ? 'warning' : 'blocked'}
-                title="6. Autonomia"
-                detail={
-                  autoChatMode === 'dry_run'
-                    ? 'Modo simulado: dry-run, sem envio publico.'
-                    : runtime.autonomyLevel === 'auto'
-                      ? 'Modo real liberado pela autonomia.'
-                      : 'Modo real requer autonomia Autonomo.'
-                }
-                action={autoChatMode === 'dry_run' ? 'Troque para Enviar real apenas depois dos testes.' : undefined}
+                status={runtime.localAgentReady ? 'ready' : autoChatMode === 'dry_run' ? 'warning' : 'blocked'}
+                title="Agente local"
+                detail={runtime.localAgentReady ? runtime.localAgentMessage : 'Necessario apenas para clique/clipboard real.'}
+                action={!runtime.localAgentReady && autoChatMode === 'real' ? 'Inicie o agente local antes de liberar envio real.' : undefined}
               />
             </div>
           </SectionCard>
 
-          <SectionCard icon={<Bot className="h-4 w-4" />} title="Chat Autonomo" className="lg:col-span-2">
+          <SectionCard icon={<Bot className="h-4 w-4" />} title="Politica da IA no chat" className="lg:col-span-2">
             {/* Estado + controle */}
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/8 bg-[#0a0b0d] p-3">
               <div className="flex items-center gap-2">
@@ -1091,16 +915,16 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
               <p className="text-[11px] text-slate-600">{AUTONOMY_INFO[runtime.autonomyLevel].desc}</p>
             </div>
 
-            <div className="space-y-3 rounded-xl border border-white/8 bg-[#0a0b0d] p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
+            <details className="rounded-xl border border-white/8 bg-[#0a0b0d] p-3">
+              <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                  Matriz de permissões da próxima rodada
+                  Matriz de permissoes da proxima rodada
                 </span>
                 <span className="text-[10px] text-slate-600">
                   {runtime.localAgentReady ? runtime.localAgentMessage : 'Agente local offline para chat real'}
                 </span>
-              </div>
-              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              </summary>
+              <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                 {autonomyPolicies.map((policy) => {
                   const style = TOOL_STATUS_STYLE[policy.status];
                   return (
@@ -1118,14 +942,14 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                   );
                 })}
               </div>
-            </div>
+            </details>
 
             <div className="space-y-3 rounded-xl border border-white/8 bg-[#0a0b0d] p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <MessageCircle className="h-3.5 w-3.5 text-sky-400" />
                   <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                    Chat autonomo: dry-run, limites e alvo visual
+                    Resposta publica: modo, limites e confianca
                   </span>
                   <Badge variant={chatBridgeStatus === 'ready' ? 'success' : chatBridgeStatus === 'blocked' ? 'danger' : 'warning'}>
                     <StatusDot status={chatBridgeStatus === 'ready' ? 'online' : chatBridgeStatus === 'blocked' ? 'error' : 'warn'} pulse={chatBridgeStatus === 'saving'} />
@@ -1157,13 +981,15 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                 </div>
                 <div className="rounded-lg border border-white/8 bg-black/20 px-3 py-2">
                   <span className="block text-[9px] font-bold uppercase tracking-widest text-slate-600">
-                    Saida
+                    Ambiente
                   </span>
-                  <span className="text-slate-300">Clique/digitacao no input visual</span>
+                  <span className="text-slate-300">
+                    {visualTargetReady ? 'Alvo visual validado em OCR' : 'Alvo visual pendente em Fontes / OCR'}
+                  </span>
                 </div>
               </div>
 
-              <div className="grid gap-3 lg:grid-cols-3">
+              <div className="grid gap-3 lg:grid-cols-4">
                 <label className="block">
                   <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
                     Modo
@@ -1193,6 +1019,15 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                   value={autoChatMaxPerMinute}
                   onChange={(event) => setAutoChatMaxPerMinute(Math.max(1, Math.min(20, Number(event.target.value) || 1)))}
                 />
+                <Input
+                  label="Conf. min."
+                  type="number"
+                  min={0.1}
+                  max={0.99}
+                  step={0.01}
+                  value={autoChatMinConfidence}
+                  onChange={(event) => setAutoChatMinConfidence(Math.max(0.1, Math.min(0.99, Number(event.target.value) || 0.65)))}
+                />
               </div>
 
               {autoChatMode === 'real' && (
@@ -1211,164 +1046,45 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                 </div>
               )}
 
-              <div ref={chatCalibrationRef} className="grid gap-3 2xl:grid-cols-[minmax(0,1.4fr)_minmax(260px,0.9fr)]">
-                <div className="rounded-xl border border-white/8 bg-black/20 p-3">
-                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={calibrationPoint === 'input' ? 'primary' : 'secondary'}
-                        onClick={() => setCalibrationPoint('input')}
-                      >
-                        <MapPin className="h-3.5 w-3.5" />
-                        Capturar entrada
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={calibrationPoint === 'send' ? 'primary' : 'secondary'}
-                        onClick={() => setCalibrationPoint('send')}
-                      >
-                        <MapPin className="h-3.5 w-3.5" />
-                        Capturar envio
-                      </Button>
-                    </div>
-                    <span className="text-[10px] font-mono text-slate-500">
-                      {chatTarget.viewport?.width || 0}x{chatTarget.viewport?.height || 0}
-                    </span>
+              <div className="rounded-xl border border-white/8 bg-black/20 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                      Captura e alvo visual
+                    </p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                      A calibracao fisica do chat foi movida para Fontes / OCR, junto com as zonas de captura.
+                      A Diretoria apenas consome esse estado para decidir se pode responder.
+                    </p>
                   </div>
-                  <button
-                    type="button"
-                    data-testid="chat-calibration-preview"
-                    onClick={handlePreviewClick}
-                    className="relative block aspect-[16/9] w-full overflow-hidden rounded-lg border border-slate-700 bg-[#07090d] text-left outline-none ring-0 transition hover:border-sky-400/40 focus:border-sky-300"
-                  >
-                    <div className="absolute inset-0 bg-[linear-gradient(rgba(148,163,184,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.08)_1px,transparent_1px)] bg-[size:10%_10%]" />
-                    <div className="absolute inset-x-[6%] top-[7%] h-[58%] rounded-md border border-slate-700/70 bg-slate-900/40" />
-                    <div className="absolute inset-x-[6%] bottom-[7%] h-[13%] rounded-md border border-slate-600/80 bg-slate-950/80" />
-                    {chatTarget.inputPoint && (
-                      <span
-                        className="absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-sky-200 bg-sky-400 shadow-[0_0_18px_rgba(56,189,248,0.65)]"
-                        style={{ left: `${chatTarget.inputPoint.x * 100}%`, top: `${chatTarget.inputPoint.y * 100}%` }}
-                      />
-                    )}
-                    {chatTarget.sendPoint && (
-                      <span
-                        className="absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-emerald-200 bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.65)]"
-                        style={{ left: `${chatTarget.sendPoint.x * 100}%`, top: `${chatTarget.sendPoint.y * 100}%` }}
-                      />
-                    )}
-                  </button>
-                  <div className="mt-3 grid gap-2 text-[10px] sm:grid-cols-2">
-                    <div className="rounded-lg border border-sky-400/20 bg-sky-500/8 px-2 py-1.5 text-sky-100">
-                      <span className="block font-bold uppercase tracking-widest text-sky-300">inputPoint</span>
-                      <span className="font-mono">
-                        {chatTarget.inputPoint
-                          ? `${chatTarget.inputPoint.x.toFixed(4)}, ${chatTarget.inputPoint.y.toFixed(4)}`
-                          : 'ausente'}
-                      </span>
-                      <span className="block font-mono text-sky-200/70">
-                        {inputPixel ? `${inputPixel.x}px, ${inputPixel.y}px` : 'pixel pendente'}
-                      </span>
-                    </div>
-                    <div className="rounded-lg border border-emerald-400/20 bg-emerald-500/8 px-2 py-1.5 text-emerald-100">
-                      <span className="block font-bold uppercase tracking-widest text-emerald-300">sendPoint</span>
-                      <span className="font-mono">
-                        {chatTarget.sendPoint
-                          ? `${chatTarget.sendPoint.x.toFixed(4)}, ${chatTarget.sendPoint.y.toFixed(4)}`
-                          : 'Enter'}
-                      </span>
-                      <span className="block font-mono text-emerald-200/70">
-                        {sendPixel ? `${sendPixel.x}px, ${sendPixel.y}px` : 'sem clique de envio'}
-                      </span>
-                    </div>
-                  </div>
+                  <Badge variant={visualTargetReady ? 'success' : 'warning'}>
+                    <StatusDot status={visualTargetReady ? 'online' : 'warn'} />
+                    {visualTargetReady ? 'alvo validado' : 'ajuste no OCR'}
+                  </Badge>
                 </div>
-
-                <div className="space-y-3 rounded-xl border border-white/8 bg-black/20 p-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input
-                      label="Viewport W"
-                      type="number"
-                      value={chatTarget.viewport?.width || ''}
-                      onChange={(event) =>
-                        setChatTarget((current) => ({
-                          ...current,
-                          viewport: {
-                            width: Math.max(1, Number(event.target.value) || 1),
-                            height: current.viewport?.height || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.height || 938,
-                          },
-                        }))
-                      }
-                    />
-                    <Input
-                      label="Viewport H"
-                      type="number"
-                      value={chatTarget.viewport?.height || ''}
-                      onChange={(event) =>
-                        setChatTarget((current) => ({
-                          ...current,
-                          viewport: {
-                            width: current.viewport?.width || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.width || 1920,
-                            height: Math.max(1, Number(event.target.value) || 1),
-                          },
-                        }))
-                      }
-                    />
-                  </div>
-                  <Input
-                    label="Conf. min."
-                    type="number"
-                    min={0.1}
-                    max={0.99}
-                    step={0.01}
-                    value={autoChatMinConfidence}
-                    onChange={(event) => setAutoChatMinConfidence(Math.max(0.1, Math.min(0.99, Number(event.target.value) || 0.65)))}
-                  />
-                  <Input
-                    label="Texto de teste"
-                    value={chatBridgeTestText}
-                    onChange={(event) => setChatBridgeTestText(event.target.value)}
-                  />
-                  {visualErrors.length > 0 && (
-                    <div className="rounded-lg border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
-                      {visualErrors[0]}
-                    </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {onOpenCapture && (
+                    <Button variant="secondary" size="sm" onClick={onOpenCapture}>
+                      <MessageCircle className="h-3.5 w-3.5" />
+                      Abrir Fontes / OCR
+                    </Button>
                   )}
+                  <Button variant="secondary" size="sm" onClick={() => void refreshChatAutomation()}>
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Atualizar alvo
+                  </Button>
+                  <span className="text-[10px] text-slate-500">{chatBridgeMessage}</span>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="secondary" size="sm" onClick={() => setChatTarget(LIVE_CHAT_SCREENSHOT_TARGET)}>
-                  <MapPin className="h-3.5 w-3.5" />
-                  Layout do print
-                </Button>
                 <Button variant="secondary" size="sm" onClick={() => void refreshChatAutomation()}>
                   <RefreshCw className="h-3.5 w-3.5" />
-                  Validar
+                  Revalidar ambiente
                 </Button>
-                <Button variant="primary" size="sm" loading={chatBridgeStatus === 'saving'} onClick={() => void handleSaveAutoChat()}>
-                  <Save className="h-3.5 w-3.5" />
-                  {autoChatSaved ? 'Salvo' : 'Salvar chat'}
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  loading={chatBridgeTestBusy === 'dry'}
-                  onClick={() => void handleChatBridgeTest('dry')}
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  Testar sem enviar
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  loading={chatBridgeTestBusy === 'fill'}
-                  onClick={() => void handleChatBridgeTest('fill')}
-                >
-                  <MessageCircle className="h-3.5 w-3.5" />
-                  Digitar sem enviar
+                <Button variant="primary" size="sm" loading={chatBridgeStatus === 'saving'} onClick={() => void handleSaveAutoChatPolicy()}>
+                  <CheckCircle className="h-3.5 w-3.5" />
+                  {autoChatSaved ? 'Salvo' : 'Salvar politica'}
                 </Button>
                 {autoChatMode === 'real' && (
                   <span className="flex items-center gap-1 text-[10px] text-amber-300">
@@ -1377,93 +1093,33 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                   </span>
                 )}
               </div>
-
-              {chatBridgeLastResult && (
-                <div data-testid="chat-calibration-test-result" className="grid gap-2 rounded-xl border border-white/8 bg-black/20 p-3 text-[11px] md:grid-cols-3">
-                  <div>
-                    <span className="block text-[9px] font-bold uppercase tracking-widest text-slate-600">Texto</span>
-                    <span className="text-slate-300">{chatBridgeLastResult.text || chatBridgeTestText}</span>
-                  </div>
-                  <div>
-                    <span className="block text-[9px] font-bold uppercase tracking-widest text-slate-600">Ponto clicado</span>
-                    <span className="font-mono text-sky-300">
-                      {chatBridgeLastResult.plannedInputPixel
-                        ? `${chatBridgeLastResult.plannedInputPixel.x}px, ${chatBridgeLastResult.plannedInputPixel.y}px`
-                        : 'pendente'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="block text-[9px] font-bold uppercase tracking-widest text-slate-600">Envio planejado</span>
-                    <span className="text-slate-300">
-                      {chatBridgeLastResult.submit === false
-                        ? 'digitar sem Enter'
-                        : chatBridgeLastResult.plannedSendPixel
-                          ? `clicar envio em ${chatBridgeLastResult.plannedSendPixel.x}px, ${chatBridgeLastResult.plannedSendPixel.y}px`
-                          : 'Enter'}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-1">
-                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">
-                  Ultimos logs de envio
-                </span>
-                {chatAutomationLogs.length === 0 ? (
-                  <p className="text-[11px] text-slate-600">Nenhum envio ou bloqueio registrado.</p>
-                ) : (
-                  <div className="grid gap-1">
-                    {chatAutomationLogs.map((entry, index) => {
-                      const result = entry.result as Record<string, unknown> | undefined;
-                      const status = String(result?.status || 'log');
-                      const coordinates = result?.coordinates as Record<string, unknown> | undefined;
-                      const detail = [
-                        result?.commandId ? `cmd ${String(result.commandId)}` : '',
-                        coordinates?.clickedInput ? `input ${JSON.stringify(coordinates.clickedInput)}` : '',
-                        result?.error ? `erro ${String(result.error)}` : '',
-                      ].filter(Boolean).join(' | ');
-                      return (
-                        <div
-                          key={String(entry.id || index)}
-                          title={detail || String(result?.reason || status)}
-                          className="flex items-center justify-between gap-2 rounded-lg border border-white/8 bg-black/20 px-2 py-1.5 text-[10px]"
-                        >
-                          <span className="truncate text-slate-300">{String(entry.text || '')}</span>
-                          <span className={cn('shrink-0 font-mono', status === 'blocked' || status === 'failed' ? 'text-red-300' : status === 'ready' || status === 'executed' ? 'text-emerald-300' : 'text-sky-300')}>
-                            {String(result?.reason || status)}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
             </div>
 
             {/* Fila de respostas publicas */}
-            <div className="space-y-2 rounded-xl border border-white/8 bg-[#0a0b0d] p-3">
-              <div className="flex items-center justify-between gap-2">
+            <details open={runtime.chatReplyQueue.length > 0} className="rounded-xl border border-white/8 bg-[#0a0b0d] p-3">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <MessageCircle className="h-3.5 w-3.5 text-sky-400" />
                   <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                    Acoes Pendentes
+                    Fila de respostas publicas
                   </span>
                 </div>
                 <span className="font-mono text-[10px] text-slate-500">
                   {runtime.chatReplyQueue.length} item(s)
                 </span>
-              </div>
+              </summary>
 
-              {runtime.chatReplyQueue.length === 0 ? (
-                <p className="text-[11px] text-slate-600">
-                  Nenhuma sugestao de chat na fila. Em Manual/Assistido, a proxima resposta aparece aqui antes do envio.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {runtime.chatReplyQueue
-                    .slice(-5)
-                    .reverse()
-                    .map((item) => {
+              <div className="mt-3">
+                {runtime.chatReplyQueue.length === 0 ? (
+                  <p className="text-[11px] text-slate-600">
+                    Nenhuma sugestao de chat na fila. Em Manual/Assistido, a proxima resposta aparece aqui antes do envio.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {runtime.chatReplyQueue
+                      .slice(-5)
+                      .reverse()
+                      .map((item) => {
                       const draft = chatReplyDrafts[item.id] ?? item.text;
                       const canEdit = item.status === 'approval_required' || item.status === 'queued';
                       const canApprove = item.status === 'approval_required';
@@ -1553,74 +1209,11 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                           </div>
                         </div>
                       );
-                    })}
-                </div>
-              )}
-            </div>
-
-            {/* Feed de decisões da Diretora */}
-            <div className="space-y-2">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
-                Últimas decisões
-              </span>
-              {runtime.cycles.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-white/8 p-5 text-center text-[11px] text-slate-600">
-                  Nenhuma decisão ainda. Inicie a Diretora e os eventos do chat aparecerão aqui.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {runtime.cycles
-                    .slice(-6)
-                    .reverse()
-                    .map((cycle) => (
-                      <div
-                        key={cycle.id}
-                        className="rounded-xl border border-white/8 bg-[#0a0b0d] p-3 space-y-1.5"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11px] text-slate-300 truncate">
-                            <span className="text-slate-600">[{cycle.event?.kind || 'evento'}]</span>{' '}
-                            {cycle.event?.text || '—'}
-                          </span>
-                          {cycle.decision && (
-                            <span className="shrink-0 font-mono text-[10px] text-violet-300">
-                              {Math.round((cycle.decision.confidence || 0) * 100)}%
-                            </span>
-                          )}
-                        </div>
-                        {cycle.decision?.speech && (
-                          <p className="text-[11px] text-sky-200/80 italic">“{cycle.decision.speech}”</p>
-                        )}
-                        {cycle.decision?.reason && (
-                          <p className="text-[10px] text-slate-500">{cycle.decision.reason}</p>
-                        )}
-                        {cycle.actions.length > 0 && (
-                          <div className="flex flex-wrap gap-1 pt-0.5">
-                            {cycle.actions.map((action) => (
-                              <span
-                                key={action.id}
-                                className={cn(
-                                  'rounded px-1.5 py-0.5 font-mono text-[9px]',
-                                  action.status === 'done'
-                                    ? 'bg-emerald-500/10 text-emerald-300'
-                                    : action.status === 'error' || action.status === 'blocked'
-                                      ? 'bg-red-500/10 text-red-300'
-                                      : action.status === 'approval_required'
-                                        ? 'bg-amber-500/10 text-amber-300'
-                                        : 'bg-slate-700/30 text-slate-400',
-                                )}
-                                title={action.result || action.status}
-                              >
-                                {action.type}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                </div>
-              )}
-            </div>
+                      })}
+                  </div>
+                )}
+              </div>
+            </details>
           </SectionCard>
 
           {/* ── Aprendizado (chat + presentes) ────────────────────────────── */}
