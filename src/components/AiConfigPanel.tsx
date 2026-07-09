@@ -790,20 +790,37 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-sky-100">
-                    Google Gemini + OCR do chat + envio visual seguro
+                    Checklist unico de prontidao da live
                   </p>
                   <p className="mt-1 text-xs leading-relaxed text-slate-400">
-                    A resposta automatica so sai quando estes blocos estao prontos: IA generativa,
-                    captura OCR do chat Tango, ponto onde escrever, Diretora ligada e permissao de envio.
+                    {runtime.readiness.summary}
                   </p>
                 </div>
-                <Badge variant={realSendReady ? 'success' : 'warning'}>
-                  {realSendReady ? 'Pronto para envio real' : 'Faltam ajustes'}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant={runtime.readiness.readyToStart ? 'success' : runtime.readiness.state === 'blocked' ? 'danger' : 'warning'}>
+                    {runtime.readiness.state}
+                  </Badge>
+                  <Button variant="secondary" size="sm" onClick={() => void runtime.refreshReadiness()}>
+                    <RefreshCw className="h-3 w-3" />
+                    Atualizar
+                  </Button>
+                </div>
               </div>
               <p className="mt-3 rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-[11px] text-sky-200">
-                Proximo passo: {nextSetupAction}
+                Proximo passo: {runtime.readiness.diagnostics[0] || nextSetupAction}
               </p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {runtime.readiness.checklist.map((item) => (
+                <ReadinessItem
+                  key={item.id}
+                  status={item.state === 'healthy' ? 'ready' : item.state === 'blocked' ? 'blocked' : 'warning'}
+                  title={item.label}
+                  detail={item.detail}
+                  action={item.suggestedAction}
+                />
+              ))}
             </div>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">

@@ -17,11 +17,16 @@ import {
   prepareChatReplyQueue,
   updateChatReplyQueueFromAction,
 } from './chatReplyQueue';
+import {
+  buildLiveSupervisorSnapshot,
+  type LiveSupervisorSnapshot,
+  type RecoveryAction,
+} from './liveReadinessSupervisor';
 import { getAiConfig, saveAiConfig, type AiAutonomyLevel } from './aiConfig';
 import { apiUrl } from '../lib/api';
 import { isObsDirectAvailable, getObsStatus } from '../lib/obsWebSocket';
 import { loadMemory } from '../lib/memory';
-import { loadChatAutomationTarget } from '../lib/chatAutomation';
+import { getChatAutomationConfig, loadChatAutomationTarget } from '../lib/chatAutomation';
 import type {
   AutopilotAction,
   AutopilotCycle,
@@ -81,6 +86,20 @@ interface AgentBridgeStatus {
   };
 }
 
+interface VideoBridgeStatus {
+  currentVideoId: string | null;
+  idleVideoId: string | null;
+  queueSize: number;
+  updatedAt: string | null;
+  error: string | null;
+}
+
+interface ChatAutomationMonitor {
+  allowlistReady: boolean;
+  lastSendStatus: string | null;
+  lastSendError: string | null;
+}
+
 export interface AutopilotRuntimeState {
   autopilotEnabled: boolean;
   testMode: boolean;
@@ -104,6 +123,9 @@ export interface AutopilotRuntimeState {
   obsError: string | null;
   localAgentReady: boolean;
   localAgentMessage: string;
+  videoMonitor: VideoBridgeStatus;
+  chatAutomationMonitor: ChatAutomationMonitor;
+  readiness: LiveSupervisorSnapshot;
   completedCycles: number;
   failedCycles: number;
   averageConfidence: number;
@@ -132,6 +154,7 @@ export interface AutopilotRuntimeState {
   sendChatReplyNow: (id: string) => Promise<void>;
   refreshHealth: () => Promise<void>;
   refreshObsScenes: () => Promise<void>;
+  refreshReadiness: () => Promise<void>;
 }
 
 interface UseAutopilotRuntimeOptions {
@@ -160,6 +183,7 @@ const ROUND_COLLECTION_MS = 2500;
 const MAX_EVENTS_PER_ROUND = 8;
 const SPEECH_COOLDOWN_MS = 7000;
 const IDLE_TIMEOUT_MS = 45000; // 45 seconds of silence triggers an idle event
+const RECOVERY_THROTTLE_MS = 30_000;
 
 function formatClock(date = new Date()) {
   return date.toLocaleTimeString([], {
@@ -289,6 +313,18 @@ export function useAutopilotRuntime({
   const [obsError, setObsError] = useState<string | null>(null);
   const [localAgentReady, setLocalAgentReady] = useState(false);
   const [localAgentMessage, setLocalAgentMessage] = useState('Agente local nao verificado');
+  const [videoMonitor, setVideoMonitor] = useState<VideoBridgeStatus>({
+    currentVideoId: null,
+    idleVideoId: null,
+    queueSize: 0,
+    updatedAt: null,
+    error: null,
+  });
+  const [chatAutomationMonitor, setChatAutomationMonitor] = useState<ChatAutomationMonitor>({
+    allowlistReady: false,
+    lastSendStatus: null,
+    lastSendError: null,
+  });
   const [autonomyLevel, setAutonomyLevelState] = useState<AiAutonomyLevel>(() => getAiConfig().autonomyLevel);
   const queuedOrProcessedIdsRef = useRef<Set<string>>(
     new Set(capturedText.filter((event) => event.processedAt).map((event) => event.id)),
@@ -304,6 +340,7 @@ export function useAutopilotRuntime({
   }>({ videos: [], triggers: [] });
   // Espelho de obsScenes para uso dentro do closure da rodada (sem disparar re-render).
   const obsScenesRef = useRef<string[]>([]);
+  const lastRecoveryAtRef = useRef<Record<string, number>>({});
 
   const latestCycle = cycles[cycles.length - 1];
   const latestDecision = latestCycle?.decision;
@@ -331,6 +368,53 @@ export function useAutopilotRuntime({
       averageConfidence: decisionCount === 0 ? 0 : Math.round((confidenceSum / decisionCount) * 100)
     };
   }, [cycles]);
+
+  const readiness = useMemo(() => {
+    const target = loadChatAutomationTarget();
+    const visualTargetReady = Boolean(
+      target.mode === 'visual' &&
+        target.inputPoint &&
+        typeof target.inputPoint.x === 'number' &&
+        typeof target.inputPoint.y === 'number' &&
+        target.viewport &&
+        typeof target.viewport.width === 'number' &&
+        typeof target.viewport.height === 'number',
+    );
+    return buildLiveSupervisorSnapshot({
+      now: Date.now(),
+      capturedEvents: capturedText,
+      healthError,
+      obs: {
+        connected: !obsError && (isObsDirectAvailable() || obsScenes.length > 0),
+        currentScene: currentObsScene,
+        scenes: obsScenes,
+        error: obsError,
+        hasOcrSource: obsScenes.length > 0 ? true : undefined,
+        hasStageSource: obsScenes.length > 0 ? true : undefined,
+        streaming: undefined,
+      },
+      video: videoMonitor,
+      chat: {
+        visualTargetReady,
+        allowlistReady: chatAutomationMonitor.allowlistReady,
+        localAgentReady,
+        lastSendStatus: chatAutomationMonitor.lastSendStatus,
+        lastSendError: chatAutomationMonitor.lastSendError,
+      },
+      autonomyLevel,
+      autoChatEnabled: getAiConfig().autoChatReplyEnabled,
+    });
+  }, [
+    capturedText,
+    healthError,
+    obsError,
+    obsScenes,
+    currentObsScene,
+    videoMonitor,
+    chatAutomationMonitor,
+    localAgentReady,
+    autonomyLevel,
+  ]);
 
   const refreshHealth = useCallback(async () => {
     try {
@@ -401,6 +485,68 @@ export function useAutopilotRuntime({
     }
   }, []);
 
+  const refreshVideoMonitor = useCallback(async () => {
+    try {
+      const response = await fetch(apiUrl('/video/state'));
+      const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!response.ok) throw new Error(String(data.detail || `HTTP ${response.status}`));
+      const currentClip = (data.currentClip || {}) as Record<string, unknown>;
+      setVideoMonitor({
+        currentVideoId: String(data.current_video_id || data.currentVideoId || currentClip.videoId || '') || null,
+        idleVideoId: String(data.idleVideoId || data.idle_video_id || '') || null,
+        queueSize: Number(data.queueSize || data.triggerQueueSize || data.pendingQueueSize || 0) || 0,
+        updatedAt: String(data.updatedAt || data.startedAt || data.timestamp || '') || null,
+        error: null,
+      });
+    } catch (err) {
+      setVideoMonitor((current) => ({
+        ...current,
+        error: err instanceof Error ? err.message : 'Falha ao consultar video',
+      }));
+    }
+  }, []);
+
+  const refreshChatAutomationMonitor = useCallback(async () => {
+    try {
+      const config = await getChatAutomationConfig();
+      const visualAllowed = config.allowlist.some((entry) => entry.enabled !== false && entry.mode === 'visual');
+      const latest = [...config.logs].reverse()[0] as Record<string, unknown> | undefined;
+      const result = (latest?.result || {}) as Record<string, unknown>;
+      setChatAutomationMonitor({
+        allowlistReady: visualAllowed,
+        lastSendStatus: typeof result.status === 'string' ? result.status : null,
+        lastSendError:
+          typeof result.error === 'string'
+            ? result.error
+            : typeof result.reason === 'string' && ['blocked', 'failed'].includes(String(result.status))
+              ? result.reason
+              : null,
+      });
+    } catch (err) {
+      setChatAutomationMonitor((current) => ({
+        ...current,
+        lastSendStatus: 'blocked',
+        lastSendError: err instanceof Error ? err.message : 'Falha ao consultar automacao de chat',
+      }));
+    }
+  }, []);
+
+  const refreshReadiness = useCallback(async () => {
+    await Promise.allSettled([
+      refreshHealth(),
+      refreshObsScenes(),
+      refreshAgentStatus(),
+      refreshVideoMonitor(),
+      refreshChatAutomationMonitor(),
+    ]);
+  }, [
+    refreshHealth,
+    refreshObsScenes,
+    refreshAgentStatus,
+    refreshVideoMonitor,
+    refreshChatAutomationMonitor,
+  ]);
+
   const enqueueEvent = useCallback((event: LiveEvent) => {
     const normalizedEvent = normalizeDirectorEvent(event);
     if (normalizedEvent.processedAt || queuedOrProcessedIdsRef.current.has(normalizedEvent.id)) return;
@@ -444,25 +590,91 @@ export function useAutopilotRuntime({
     const obsFirstRun = window.setTimeout(refreshObsScenes, 700);
     const catalogFirstRun = window.setTimeout(refreshCatalog, 300);
     const agentFirstRun = window.setTimeout(refreshAgentStatus, 1000);
+    const videoFirstRun = window.setTimeout(refreshVideoMonitor, 1200);
+    const chatAutomationFirstRun = window.setTimeout(refreshChatAutomationMonitor, 1500);
     const interval = window.setInterval(refreshHealth, 15000);
     const obsInterval = window.setInterval(refreshObsScenes, 20000);
     const catalogInterval = window.setInterval(refreshCatalog, 30000);
     const agentInterval = window.setInterval(refreshAgentStatus, 10000);
+    const videoInterval = window.setInterval(refreshVideoMonitor, 10000);
+    const chatAutomationInterval = window.setInterval(refreshChatAutomationMonitor, 12000);
     return () => {
       window.clearTimeout(firstRun);
       window.clearTimeout(obsFirstRun);
       window.clearTimeout(catalogFirstRun);
       window.clearTimeout(agentFirstRun);
+      window.clearTimeout(videoFirstRun);
+      window.clearTimeout(chatAutomationFirstRun);
       window.clearInterval(interval);
       window.clearInterval(obsInterval);
       window.clearInterval(catalogInterval);
       window.clearInterval(agentInterval);
+      window.clearInterval(videoInterval);
+      window.clearInterval(chatAutomationInterval);
     };
-  }, [refreshHealth, refreshObsScenes, refreshCatalog, refreshAgentStatus]);
+  }, [
+    refreshHealth,
+    refreshObsScenes,
+    refreshCatalog,
+    refreshAgentStatus,
+    refreshVideoMonitor,
+    refreshChatAutomationMonitor,
+  ]);
 
   useEffect(() => {
     capturedText.forEach(enqueueEvent);
   }, [capturedText, enqueueEvent]);
+
+  const runRecoveryAction = useCallback(
+    async (action: RecoveryAction) => {
+      const now = Date.now();
+      if (now - (lastRecoveryAtRef.current[action] || 0) < RECOVERY_THROTTLE_MS) return;
+      lastRecoveryAtRef.current[action] = now;
+
+      if (action === 'pause_auto_chat') {
+        const cfg = getAiConfig();
+        if (cfg.autoChatReplyEnabled) {
+          saveAiConfig({ autoChatReplyEnabled: false });
+          setLastError('Supervisor pausou auto-chat por falha de prontidao.');
+        }
+        return;
+      }
+
+      if (action === 'reduce_autonomy') {
+        const cfg = getAiConfig();
+        if (cfg.autonomyLevel === 'auto') {
+          saveAiConfig({ autonomyLevel: 'assistido' });
+          setAutonomyLevelState('assistido');
+          setLastError('Supervisor reduziu autonomia para Assistido.');
+        }
+        return;
+      }
+
+      if (action === 'reconnect_obs') {
+        await refreshObsScenes();
+        return;
+      }
+
+      if (action === 'return_to_idle') {
+        if (videoMonitor.idleVideoId) {
+          await fetch(apiUrl('/video/force'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ videoId: videoMonitor.idleVideoId, state: 'IDLE' }),
+          }).catch(() => undefined);
+          await refreshVideoMonitor();
+        }
+      }
+    },
+    [refreshObsScenes, refreshVideoMonitor, videoMonitor.idleVideoId],
+  );
+
+  useEffect(() => {
+    if (readiness.state === 'healthy') return;
+    readiness.recoveryActions.forEach((action) => {
+      void runRecoveryAction(action);
+    });
+  }, [readiness.state, readiness.recoveryActions, runRecoveryAction]);
 
   useEffect(() => {
     if (!autopilotEnabled) return;
@@ -866,6 +1078,9 @@ export function useAutopilotRuntime({
     obsError,
     localAgentReady,
     localAgentMessage,
+    videoMonitor,
+    chatAutomationMonitor,
+    readiness,
     completedCycles,
     failedCycles,
     averageConfidence,
@@ -891,5 +1106,6 @@ export function useAutopilotRuntime({
     sendChatReplyNow,
     refreshHealth,
     refreshObsScenes,
+    refreshReadiness,
   };
 }
