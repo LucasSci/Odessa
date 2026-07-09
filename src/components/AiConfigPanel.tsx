@@ -64,6 +64,13 @@ import {
   type ChatAutomationSendResult,
   type ChatAutomationTarget,
 } from '../lib/chatAutomation';
+import {
+  clearMemory,
+  clearUserProfiles,
+  getUserProfileList,
+  loadUserProfiles,
+  type UserProfile,
+} from '../lib/memory';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -338,6 +345,9 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
   // ── Aprendizado (chat + presentes) ──────────────────────────────────────────
   const [chatInsights, setChatInsights] = useState(() => getChatInsights());
   const [giftStats, setGiftStats] = useState<GiftStat[]>(() => getGiftLearning());
+  const [userMemories, setUserMemories] = useState<UserProfile[]>(() =>
+    getUserProfileList(loadUserProfiles()).slice(0, 12),
+  );
   const [summarizing, setSummarizing] = useState(false);
 
   // ── Derived ────────────────────────────────────────────────────────────────
@@ -428,6 +438,7 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
     const refresh = () => {
       setChatInsights(getChatInsights());
       setGiftStats(getGiftLearning());
+      setUserMemories(getUserProfileList(loadUserProfiles()).slice(0, 12));
       setVideoPresets(loadVideoPresets());
       void getChatAutomationConfig()
         .then((config) => setChatAutomationLogs(config.logs.slice(-8).reverse()))
@@ -585,6 +596,16 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
   const handleClearGiftLearning = useCallback(() => {
     clearGiftLearning();
     setGiftStats(getGiftLearning());
+  }, []);
+
+  const handleResetLearning = useCallback(() => {
+    clearChatLearning();
+    clearGiftLearning();
+    clearMemory();
+    clearUserProfiles();
+    setChatInsights(getChatInsights());
+    setGiftStats(getGiftLearning());
+    setUserMemories(getUserProfileList(loadUserProfiles()).slice(0, 12));
   }, []);
 
   // ── Reações por vídeo (Fase 3) ───────────────────────────────────────────────
@@ -1456,12 +1477,38 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
 
           {/* ── Aprendizado (chat + presentes) ────────────────────────────── */}
           <SectionCard icon={<Sparkles className="h-4 w-4" />} title="Aprendizado" className="lg:col-span-2">
+            <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-white/8 bg-white/[0.02] p-3">
+              <p className="max-w-2xl text-[11px] text-slate-500">
+                Memoria segura da live: usuarios recorrentes, tom preferido, temas que funcionam,
+                temas que esfriam e presentes recebidos. Nao use isso para inventar intimidade.
+              </p>
+              <Button variant="secondary" size="sm" onClick={handleResetLearning}>
+                <Trash2 className="h-3 w-3" />
+                Resetar aprendizado
+              </Button>
+            </div>
+
+            {runtime.latestCycle?.memoryUsed && runtime.latestCycle.memoryUsed.length > 0 && (
+              <div className="rounded-xl border border-sky-500/15 bg-sky-500/8 p-3">
+                <div className="mb-2 flex items-center gap-2">
+                  <Brain className="h-3.5 w-3.5 text-sky-300" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-sky-200">Memorias usadas na ultima decisao</span>
+                </div>
+                <div className="grid gap-1.5 md:grid-cols-2">
+                  {runtime.latestCycle.memoryUsed.slice(0, 8).map((memory, index) => (
+                    <div key={`${memory}-${index}`} className="rounded-lg bg-black/20 px-2.5 py-1.5 text-[11px] text-sky-100/90">
+                      {memory}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <p className="text-[11px] text-slate-500">
               A Diretora aprende com a live: o que o chat fala/pede/curte e os presentes recebidos.
               Esses dados entram no contexto das decisões automaticamente.
             </p>
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
               {/* Chat */}
               <div className="rounded-xl border border-white/8 bg-[#0a0b0d] p-3 space-y-3">
                 <div className="flex items-center gap-2">
@@ -1514,6 +1561,35 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                       </div>
                     )}
 
+                    {(chatInsights.workingTopics.length > 0 || chatInsights.coolingTopics.length > 0) && (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {chatInsights.workingTopics.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-500/80">Funcionando</span>
+                            <div className="flex flex-wrap gap-1">
+                              {chatInsights.workingTopics.slice(0, 5).map(([key, c]) => (
+                                <span key={key} className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                                  {key} Â· {c.count}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {chatInsights.coolingTopics.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-amber-500/80">Esfriando</span>
+                            <div className="flex flex-wrap gap-1">
+                              {chatInsights.coolingTopics.slice(0, 5).map(([key, c]) => (
+                                <span key={key} className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300">
+                                  {key} Â· {c.count}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {chatInsights.aiSummary && (
                       <p className="rounded-lg border border-sky-500/20 bg-sky-500/8 px-2.5 py-1.5 text-[11px] text-sky-200/90">
                         {chatInsights.aiSummary.text}
@@ -1541,6 +1617,55 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                       </button>
                     </div>
                   </>
+                )}
+              </div>
+
+              {/* Usuarios */}
+              <div className="rounded-xl border border-white/8 bg-[#0a0b0d] p-3 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Bot className="h-3.5 w-3.5 text-violet-400" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Usuarios</span>
+                  <span className="ml-auto font-mono text-[10px] text-slate-500">{userMemories.length} recentes</span>
+                </div>
+
+                {userMemories.length === 0 ? (
+                  <p className="text-[11px] text-slate-600">
+                    Sem perfis locais ainda. A Odessa guarda apenas padroes uteis da live, sem dados sensiveis.
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-72 overflow-y-auto">
+                    {userMemories.slice(0, 12).map((profile) => {
+                      const topics = Object.entries(profile.recurringTopics || {})
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 3)
+                        .map(([topic]) => topic);
+                      return (
+                        <div key={profile.username} className="rounded-lg border border-white/6 bg-white/[0.02] px-2.5 py-2 text-[11px]">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate font-semibold text-slate-200">@{profile.username}</span>
+                            {profile.giftCount > 0 && (
+                              <span className="rounded bg-pink-500/12 px-1.5 py-0.5 text-[9px] text-pink-300">presenteador</span>
+                            )}
+                            {profile.messageCount > 1 && (
+                              <span className="rounded bg-violet-500/12 px-1.5 py-0.5 text-[9px] text-violet-300">recorrente</span>
+                            )}
+                            <span className="ml-auto font-mono text-[10px] text-slate-500">{profile.messageCount}m/{profile.giftCount}p</span>
+                          </div>
+                          {profile.lastMessage && (
+                            <p className="mt-1 truncate text-slate-500">Ultima: {profile.lastMessage}</p>
+                          )}
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {profile.preferredTone && (
+                              <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[9px] text-sky-300">tom {profile.preferredTone}</span>
+                            )}
+                            {topics.map((topic) => (
+                              <span key={topic} className="rounded bg-slate-700/40 px-1.5 py-0.5 text-[9px] text-slate-400">{topic}</span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
 

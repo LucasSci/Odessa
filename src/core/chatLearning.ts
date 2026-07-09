@@ -184,11 +184,19 @@ function topEntries(map: Record<string, Counter>, n: number): Array<[string, Cou
 /** Top itens em formato pronto para a UI. */
 export function getChatInsights() {
   const s = load();
+  const now = Date.now();
+  const topicEntries = topEntries(s.topics, 40);
   return {
     totalMessages: s.totalMessages,
     questions: s.questions,
     topRequests: topEntries(s.requests, 6),
-    topTopics: topEntries(s.topics, 12),
+    topTopics: topicEntries.slice(0, 12),
+    workingTopics: topicEntries
+      .filter(([, counter]) => now - Date.parse(counter.lastSeen) < 15 * 60_000)
+      .slice(0, 6),
+    coolingTopics: topicEntries
+      .filter(([, counter]) => counter.count >= 2 && now - Date.parse(counter.lastSeen) >= 15 * 60_000)
+      .slice(0, 6),
     topLikes: topEntries(s.likes, 6),
     aiSummary: s.aiSummary,
     updatedAt: s.updatedAt,
@@ -202,6 +210,7 @@ export function buildChatInsightsContext(): string {
   const reqs = topEntries(s.requests, 5);
   const topics = topEntries(s.topics, 8);
   const likes = topEntries(s.likes, 5);
+  const insights = getChatInsights();
 
   const lines: string[] = ['\n\n[APRENDIZADO DO CHAT]'];
   if (reqs.length) {
@@ -212,6 +221,12 @@ export function buildChatInsightsContext(): string {
   }
   if (topics.length) {
     lines.push(`Tópicos recorrentes: ${topics.map(([k]) => k).join(', ')}`);
+  }
+  if (insights.workingTopics.length) {
+    lines.push(`Topicos que ainda parecem funcionar: ${insights.workingTopics.map(([k]) => k).join(', ')}`);
+  }
+  if (insights.coolingTopics.length) {
+    lines.push(`Topicos que esfriaram: ${insights.coolingTopics.map(([k]) => k).join(', ')}. Reaqueça com cuidado ou troque de assunto.`);
   }
   if (s.aiSummary?.text) lines.push(`Resumo aprendido: ${s.aiSummary.text}`);
   return `${lines.join('\n')}\n`;

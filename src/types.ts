@@ -213,6 +213,7 @@ export interface AutopilotCycle {
   actions: AutopilotAction[];
   matchedRules: string[];
   contentUsed?: UsedContentItem[];
+  memoryUsed?: string[];
   logs: CycleLog[];
   createdAt: string;
   completedAt?: string;

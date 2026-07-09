@@ -17,10 +17,11 @@ import { apiUrl } from '../lib/api';
 import {
   addTurn,
   buildMemoryContext,
+  buildRoundUserMemorySummary,
   buildUserContext,
   loadMemory,
   loadUserProfiles,
-  trackUserInteraction,
+  trackLiveEventInteraction,
 } from '../lib/memory';
 import type {
   AutopilotAction,
@@ -491,6 +492,7 @@ async function requestDecision(
   _matchedRules: RuleMatches,
   contentUsed: UsedContentItem[],
   backendMemory: BackendMemoryRoundContext,
+  memoryUsed: string[],
 ) {
   const memory = loadMemory();
   const memoryBlock = buildMemoryContext(memory);
@@ -515,6 +517,11 @@ async function requestDecision(
   // Pré-definições de vídeo (Fase 3): regras de reação + cooldowns por vídeo.
   contextParts.push(buildVideoPresetsContext(options.videos || []));
   if (usersBlock) contextParts.push(`\n\n[PERFIS DE USUARIOS]:\n${usersBlock}`);
+  if (memoryUsed.length) {
+    contextParts.push(
+      `\n\n[MEMORIAS USADAS NA RODADA]\n${memoryUsed.join('\n')}\nUse isso para reconhecer recorrencia sem inventar intimidade.`,
+    );
+  }
   if (memoryBlock) contextParts.push(`\n\n[MEMORIA RECENTE]:\n${memoryBlock}`);
   if (backendMemory.context) {
     contextParts.push(`\n\n[MEMORIA PERSISTENTE SQLITE]:\n${backendMemory.context}`);
@@ -640,6 +647,19 @@ export async function runPersonaRound(
         : 'Nenhuma regra automatica aplicada',
     );
 
+    const userMemoryUsed = buildRoundUserMemorySummary(classifiedEvents, loadUserProfiles());
+    const aggregateMemoryUsed = [
+      ...userMemoryUsed,
+      ...(backendMemory.context ? ['Memoria persistente SQLite disponivel para usuarios reconhecidos.'] : []),
+      ...(contentUsed.length ? [`Conteudo contextual: ${contentUsed.map((item) => item.title).join(', ')}`] : []),
+    ].slice(0, 8);
+    update(
+      { memoryUsed: aggregateMemoryUsed },
+      aggregateMemoryUsed.length
+        ? `Memorias usadas: ${aggregateMemoryUsed.join(' | ')}`
+        : 'Nenhuma memoria local relevante para esta rodada',
+    );
+
     let baseDecision: PersonaDecision;
     try {
       baseDecision = await requestDecision(
@@ -649,6 +669,7 @@ export async function runPersonaRound(
         matchedRules,
         contentUsed,
         backendMemory,
+        aggregateMemoryUsed,
       );
       update({}, 'Decisao de rodada gerada pela IA');
     } catch (decisionError) {
@@ -715,7 +736,7 @@ export async function runPersonaRound(
     addTurn(currentMemory, eventBatchSummary(classifiedEvents), decision.speech, 'autopilot');
     let profiles = loadUserProfiles();
     classifiedEvents.forEach((event) => {
-      profiles = trackUserInteraction(profiles, event.text);
+      profiles = trackLiveEventInteraction(profiles, event);
     });
     // Aprendizado (Fase 2): agrega o que o chat fala/pede e os presentes recebidos.
     recordChatLearning(classifiedEvents);
