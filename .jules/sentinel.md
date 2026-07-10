@@ -1,4 +1,4 @@
-## 2024-05-27 - Remove Hardcoded Admin Credentials Fallback
-**Vulnerability:** The application contained hardcoded default administrative passwords (`DEFAULT_ADMIN_PASSWORD` and `DEFAULT_PASSWORD_HASH`) in both the Python backend (`server/core/auth.py`) and JS backend (`api/[...path].js`). If environment variables were not explicitly provided, these fallbacks allowed unauthorized access using a known default credential.
-**Learning:** Default fallbacks for critical security configuration variables undermine fail-safe defaults and create universal backdoors if the environment is misconfigured. Empty string edge cases during hash comparisons (in both Python's `hmac.compare_digest` and Node.js's `crypto.timingSafeEqual`) meant setting the fallback to an empty string without explicitly rejecting empty password inputs could also lead to authentication bypass.
-**Prevention:** Avoid default fallbacks for secrets. Enforce that configuration values must be explicitly provided in the environment, and always validate input to reject empty credentials before performing cryptographic hash comparisons.
+## 2024-05-24 - [Fix SSRF bypass via 0.0.0.0]
+**Vulnerability:** The proxy endpoint was vulnerable to SSRF by passing `0.0.0.0` or `::` as the host. The `ipaddress` module considers these IPs as "unspecified" rather than "private" or "loopback".
+**Learning:** Checking for `.is_private`, `.is_loopback`, `.is_link_local`, and `.is_multicast` on `ipaddress` objects is insufficient to prevent SSRF because `.is_unspecified` must also be checked to prevent `0.0.0.0` routing locally on Linux systems.
+**Prevention:** When mitigating SSRF using the `ipaddress` module, always include an explicit check for `ip_obj.is_unspecified`.
