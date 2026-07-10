@@ -11,6 +11,9 @@ so the iframe can render them without being blocked.
 
 import logging
 import re
+import socket
+import ipaddress
+import asyncio
 from urllib.parse import urljoin, urlparse, quote
 
 import httpx
@@ -244,12 +247,30 @@ def _rewrite_js(js: str, js_url: str, server_base: str) -> str:
     return js
 
 
+
+async def block_private_ips(request: httpx.Request):
+    host = request.url.host
+    loop = asyncio.get_running_loop()
+    try:
+        addr_info = await loop.getaddrinfo(host, request.url.port or 80, proto=socket.IPPROTO_TCP)
+        for addr in addr_info:
+            ip_str = addr[4][0]
+            ip_obj = ipaddress.ip_address(ip_str)
+            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_multicast or ip_obj.is_unspecified:
+                raise httpx.RequestError(f"Access to private IP {ip_str} is not allowed", request=request)
+    except socket.gaierror as e:
+        raise httpx.RequestError(f"DNS resolution failed: {e}", request=request)
+
+
+
 async def _fetch(url: str, headers: dict) -> httpx.Response:
     async with httpx.AsyncClient(
         follow_redirects=True,
         timeout=PROXY_TIMEOUT,
         verify=False,  # noqa: S501 — proxy needs to reach any site
+        event_hooks={'request': [block_private_ips]}
     ) as client:
+
         return await client.get(url, headers=headers)
 
 
