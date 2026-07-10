@@ -510,7 +510,11 @@ export default function OdessaLiveCenter({
     }
   }, []);
 
-  const processedGiftIdsRef = useRef<Set<string>>(new Set(capturedText.map((event) => event.id)));
+  const processedGiftIdsRef = useRef<Set<string> | null>(null);
+  if (processedGiftIdsRef.current === null) {
+    // ⚡ Bolt: Lazily initialize the Set to avoid O(N) memory allocation and iteration on every render.
+    processedGiftIdsRef.current = new Set(capturedText.map((event) => event.id));
+  }
 
   const drainReactiveQueue = useCallback(async () => {
     const executions: AutomationExecutionResponse[] = [];
@@ -544,7 +548,7 @@ export default function OdessaLiveCenter({
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             metadata: { triggerTest: true },
           });
-          processedGiftIdsRef.current.add(emitted.id);
+          processedGiftIdsRef.current!.add(emitted.id);
           setCapturedText((current) => [...current.filter((event) => event.id !== emitted.id), emitted].slice(-100));
         }
 
@@ -860,13 +864,13 @@ export default function OdessaLiveCenter({
     };
 
     for (const event of capturedText) {
-      if (processedGiftIdsRef.current.has(event.id)) continue;
+      if (processedGiftIdsRef.current!.has(event.id)) continue;
       if (!event.text?.trim()) continue;
       if (event.metadata?.backendIngested) {
-        processedGiftIdsRef.current.add(event.id);
+        processedGiftIdsRef.current!.add(event.id);
         continue;
       }
-      processedGiftIdsRef.current.add(event.id);
+      processedGiftIdsRef.current!.add(event.id);
       void previewEvent(event);
     }
 
