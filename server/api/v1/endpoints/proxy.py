@@ -9,8 +9,11 @@ All responses have X-Frame-Options and Content-Security-Policy removed
 so the iframe can render them without being blocked.
 """
 
+import asyncio
+import ipaddress
 import logging
 import re
+import socket
 from urllib.parse import urljoin, urlparse, quote
 
 import httpx
@@ -244,11 +247,42 @@ def _rewrite_js(js: str, js_url: str, server_base: str) -> str:
     return js
 
 
+async def _block_internal_ips(request: httpx.Request):
+    loop = asyncio.get_running_loop()
+    host = request.url.host
+    try:
+        addr_info = await loop.getaddrinfo(host, request.url.port or 80, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        pass
+    else:
+        for res in addr_info:
+            ip_str = res[4][0]
+            try:
+                ip_obj = ipaddress.ip_address(ip_str)
+                # 🛡️ Sentinel: Note on SSRF and DNS Rebinding
+                # This mitigates simple SSRF by checking the resolved IP. However, due to TOCTOU
+                # (DNS rebinding), httpx will resolve the hostname again when establishing the connection.
+                # We cannot mutate request.url to the resolved IP here to pin the IP because doing so
+                # breaks SNI (causing SSL handshake failures with external CDNs) and relative redirects
+                # in httpx. A complete fix requires a custom Transport which is beyond current scope.
+                if (
+                    ip_obj.is_private
+                    or ip_obj.is_loopback
+                    or ip_obj.is_link_local
+                    or ip_obj.is_multicast
+                    or ip_obj.is_unspecified
+                ):
+                    raise httpx.RequestError(f"Access to internal IP {ip_str} is forbidden", request=request)
+            except ValueError:
+                pass
+
+
 async def _fetch(url: str, headers: dict) -> httpx.Response:
     async with httpx.AsyncClient(
         follow_redirects=True,
         timeout=PROXY_TIMEOUT,
         verify=False,  # noqa: S501 — proxy needs to reach any site
+        event_hooks={"request": [_block_internal_ips]},
     ) as client:
         return await client.get(url, headers=headers)
 
