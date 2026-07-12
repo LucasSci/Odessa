@@ -534,7 +534,9 @@ export function useAutopilotRuntime({
     try {
       const config = await getChatAutomationConfig();
       const visualAllowed = config.allowlist.some((entry) => entry.enabled !== false && entry.mode === 'visual');
-      const latest = [...config.logs].reverse()[0] as Record<string, unknown> | undefined;
+
+      // ⚡ Bolt: Use direct array index access to avoid O(N) copy and reverse operation
+      const latest = config.logs.length > 0 ? config.logs[config.logs.length - 1] as Record<string, unknown> : undefined;
       const result = (latest?.result || {}) as Record<string, unknown>;
       setChatAutomationMonitor({
         allowlistReady: visualAllowed,

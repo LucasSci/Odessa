@@ -2606,11 +2606,14 @@ function ReactiveFlowLogLab({
     void onRun(nextText, 'test');
   };
 
-  const auditCycles = runtime.cycles
-    .slice()
-    .reverse()
-    .filter((cycle) => auditFilter === 'all' || auditEntriesForCycle(cycle).some((entry) => matchesAuditFilter(entry, auditFilter)))
-    .slice(0, visibleRounds);
+  // ⚡ Bolt: Using a backward for-loop to avoid O(N) array copying and reversing on every render
+  const auditCycles = [];
+  for (let i = runtime.cycles.length - 1; i >= 0 && auditCycles.length < visibleRounds; i--) {
+    const cycle = runtime.cycles[i];
+    if (auditFilter === 'all' || auditEntriesForCycle(cycle).some((entry) => matchesAuditFilter(entry, auditFilter))) {
+      auditCycles.push(cycle);
+    }
+  }
 
   return (
     <div className="grid min-h-full gap-4 p-4 xl:grid-cols-[minmax(540px,1fr)_420px]">
