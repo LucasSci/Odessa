@@ -11,6 +11,9 @@ so the iframe can render them without being blocked.
 
 import logging
 import re
+import asyncio
+import socket
+import ipaddress
 from urllib.parse import urljoin, urlparse, quote
 
 import httpx
@@ -244,11 +247,31 @@ def _rewrite_js(js: str, js_url: str, server_base: str) -> str:
     return js
 
 
+async def _block_private_ips(request: httpx.Request):
+    """
+    DNS-resolve the hostname and block if it resolves to a private IP,
+    preventing Server-Side Request Forgery (SSRF) against internal services.
+    """
+    host = request.url.host
+    try:
+        loop = asyncio.get_running_loop()
+        # getaddrinfo returns a list of (family, type, proto, canonname, sockaddr)
+        addr_info = await loop.getaddrinfo(host, None)
+        for _, _, _, _, sockaddr in addr_info:
+            ip = sockaddr[0]
+            ip_obj = ipaddress.ip_address(ip)
+            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_multicast or ip_obj.is_reserved:
+                raise httpx.RequestError(f"Blocked SSRF attempt to private IP: {ip}", request=request)
+    except socket.gaierror:
+        # If DNS resolution fails, the request will fail anyway. Let httpx handle it.
+        pass
+
 async def _fetch(url: str, headers: dict) -> httpx.Response:
     async with httpx.AsyncClient(
         follow_redirects=True,
         timeout=PROXY_TIMEOUT,
         verify=False,  # noqa: S501 — proxy needs to reach any site
+        event_hooks={"request": [_block_private_ips]}
     ) as client:
         return await client.get(url, headers=headers)
 
