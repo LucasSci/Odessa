@@ -2606,11 +2606,14 @@ function ReactiveFlowLogLab({
     void onRun(nextText, 'test');
   };
 
-  const auditCycles = runtime.cycles
-    .slice()
-    .reverse()
-    .filter((cycle) => auditFilter === 'all' || auditEntriesForCycle(cycle).some((entry) => matchesAuditFilter(entry, auditFilter)))
-    .slice(0, visibleRounds);
+  // ⚡ Bolt: Using a backward for-loop prevents O(N) memory allocation and multiple traversals on every render.
+  const auditCycles: AutopilotCycle[] = [];
+  for (let i = runtime.cycles.length - 1; i >= 0 && auditCycles.length < visibleRounds; i--) {
+    const cycle = runtime.cycles[i];
+    if (auditFilter === 'all' || auditEntriesForCycle(cycle).some((entry) => matchesAuditFilter(entry, auditFilter))) {
+      auditCycles.push(cycle);
+    }
+  }
 
   return (
     <div className="grid min-h-full gap-4 p-4 xl:grid-cols-[minmax(540px,1fr)_420px]">
@@ -2763,6 +2766,7 @@ function ReactiveFlowLogLab({
           <div className="min-h-[260px] overflow-y-auto rounded-[28px] border border-white/10 bg-[#101114] p-4">
             <SectionTitle icon={<ListVideo />} title="Eventos capturados" />
             <div className="mt-4 space-y-2 pr-1">
+              {/* ⚡ Bolt: Slice and reverse is acceptable here for a small fixed N limit, but avoiding an extra iteration is better if possible. For simplicity, leaving as is. */}
               {capturedText.slice(-10).reverse().map((event) => (
                 <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
                   <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-[var(--t3)]">
