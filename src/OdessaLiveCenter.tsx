@@ -2606,11 +2606,15 @@ function ReactiveFlowLogLab({
     void onRun(nextText, 'test');
   };
 
-  const auditCycles = runtime.cycles
-    .slice()
-    .reverse()
-    .filter((cycle) => auditFilter === 'all' || auditEntriesForCycle(cycle).some((entry) => matchesAuditFilter(entry, auditFilter)))
-    .slice(0, visibleRounds);
+  // ⚡ Bolt: Using a backward for-loop instead of .slice().reverse().filter().slice()
+  // to avoid O(N) memory allocation and multiple traversals on every render.
+  const auditCycles: typeof runtime.cycles = [];
+  for (let i = runtime.cycles.length - 1; i >= 0 && auditCycles.length < visibleRounds; i--) {
+    const cycle = runtime.cycles[i];
+    if (auditFilter === 'all' || auditEntriesForCycle(cycle).some((entry) => matchesAuditFilter(entry, auditFilter))) {
+      auditCycles.push(cycle);
+    }
+  }
 
   return (
     <div className="grid min-h-full gap-4 p-4 xl:grid-cols-[minmax(540px,1fr)_420px]">
@@ -2763,22 +2767,29 @@ function ReactiveFlowLogLab({
           <div className="min-h-[260px] overflow-y-auto rounded-[28px] border border-white/10 bg-[#101114] p-4">
             <SectionTitle icon={<ListVideo />} title="Eventos capturados" />
             <div className="mt-4 space-y-2 pr-1">
-              {capturedText.slice(-10).reverse().map((event) => (
-                <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
-                  <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-[var(--t3)]">
-                    <span>{event.kind} / {event.source}</span>
-                    <span>{event.time}</span>
+              {(() => {
+                // ⚡ Bolt: Using backward loop instead of slice(-10).reverse()
+                const recentEvents = [];
+                for (let i = capturedText.length - 1; i >= Math.max(0, capturedText.length - 10); i--) {
+                  recentEvents.push(capturedText[i]);
+                }
+                return recentEvents.map((event) => (
+                  <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
+                    <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-[var(--t3)]">
+                      <span>{event.kind} / {event.source}</span>
+                      <span>{event.time}</span>
+                    </div>
+                    <div className="line-clamp-2 text-sm text-slate-200">{event.text}</div>
+                    <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-wide text-slate-500">
+                      <span>{event.zoneName || 'sem zona'}</span>
+                      {typeof event.metadata?.confidence === 'number' && (
+                        <span>{Math.round(event.metadata.confidence * 100)}% conf.</span>
+                      )}
+                      {event.metadata?.backendIngested === true && <span>backend</span>}
+                    </div>
                   </div>
-                  <div className="line-clamp-2 text-sm text-slate-200">{event.text}</div>
-                  <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-wide text-slate-500">
-                    <span>{event.zoneName || 'sem zona'}</span>
-                    {typeof event.metadata?.confidence === 'number' && (
-                      <span>{Math.round(event.metadata.confidence * 100)}% conf.</span>
-                    )}
-                    {event.metadata?.backendIngested === true && <span>backend</span>}
-                  </div>
-                </div>
-              ))}
+                ));
+              })()}
               {!capturedText.length && <div className="text-sm text-slate-500">Nenhum evento capturado.</div>}
             </div>
           </div>
@@ -3048,7 +3059,11 @@ function HomeDashboard({
   onRefresh: () => void;
   onSimulateGift: () => void;
 }) {
-  const latestEvents = capturedText.slice(-6).reverse();
+  // ⚡ Bolt: Using backward loop instead of slice(-6).reverse()
+  const latestEvents = [];
+  for (let i = capturedText.length - 1; i >= Math.max(0, capturedText.length - 6); i--) {
+    latestEvents.push(capturedText[i]);
+  }
   const activeConnections = view.connections
     .map((connection) => ({
       connection,
@@ -4159,7 +4174,13 @@ function StagePanel({
         : null);
   const displayClip = connectionPreviewClip || activeClip;
   const upcomingClips = Array.isArray(videoState?.upcoming) ? videoState.upcoming : [];
-  const latestSignals = capturedText.slice(-3).reverse();
+
+  // ⚡ Bolt: Using backward loop instead of slice(-3).reverse()
+  const latestSignals = [];
+  for (let i = capturedText.length - 1; i >= Math.max(0, capturedText.length - 3); i--) {
+    latestSignals.push(capturedText[i]);
+  }
+
   const activeClipLabel = activeClip ? clipDisplayName(activeClip, view.videos) : 'Sem video selecionado';
   const activeNodeId = videoState?.activeNodeId || activeClip?.nodeId || null;
   const activeConnectionId = videoState?.activeConnectionId || null;
