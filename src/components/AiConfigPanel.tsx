@@ -347,6 +347,11 @@ export function AiConfigPanel({ videos, triggers, runtime, onOpenCapture }: AiCo
   );
   const [autoChatMaxPerMinute, setAutoChatMaxPerMinute] = useState(cfg.chatReplyMaxPerMinute);
   const [autoChatMinConfidence, setAutoChatMinConfidence] = useState(cfg.chatReplyMinConfidence);
+  const [webSendEnabled, setWebSendEnabled] = useState(false);
+  const [webSendUrl, setWebSendUrl] = useState('');
+  const [webSendInputSelector, setWebSendInputSelector] = useState('');
+  const [webSendSendButtonSelector, setWebSendSendButtonSelector] = useState('');
+  const [webSendTypingDelayMs, setWebSendTypingDelayMs] = useState(65);
   const [chatTarget, setChatTarget] = useState<ChatAutomationTarget>(() => ({
     ...LIVE_CHAT_SCREENSHOT_TARGET,
     ...loadChatAutomationTarget(),
@@ -447,7 +452,14 @@ export function AiConfigPanel({ videos, triggers, runtime, onOpenCapture }: AiCo
     const savedTarget = { ...LIVE_CHAT_SCREENSHOT_TARGET, ...loadChatAutomationTarget(), mode: 'visual' as const };
     setChatTarget(savedTarget);
     try {
-      await getChatAutomationConfig();
+      const config = await getChatAutomationConfig();
+      if (config.webSendConfig) {
+        setWebSendEnabled(config.webSendConfig.enabled);
+        setWebSendUrl(config.webSendConfig.url);
+        setWebSendInputSelector(config.webSendConfig.inputSelector);
+        setWebSendSendButtonSelector(config.webSendConfig.sendButtonSelector);
+        setWebSendTypingDelayMs(config.webSendConfig.typingDelayMs);
+      }
       const localErrors = visualTargetErrors(savedTarget);
       if (localErrors.length > 0) {
         setChatBridgeStatus('unknown');
@@ -495,7 +507,25 @@ export function AiConfigPanel({ videos, triggers, runtime, onOpenCapture }: AiCo
           : item,
       );
       if (allowlist.some((item) => item.id === 'tango-live-chat')) {
-        await saveChatAutomationConfig(allowlist);
+        await saveChatAutomationConfig(allowlist, {
+          webSendConfig: {
+            enabled: webSendEnabled,
+            url: webSendUrl,
+            inputSelector: webSendInputSelector,
+            sendButtonSelector: webSendSendButtonSelector,
+            typingDelayMs: webSendTypingDelayMs,
+          },
+        });
+      } else {
+        await saveChatAutomationConfig(allowlist, {
+          webSendConfig: {
+            enabled: webSendEnabled,
+            url: webSendUrl,
+            inputSelector: webSendInputSelector,
+            sendButtonSelector: webSendSendButtonSelector,
+            typingDelayMs: webSendTypingDelayMs,
+          },
+        });
       }
       setAutoChatSaved(true);
       await refreshChatAutomation();
@@ -512,6 +542,11 @@ export function AiConfigPanel({ videos, triggers, runtime, onOpenCapture }: AiCo
     autoChatMode,
     refreshChatAutomation,
     visualTargetReady,
+    webSendEnabled,
+    webSendUrl,
+    webSendInputSelector,
+    webSendSendButtonSelector,
+    webSendTypingDelayMs,
   ]);
 
   const handleSummarizeLearning = useCallback(async () => {
@@ -1028,6 +1063,54 @@ export function AiConfigPanel({ videos, triggers, runtime, onOpenCapture }: AiCo
                   value={autoChatMinConfidence}
                   onChange={(event) => setAutoChatMinConfidence(Math.max(0.1, Math.min(0.99, Number(event.target.value) || 0.65)))}
                 />
+              </div>
+
+              <div className="rounded-xl border border-white/8 bg-black/20 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Configuração de envio web</p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                      Configure o modo de envio direto via navegador para o chat web.
+                    </p>
+                  </div>
+                  <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={webSendEnabled}
+                      onChange={(event) => setWebSendEnabled(event.target.checked)}
+                    />
+                    Enviar por web
+                  </label>
+                </div>
+
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <Input
+                    label="URL do chat"
+                    type="text"
+                    value={webSendUrl}
+                    onChange={(event) => setWebSendUrl(event.target.value)}
+                  />
+                  <Input
+                    label="Seletor do input"
+                    type="text"
+                    value={webSendInputSelector}
+                    onChange={(event) => setWebSendInputSelector(event.target.value)}
+                  />
+                  <Input
+                    label="Seletor do botão"
+                    type="text"
+                    value={webSendSendButtonSelector}
+                    onChange={(event) => setWebSendSendButtonSelector(event.target.value)}
+                  />
+                  <Input
+                    label="Delay de digitação (ms)"
+                    type="number"
+                    min={10}
+                    max={500}
+                    value={webSendTypingDelayMs}
+                    onChange={(event) => setWebSendTypingDelayMs(Math.max(10, Math.min(500, Number(event.target.value) || 65)))}
+                  />
+                </div>
               </div>
 
               {autoChatMode === 'real' && (
