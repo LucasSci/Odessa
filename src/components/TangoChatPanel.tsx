@@ -1,40 +1,95 @@
 /**
- * TangoChatPanel — Painel completo de configuração, diagnóstico e uso
- * do Tango Chat Bridge, 100% pelo frontend.
+ * TangoChatPanel — Cockpit Completo de Respostas da IA no Tango Chat.
  *
- * O usuário não precisa abrir terminal nem saber comandos.
- * Tudo é feito por botões e formulários neste painel.
+ * Inclui:
+ * 1. Feed ao vivo do chat com identificação de mensagens, presentes e eventos.
+ * 2. Geração automática e sob demanda de respostas da Diretora IA (Gemini/OpenAI).
+ * 3. Chave de Autonomia: Desativado, Assistido (Aprovação com 1 clique) e Autônomo.
+ * 4. Fila de Rascunhos / Inbox de Respostas com aprovação humana e estados visuais.
+ * 5. Atalhos de Respostas Rápidas (Canned Responses).
+ * 6. Configurações de Personalidade da Odessa, Modelo e Regras do Governor.
+ * 7. Bridge Standalone/CDP, Monitor de Visão e Diagnóstico com logs em tempo real.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   AlertCircle,
+  Bot,
+  Check,
   CheckCircle,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Clock,
+  Copy,
+  Edit3,
   ExternalLink,
+  Eye,
+  Gift,
+  HelpCircle,
+  Key,
+  Layers,
+  ListFilter,
   Loader2,
+  Lock,
   MessageCircle,
+  MessageSquare,
+  Pause,
   Play,
   Radio,
   RefreshCw,
+  RotateCcw,
   Send,
   Settings,
+  Shield,
+  ShieldAlert,
+  ShieldCheck,
+  Sliders,
+  Sparkles,
   Square,
   Terminal,
+  Trash2,
+  User,
   Wifi,
   WifiOff,
+  X,
   XCircle,
+  Zap,
 } from 'lucide-react';
 import { Badge, Button, Input } from './ui';
 import { cn } from '../lib/utils';
+import {
+  generateTangoChatReply,
+  generateTangoProactiveMessage,
+  type TangoChatMessage,
+} from '../core/tangoAiChatService';
+import { getChatInsights } from '../core/chatLearning';
+import { getAiConfig, saveAiConfig } from '../core/aiConfig';
 
-// ─── Config ─────────────────────────────────────────────────────────
+// ─── Config & Endpoints ──────────────────────────────────────────────
 const BRIDGE_URL = '/tango-bridge';
 const BRIDGE_API = '/api/v1/chat-automation/bridge';
 
-// ─── Types ──────────────────────────────────────────────────────────
+// ─── Types ───────────────────────────────────────────────────────────
+
+export type AutonomyMode = 'off' | 'assistido' | 'auto';
+export type ExecutionMode = 'dry_run' | 'real';
+
+export type ReplyQueueStatus = 'draft' | 'sending' | 'sent' | 'blocked' | 'discarded';
+
+export type TangoReplyItem = {
+  id: string;
+  sourceMessage: TangoChatMessage;
+  text: string;
+  originalText: string;
+  status: ReplyQueueStatus;
+  confidence: number;
+  reason?: string;
+  blockedReason?: string;
+  createdAt: string;
+  sentAt?: string;
+};
 
 type BridgeProcessStatus = {
   processRunning: boolean;
@@ -74,15 +129,17 @@ type BridgeConfig = {
   };
 };
 
-type ChatMsg = {
-  username: string;
-  text: string;
-  timestamp: string;
-};
+type SubTab = 'cockpit' | 'ai_config' | 'bridge_config' | 'vision' | 'diagnostics' | 'insights';
 
-type Tab = 'chat' | 'config' | 'diagnostico';
+const DEFAULT_CANNED_RESPONSES = [
+  'Obrigada pelo carinho, amores! 💕',
+  'Sejam todos bem-vindos à live! ✨',
+  'Manda uma rosinha pra fortalecer a transmissão! 🌹',
+  'Que bom ter vocês aqui comigo hoje! 🥰',
+  'Live todo dia! Já segue o canal pra não perder! 🌟',
+];
 
-// ─── Helpers ────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────
 
 async function fetchJson<T = unknown>(url: string, opts?: RequestInit): Promise<T | null> {
   try {
@@ -107,36 +164,58 @@ function defaultConfig(): BridgeConfig {
     selectors: {
       containerChat: '[data-testid="virtuoso-item-list"]',
       mensagem: '[data-testid^="chat-event-"]',
-      username: '.Hhi6n',
-      textoMsg: '.KR99L',
+      username: ".Hhi6n",
+      textoMsg: ".KR99L",
       inputTexto: '[data-testid="textarea"]',
       botaoEnviar: '',
     },
   };
 }
 
-// ─── Component ──────────────────────────────────────────────────────
+// ─── Main Component ──────────────────────────────────────────────────
 
 export function TangoChatPanel() {
-  // ── State ──────────────────────────────────────────
-  const [tab, setTab] = useState<Tab>('chat');
+  // ── Navegação & Modos ─────────────────────────────
+  const [subTab, setSubTab] = useState<SubTab>('cockpit');
+  const [autonomyMode, setAutonomyMode] = useState<AutonomyMode>('assistido');
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>('real');
+
+  // ── Bridge Status & Processo ──────────────────────
   const [processStatus, setProcessStatus] = useState<BridgeProcessStatus | null>(null);
-  const [config, setConfig] = useState<BridgeConfig>(defaultConfig());
+  const [bridgeConfig, setBridgeConfig] = useState<BridgeConfig>(defaultConfig());
   const [configDirty, setConfigDirty] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
-  const [draftText, setDraftText] = useState('');
-  const [sending, setSending] = useState(false);
   const [starting, setStarting] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [showAdvancedSelectors, setShowAdvancedSelectors] = useState(false);
+
+  // ── Chat & Mensagens ──────────────────────────────
+  const [messages, setMessages] = useState<TangoChatMessage[]>([]);
+  const [replyQueue, setReplyQueue] = useState<TangoReplyItem[]>([]);
+  const [draftText, setDraftText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [generatingProactive, setGeneratingProactive] = useState(false);
+  const [generatingForId, setGeneratingForId] = useState<string | null>(null);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
+
+  // ── IA & Configurações da Odessa ──────────────────
+  const [aiPrompt, setAiPrompt] = useState(() => getAiConfig().systemPrompt || '');
+  const [cooldownSec, setCooldownSec] = useState(() => getAiConfig().autoChatCooldownSec || 15);
+  const [maxPerMinute, setMaxPerMinute] = useState(() => getAiConfig().autoChatMaxPerMinute || 4);
+  const [lastSentAt, setLastSentAt] = useState<number>(0);
+  const [cannedResponses, setCannedResponses] = useState<string[]>(DEFAULT_CANNED_RESPONSES);
+  const [newCannedText, setNewCannedText] = useState('');
+
+  // ── Logs e Diagnósticos ───────────────────────────
   const [logs, setLogs] = useState<string[]>([]);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [insights, setInsights] = useState(() => getChatInsights());
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const sseRef = useRef<EventSource | null>(null);
 
-  // ── Derived state ─────────────────────────────────
+  // ── Derived State ─────────────────────────────────
   const backendOnline = processStatus !== null;
   const processRunning = processStatus?.processRunning ?? false;
   const bridgeReachable = processStatus?.bridgeReachable ?? false;
@@ -153,23 +232,7 @@ export function TangoChatPanel() {
           ? 'starting'
           : 'stopped';
 
-  const statusColor: Record<string, string> = {
-    connected: 'text-emerald-400',
-    connecting: 'text-amber-400',
-    reachable: 'text-amber-400',
-    starting: 'text-amber-400',
-    stopped: 'text-slate-500',
-  };
-
-  const statusLabel: Record<string, string> = {
-    connected: 'Conectado',
-    connecting: 'Conectando…',
-    reachable: 'Bridge pronta',
-    starting: 'Iniciando…',
-    stopped: 'Parado',
-  };
-
-  // ── Poll backend status every 4s ──────────────────
+  // ── Polling de Status ─────────────────────────────
   const refreshStatus = useCallback(async () => {
     const data = await fetchJson<BridgeProcessStatus>(`${BRIDGE_API}/status`);
     setProcessStatus(data);
@@ -177,30 +240,28 @@ export function TangoChatPanel() {
 
   useEffect(() => {
     void refreshStatus();
-    const timer = window.setInterval(() => void refreshStatus(), 4000);
+    const timer = window.setInterval(() => void refreshStatus(), 3500);
     return () => window.clearInterval(timer);
   }, [refreshStatus]);
 
-  // ── Load config on mount ──────────────────────────
+  // ── Carregar Configurações ────────────────────────
   useEffect(() => {
     (async () => {
       const data = await fetchJson<BridgeConfig>(`${BRIDGE_API}/config`);
-      if (data) {
-        setConfig({ ...defaultConfig(), ...data });
-      }
+      if (data) setBridgeConfig({ ...defaultConfig(), ...data });
     })();
   }, []);
 
-  // ── Load history when bridge connects ────────────
+  // ── Histórico ao Conectar ─────────────────────────
   useEffect(() => {
     if (!bridgeConnected) return;
     (async () => {
-      const data = await fetchJson<{ messages: ChatMsg[] }>(`${BRIDGE_URL}/history?limit=200`);
+      const data = await fetchJson<{ messages: TangoChatMessage[] }>(`${BRIDGE_URL}/history?limit=150`);
       if (data?.messages) setMessages(data.messages);
     })();
   }, [bridgeConnected]);
 
-  // ── SSE stream for realtime messages ─────────────
+  // ── SSE Stream de Mensagens ───────────────────────
   useEffect(() => {
     if (!bridgeConnected) {
       sseRef.current?.close();
@@ -214,8 +275,13 @@ export function TangoChatPanel() {
 
     es.onmessage = (ev) => {
       try {
-        const msg: ChatMsg = JSON.parse(ev.data);
-        setMessages((prev) => [...prev.slice(-499), msg]);
+        const msg: TangoChatMessage = JSON.parse(ev.data);
+        setMessages((prev) => [...prev.slice(-399), msg]);
+
+        // Se modo for Autônomo, dispara geração e envio automático
+        if (autonomyMode === 'auto') {
+          void handleAutoTriggerAi(msg);
+        }
       } catch { /* ignore */ }
     };
 
@@ -228,21 +294,25 @@ export function TangoChatPanel() {
       es.close();
       sseRef.current = null;
     };
-  }, [bridgeConnected]);
+  }, [bridgeConnected, autonomyMode]);
 
-  // ── Poll logs when on diagnostico tab ─────────────
+  // ── Logs & Insights Polling ───────────────────────
   useEffect(() => {
-    if (tab !== 'diagnostico' || !processRunning) return;
-    const poll = async () => {
-      const data = await fetchJson<{ lines: string[] }>(`${BRIDGE_API}/logs?limit=150`);
-      if (data?.lines) setLogs(data.lines);
-    };
-    void poll();
-    const timer = window.setInterval(() => void poll(), 3000);
-    return () => window.clearInterval(timer);
-  }, [tab, processRunning]);
+    if (subTab === 'diagnostics' && processRunning) {
+      const pollLogs = async () => {
+        const data = await fetchJson<{ lines: string[] }>(`${BRIDGE_API}/logs?limit=150`);
+        if (data?.lines) setLogs(data.lines);
+      };
+      void pollLogs();
+      const timer = window.setInterval(() => void pollLogs(), 3000);
+      return () => window.clearInterval(timer);
+    }
+    if (subTab === 'insights') {
+      setInsights(getChatInsights());
+    }
+  }, [subTab, processRunning]);
 
-  // ── Auto-scroll ──────────────────────────────────
+  // ── Auto-scrolls ──────────────────────────────────
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -251,16 +321,16 @@ export function TangoChatPanel() {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
-  // ── Actions ──────────────────────────────────────
-  const handleStart = async () => {
+  // ── Ações do Processo e Conexão ───────────────────
+  const handleStartProcess = async () => {
     setStarting(true);
     try {
       await fetchJson(`${BRIDGE_API}/start`, {
         method: 'POST',
         body: JSON.stringify({
-          mode: config.mode,
-          autoconnect: config.autoconnect,
-          config,
+          mode: bridgeConfig.mode,
+          autoconnect: bridgeConfig.autoconnect,
+          config: bridgeConfig,
         }),
       });
       await new Promise((r) => setTimeout(r, 1500));
@@ -270,18 +340,19 @@ export function TangoChatPanel() {
     }
   };
 
-  const handleStop = async () => {
+  const handleStopProcess = async () => {
     await fetchJson(`${BRIDGE_API}/stop`, { method: 'POST' });
     setMessages([]);
+    setReplyQueue([]);
     await refreshStatus();
   };
 
-  const handleConnect = async () => {
+  const handleConnectBridge = async () => {
     setConnecting(true);
     try {
       await fetchJson(`${BRIDGE_URL}/connect`, {
         method: 'POST',
-        body: JSON.stringify({ mode: config.mode }),
+        body: JSON.stringify({ mode: bridgeConfig.mode }),
       });
       await new Promise((r) => setTimeout(r, 2000));
       await refreshStatus();
@@ -290,152 +361,320 @@ export function TangoChatPanel() {
     }
   };
 
-  const handleDisconnect = async () => {
+  const handleDisconnectBridge = async () => {
     await fetchJson(`${BRIDGE_URL}/disconnect`, { method: 'POST' });
     setMessages([]);
     await refreshStatus();
   };
 
-  const handleSend = async () => {
+  // ── Envio no Tango ────────────────────────────────
+  const executeSendMessage = async (text: string): Promise<boolean> => {
+    const clean = text.trim();
+    if (!clean) return false;
+
+    if (executionMode === 'dry_run') {
+      console.log('[DRY-RUN] Simulação de envio no Tango:', clean);
+      setLastSentAt(Date.now());
+      return true;
+    }
+
+    try {
+      const res = await fetchJson<{ ok: boolean; error?: string }>(`${BRIDGE_URL}/send`, {
+        method: 'POST',
+        body: JSON.stringify({ text: clean }),
+      });
+      if (res?.ok) {
+        setLastSentAt(Date.now());
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
+  // ── Geração de Resposta por IA ─────────────────────
+  const handleGenerateReplyForMessage = async (msg: TangoChatMessage) => {
+    setGeneratingForId(msg.timestamp || msg.text);
+    try {
+      const result = await generateTangoChatReply(msg, messages, aiPrompt);
+      const newItem: TangoReplyItem = {
+        id: `reply-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        sourceMessage: msg,
+        text: result.reply,
+        originalText: result.reply,
+        status: result.blocked ? 'blocked' : 'draft',
+        confidence: result.confidence,
+        reason: result.reason,
+        blockedReason: result.blockedReason,
+        createdAt: new Date().toISOString(),
+      };
+
+      setReplyQueue((prev) => [newItem, ...prev].slice(0, 30));
+    } finally {
+      setGeneratingForId(null);
+    }
+  };
+
+  const handleAutoTriggerAi = async (msg: TangoChatMessage) => {
+    // Verifica cooldown
+    const now = Date.now();
+    if (now - lastSentAt < cooldownSec * 1000) return;
+
+    // Filtra mensagens curtas/ruído se necessário
+    if (!msg.text || msg.text.length < 2) return;
+
+    const result = await generateTangoChatReply(msg, messages, aiPrompt);
+    if (!result.ok || result.blocked || !result.reply) return;
+
+    const newItem: TangoReplyItem = {
+      id: `reply-auto-${Date.now()}`,
+      sourceMessage: msg,
+      text: result.reply,
+      originalText: result.reply,
+      status: 'sending',
+      confidence: result.confidence,
+      reason: 'Resposta autônoma enviada pela IA',
+      createdAt: new Date().toISOString(),
+    };
+
+    setReplyQueue((prev) => [newItem, ...prev].slice(0, 30));
+
+    const sent = await executeSendMessage(result.reply);
+    setReplyQueue((prev) =>
+      prev.map((item) =>
+        item.id === newItem.id
+          ? { ...item, status: sent ? 'sent' : 'blocked', sentAt: new Date().toISOString() }
+          : item
+      )
+    );
+  };
+
+  const handleApproveReply = async (item: TangoReplyItem) => {
+    setReplyQueue((prev) =>
+      prev.map((i) => (i.id === item.id ? { ...i, status: 'sending' } : i))
+    );
+
+    const ok = await executeSendMessage(item.text);
+
+    setReplyQueue((prev) =>
+      prev.map((i) =>
+        i.id === item.id
+          ? { ...i, status: ok ? 'sent' : 'blocked', sentAt: new Date().toISOString() }
+          : i
+      )
+    );
+  };
+
+  const handleDiscardReply = (id: string) => {
+    setReplyQueue((prev) => prev.filter((i) => i.id !== id));
+  };
+
+  const handleRegenerateReply = async (item: TangoReplyItem) => {
+    setReplyQueue((prev) =>
+      prev.map((i) => (i.id === item.id ? { ...i, status: 'draft', text: 'Regenerando com IA...' } : i))
+    );
+    const result = await generateTangoChatReply(item.sourceMessage, messages, aiPrompt);
+    setReplyQueue((prev) =>
+      prev.map((i) =>
+        i.id === item.id
+          ? {
+              ...i,
+              text: result.reply,
+              originalText: result.reply,
+              status: result.blocked ? 'blocked' : 'draft',
+              confidence: result.confidence,
+              blockedReason: result.blockedReason,
+            }
+          : i
+      )
+    );
+  };
+
+  const handleGenerateProactive = async () => {
+    setGeneratingProactive(true);
+    try {
+      const result = await generateTangoProactiveMessage(undefined, messages);
+      setDraftText(result.reply);
+    } finally {
+      setGeneratingProactive(false);
+    }
+  };
+
+  const handleSendManual = async () => {
     const text = draftText.trim();
     if (!text || sending) return;
     setSending(true);
     try {
-      await fetchJson(`${BRIDGE_URL}/send`, {
-        method: 'POST',
-        body: JSON.stringify({ text }),
-      });
-      setDraftText('');
+      const ok = await executeSendMessage(text);
+      if (ok) setDraftText('');
     } finally {
       setSending(false);
     }
   };
 
-  const handleSaveConfig = async () => {
+  const handleSaveAiConfig = () => {
+    saveAiConfig({
+      systemPrompt: aiPrompt,
+      autoChatCooldownSec: cooldownSec,
+      autoChatMaxPerMinute: maxPerMinute,
+    });
+  };
+
+  const handleSaveBridgeConfig = async () => {
     setConfigSaving(true);
     try {
-      const result = await fetchJson<BridgeConfig>(`${BRIDGE_API}/config`, {
+      const res = await fetchJson<BridgeConfig>(`${BRIDGE_API}/config`, {
         method: 'POST',
-        body: JSON.stringify(config),
+        body: JSON.stringify(bridgeConfig),
       });
-      if (result) setConfig(result);
+      if (res) setBridgeConfig(res);
       setConfigDirty(false);
     } finally {
       setConfigSaving(false);
     }
   };
 
-  const handleResetConfig = () => {
-    setConfig(defaultConfig());
-    setConfigDirty(true);
+  const handleAddCannedResponse = () => {
+    const text = newCannedText.trim();
+    if (!text) return;
+    setCannedResponses((prev) => [...prev, text]);
+    setNewCannedText('');
   };
 
-  const updateConfig = <K extends keyof BridgeConfig>(key: K, value: BridgeConfig[K]) => {
-    setConfig((prev) => ({ ...prev, [key]: value }));
-    setConfigDirty(true);
+  const handleRemoveCanned = (index: number) => {
+    setCannedResponses((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const updateSelector = (key: string, value: string) => {
-    setConfig((prev) => ({
-      ...prev,
-      selectors: { ...prev.selectors, [key]: value },
-    }));
-    setConfigDirty(true);
-  };
+  // Cooldown timer calculation
+  const cooldownRemaining = Math.max(
+    0,
+    Math.ceil(cooldownSec - (Date.now() - lastSentAt) / 1000)
+  );
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      void handleSend();
-    }
-  };
-
-  // ── Render ─────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────
   return (
-    <div className="space-y-3">
-      {/* ── Header ──────────────────────────────── */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/8 bg-[#0a0b0d] p-4">
+    <div className="space-y-4">
+      {/* ── 1. Barra de Controle Superior (Cockpit Bar) ─────────────── */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#090a0d] p-4 shadow-xl">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 text-violet-300">
-            <MessageCircle className="h-5 w-5" />
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/20 via-fuchsia-500/20 to-sky-500/20 text-violet-300 border border-violet-500/20">
+            <Radio className="h-5 w-5 animate-pulse" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold text-white">Tango Chat Bridge</h3>
-              <span className={cn('flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest', statusColor[combinedStatus] || 'text-slate-500')}>
-                {bridgeConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-                {statusLabel[combinedStatus] || 'Desconhecido'}
+              <h2 className="text-sm font-bold text-white tracking-wide">Tango Chat Live Cockpit</h2>
+              <span
+                className={cn(
+                  'flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border',
+                  bridgeConnected
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                    : processRunning
+                      ? 'border-amber-500/30 bg-amber-500/10 text-amber-400'
+                      : 'border-white/10 bg-black/40 text-slate-500'
+                )}
+              >
+                <span className={cn('h-1.5 w-1.5 rounded-full', bridgeConnected ? 'bg-emerald-400 animate-ping' : 'bg-slate-500')} />
+                {bridgeConnected ? 'Conectado · Ao Vivo' : processRunning ? 'Bridge Pronta' : 'Desconectado'}
               </span>
             </div>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-slate-400 mt-0.5">
               {bridgeConnected
-                ? `${processStatus?.bridgeStatus?.messageCount ?? 0} msgs · Observer ${processStatus?.bridgeStatus?.observerInjected ? 'ativo' : 'pendente'} · Modo ${processStatus?.bridgeStatus?.mode || '?'}`
-                : !backendOnline
-                  ? 'Backend não acessível. Inicie com npm run dev:api'
-                  : processRunning
-                    ? bridgeReachable ? 'Bridge pronta. Clique em Conectar.' : 'Aguardando bridge iniciar…'
-                    : 'Clique em Iniciar para subir a bridge.'}
+                ? `${processStatus?.bridgeStatus?.messageCount ?? 0} msgs capturadas · Modo ${processStatus?.bridgeStatus?.mode || 'Standalone'}`
+                : 'Inicie a bridge para monitorar o chat e responder com IA'}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+
+        {/* Controles de Autonomia e Envio */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Seletor de Autonomia da IA */}
+          <div className="flex items-center rounded-xl border border-white/10 bg-black/40 p-1">
+            {[
+              { id: 'off' as AutonomyMode, label: 'IA Off', icon: <X className="h-3 w-3" /> },
+              { id: 'assistido' as AutonomyMode, label: 'Assistido', icon: <Sparkles className="h-3 w-3 text-violet-400" /> },
+              { id: 'auto' as AutonomyMode, label: 'Autônomo', icon: <Bot className="h-3 w-3 text-emerald-400" /> },
+            ].map((m) => (
+              <button
+                key={m.id}
+                className={cn(
+                  'flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition',
+                  autonomyMode === m.id
+                    ? 'bg-white/15 text-white shadow'
+                    : 'text-slate-500 hover:text-slate-300'
+                )}
+                onClick={() => setAutonomyMode(m.id)}
+              >
+                {m.icon}
+                {m.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Toggle Dry-Run vs Real */}
+          <button
+            className={cn(
+              'flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition',
+              executionMode === 'real'
+                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                : 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+            )}
+            onClick={() => setExecutionMode((prev) => (prev === 'real' ? 'dry_run' : 'real'))}
+            title={executionMode === 'real' ? 'Envio real ativo no Tango' : 'Modo simulação (não digita no Tango)'}
+          >
+            <ShieldCheck className="h-3.5 w-3.5" />
+            {executionMode === 'real' ? 'Envio Real' : 'Dry-Run (Teste)'}
+          </button>
+
+          {/* Botões de Ação do Processo */}
           {!processRunning ? (
-            <Button size="sm" variant="primary" disabled={!backendOnline || starting} onClick={() => void handleStart()}>
+            <Button size="sm" variant="primary" disabled={!backendOnline || starting} onClick={() => void handleStartProcess()}>
               {starting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-              Iniciar
+              Iniciar Bridge
             </Button>
           ) : (
             <>
               {!bridgeConnected ? (
-                <Button size="sm" variant="primary" disabled={!bridgeReachable || connecting} onClick={() => void handleConnect()}>
+                <Button size="sm" variant="primary" disabled={!bridgeReachable || connecting} onClick={() => void handleConnectBridge()}>
                   {connecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wifi className="h-3.5 w-3.5" />}
                   Conectar
                 </Button>
               ) : (
-                <Button size="sm" variant="secondary" onClick={() => void handleDisconnect()}>
+                <Button size="sm" variant="secondary" onClick={() => void handleDisconnectBridge()}>
                   <WifiOff className="h-3.5 w-3.5" />
                   Desconectar
                 </Button>
               )}
-              <Button size="sm" variant="danger" onClick={() => void handleStop()}>
-                <Square className="h-3 w-3" />
+              <Button size="sm" variant="danger" onClick={() => void handleStopProcess()}>
+                <Square className="h-3.5 w-3.5" />
                 Parar
               </Button>
             </>
           )}
-          <Button size="sm" variant="secondary" onClick={() => void refreshStatus()}>
+
+          <Button size="sm" variant="secondary" onClick={() => void refreshStatus()} title="Atualizar status">
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
         </div>
       </div>
 
-      {/* ── Error ─────────────────────────────── */}
-      {bridgeError && (
-        <div className="flex items-start gap-2 rounded-xl border border-red-400/30 bg-red-500/10 p-3">
-          <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-widest text-red-300">Erro na bridge</p>
-            <p className="mt-1 text-xs text-red-200/80">{bridgeError}</p>
-          </div>
-        </div>
-      )}
-
-      {/* ── Tabs ──────────────────────────────── */}
-      <div className="flex gap-1 rounded-lg border border-white/8 bg-black/30 p-1">
+      {/* ── Sub-navegação em Abas ───────────────────────────────────── */}
+      <div className="flex gap-1 overflow-x-auto rounded-xl border border-white/8 bg-black/40 p-1">
         {[
-          { id: 'chat' as Tab, label: 'Chat', icon: <MessageCircle className="h-3.5 w-3.5" /> },
-          { id: 'config' as Tab, label: 'Configuração', icon: <Settings className="h-3.5 w-3.5" /> },
-          { id: 'diagnostico' as Tab, label: 'Diagnóstico', icon: <Terminal className="h-3.5 w-3.5" /> },
+          { id: 'cockpit' as SubTab, label: 'Live Chat & Respostas IA', icon: <MessageSquare className="h-3.5 w-3.5" /> },
+          { id: 'ai_config' as SubTab, label: 'Personalidade da IA', icon: <Bot className="h-3.5 w-3.5" /> },
+          { id: 'bridge_config' as SubTab, label: 'Configuração Bridge', icon: <Settings className="h-3.5 w-3.5" /> },
+          { id: 'vision' as SubTab, label: 'Monitor de Visão', icon: <Eye className="h-3.5 w-3.5" /> },
+          { id: 'insights' as SubTab, label: 'Aprendizado do Chat', icon: <Sparkles className="h-3.5 w-3.5" /> },
+          { id: 'diagnostics' as SubTab, label: 'Diagnóstico & Logs', icon: <Terminal className="h-3.5 w-3.5" /> },
         ].map((t) => (
           <button
             key={t.id}
             className={cn(
-              'flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition',
-              tab === t.id
-                ? 'bg-white/10 text-white'
-                : 'text-slate-500 hover:text-slate-300',
+              'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition',
+              subTab === t.id ? 'bg-white/15 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'
             )}
-            onClick={() => setTab(t.id)}
+            onClick={() => setSubTab(t.id)}
           >
             {t.icon}
             {t.label}
@@ -443,223 +682,469 @@ export function TangoChatPanel() {
         ))}
       </div>
 
-      {/* ── Tab: Chat ─────────────────────────── */}
-      {tab === 'chat' && (
-        <div className="space-y-3">
-          {/* Stats */}
-          {bridgeConnected && (
-            <>
-              <div className="grid gap-2 md:grid-cols-4">
-                <StatCard label="Mensagens" value={String(processStatus?.bridgeStatus?.messageCount ?? 0)} icon={<MessageCircle className="h-3.5 w-3.5 text-sky-400" />} />
-                <StatCard label="Histórico" value={String(processStatus?.bridgeStatus?.historySize ?? 0)} icon={<Activity className="h-3.5 w-3.5 text-violet-400" />} />
-                <StatCard label="Observer" value={processStatus?.bridgeStatus?.observerInjected ? 'Ativo' : 'Pendente'} icon={<Radio className="h-3.5 w-3.5 text-emerald-400" />} />
-                <StatCard label="Desde" value={processStatus?.bridgeStatus?.startedAt ? new Date(processStatus.bridgeStatus.startedAt).toLocaleTimeString('pt-BR') : '-'} icon={<CheckCircle className="h-3.5 w-3.5 text-amber-400" />} />
-              </div>
-
-              {/* Page URL */}
-              {processStatus?.bridgeStatus?.pageUrl && (
-                <div className="flex items-center gap-2 rounded-lg border border-white/8 bg-black/20 px-3 py-2">
-                  <ExternalLink className="h-3.5 w-3.5 shrink-0 text-slate-500" />
-                  <span className="truncate text-[11px] text-slate-400">{processStatus.bridgeStatus.pageUrl}</span>
+      {/* ── ABA 1: COCKPIT DE CHAT & IA ─────────────────────────────── */}
+      {subTab === 'cockpit' && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {/* Coluna Esquerda/Centro: Feed do Chat e Envio (2/3 da largura) */}
+          <div className="space-y-3 lg:col-span-2">
+            {/* Feed do Chat ao Vivo */}
+            <div className="rounded-2xl border border-white/10 bg-[#0c0e12] overflow-hidden shadow-lg flex flex-col h-[520px]">
+              <div className="flex items-center justify-between border-b border-white/8 px-4 py-3 bg-black/30">
+                <div className="flex items-center gap-2">
+                  <MessageCircle className="h-4 w-4 text-violet-400" />
+                  <span className="text-xs font-bold uppercase tracking-widest text-slate-300">Chat da Live</span>
+                  <Badge variant="default" className="text-[10px]">
+                    {messages.length} mensagens
+                  </Badge>
                 </div>
-              )}
-
-              {/* Monitor de Visão */}
-              <div className="rounded-xl border border-white/8 bg-black/30 p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Activity className="h-4 w-4 text-emerald-400" />
-                    <span className="text-[11px] font-bold uppercase tracking-widest text-slate-300">Monitor de Visão</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      id="goto-url"
-                      placeholder="URL da Live..."
-                      className="h-7 w-64 rounded border border-white/10 bg-white/[0.04] px-2 text-xs text-white"
-                    />
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={async () => {
-                        const url = (document.getElementById('goto-url') as HTMLInputElement).value;
-                        if (url) await fetchJson(`${BRIDGE_URL}/goto`, { method: 'POST', body: JSON.stringify({ url }) });
-                      }}
-                    >Navegar</Button>
-                  </div>
-                </div>
-                <div className="relative aspect-video w-full overflow-hidden rounded border border-white/10 bg-black/50">
-                  <img
-                    src={`${BRIDGE_URL}/screenshot?t=${Date.now()}`}
-                    alt="Visão do Robô"
-                    className="h-full w-full object-contain"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    onLoad={(e) => { (e.target as HTMLImageElement).style.display = 'block'; }}
-                  />
-                  <div className="absolute bottom-2 right-2">
-                    <Button size="sm" variant="secondary" className="opacity-80 hover:opacity-100" onClick={(e) => {
-                      const img = (e.currentTarget as HTMLElement).parentElement?.previousElementSibling as HTMLImageElement;
-                      if (img) img.src = `${BRIDGE_URL}/screenshot?t=${Date.now()}`;
-                    }}>
-                      <RefreshCw className="mr-1 h-3 w-3" />
-                      Atualizar
-                    </Button>
-                  </div>
+                <div className="flex items-center gap-2">
+                  {cooldownRemaining > 0 && (
+                    <span className="flex items-center gap-1 text-[11px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                      <Clock className="h-3 w-3" /> Cooldown: {cooldownRemaining}s
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1 text-[11px] text-emerald-400">
+                    <span className="inline-block h-2 w-2 animate-ping rounded-full bg-emerald-400" />
+                    ao vivo
+                  </span>
                 </div>
               </div>
-            </>
-          )}
 
-          {/* Chat feed */}
-          <div className="rounded-xl border border-white/8 bg-black/30">
-            <div className="flex items-center gap-2 border-b border-white/8 px-4 py-2.5">
-              <Radio className="h-3.5 w-3.5 text-violet-400" />
-              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Chat ao vivo</span>
-              {bridgeConnected && (
-                <span className="ml-auto flex items-center gap-1 text-[10px] text-emerald-400">
-                  <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-                  streaming
-                </span>
-              )}
-            </div>
-            <div className="h-72 overflow-y-auto p-3">
-              {messages.length === 0 ? (
-                <div className="flex h-full items-center justify-center">
-                  <p className="text-xs text-slate-600">
-                    {bridgeConnected ? 'Aguardando mensagens do chat…' : 'Inicie e conecte a bridge para ver mensagens.'}
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  {messages.map((msg, idx) => (
-                    <ChatBubble key={`${msg.timestamp}-${idx}`} msg={msg} />
+              {/* Mensagens com botão rápido de IA */}
+              <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                {messages.length === 0 ? (
+                  <div className="flex h-full flex-col items-center justify-center text-center p-6">
+                    <MessageCircle className="h-10 w-10 text-slate-600 mb-2" />
+                    <p className="text-sm font-semibold text-slate-400">Nenhuma mensagem capturada ainda</p>
+                    <p className="text-xs text-slate-600 mt-1 max-w-sm">
+                      {bridgeConnected
+                        ? 'Aguardando espectadores falarem no chat da stream...'
+                        : 'Inicie a bridge para conectar à live.'}
+                    </p>
+                  </div>
+                ) : (
+                  messages.map((msg, idx) => (
+                    <div
+                      key={`${msg.timestamp}-${idx}`}
+                      className="group flex items-start justify-between gap-2 rounded-xl border border-white/5 bg-white/[0.02] p-2.5 transition hover:border-violet-500/30 hover:bg-violet-500/[0.04]"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className="text-xs font-bold text-violet-300">@{msg.username}</span>
+                          <span className="text-[10px] font-mono text-slate-500">
+                            {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('pt-BR') : ''}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-200 break-words leading-relaxed">{msg.text}</p>
+                      </div>
+
+                      {/* Botão Responder com IA */}
+                      <button
+                        className="shrink-0 flex items-center gap-1 rounded-lg border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-[11px] font-medium text-violet-300 opacity-90 transition hover:bg-violet-500/20 hover:opacity-100 disabled:opacity-50"
+                        disabled={generatingForId === (msg.timestamp || msg.text)}
+                        onClick={() => void handleGenerateReplyForMessage(msg)}
+                        title="Gerar sugestão de resposta com IA"
+                      >
+                        {generatingForId === (msg.timestamp || msg.text) ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-3 w-3" />
+                        )}
+                        Responder IA
+                      </button>
+                    </div>
+                  ))
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Barra de Envio + Atalhos */}
+              <div className="border-t border-white/8 bg-black/40 p-3 space-y-2">
+                {/* Pílulas de Respostas Rápidas */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 shrink-0">Rápidas:</span>
+                  {cannedResponses.slice(0, 4).map((canned, i) => (
+                    <button
+                      key={i}
+                      className="shrink-0 rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-0.5 text-[11px] text-slate-300 hover:border-violet-500/40 hover:bg-violet-500/10 hover:text-white transition"
+                      onClick={() => setDraftText(canned)}
+                    >
+                      {canned}
+                    </button>
                   ))}
-                  <div ref={messagesEndRef} />
+                  <button
+                    className="shrink-0 flex items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-violet-300 hover:bg-violet-500/20 transition"
+                    disabled={generatingProactive}
+                    onClick={() => void handleGenerateProactive()}
+                    title="Gera uma frase proativa da Odessa para o chat"
+                  >
+                    {generatingProactive ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                    Puxar Assunto IA
+                  </button>
                 </div>
-              )}
+
+                {/* Input Manual de Envio */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    className="h-10 flex-1 rounded-xl border border-white/10 bg-white/[0.05] px-3.5 text-sm text-white placeholder-slate-500 outline-none focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30"
+                    placeholder={bridgeConnected ? 'Digite uma mensagem para o chat do Tango…' : 'Conecte a bridge para enviar mensagens'}
+                    value={draftText}
+                    onChange={(e) => setDraftText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        void handleSendManual();
+                      }
+                    }}
+                  />
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    className="h-10 px-4"
+                    disabled={!draftText.trim() || sending}
+                    onClick={() => void handleSendManual()}
+                  >
+                    {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    Enviar
+                  </Button>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-2 border-t border-white/8 px-3 py-2.5">
-              <input
-                type="text"
-                className="h-9 flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm text-white placeholder-slate-500 outline-none focus:border-violet-500/50"
-                placeholder={bridgeConnected ? 'Digite uma mensagem…' : 'Conecte a bridge primeiro'}
-                disabled={!bridgeConnected}
-                value={draftText}
-                onChange={(e) => setDraftText(e.target.value)}
-                onKeyDown={handleKeyDown}
-              />
-              <Button size="sm" variant="primary" disabled={!bridgeConnected || !draftText.trim() || sending} onClick={() => void handleSend()}>
-                {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                Enviar
-              </Button>
+          </div>
+
+          {/* Coluna Direita: Fila de Rascunhos / Respostas da IA (1/3 da largura) */}
+          <div className="space-y-3">
+            <div className="rounded-2xl border border-white/10 bg-[#0c0e12] overflow-hidden shadow-lg flex flex-col h-[520px]">
+              <div className="flex items-center justify-between border-b border-white/8 px-4 py-3 bg-black/30">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-violet-400" />
+                  <span className="text-xs font-bold uppercase tracking-widest text-slate-300">Inbox de Respostas IA</span>
+                </div>
+                <Badge variant={replyQueue.length > 0 ? 'lavender' : 'default'} className="text-[10px]">
+                  {replyQueue.length} na fila
+                </Badge>
+              </div>
+
+              {/* Lista de Rascunhos */}
+              <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                {replyQueue.length === 0 ? (
+                  <div className="flex h-full flex-col items-center justify-center text-center p-4 text-slate-500">
+                    <Bot className="h-8 w-8 mb-2 opacity-50 text-violet-400" />
+                    <p className="text-xs font-semibold text-slate-400">Nenhuma resposta pendente</p>
+                    <p className="text-[11px] text-slate-600 mt-1 max-w-xs">
+                      {autonomyMode === 'assistido'
+                        ? 'Clique em "Responder IA" em qualquer mensagem para gerar um rascunho de aprovação.'
+                        : autonomyMode === 'auto'
+                          ? 'Modo Autônomo ativo: a IA responde diretamente no chat.'
+                          : 'Ligue o modo Assistido para receber sugestões da IA.'}
+                    </p>
+                  </div>
+                ) : (
+                  replyQueue.map((item) => (
+                    <div
+                      key={item.id}
+                      className={cn(
+                        'rounded-xl border p-3 space-y-2 transition',
+                        item.status === 'sent' && 'border-emerald-500/30 bg-emerald-500/5',
+                        item.status === 'sending' && 'border-sky-500/30 bg-sky-500/5 animate-pulse',
+                        item.status === 'blocked' && 'border-red-500/30 bg-red-500/5',
+                        item.status === 'draft' && 'border-violet-500/30 bg-violet-500/5'
+                      )}
+                    >
+                      {/* Contexto da Pergunta */}
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-bold text-violet-300">
+                          Para: @{item.sourceMessage.username}
+                        </span>
+                        <span className="text-[10px] text-slate-500">
+                          {Math.round(item.confidence * 100)}% confiança
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 italic line-clamp-1 border-l-2 border-white/20 pl-2">
+                        "{item.sourceMessage.text}"
+                      </p>
+
+                      {/* Texto da Resposta ou Edição */}
+                      {editingItemId === item.id ? (
+                        <div className="space-y-1.5 pt-1">
+                          <textarea
+                            className="w-full h-16 rounded-lg border border-white/20 bg-black/40 p-2 text-xs text-white outline-none focus:border-violet-500"
+                            value={editingText}
+                            onChange={(e) => setEditingText(e.target.value)}
+                          />
+                          <div className="flex justify-end gap-1.5">
+                            <Button size="sm" variant="secondary" onClick={() => setEditingItemId(null)}>
+                              Cancelar
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              onClick={() => {
+                                setReplyQueue((prev) =>
+                                  prev.map((i) => (i.id === item.id ? { ...i, text: editingText } : i))
+                                );
+                                setEditingItemId(null);
+                              }}
+                            >
+                              Salvar
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs font-medium text-slate-100 bg-black/30 p-2 rounded-lg border border-white/5">
+                          {item.text}
+                        </p>
+                      )}
+
+                      {/* Motivo de bloqueio se houver */}
+                      {item.blockedReason && (
+                        <p className="text-[10px] text-red-400 flex items-center gap-1">
+                          <ShieldAlert className="h-3 w-3 shrink-0" /> {item.blockedReason}
+                        </p>
+                      )}
+
+                      {/* Ações de Aprovação */}
+                      {item.status === 'draft' && editingItemId !== item.id && (
+                        <div className="flex items-center gap-1.5 pt-1">
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            className="flex-1 h-7 text-xs bg-emerald-600 hover:bg-emerald-500 text-white"
+                            onClick={() => void handleApproveReply(item)}
+                          >
+                            <Check className="h-3.5 w-3.5 mr-1" /> Aprovar & Enviar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="h-7 px-2"
+                            title="Editar texto"
+                            onClick={() => {
+                              setEditingItemId(item.id);
+                              setEditingText(item.text);
+                            }}
+                          >
+                            <Edit3 className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="h-7 px-2"
+                            title="Regerar com IA"
+                            onClick={() => void handleRegenerateReply(item)}
+                          >
+                            <RotateCcw className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            className="h-7 px-2"
+                            title="Descartar"
+                            onClick={() => handleDiscardReply(item.id)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )}
+
+                      {item.status === 'sent' && (
+                        <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400">
+                          <CheckCircle2 className="h-3 w-3" /> Enviada com sucesso
+                        </span>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Tab: Configuração ─────────────────── */}
-      {tab === 'config' && (
-        <div className="space-y-4 rounded-xl border border-white/8 bg-[#0a0b0d] p-4">
-          {/* Modo */}
+      {/* ── ABA 2: PERSONALIDADE DA IA & REGRAS ──────────────────────── */}
+      {subTab === 'ai_config' && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {/* Personalidade da Odessa */}
+          <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <Bot className="h-5 w-5 text-violet-400" />
+              <h3 className="text-sm font-bold text-white">Personalidade no Chat (System Prompt)</h3>
+            </div>
+            <p className="text-xs text-slate-400">
+              Instruções que moldam como a Odessa responde no chat da stream.
+            </p>
+            <textarea
+              className="h-64 w-full rounded-xl border border-white/10 bg-black/40 p-3 font-mono text-xs text-slate-200 outline-none focus:border-violet-500 leading-relaxed"
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              placeholder="Digite o prompt de personalidade..."
+            />
+            <div className="flex justify-end">
+              <Button size="sm" variant="primary" onClick={handleSaveAiConfig}>
+                <Check className="h-3.5 w-3.5 mr-1" /> Salvar Personalidade
+              </Button>
+            </div>
+          </div>
+
+          {/* Regras do Governor & Rate Limit */}
+          <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-emerald-400" />
+              <h3 className="text-sm font-bold text-white">Segurança & Rate Limit (Governor)</h3>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Cooldown Mínimo entre Mensagens (segundos)
+                </label>
+                <input
+                  type="number"
+                  className="h-9 w-full rounded-lg border border-white/10 bg-black/40 px-3 text-xs text-white"
+                  value={cooldownSec}
+                  onChange={(e) => setCooldownSec(Number(e.target.value) || 15)}
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Evita que a IA envie mensagens muito seguidas (recomendado: 10 a 20s).
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Máximo de Mensagens por Minuto
+                </label>
+                <input
+                  type="number"
+                  className="h-9 w-full rounded-lg border border-white/10 bg-black/40 px-3 text-xs text-white"
+                  value={maxPerMinute}
+                  onChange={(e) => setMaxPerMinute(Number(e.target.value) || 4)}
+                />
+              </div>
+
+              {/* Gerenciador de Respostas Rápidas */}
+              <div className="pt-2 border-t border-white/8">
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Respostas Rápidas Pré-definidas
+                </label>
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="text"
+                    className="h-8 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 text-xs text-white"
+                    placeholder="Adicionar nova resposta rápida..."
+                    value={newCannedText}
+                    onChange={(e) => setNewCannedText(e.target.value)}
+                  />
+                  <Button size="sm" variant="secondary" onClick={handleAddCannedResponse}>
+                    Adicionar
+                  </Button>
+                </div>
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {cannedResponses.map((c, i) => (
+                    <div key={i} className="flex items-center justify-between rounded bg-white/[0.02] px-2.5 py-1 text-xs text-slate-300">
+                      <span className="truncate">{c}</span>
+                      <button className="text-slate-500 hover:text-red-400 ml-2" onClick={() => handleRemoveCanned(i)}>
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── ABA 3: CONFIGURAÇÃO DA BRIDGE ───────────────────────────── */}
+      {subTab === 'bridge_config' && (
+        <div className="space-y-4 rounded-2xl border border-white/10 bg-[#0c0e12] p-5">
           <div>
-            <label className="mb-2 block text-[11px] font-bold uppercase tracking-widest text-slate-400">
-              Modo de conexão
+            <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-400">
+              Modo de Conexão com o Tango
             </label>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2">
               {[
-                { value: '', label: 'Automático', desc: 'Tenta CDP primeiro, depois Standalone.' },
-                { value: 'cdp', label: 'CDP', desc: 'Conecta ao Chrome já aberto (flag --remote-debugging-port=9222).' },
-                { value: 'standalone', label: 'Standalone', desc: 'Abre Chromium próprio do Playwright. Recomendado para primeiro uso.' },
+                { value: '', label: 'Automático', desc: 'Tenta CDP primeiro; fallback para Standalone.' },
+                { value: 'standalone', label: 'Standalone (Recomendado)', desc: 'Abre um Chromium próprio do Playwright com perfil salvo permanente.' },
+                { value: 'cdp', label: 'CDP (Chrome Aberto)', desc: 'Conecta ao seu Chrome com flag --remote-debugging-port=9222.' },
               ].map((opt) => (
                 <button
                   key={opt.value}
                   className={cn(
-                    'rounded-lg border p-3 text-left transition',
-                    config.mode === opt.value
-                      ? 'border-violet-500/50 bg-violet-500/10'
-                      : 'border-white/8 bg-black/20 hover:border-white/15',
+                    'rounded-xl border p-3.5 text-left transition',
+                    bridgeConfig.mode === opt.value
+                      ? 'border-violet-500/60 bg-violet-500/10'
+                      : 'border-white/8 bg-black/20 hover:border-white/20'
                   )}
-                  onClick={() => updateConfig('mode', opt.value)}
+                  onClick={() => {
+                    setBridgeConfig((prev) => ({ ...prev, mode: opt.value }));
+                    setConfigDirty(true);
+                  }}
                 >
                   <span className="text-xs font-bold text-white">{opt.label}</span>
-                  <p className="mt-0.5 text-[10px] text-slate-400">{opt.desc}</p>
+                  <p className="mt-1 text-[11px] text-slate-400">{opt.desc}</p>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* URL */}
-          <div>
-            <label className="mb-1 block text-[11px] font-bold uppercase tracking-widest text-slate-400">
-              URL da Live Tango
-            </label>
-            <input
-              type="text"
-              className="h-9 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm text-white placeholder-slate-500 outline-none focus:border-violet-500/50"
-              value={config.roomUrl}
-              onChange={(e) => updateConfig('roomUrl', e.target.value)}
-              placeholder="https://tango.me/stream/broadcast"
-            />
-          </div>
-
-          {/* Port + CDP URL */}
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-[11px] font-bold uppercase tracking-widest text-slate-400">
-                Porta da Bridge
+              <label className="mb-1 block text-xs font-semibold text-slate-300">
+                URL da Live Tango
+              </label>
+              <input
+                type="text"
+                className="h-9 w-full rounded-lg border border-white/10 bg-black/40 px-3 text-xs text-white placeholder-slate-600 outline-none focus:border-violet-500"
+                value={bridgeConfig.roomUrl}
+                onChange={(e) => {
+                  setBridgeConfig((prev) => ({ ...prev, roomUrl: e.target.value }));
+                  setConfigDirty(true);
+                }}
+                placeholder="https://tango.me/stream/broadcast"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-300">
+                Porta HTTP da Bridge
               </label>
               <input
                 type="number"
-                className="h-9 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm text-white placeholder-slate-500 outline-none focus:border-violet-500/50"
-                value={config.port}
-                onChange={(e) => updateConfig('port', Number(e.target.value) || 7555)}
+                className="h-9 w-full rounded-lg border border-white/10 bg-black/40 px-3 text-xs text-white outline-none focus:border-violet-500"
+                value={bridgeConfig.port}
+                onChange={(e) => {
+                  setBridgeConfig((prev) => ({ ...prev, port: Number(e.target.value) || 7555 }));
+                  setConfigDirty(true);
+                }}
               />
             </div>
-            {config.mode !== 'standalone' && (
-              <div>
-                <label className="mb-1 block text-[11px] font-bold uppercase tracking-widest text-slate-400">
-                  URL do Chrome CDP
-                </label>
-                <input
-                  type="text"
-                  className="h-9 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm text-white placeholder-slate-500 outline-none focus:border-violet-500/50"
-                  value={config.cdpUrl}
-                  onChange={(e) => updateConfig('cdpUrl', e.target.value)}
-                />
-              </div>
-            )}
           </div>
 
-          {/* Autoconnect */}
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-white/20 bg-white/5 accent-violet-500"
-              checked={config.autoconnect}
-              onChange={(e) => updateConfig('autoconnect', e.target.checked)}
-            />
-            <span className="text-xs text-slate-300">Conectar automaticamente ao iniciar</span>
-          </label>
-
-          {/* Seletores avançados */}
+          {/* Seletores Avançados */}
           <div>
             <button
-              className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-300 transition"
-              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="flex items-center gap-1 text-xs font-bold uppercase tracking-widest text-slate-500 hover:text-slate-300"
+              onClick={() => setShowAdvancedSelectors(!showAdvancedSelectors)}
             >
-              {showAdvanced ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-              Seletores CSS (avançado)
+              {showAdvancedSelectors ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              Seletores CSS do Tango (Avançado)
             </button>
-            {showAdvanced && (
-              <div className="mt-2 space-y-2 rounded-lg border border-white/8 bg-black/20 p-3">
-                {Object.entries(config.selectors).map(([key, value]) => (
+            {showAdvancedSelectors && (
+              <div className="mt-2 grid gap-2 sm:grid-cols-2 rounded-xl border border-white/8 bg-black/30 p-3">
+                {Object.entries(bridgeConfig.selectors).map(([key, val]) => (
                   <div key={key}>
-                    <label className="mb-0.5 block text-[10px] font-medium text-slate-500">{key}</label>
+                    <label className="block text-[10px] text-slate-500 mb-0.5">{key}</label>
                     <input
                       type="text"
-                      className="h-8 w-full rounded border border-white/10 bg-white/[0.04] px-2 font-mono text-[11px] text-white placeholder-slate-600 outline-none focus:border-violet-500/50"
-                      value={value}
-                      onChange={(e) => updateSelector(key, e.target.value)}
+                      className="h-7 w-full rounded border border-white/10 bg-black/40 px-2 font-mono text-[11px] text-white"
+                      value={val}
+                      onChange={(e) => {
+                        setBridgeConfig((prev) => ({
+                          ...prev,
+                          selectors: { ...prev.selectors, [key]: e.target.value },
+                        }));
+                        setConfigDirty(true);
+                      }}
                     />
                   </div>
                 ))}
@@ -667,96 +1152,197 @@ export function TangoChatPanel() {
             )}
           </div>
 
-          {/* Buttons */}
-          <div className="flex items-center gap-2 border-t border-white/8 pt-3">
+          <div className="flex items-center gap-2 pt-2 border-t border-white/8">
             <Button
               size="sm"
               variant="primary"
               disabled={!configDirty || configSaving}
-              onClick={() => void handleSaveConfig()}
+              onClick={() => void handleSaveBridgeConfig()}
             >
-              {configSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
-              Salvar
+              {configSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5 mr-1" />}
+              Salvar Configurações
             </Button>
-            <Button size="sm" variant="secondary" onClick={handleResetConfig}>
-              <RefreshCw className="h-3.5 w-3.5" />
-              Restaurar padrões
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                setBridgeConfig(defaultConfig());
+                setConfigDirty(true);
+              }}
+            >
+              Restaurar Padrões
             </Button>
-            {configDirty && (
-              <Badge variant="warning">
-                <AlertCircle className="mr-1 h-3 w-3" />
-                Não salvo
-              </Badge>
-            )}
           </div>
         </div>
       )}
 
-      {/* ── Tab: Diagnóstico ──────────────────── */}
-      {tab === 'diagnostico' && (
-        <div className="space-y-3">
-          {/* Connectivity checks */}
-          <div className="rounded-xl border border-white/8 bg-[#0a0b0d] p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Conectividade</span>
-              <Button size="sm" variant="secondary" onClick={() => void refreshStatus()}>
-                <RefreshCw className="h-3 w-3 mr-1" />
-                Testar tudo
+      {/* ── ABA 4: MONITOR DE VISÃO ─────────────────────────────────── */}
+      {subTab === 'vision' && (
+        <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Eye className="h-4 w-4 text-emerald-400" />
+              <h3 className="text-sm font-bold text-white">Visão da Stream do Tango</h3>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                id="goto-url-cockpit"
+                placeholder="Navegar para URL da Live..."
+                className="h-8 w-72 rounded-lg border border-white/10 bg-black/40 px-3 text-xs text-white"
+              />
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={async () => {
+                  const url = (document.getElementById('goto-url-cockpit') as HTMLInputElement).value;
+                  if (url) await fetchJson(`${BRIDGE_URL}/goto`, { method: 'POST', body: JSON.stringify({ url }) });
+                }}
+              >
+                Navegar
               </Button>
             </div>
-            <div className="space-y-2">
-              <CheckItem ok={backendOnline} label="Backend Odessa (API)" detail={backendOnline ? 'Respondendo' : 'Não acessível'} />
-              <CheckItem ok={processRunning} label="Processo da Bridge" detail={processRunning ? `PID ${processStatus?.pid}` : 'Não iniciado'} />
-              <CheckItem ok={bridgeReachable} label={`Bridge HTTP (porta ${config.port})`} detail={bridgeReachable ? 'Respondendo' : 'Não acessível'} />
-              <CheckItem ok={bridgeConnected} label="Conexão com Tango" detail={bridgeConnected ? `Modo ${processStatus?.bridgeStatus?.mode || '?'}` : 'Não conectado'} />
-            </div>
           </div>
 
-          {/* Process controls */}
-          <div className="rounded-xl border border-white/8 bg-[#0a0b0d] p-4">
-            <span className="mb-3 block text-[11px] font-bold uppercase tracking-widest text-slate-400">Controle do processo</span>
-            <div className="flex items-center gap-2">
-              {!processRunning ? (
-                <Button size="sm" variant="primary" disabled={starting} onClick={() => void handleStart()}>
-                  {starting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-                  Iniciar Bridge
-                </Button>
+          <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-black/50">
+            <img
+              src={`${BRIDGE_URL}/screenshot?t=${Date.now()}`}
+              alt="Visão da Live"
+              className="h-full w-full object-contain"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+              onLoad={(e) => { (e.target as HTMLImageElement).style.display = 'block'; }}
+            />
+            <div className="absolute bottom-3 right-3">
+              <Button
+                size="sm"
+                variant="secondary"
+                className="opacity-90 hover:opacity-100 shadow"
+                onClick={(e) => {
+                  const img = (e.currentTarget as HTMLElement).parentElement?.previousElementSibling as HTMLImageElement;
+                  if (img) img.src = `${BRIDGE_URL}/screenshot?t=${Date.now()}`;
+                }}
+              >
+                <RefreshCw className="mr-1 h-3 w-3" /> Atualizar Imagem
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── ABA 5: APRENDIZADO DO CHAT ──────────────────────────────── */}
+      {subTab === 'insights' && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-4 space-y-3">
+            <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400">Tópicos Mais Falados</h4>
+            <div className="space-y-1.5">
+              {insights.topTopics.length === 0 ? (
+                <p className="text-xs text-slate-600">Nenhum tópico registrado ainda.</p>
               ) : (
-                <Button size="sm" variant="danger" onClick={() => void handleStop()}>
-                  <Square className="h-3 w-3" />
-                  Parar Bridge
-                </Button>
+                insights.topTopics.map(([topic, counter], i) => (
+                  <div key={i} className="flex justify-between items-center bg-white/[0.02] p-2 rounded-lg text-xs">
+                    <span className="font-semibold text-violet-300">#{topic}</span>
+                    <Badge variant="default" className="text-[10px]">{counter.count}x</Badge>
+                  </div>
+                ))
               )}
-              <span className="text-[11px] text-slate-500">
-                {processRunning
-                  ? `Rodando desde ${processStatus?.startedAt ? new Date(processStatus.startedAt).toLocaleTimeString('pt-BR') : '?'}`
-                  : 'Processo parado'}
-              </span>
             </div>
           </div>
 
-          {/* Logs */}
-          <div className="rounded-xl border border-white/8 bg-[#0a0b0d]">
-            <div className="flex items-center gap-2 border-b border-white/8 px-4 py-2.5">
-              <Terminal className="h-3.5 w-3.5 text-emerald-400" />
-              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Log da Bridge</span>
-              <span className="ml-auto text-[10px] text-slate-600">{logs.length} linhas</span>
+          <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-4 space-y-3">
+            <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400">Pedidos Frequentes</h4>
+            <div className="space-y-1.5">
+              {insights.topRequests.length === 0 ? (
+                <p className="text-xs text-slate-600">Nenhum pedido frequente identificado.</p>
+              ) : (
+                insights.topRequests.map(([req, counter], i) => (
+                  <div key={i} className="flex justify-between items-center bg-white/[0.02] p-2 rounded-lg text-xs">
+                    <span className="truncate text-slate-300">{req}</span>
+                    <Badge variant="lavender" className="text-[10px]">{counter.count}x</Badge>
+                  </div>
+                ))
+              )}
             </div>
-            <div className="h-64 overflow-y-auto bg-black/40 p-3 font-mono text-[11px]">
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-4 space-y-3">
+            <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400">Elogios & Curtidas</h4>
+            <div className="space-y-1.5">
+              {insights.topLikes.length === 0 ? (
+                <p className="text-xs text-slate-600">Nenhum elogio registrado ainda.</p>
+              ) : (
+                insights.topLikes.map(([like, counter], i) => (
+                  <div key={i} className="flex justify-between items-center bg-white/[0.02] p-2 rounded-lg text-xs">
+                    <span className="text-emerald-300">✨ {like}</span>
+                    <Badge variant="success" className="text-[10px]">{counter.count}x</Badge>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── ABA 6: DIAGNÓSTICO & LOGS ────────────────────────────────── */}
+      {subTab === 'diagnostics' && (
+        <div className="space-y-4">
+          {/* Checks de Conectividade */}
+          <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-5">
+            <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">Saúde do Ecossistema</h4>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-black/30 border border-white/5">
+                <span className="text-xs text-slate-300">Backend API (FastAPI)</span>
+                <span className={cn('text-xs font-bold', backendOnline ? 'text-emerald-400' : 'text-red-400')}>
+                  {backendOnline ? 'Online (8000)' : 'Offline'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-black/30 border border-white/5">
+                <span className="text-xs text-slate-300">Processo Python (tango_chat.py)</span>
+                <span className={cn('text-xs font-bold', processRunning ? 'text-emerald-400' : 'text-slate-500')}>
+                  {processRunning ? `Ativo (PID ${processStatus?.pid})` : 'Parado'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-black/30 border border-white/5">
+                <span className="text-xs text-slate-300">Servidor HTTP Bridge</span>
+                <span className={cn('text-xs font-bold', bridgeReachable ? 'text-emerald-400' : 'text-slate-500')}>
+                  {bridgeReachable ? `Respondendo (${bridgeConfig.port})` : 'Inativo'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-black/30 border border-white/5">
+                <span className="text-xs text-slate-300">Conexão DOM Tango Live</span>
+                <span className={cn('text-xs font-bold', bridgeConnected ? 'text-emerald-400' : 'text-slate-500')}>
+                  {bridgeConnected ? 'MutationObserver Ativo' : 'Desconectado'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Terminal de Logs ao Vivo */}
+          <div className="rounded-2xl border border-white/10 bg-[#0c0e12] overflow-hidden">
+            <div className="flex items-center justify-between border-b border-white/8 px-4 py-2.5 bg-black/40">
+              <div className="flex items-center gap-2">
+                <Terminal className="h-3.5 w-3.5 text-emerald-400" />
+                <span className="text-xs font-bold uppercase tracking-widest text-slate-300">Terminal da Bridge</span>
+              </div>
+              <span className="text-[10px] text-slate-500">{logs.length} linhas</span>
+            </div>
+            <div className="h-64 overflow-y-auto bg-black/60 p-3 font-mono text-[11px] space-y-0.5">
               {logs.length === 0 ? (
-                <p className="text-slate-600">
-                  {processRunning ? 'Carregando logs…' : 'Inicie a bridge para ver logs aqui.'}
-                </p>
+                <p className="text-slate-600">Inicie a bridge para visualizar os logs em tempo real...</p>
               ) : (
                 logs.map((line, i) => (
                   <div
                     key={i}
                     className={cn(
-                      'py-0.5 whitespace-pre-wrap break-all',
-                      line.includes('ERROR') ? 'text-red-400' :
-                      line.includes('WARNING') ? 'text-amber-400' :
-                      line.includes('INFO') ? 'text-emerald-400/80' :
-                      'text-slate-400',
+                      'whitespace-pre-wrap break-all leading-tight',
+                      line.includes('ERROR')
+                        ? 'text-red-400'
+                        : line.includes('WARNING')
+                          ? 'text-amber-400'
+                          : line.includes('MSG |')
+                            ? 'text-sky-300'
+                            : line.includes('SEND |')
+                              ? 'text-emerald-400'
+                              : 'text-slate-400'
                     )}
                   >
                     {line}
@@ -768,50 +1354,6 @@ export function TangoChatPanel() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ─── Sub-components ─────────────────────────────────────────────────
-
-function StatCard({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
-  return (
-    <div className="rounded-xl border border-white/8 bg-black/20 p-3">
-      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500">
-        {icon}
-        {label}
-      </div>
-      <div className="mt-1 text-sm font-semibold text-white">{value}</div>
-    </div>
-  );
-}
-
-function ChatBubble({ msg }: { msg: ChatMsg }) {
-  const time = new Date(msg.timestamp).toLocaleTimeString('pt-BR', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-
-  return (
-    <div className="group flex items-start gap-2 rounded-lg px-2 py-1 transition hover:bg-white/[0.03]">
-      <span className="shrink-0 font-mono text-[10px] text-slate-600">{time}</span>
-      <span className="shrink-0 text-xs font-bold text-violet-300">{msg.username}</span>
-      <span className="min-w-0 break-words text-xs text-slate-200">{msg.text}</span>
-    </div>
-  );
-}
-
-function CheckItem({ ok, label, detail }: { ok: boolean; label: string; detail: string }) {
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-white/5 bg-black/20 px-3 py-2">
-      {ok ? (
-        <CheckCircle className="h-4 w-4 shrink-0 text-emerald-400" />
-      ) : (
-        <XCircle className="h-4 w-4 shrink-0 text-red-400/60" />
-      )}
-      <span className="text-xs text-white">{label}</span>
-      <span className={cn('ml-auto text-[10px]', ok ? 'text-emerald-400/80' : 'text-slate-500')}>{detail}</span>
     </div>
   );
 }
