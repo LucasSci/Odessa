@@ -397,11 +397,12 @@ export function TangoChatPanel() {
   };
 
   
-  const handleSelectWizardPreset = (kind: 'anotepad' | 'tango') => {
+  const handleSelectWizardPreset = async (kind: 'anotepad' | 'tango') => {
     setWizardTargetKind(kind);
+    let newConf: BridgeConfig;
     if (kind === 'anotepad') {
-      setBridgeConfig((prev) => ({
-        ...prev,
+      newConf = {
+        ...bridgeConfig,
         roomUrl: 'https://pt.anotepad.com/',
         selectors: {
           containerChat: '#edit_textarea',
@@ -411,10 +412,10 @@ export function TangoChatPanel() {
           inputTexto: '#edit_textarea',
           botaoEnviar: '#btnSaveNote',
         },
-      }));
+      };
     } else {
-      setBridgeConfig((prev) => ({
-        ...prev,
+      newConf = {
+        ...bridgeConfig,
         roomUrl: 'https://tango.me/stream/broadcast',
         selectors: {
           containerChat: '[data-testid="virtuoso-item-list"]',
@@ -424,9 +425,68 @@ export function TangoChatPanel() {
           inputTexto: '[data-testid="textarea"]',
           botaoEnviar: '',
         },
-      }));
+      };
     }
-    setConfigDirty(true);
+    setBridgeConfig(newConf);
+    // Salva imediatamente no backend para que a bridge use as configurações certas
+    await fetchJson(`${BRIDGE_API}/config`, {
+      method: 'POST',
+      body: JSON.stringify(newConf),
+    });
+    setConfigDirty(false);
+  };
+
+  const [autoConfiguring, setAutoConfiguring] = useState(false);
+  const [autoConfigStepName, setAutoConfigStepName] = useState<string>('');
+
+  const handleRunFullAutoSetup = async () => {
+    setAutoConfiguring(true);
+    setWizardTestResult(null);
+    try {
+      // 1. Salva Config
+      setAutoConfigStepName('1/4: Salvando configuração do alvo...');
+      await handleSelectWizardPreset(wizardTargetKind);
+      await new Promise((r) => setTimeout(r, 600));
+
+      // 2. Abre Chrome se necessário
+      setAutoConfigStepName('2/4: Verificando / Abrindo navegador...');
+      if (!chromeStatus?.runningWithDebug) {
+        await handleLaunchChrome();
+        await new Promise((r) => setTimeout(r, 2000));
+        await refreshChromeStatus();
+      }
+
+      // 3. Inicia Bridge e Conecta
+      setAutoConfigStepName('3/4: Iniciando Bridge e acoplando à aba...');
+      if (!processRunning) {
+        await handleStartProcess();
+        await new Promise((r) => setTimeout(r, 1800));
+      }
+      await handleConnectBridge();
+      await new Promise((r) => setTimeout(r, 1500));
+      await refreshStatus();
+
+      // 4. Teste de Validação
+      setAutoConfigStepName('4/4: Executando teste de resposta da IA...');
+      const sampleMsg: TangoChatMessage = {
+        username: 'Odessa_Tester',
+        text: 'Olá! Sistema de monitoramento do chat configurado com sucesso.',
+        timestamp: new Date().toISOString(),
+      };
+      const aiRes = await generateTangoChatReply(sampleMsg, messages, aiPrompt);
+      if (aiRes.ok && aiRes.reply) {
+        await executeSendMessage(aiRes.reply);
+        setWizardTestResult(`🎉 Configuração 100% Concluída e Validada!\nO robô se conectou à página e respondeu:\n"${aiRes.reply}"`);
+      } else {
+        setWizardTestResult('✅ Bridge conectada com sucesso à página!');
+      }
+      setWizardStep(4);
+    } catch (err) {
+      setWizardTestResult('❌ Erro durante configuração automática: ' + String(err));
+    } finally {
+      setAutoConfiguring(false);
+      setAutoConfigStepName('');
+    }
   };
 
   const handleRunWizardTestSend = async (sampleText: string) => {

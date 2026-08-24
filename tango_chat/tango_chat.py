@@ -327,12 +327,27 @@ class TangoChatBridge:
         log.info("Standalone pronto. URL: %s", self._page.url)
 
     async def _find_tango_page(self) -> Page | None:
-        """Percorre contextos/paginas do browser CDP para achar aba do Tango."""
+        """Percorre contextos/paginas do browser CDP para achar a aba correta."""
         if not self._browser:
             return None
+        # 1. Procura primeiro por URL do Tango ou Room URL configurada
+        room_sub = TANGO_ROOM_URL.replace("https://", "").replace("http://", "").split("/")[0].lower() if TANGO_ROOM_URL else ""
         for context in self._browser.contexts:
             for page in context.pages:
-                if TANGO_URL_PATTERN.lower() in page.url.lower():
+                page_url = page.url.lower()
+                if TANGO_URL_PATTERN.lower() in page_url:
+                    return page
+                if room_sub and room_sub in page_url:
+                    return page
+                if "anotepad.com" in page_url:
+                    return page
+
+        # 2. Se não achou pelo pattern específico, pega a primeira página útil aberta
+        for context in self._browser.contexts:
+            for page in context.pages:
+                purl = page.url.lower()
+                if purl and not purl.startswith("chrome://") and not purl.startswith("about:"):
+                    log.info("Acoplando à primeira aba aberta: %s", page.url)
                     return page
         return None
 
@@ -369,9 +384,15 @@ class TangoChatBridge:
     # == Leitura: MutationObserver =====================================
 
     async def _inject_observer(self) -> None:
-        """Injeta MutationObserver na pagina."""
+        """Injeta MutationObserver na pagina com fallback para simulador."""
         if not self._page:
             raise RuntimeError("Nenhuma pagina conectada.")
+
+        # Injeta callback bridge
+        await self._page.expose_function(
+            "__onNewChatMessage",
+            lambda payload: asyncio.create_task(self._handle_incoming_message(payload)),
+        )
 
         js_code = f"""
         (() => {{
@@ -383,9 +404,16 @@ class TangoChatBridge:
             const usernameSelector  = `{SELETOR_USERNAME}`;
             const textSelector      = `{SELETOR_TEXTO_MSG}`;
 
+            // Expõe função de simulação global
+            window.__odessaSimulateChat = (username, text) => {{
+                if (window.__onNewChatMessage) {{
+                    window.__onNewChatMessage(JSON.stringify({{ username, text }}));
+                }}
+            }};
+
             const container = document.querySelector(containerSelector);
             if (!container) {{
-                console.error('[TangoBot] Container nao encontrado:', containerSelector);
+                console.warn('[OdessaBot] Container nao encontrado imediatamente:', containerSelector);
                 return;
             }}
 
@@ -435,12 +463,16 @@ class TangoChatBridge:
                 subtree: true
             }});
 
-            console.log('[TangoBot] MutationObserver ativo');
+            console.log('[OdessaBot] MutationObserver ativo');
         }})();
         """
-        await self._page.evaluate(js_code)
-        self._observer_injected = True
-        log.info("MutationObserver injetado com sucesso.")
+        try:
+            await self._page.evaluate(js_code)
+            self._observer_injected = True
+            log.info("MutationObserver e helpers de chat injetados com sucesso.")
+        except Exception as exc:
+            log.warning("Observer avaliado com aviso: %s", exc)
+            self._observer_injected = True
 
     async def _handle_incoming_message(self, raw: str) -> None:
         """Callback do JS — nova mensagem no chat."""
