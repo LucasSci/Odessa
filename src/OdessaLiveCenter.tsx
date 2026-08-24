@@ -1043,6 +1043,11 @@ export default function OdessaLiveCenter({
             />
           </div>
         )}
+        {activeTab === 'chat' && (
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
+            <TangoChatPanel />
+          </div>
+        )}
         {activeTab === 'flow' && (
           <Suspense fallback={<PanelLoading label="Carregando fluxo reativo" />}>
             <ReactiveFlowBoard
