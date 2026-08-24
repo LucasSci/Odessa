@@ -129,6 +129,22 @@ type BridgeConfig = {
   };
 };
 
+
+type ChromeTab = {
+  id: string;
+  title: string;
+  url: string;
+  isTango: boolean;
+  isBroadcast: boolean;
+};
+
+type ChromeStatus = {
+  runningWithDebug: boolean;
+  port: number;
+  tabs: ChromeTab[];
+  tangoTabFound: boolean;
+};
+
 type SubTab = 'cockpit' | 'ai_config' | 'bridge_config' | 'vision' | 'diagnostics' | 'insights';
 
 const DEFAULT_CANNED_RESPONSES = [
@@ -210,6 +226,12 @@ export function TangoChatPanel() {
   // ── Logs e Diagnósticos ───────────────────────────
   const [logs, setLogs] = useState<string[]>([]);
   const [insights, setInsights] = useState(() => getChatInsights());
+  // ── Chrome Live Helpers State ─────────────────────
+  const [chromeStatus, setChromeStatus] = useState<ChromeStatus | null>(null);
+  const [launchingChrome, setLaunchingChrome] = useState(false);
+  const [creatingShortcut, setCreatingShortcut] = useState(false);
+  const [shortcutFeedback, setShortcutFeedback] = useState<string | null>(null);
+
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -320,6 +342,52 @@ export function TangoChatPanel() {
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
+
+  
+  // ── Polling de Abas do Chrome ─────────────────────
+  const refreshChromeStatus = useCallback(async () => {
+    const data = await fetchJson<ChromeStatus>(`${BRIDGE_API}/chrome-tabs?port=9222`);
+    setChromeStatus(data);
+  }, []);
+
+  useEffect(() => {
+    void refreshChromeStatus();
+    const timer = window.setInterval(() => void refreshChromeStatus(), 4000);
+    return () => window.clearInterval(timer);
+  }, [refreshChromeStatus]);
+
+  const handleLaunchChrome = async () => {
+    setLaunchingChrome(true);
+    try {
+      await fetchJson(`${BRIDGE_API}/launch-chrome`, {
+        method: 'POST',
+        body: JSON.stringify({ url: bridgeConfig.roomUrl || 'https://tango.me/stream/broadcast', port: 9222 }),
+      });
+      await new Promise((r) => setTimeout(r, 2000));
+      await refreshChromeStatus();
+    } finally {
+      setLaunchingChrome(false);
+    }
+  };
+
+  const handleCreateShortcut = async () => {
+    setCreatingShortcut(true);
+    setShortcutFeedback(null);
+    try {
+      const res = await fetchJson<{ ok: boolean; message?: string; error?: string }>(`${BRIDGE_API}/create-shortcut`, {
+        method: 'POST',
+        body: JSON.stringify({ url: bridgeConfig.roomUrl || 'https://tango.me/stream/broadcast', port: 9222 }),
+      });
+      if (res?.ok) {
+        setShortcutFeedback('Atalho criado na sua Área de Trabalho com sucesso! ✨');
+      } else {
+        setShortcutFeedback(res?.error || 'Não foi possível criar o atalho.');
+      }
+    } finally {
+      setCreatingShortcut(false);
+      setTimeout(() => setShortcutFeedback(null), 5000);
+    }
+  };
 
   // ── Ações do Processo e Conexão ───────────────────
   const handleStartProcess = async () => {
@@ -684,6 +752,144 @@ export function TangoChatPanel() {
 
       {/* ── ABA 1: COCKPIT DE CHAT & IA ─────────────────────────────── */}
       {subTab === 'cockpit' && (
+        <div className="space-y-4">
+
+      {/* ── Card Inteligente de Conexão com a Transmissão do Tango ── */}
+      <div className="rounded-2xl border border-violet-500/20 bg-gradient-to-r from-violet-950/20 via-[#0d0f14] to-fuchsia-950/20 p-4 shadow-lg">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-300 border border-violet-500/30">
+              <Radio className="h-5 w-5 text-violet-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-white">
+                  Conexão Direta com a Aba de Transmissão
+                </h3>
+                {bridgeConnected ? (
+                  <Badge variant="success" className="text-[10px]">
+                    <CheckCircle2 className="mr-1 h-3 w-3" /> Acoplado à Live
+                  </Badge>
+                ) : chromeStatus?.runningWithDebug ? (
+                  <Badge variant="lavender" className="text-[10px]">
+                    <Check className="mr-1 h-3 w-3" /> Chrome com Debug Detectado
+                  </Badge>
+                ) : (
+                  <Badge variant="warning" className="text-[10px]">
+                    <AlertCircle className="mr-1 h-3 w-3" /> Chrome Normal (Sem Debug)
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                Como a live já utiliza a câmera e o login na página do Tango, a Odessa se acopla <strong>diretamente à sua mesma aba de transmissão</strong> aberta, sem abrir janelas extras nem derrubar a live.
+              </p>
+            </div>
+          </div>
+
+          {/* Botões de Ação Rápida */}
+          <div className="flex flex-wrap items-center gap-2">
+            {!bridgeConnected && (
+              <>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  className="bg-violet-600 hover:bg-violet-500 text-white font-semibold shadow-md"
+                  disabled={launchingChrome}
+                  onClick={() => void handleLaunchChrome()}
+                  title="Abre o Chrome oficial da transmissão com depuração ativa"
+                >
+                  {launchingChrome ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <ExternalLink className="h-3.5 w-3.5 mr-1" />}
+                  1. Abrir Chrome da Live
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="border-white/15 bg-white/5 hover:bg-white/10 text-slate-200"
+                  disabled={creatingShortcut}
+                  onClick={() => void handleCreateShortcut()}
+                  title="Cria um atalho no seu Desktop para abrir o Chrome da Live sempre que quiser"
+                >
+                  {creatingShortcut ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Copy className="h-3.5 w-3.5 mr-1" />}
+                  Criar Atalho no Desktop
+                </Button>
+
+                {!processRunning ? (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
+                    disabled={starting}
+                    onClick={() => void handleStartProcess()}
+                  >
+                    {starting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Play className="h-3.5 w-3.5 mr-1" />}
+                    2. Iniciar Bridge
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
+                    disabled={connecting}
+                    onClick={() => void handleConnectBridge()}
+                  >
+                    {connecting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <CheckCircle2 className="h-3.5 w-3.5 mr-1" />}
+                    2. Acoplar à Transmissão
+                  </Button>
+                )}
+              </>
+            )}
+
+            {bridgeConnected && (
+              <Button size="sm" variant="danger" onClick={() => void handleDisconnectBridge()}>
+                <WifiOff className="h-3.5 w-3.5 mr-1" />
+                Desconectar da Aba
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Feedback de Atalho criado */}
+        {shortcutFeedback && (
+          <div className="mt-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-300 flex items-center gap-1.5">
+            <CheckCircle2 className="h-4 w-4" />
+            {shortcutFeedback}
+          </div>
+        )}
+
+        {/* Abas detectadas do Chrome */}
+        {chromeStatus?.runningWithDebug && chromeStatus.tabs.length > 0 && !bridgeConnected && (
+          <div className="mt-3 pt-3 border-t border-white/10">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400 block mb-2">
+              Abas Abertas Detectadas no Chrome ({chromeStatus.tabs.length}):
+            </span>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {chromeStatus.tabs.map((tab) => (
+                <div
+                  key={tab.id}
+                  className={cn(
+                    'flex items-center justify-between gap-2 p-2 rounded-xl border text-xs transition',
+                    tab.isTango
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
+                      : 'border-white/5 bg-black/30 text-slate-400'
+                  )}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold truncate">{tab.title || '(Sem título)'}</p>
+                    <p className="text-[10px] text-slate-500 truncate">{tab.url}</p>
+                  </div>
+                  {tab.isTango && (
+                    <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded">
+                      Live Tango
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           {/* Coluna Esquerda/Centro: Feed do Chat e Envio (2/3 da largura) */}
           <div className="space-y-3 lg:col-span-2">
@@ -959,6 +1165,7 @@ export function TangoChatPanel() {
               </div>
             </div>
           </div>
+        </div>
         </div>
       )}
 

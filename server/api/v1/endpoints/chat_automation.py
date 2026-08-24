@@ -123,3 +123,35 @@ def get_bridge_logs(limit: int = Query(default=100, ge=1, le=500)):
     """Últimas linhas de log do processo da bridge."""
     return bridge_manager.get_logs(limit=limit)
 
+
+# ── Chrome Live Helpers Endpoints ─────────────────────────────────────
+
+
+class ChromeLaunchRequest(BaseModel):
+    url: str = "https://tango.me/stream/broadcast"
+    port: int = 9222
+
+
+@router.post("/bridge/launch-chrome")
+async def api_launch_chrome(request: ChromeLaunchRequest | None = None):
+    """Inicia o Google Chrome com porta de depuração para acoplamento na live."""
+    from server.services.bridge_manager import launch_chrome_for_live
+    req = request or ChromeLaunchRequest()
+    return await launch_chrome_for_live(url=req.url, port=req.port)
+
+
+@router.get("/bridge/chrome-tabs")
+async def api_get_chrome_tabs(port: int = Query(default=9222)):
+    """Verifica e lista as abas abertas no Chrome com debug ativo."""
+    from server.services.bridge_manager import get_chrome_debug_tabs
+    return await get_chrome_debug_tabs(port=port)
+
+
+@router.post("/bridge/create-shortcut")
+def api_create_shortcut(request: ChromeLaunchRequest | None = None):
+    """Cria um atalho no Desktop do Windows para abrir o Chrome da Live com 1 clique."""
+    from server.services.bridge_manager import create_desktop_shortcut
+    req = request or ChromeLaunchRequest()
+    return create_desktop_shortcut(url=req.url, port=req.port)
+
+

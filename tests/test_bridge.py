@@ -63,3 +63,21 @@ def test_bridge_logs(client):
     assert "lines" in data
     assert "total" in data
     assert isinstance(data["lines"], list)
+
+
+def test_chrome_helpers_endpoints(client):
+    """Test chrome tabs inspection and shortcut creation."""
+    tabs_res = client.get("/api/v1/chat-automation/bridge/chrome-tabs?port=9222")
+    assert tabs_res.status_code == 200
+    data = tabs_res.json()
+    assert "runningWithDebug" in data
+    assert "tabs" in data
+
+    shortcut_res = client.post("/api/v1/chat-automation/bridge/create-shortcut", json={
+        "url": "https://tango.me/stream/broadcast",
+        "port": 9222
+    })
+    assert shortcut_res.status_code == 200
+    shortcut_data = shortcut_res.json()
+    assert "ok" in shortcut_data
+

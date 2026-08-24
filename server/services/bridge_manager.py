@@ -211,5 +211,123 @@ def save_bridge_config(config: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+# ── Chrome Live Helpers ───────────────────────────────────────────────
+
+def find_chrome_executable() -> str | None:
+    """Procura o executável do Google Chrome no Windows."""
+    import os
+    candidates = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        str(Path.home() / "AppData" / "Local" / "Google" / "Chrome" / "Application" / "chrome.exe"),
+    ]
+    for path in candidates:
+        if Path(path).exists():
+            return path
+    return None
+
+
+async def launch_chrome_for_live(url: str = "https://tango.me/stream/broadcast", port: int = 9222) -> dict[str, Any]:
+    """Abre o Google Chrome real com porta de depuração remota e URL da live."""
+    chrome_path = find_chrome_executable()
+    if not chrome_path:
+        return {"ok": False, "error": "Google Chrome não encontrado no sistema."}
+
+    # Flags do Chrome para habilitar acoplamento CDP sem interferir no uso normal
+    args = [
+        chrome_path,
+        f"--remote-debugging-port={port}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        url,
+    ]
+
+    try:
+        import subprocess
+        # Inicia Chrome desanexado para não travar o backend
+        subprocess.Popen(args, close_fds=True)
+        return {
+            "ok": True,
+            "chromePath": chrome_path,
+            "port": port,
+            "url": url,
+            "message": f"Chrome iniciado na porta {port} com a página {url}",
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+async def get_chrome_debug_tabs(port: int = 9222) -> dict[str, Any]:
+    """Verifica se o Chrome está aberto com debug e lista as abas abertas."""
+    import urllib.request
+    try:
+        url = f"http://127.0.0.1:{port}/json/list"
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            data = json.loads(resp.read().decode())
+            tabs = []
+            for t in data:
+                if t.get("type") == "page":
+                    tab_url = t.get("url", "")
+                    tabs.append({
+                        "id": t.get("id", ""),
+                        "title": t.get("title", ""),
+                        "url": tab_url,
+                        "isTango": "tango.me" in tab_url.lower(),
+                        "isBroadcast": "broadcast" in tab_url.lower() or "/stream" in tab_url.lower(),
+                    })
+            return {
+                "runningWithDebug": True,
+                "port": port,
+                "tabs": tabs,
+                "tangoTabFound": any(t["isTango"] for t in tabs),
+            }
+    except Exception:
+        return {
+            "runningWithDebug": False,
+            "port": port,
+            "tabs": [],
+            "tangoTabFound": False,
+        }
+
+
+def create_desktop_shortcut(url: str = "https://tango.me/stream/broadcast", port: int = 9222) -> dict[str, Any]:
+    """Cria um atalho no Desktop do Windows para abrir o Chrome da Live com 1 clique."""
+    chrome_path = find_chrome_executable()
+    if not chrome_path:
+        return {"ok": False, "error": "Google Chrome não encontrado."}
+
+    desktop_dir = Path.home() / "Desktop"
+    if not desktop_dir.exists():
+        desktop_dir = Path.home() / "Área de Trabalho"
+    if not desktop_dir.exists():
+        desktop_dir = Path.home() / "Desktop"
+
+    shortcut_path = desktop_dir / "Tango Live Studio (Odessa).lnk"
+    arguments = f'--remote-debugging-port={port} "{url}"'
+
+    ps_script = f"""
+    $WshShell = New-Object -ComObject WScript.Shell
+    $Shortcut = $WshShell.CreateShortcut('{shortcut_path}')
+    $Shortcut.TargetPath = '{chrome_path}'
+    $Shortcut.Arguments = '{arguments}'
+    $Shortcut.Description = 'Abre o Chrome com depuração ativa para o Tango Live da Odessa'
+    $Shortcut.IconLocation = '{chrome_path},0'
+    $Shortcut.Save()
+    """
+
+    try:
+        import subprocess
+        subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], check=True, capture_output=True)
+        return {
+            "ok": True,
+            "shortcutPath": str(shortcut_path),
+            "message": f"Atalho criado na Área de Trabalho: {shortcut_path.name}",
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 # Instância global
 bridge_manager = BridgeProcessManager()
+
