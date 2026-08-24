@@ -890,6 +890,392 @@ export function TangoChatPanel() {
           </button>
         ))}
       </div>
+      {/* ── ABA WIZARD: ASSISTENTE PASSO A PASSO ────────────────────── */}
+      {subTab === 'wizard' && (
+        <div className="space-y-4 rounded-2xl border border-white/10 bg-[#0c0e12] p-5 shadow-xl">
+          {/* Header do Assistente */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/8 pb-4">
+            <div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-amber-400" />
+                Assistente de Configuração Guiada
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Configure e valide o monitoramento do chat e as respostas automáticas da IA etapa por etapa de forma 100% visual.
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {[1, 2, 3, 4].map((step) => (
+                <button
+                  key={step}
+                  className={cn(
+                    'h-7 px-3 rounded-lg text-xs font-bold transition flex items-center gap-1.5',
+                    wizardStep === step
+                      ? 'bg-violet-600 text-white shadow-md'
+                      : wizardStep > step
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        : 'bg-white/5 text-slate-500 hover:text-slate-300'
+                  )}
+                  onClick={() => setWizardStep(step)}
+                >
+                  {wizardStep > step ? <Check className="h-3 w-3" /> : step}
+                  <span>
+                    {step === 1 && '1. Ambiente'}
+                    {step === 2 && '2. Navegador'}
+                    {step === 3 && '3. Acoplamento'}
+                    {step === 4 && '4. Teste da IA'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── CARD DE AUTO-CONFIGURAÇÃO EM 1 CLIQUE ── */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-violet-950/40 via-purple-900/20 to-black p-4 rounded-xl border border-violet-500/30">
+            <div>
+              <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                <Zap className="h-4 w-4 text-amber-400" />
+                Configuração Automática em 1 Clique
+              </h4>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Deseja que a Odessa abra o navegador, inicie a bridge e valide a IA automaticamente agora?
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="primary"
+              className="bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-bold shadow-lg"
+              disabled={autoConfiguring}
+              onClick={() => void handleRunFullAutoSetup()}
+            >
+              {autoConfiguring ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                  {autoConfigStepName || 'Configurando...'}
+                </>
+              ) : (
+                <>
+                  <Zap className="h-4 w-4 mr-1.5 text-amber-300" />
+                  Executar Configuração Automática Completa
+                </>
+              )}
+            </Button>
+          </div>
+
+          {/* ── ETAPA 1: ESCOLHA DO AMBIENTE ── */}
+          {wizardStep === 1 && (
+            <div className="space-y-4 py-2">
+              <div>
+                <h4 className="text-sm font-bold text-white mb-1">Passo 1: Onde você deseja monitorar o chat?</h4>
+                <p className="text-xs text-slate-400">
+                  Você pode usar o Bloco de Notas Online para testar imediatamente com zero risco, ou conectar direto na sua transmissão do Tango.
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {/* Opção A: Anotepad */}
+                <div
+                  className={cn(
+                    'cursor-pointer rounded-2xl border p-4 transition',
+                    wizardTargetKind === 'anotepad'
+                      ? 'border-violet-500/60 bg-violet-500/10 ring-1 ring-violet-500/30'
+                      : 'border-white/8 bg-black/30 hover:border-white/20'
+                  )}
+                  onClick={() => void handleSelectWizardPreset('anotepad')}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                      📝 Modo Bloco de Notas (Teste Rápido)
+                    </span>
+                    <Badge variant={wizardTargetKind === 'anotepad' ? 'lavender' : 'default'} className="text-[10px]">
+                      Recomendado para Teste
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Abre o <strong>pt.anotepad.com</strong>. Permite ver o robô digitando e testar as respostas da IA imediatamente, sem precisar abrir live ou fazer login.
+                  </p>
+                  <div className="mt-3 text-[11px] font-mono text-slate-500 truncate">
+                    URL: https://pt.anotepad.com/
+                  </div>
+                </div>
+
+                {/* Opção B: Tango Live Real */}
+                <div
+                  className={cn(
+                    'cursor-pointer rounded-2xl border p-4 transition',
+                    wizardTargetKind === 'tango'
+                      ? 'border-violet-500/60 bg-violet-500/10 ring-1 ring-violet-500/30'
+                      : 'border-white/8 bg-black/30 hover:border-white/20'
+                  )}
+                  onClick={() => void handleSelectWizardPreset('tango')}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                      🎙️ Modo Tango Live Real
+                    </span>
+                    <Badge variant={wizardTargetKind === 'tango' ? 'success' : 'default'} className="text-[10px]">
+                      Produção
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Conecta à sua aba de transmissão ao vivo no <strong>Tango.me</strong>. A IA lê os comentários de espectadores reais e responde no chat da stream.
+                  </p>
+                  <div className="mt-3 text-[11px] font-mono text-slate-500 truncate">
+                    URL: https://tango.me/stream/broadcast
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-3 border-t border-white/8">
+                <Button size="sm" variant="primary" onClick={() => setWizardStep(2)}>
+                  Próximo: Abrir Navegador ➔
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── ETAPA 2: ABERTURA DO NAVEGADOR ── */}
+          {wizardStep === 2 && (
+            <div className="space-y-4 py-2">
+              <div>
+                <h4 className="text-sm font-bold text-white mb-1">Passo 2: Abrir a página no Navegador com Depuração</h4>
+                <p className="text-xs text-slate-400">
+                  Clique no botão abaixo para abrir o Chrome na página escolhida (<strong>{bridgeConfig.roomUrl}</strong>).
+                </p>
+              </div>
+
+              {/* Status do Chrome */}
+              <div className="rounded-xl border border-white/10 bg-black/40 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-300">Status do Google Chrome:</span>
+                  {chromeStatus?.runningWithDebug ? (
+                    <Badge variant="success" className="text-xs">
+                      <CheckCircle2 className="mr-1 h-3.5 w-3.5" /> Chrome Aberto com Debug Ativo!
+                    </Badge>
+                  ) : (
+                    <Badge variant="warning" className="text-xs">
+                      <AlertCircle className="mr-1 h-3.5 w-3.5" /> Chrome Não Detectado na Porta 9222
+                    </Badge>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    className="bg-violet-600 hover:bg-violet-500 text-white font-semibold"
+                    disabled={launchingChrome}
+                    onClick={() => void handleLaunchChrome()}
+                  >
+                    {launchingChrome ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <ExternalLink className="h-4 w-4 mr-1.5" />}
+                    🚀 1. Abrir Página no Chrome
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={creatingShortcut}
+                    onClick={() => void handleCreateShortcut()}
+                  >
+                    {creatingShortcut ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Copy className="h-4 w-4 mr-1.5" />}
+                    Criar Atalho no Desktop
+                  </Button>
+
+                  <Button size="sm" variant="secondary" onClick={() => void refreshChromeStatus()}>
+                    <RefreshCw className="h-3.5 w-3.5 mr-1" /> Verificar Novamente
+                  </Button>
+                </div>
+
+                {shortcutFeedback && (
+                  <p className="text-xs text-emerald-300 bg-emerald-500/10 p-2 rounded border border-emerald-500/20">
+                    {shortcutFeedback}
+                  </p>
+                )}
+
+                {/* Abas Detectadas */}
+                {chromeStatus?.tabs && chromeStatus.tabs.length > 0 && (
+                  <div className="pt-2">
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">
+                      Abas Abertas Encontradas ({chromeStatus.tabs.length}):
+                    </p>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {chromeStatus.tabs.map((tab) => (
+                        <div key={tab.id} className="flex justify-between items-center bg-white/[0.03] p-1.5 px-2.5 rounded text-xs">
+                          <span className="truncate font-medium text-slate-200">{tab.title}</span>
+                          <span className="text-[10px] text-slate-500 truncate max-w-xs">{tab.url}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-between pt-3 border-t border-white/8">
+                <Button size="sm" variant="secondary" onClick={() => setWizardStep(1)}>
+                  ⬅ Voltar
+                </Button>
+                <Button size="sm" variant="primary" onClick={() => setWizardStep(3)}>
+                  Próximo: Conectar Bridge ➔
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── ETAPA 3: ACOPLAMENTO DA BRIDGE ── */}
+          {wizardStep === 3 && (
+            <div className="space-y-4 py-2">
+              <div>
+                <h4 className="text-sm font-bold text-white mb-1">Passo 3: Conectar a Bridge de Monitoramento</h4>
+                <p className="text-xs text-slate-400">
+                  Inicie o serviço da bridge para injetar o leitor e transmissor na aba do navegador aberta.
+                </p>
+              </div>
+
+              {/* Checklist de Serviços */}
+              <div className="rounded-xl border border-white/10 bg-black/40 p-4 space-y-2.5">
+                <div className="flex items-center justify-between text-xs p-2 rounded bg-white/[0.02]">
+                  <span>1. Servidor Backend Odessa (Porta 8000)</span>
+                  <span className="font-bold text-emerald-400 flex items-center gap-1">
+                    <CheckCircle className="h-3.5 w-3.5" /> Online
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs p-2 rounded bg-white/[0.02]">
+                  <span>2. Processo da Bridge Python</span>
+                  <span className={cn('font-bold flex items-center gap-1', processRunning ? 'text-emerald-400' : 'text-slate-500')}>
+                    {processRunning ? <CheckCircle className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
+                    {processRunning ? `Ativo (PID ${processStatus?.pid})` : 'Parado'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs p-2 rounded bg-white/[0.02]">
+                  <span>3. Acoplamento à Aba do Navegador</span>
+                  <span className={cn('font-bold flex items-center gap-1', bridgeConnected ? 'text-emerald-400' : 'text-amber-400')}>
+                    {bridgeConnected ? <CheckCircle className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
+                    {bridgeConnected ? 'Conectado (Leitor Ativo)' : 'Pendente'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Botões de Ação */}
+              <div className="flex gap-2">
+                {!processRunning ? (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
+                    disabled={starting}
+                    onClick={() => void handleStartProcess()}
+                  >
+                    {starting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Play className="h-3.5 w-3.5 mr-1" />}
+                    Iniciar Bridge Agora
+                  </Button>
+                ) : !bridgeConnected ? (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
+                    disabled={connecting}
+                    onClick={() => void handleConnectBridge()}
+                  >
+                    {connecting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <CheckCircle2 className="h-3.5 w-3.5 mr-1" />}
+                    Acoplar à Aba Aberta
+                  </Button>
+                ) : (
+                  <div className="text-xs text-emerald-400 font-bold flex items-center gap-1.5 bg-emerald-500/10 p-2.5 rounded-xl border border-emerald-500/30 flex-1">
+                    <CheckCircle2 className="h-4 w-4" /> Bridge Conectada com Sucesso à Página!
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-between pt-3 border-t border-white/8">
+                <Button size="sm" variant="secondary" onClick={() => setWizardStep(2)}>
+                  ⬅ Voltar
+                </Button>
+                <Button size="sm" variant="primary" onClick={() => setWizardStep(4)}>
+                  Próximo: Testar Envio & IA ➔
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── ETAPA 4: TESTE DE RESPOSTA DA IA ── */}
+          {wizardStep === 4 && (
+            <div className="space-y-4 py-2">
+              <div>
+                <h4 className="text-sm font-bold text-white mb-1">Passo 4: Teste ao Vivo de Digitação e Resposta da IA</h4>
+                <p className="text-xs text-slate-400">
+                  Execute os testes abaixo para ver a Odessa digitando na página do navegador em tempo real!
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {/* Teste 1: Digitação Direta */}
+                <div className="rounded-xl border border-white/10 bg-black/40 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Send className="h-4 w-4 text-sky-400" />
+                    <span className="text-xs font-bold text-white">Teste 1: Digitação do Robô</span>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Envia uma frase teste fixa para confirmar que o robô consegue digitar no campo da página.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="w-full"
+                    disabled={wizardTestSending}
+                    onClick={() => void handleRunWizardTestSend('Teste de automação Odessa funcionando perfeitamente! ✨')}
+                  >
+                    {wizardTestSending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Send className="h-3.5 w-3.5 mr-1" />}
+                    Testar Digitação no Alvo
+                  </Button>
+                </div>
+
+                {/* Teste 2: Resposta Automática da IA */}
+                <div className="rounded-xl border border-white/10 bg-black/40 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Bot className="h-4 w-4 text-violet-400" />
+                    <span className="text-xs font-bold text-white">Teste 2: Geração & Envio da IA</span>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Simula um espectador perguntando algo e faz a IA gerar e digitar a resposta automaticamente.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    className="w-full bg-violet-600 hover:bg-violet-500 text-white font-semibold"
+                    disabled={wizardAiSimulating}
+                    onClick={() => void handleRunWizardAiSimulation()}
+                  >
+                    {wizardAiSimulating ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />}
+                    Simular e Responder com IA
+                  </Button>
+                </div>
+              </div>
+
+              {/* Resultado do Teste */}
+              {wizardTestResult && (
+                <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 p-3 text-xs text-slate-200 whitespace-pre-line leading-relaxed">
+                  {wizardTestResult}
+                </div>
+              )}
+
+              <div className="flex justify-between pt-3 border-t border-white/8">
+                <Button size="sm" variant="secondary" onClick={() => setWizardStep(3)}>
+                  ⬅ Voltar
+                </Button>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
+                  onClick={() => setSubTab('cockpit')}
+                >
+                  🎉 Concluir e Ir para o Cockpit do Chat
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── ABA 1: COCKPIT DE CHAT & IA ─────────────────────────────── */}
       {subTab === 'cockpit' && (
         <div className="space-y-4">
