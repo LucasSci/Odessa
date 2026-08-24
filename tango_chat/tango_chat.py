@@ -48,13 +48,22 @@ from playwright.async_api import (
 #  CONFIGURACAO
 # =====================================================================
 
+# Aceita config via --config='{"cdpUrl":"...", "roomUrl":"..."}'
+_cli_config: dict = {}
+for _arg in sys.argv[1:]:
+    if _arg.startswith("--config="):
+        try:
+            _cli_config = json.loads(_arg[len("--config="):])
+        except json.JSONDecodeError:
+            pass
+
 # CDP (Chrome ja aberto)
-CDP_URL: str = os.environ.get("TANGO_CDP_URL", "http://127.0.0.1:9222")
+CDP_URL: str = _cli_config.get("cdpUrl", os.environ.get("TANGO_CDP_URL", "http://127.0.0.1:9222"))
 
 # Standalone (Playwright abre Chromium proprio)
-TANGO_ROOM_URL: str = os.environ.get(
+TANGO_ROOM_URL: str = _cli_config.get("roomUrl", os.environ.get(
     "TANGO_ROOM_URL", "https://tango.me/stream/broadcast"
-)
+))
 PROFILE_DIR: str = os.environ.get(
     "TANGO_PROFILE_DIR",
     str(Path.home() / ".tango_profile"),
@@ -64,18 +73,21 @@ PROFILE_DIR: str = os.environ.get(
 TANGO_URL_PATTERN: str = os.environ.get("TANGO_URL_PATTERN", "tango.me")
 
 # Porta do servidor HTTP local
-SERVER_PORT: int = int(os.environ.get("TANGO_BRIDGE_PORT", "7555"))
+SERVER_PORT: int = int(_cli_config.get("port", os.environ.get("TANGO_BRIDGE_PORT", "7555")))
+
+# Seletores (podem vir da config do frontend)
+_selectors = _cli_config.get("selectors", {})
 
 # =====================================================================
 #  SELETORES — extraidos do HTML real do Tango (14/08/2026)
 # =====================================================================
 
-SELETOR_CONTAINER_CHAT: str = '[data-testid="virtuoso-item-list"]'
-SELETOR_MENSAGEM: str = '[data-testid^="chat-event-"]'
-SELETOR_USERNAME: str = ".Hhi6n"
-SELETOR_TEXTO_MSG: str = ".KR99L"
-SELETOR_INPUT_TEXTO: str = '[data-testid="textarea"]'
-SELETOR_BOTAO_ENVIAR: str = ""  # vazio = usa Enter
+SELETOR_CONTAINER_CHAT: str = _selectors.get("containerChat", '[data-testid="virtuoso-item-list"]')
+SELETOR_MENSAGEM: str = _selectors.get("mensagem", '[data-testid^="chat-event-"]')
+SELETOR_USERNAME: str = _selectors.get("username", ".Hhi6n")
+SELETOR_TEXTO_MSG: str = _selectors.get("textoMsg", ".KR99L")
+SELETOR_INPUT_TEXTO: str = _selectors.get("inputTexto", '[data-testid="textarea"]')
+SELETOR_BOTAO_ENVIAR: str = _selectors.get("botaoEnviar", "")
 
 # =====================================================================
 #  CONSTANTES DE COMPORTAMENTO
@@ -87,14 +99,30 @@ WAIT_TIMEOUT_S: int = 30
 MAX_HISTORY: int = 500
 
 # =====================================================================
-#  LOGGING
+#  LOGGING (com buffer para endpoint /logs)
 # =====================================================================
+
+_log_buffer: deque = deque(maxlen=500)
+
+
+class BufferedHandler(logging.Handler):
+    """Armazena logs num buffer para o endpoint /logs."""
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            _log_buffer.append(self.format(record))
+        except Exception:
+            pass
+
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-7s | %(message)s",
     datefmt="%H:%M:%S",
 )
+# Adiciona buffer handler ao root logger
+_buf_handler = BufferedHandler()
+_buf_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)-7s | %(message)s", datefmt="%H:%M:%S"))
+logging.getLogger().addHandler(_buf_handler)
 log = logging.getLogger("tango_chat")
 
 
@@ -653,13 +681,7 @@ async def handle_debug_dom(request: web.Request) -> web.Response:
     except Exception as exc:
         return web.json_response({"error": str(exc)}, status=500)
 
-async def handle_debug_dom(request: web.Request) -> web.Response:
-    # ... (codigo anterior mantido) ...
-    pass # Este placeholder e so para referencia, vou manter o original abaixo
 
-async def handle_alert(request: web.Request) -> web.Response:
-    # ... (mantido) ...
-    pass
 
 async def handle_screenshot(request: web.Request) -> web.Response:
     """GET /screenshot - Retorna a imagem atual da tela em PNG"""
@@ -687,18 +709,60 @@ async def handle_goto(request: web.Request) -> web.Response:
     except Exception as exc:
         return web.json_response({"error": str(exc)}, status=500)
 
+
+async def handle_config(request: web.Request) -> web.Response:
+    """POST /config — recebe config dinamica do frontend."""
+    if not bridge:
+        return web.json_response({"error": "Bridge nao inicializada"}, status=500)
+    try:
+        body = await request.json()
+        # Atualiza variaveis globais em runtime
+        global CDP_URL, TANGO_ROOM_URL, SELETOR_CONTAINER_CHAT, SELETOR_MENSAGEM
+        global SELETOR_USERNAME, SELETOR_TEXTO_MSG, SELETOR_INPUT_TEXTO, SELETOR_BOTAO_ENVIAR
+        if "cdpUrl" in body:
+            CDP_URL = str(body["cdpUrl"])
+        if "roomUrl" in body:
+            TANGO_ROOM_URL = str(body["roomUrl"])
+        selectors = body.get("selectors", {})
+        if selectors.get("containerChat"):
+            SELETOR_CONTAINER_CHAT = selectors["containerChat"]
+        if selectors.get("mensagem"):
+            SELETOR_MENSAGEM = selectors["mensagem"]
+        if selectors.get("username"):
+            SELETOR_USERNAME = selectors["username"]
+        if selectors.get("textoMsg"):
+            SELETOR_TEXTO_MSG = selectors["textoMsg"]
+        if selectors.get("inputTexto"):
+            SELETOR_INPUT_TEXTO = selectors["inputTexto"]
+        if "botaoEnviar" in selectors:
+            SELETOR_BOTAO_ENVIAR = selectors["botaoEnviar"]
+        log.info("Config atualizada via API")
+        return web.json_response({"ok": True})
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def handle_logs(request: web.Request) -> web.Response:
+    """GET /logs — retorna ultimas linhas de log."""
+    limit = int(request.query.get("limit", "100"))
+    limit = min(max(1, limit), 500)
+    lines = list(_log_buffer)[-limit:]
+    return web.json_response({"lines": lines, "total": len(_log_buffer)})
+
+
 def create_app() -> web.Application:
     app = web.Application(middlewares=[cors_middleware])
     app.router.add_get("/status", handle_status)
     app.router.add_get("/history", handle_history)
     app.router.add_get("/messages", handle_messages_sse)
     app.router.add_get("/debug-dom", handle_debug_dom)
-    app.router.add_get("/alert", handle_alert)
     app.router.add_get("/screenshot", handle_screenshot)
+    app.router.add_get("/logs", handle_logs)
     app.router.add_post("/send", handle_send)
     app.router.add_post("/connect", handle_connect)
     app.router.add_post("/disconnect", handle_disconnect)
     app.router.add_post("/goto", handle_goto)
+    app.router.add_post("/config", handle_config)
     app.router.add_post("/start", handle_connect)
     app.router.add_post("/stop", handle_disconnect)
     app.router.add_route("OPTIONS", "/{tail:.*}", lambda r: web.Response(status=204))

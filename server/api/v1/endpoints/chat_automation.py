@@ -1,9 +1,10 @@
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 from server.services.chat_automation_service import chat_automation_service
+from server.services.bridge_manager import bridge_manager, load_bridge_config, save_bridge_config
 
 
 router = APIRouter(tags=["chat-automation"])
@@ -26,6 +27,21 @@ class ChatAutomationSendRequest(ChatAutomationTargetRequest):
     text: str
     dryRun: bool = True
     submit: bool = True
+
+
+class BridgeStartRequest(BaseModel):
+    mode: str = ""
+    autoconnect: bool = True
+    config: dict[str, Any] | None = None
+
+
+class BridgeConfigRequest(BaseModel):
+    mode: str = ""
+    cdpUrl: str = "http://127.0.0.1:9222"
+    roomUrl: str = "https://tango.me/stream/broadcast"
+    port: int = 7555
+    autoconnect: bool = True
+    selectors: dict[str, str] | None = None
 
 
 @router.get("/config")
@@ -61,3 +77,49 @@ def send_chat_automation_message(request: ChatAutomationSendRequest):
         send_point=request.sendPoint,
         viewport=request.viewport,
     )
+
+
+# ── Bridge Process Management ─────────────────────────────────────────
+
+
+@router.get("/bridge/status")
+async def get_bridge_status():
+    """Status do processo da bridge e conectividade."""
+    return await bridge_manager.get_status()
+
+
+@router.post("/bridge/start")
+async def start_bridge(request: BridgeStartRequest | None = None):
+    """Inicia o processo tango_chat.py."""
+    req = request or BridgeStartRequest()
+    config = req.config or load_bridge_config()
+    return await bridge_manager.start(
+        mode=req.mode,
+        autoconnect=req.autoconnect,
+        config=config,
+    )
+
+
+@router.post("/bridge/stop")
+async def stop_bridge():
+    """Para o processo tango_chat.py."""
+    return await bridge_manager.stop()
+
+
+@router.get("/bridge/config")
+def get_bridge_config():
+    """Lê a configuração da bridge."""
+    return load_bridge_config()
+
+
+@router.post("/bridge/config")
+def update_bridge_config(request: BridgeConfigRequest):
+    """Salva a configuração da bridge."""
+    return save_bridge_config(request.model_dump())
+
+
+@router.get("/bridge/logs")
+def get_bridge_logs(limit: int = Query(default=100, ge=1, le=500)):
+    """Últimas linhas de log do processo da bridge."""
+    return bridge_manager.get_logs(limit=limit)
+
