@@ -10,10 +10,11 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Brain, Zap, Key, Sliders, FlaskConical, CheckCircle, XCircle, AlertCircle, Loader2, Eye, EyeOff, RotateCcw, Bot, Activity, Pause, Radio, Sparkles, Gift, MessageCircle, Trash2, Film, Clock, RefreshCw, ShieldCheck } from 'lucide-react';
+import { Brain, Zap, Key, Sliders, FlaskConical, CheckCircle, XCircle, AlertCircle, Loader2, Eye, EyeOff, RotateCcw, Bot, Activity, Pause, Radio, Sparkles, Gift, MessageCircle, Trash2, Film, Clock, RefreshCw, ShieldCheck, Wifi } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Badge, Button, Input, StatusDot } from './ui';
 import { AiDecisionPanel } from './AiDecisionPanel';
+import { TangoChatPanel } from './TangoChatPanel';
 import {
   getChatInsights,
   summarizeChatLearning,
