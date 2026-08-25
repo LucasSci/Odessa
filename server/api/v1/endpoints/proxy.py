@@ -9,6 +9,8 @@ All responses have X-Frame-Options and Content-Security-Policy removed
 so the iframe can render them without being blocked.
 """
 
+import asyncio
+import ipaddress
 import logging
 import re
 import socket
