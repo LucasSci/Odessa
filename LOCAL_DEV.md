@@ -68,6 +68,51 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start-odessa.ps1 -Ba
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start-odessa.ps1 -FrontendOnly
 ```
 
+### Atalho do Windows
+
+Para criar um atalho na área de trabalho ou no menu Iniciar, execute:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\create-odessa-shortcut.ps1 -Desktop
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\create-odessa-shortcut.ps1 -StartMenu
+```
+
+Use `-Force` para substituir atalhos existentes:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\create-odessa-shortcut.ps1 -Desktop -Force
+```
+
+## Diretoria IA, memoria e captura do chat
+
+A aba `Diretoria IA` agora e focada em configurar a IA e a memoria:
+
+- `Cerebro`: provedor, chave Gemini, ponte da IA e status de conexao.
+- `Politica da IA no chat`: dry-run/real, cooldown, limite por minuto e confianca minima.
+- `Aprendizado`: memoria de chat, usuarios recorrentes e presentes aprendidos.
+- `Teste manual`: simula uma mensagem do chat e mostra a decisao antes da live.
+
+A parte fisica do chat fica em `Fontes / OCR`:
+
+- zonas de captura do OCR;
+- source OBS/janela/link direto;
+- `Alvo visual do chat`, com inputPoint, sendPoint, viewport, dry-run e teste de digitar sem enviar.
+
+Na Diretoria, use `Abrir OCR do chat` quando precisar calibrar a captura ou o
+alvo visual usado pelo agente local.
+
+Estados visuais:
+
+- `pronto`: envio real pode operar se a Diretora estiver ligada.
+- `atencao`: falta algum ajuste, mas o cockpit ainda pode operar em modo seguro.
+- `bloqueado`: existe impedimento para envio real.
+- `simulado`: dry-run ativo; nada publico deve ser enviado.
+
+Os detalhes de auditoria e replay continuam na timeline da live. A Diretoria
+mantem apenas a configuracao e uma fila recolhida de respostas publicas quando
+existirem pendencias. A matriz tecnica de permissoes tambem fica recolhida por
+padrao para manter a tela mais limpa.
+
 ## Modo simulado
 
 Para trabalhar sem chaves externas, mantenha no `.env`:
@@ -88,6 +133,28 @@ o painel deve continuar utilizavel, apenas mostrando o estado offline da conexao
 npm test -- --run
 npm run test:backend
 ```
+
+Testes recomendados para a live simulada e para o cockpit:
+
+```powershell
+npm run build
+npm test -- --run src/core/liveSimulation.test.ts src/core/liveAutonomyGovernor.test.ts src/core/chatAutomationApi.test.ts src/core/actionExecutor.test.ts src/core/chatReplyQueue.test.ts src/core/liveReadinessSupervisor.test.ts
+npm run simulate:live
+```
+
+O script `npm run simulate:live` executa o caminho:
+
+```text
+OCR fake -> evento -> decisao -> governador -> fila -> executor -> cloud-agent
+```
+
+Ele nao depende de Tango, OBS nem OCR real. Use este fluxo para reproduzir uma
+conversa com chat e detectar regressao em cooldown, duplicidade, baixa confianca
+de OCR e envio sem alvo visual.
+
+Relatorio detalhado das alteracoes recentes:
+
+- `docs/ai-live-operations-report.md`
 
 Se o backend ainda nao estiver preparado, rode o setup primeiro. Artefatos locais
 como `.env`, `venv`, `server/runtime` e modelos `*.traineddata` nao entram no Git.

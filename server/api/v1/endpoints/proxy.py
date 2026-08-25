@@ -14,6 +14,7 @@ import ipaddress
 import logging
 import re
 import socket
+import ipaddress
 from urllib.parse import urljoin, urlparse, quote
 
 import httpx
@@ -247,30 +248,64 @@ def _rewrite_js(js: str, js_url: str, server_base: str) -> str:
     return js
 
 
-async def verify_public_ip(request: httpx.Request):
-    """Event hook to prevent SSRF by checking the resolved IP address."""
-    host = request.url.host
-    try:
-        ip_addr = ipaddress.ip_address(host)
-    except ValueError:
-        try:
-            loop = asyncio.get_running_loop()
-            addr_info = await loop.getaddrinfo(host, request.url.port, proto=socket.IPPROTO_TCP)
-            ip_addr = ipaddress.ip_address(addr_info[0][4][0])
-        except Exception as e:
-            raise httpx.RequestError(f"DNS resolution failed: {e}", request=request) from e
+class SSRFTransport(httpx.AsyncHTTPTransport):
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        import asyncio
+        hostname = request.url.host
 
-    if (ip_addr.is_private or ip_addr.is_loopback or ip_addr.is_link_local or
-        ip_addr.is_multicast or ip_addr.is_unspecified or ip_addr.is_reserved):
-        raise httpx.RequestError(f"Access to private/internal IP {ip_addr} is blocked.", request=request)
+        # Don't try to resolve empty hostnames
+        if not hostname:
+            return await super().handle_async_request(request)
+
+        # Use asyncio.get_running_loop().getaddrinfo for non-blocking DNS resolution
+        # and support both IPv4 and IPv6
+        loop = asyncio.get_running_loop()
+        try:
+            addr_info = await loop.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+        except socket.gaierror:
+            # If we can't resolve it, fail securely
+            raise httpx.RequestError(f"Could not resolve hostname: {hostname}", request=request)
+
+        resolved_ip = None
+        for family, type, proto, canonname, sockaddr in addr_info:
+            ip = sockaddr[0]
+            try:
+                ip_obj = ipaddress.ip_address(ip)
+                if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_multicast or ip_obj.is_unspecified:
+                    raise httpx.RequestError(f"Blocked request to internal IP: {ip}", request=request)
+                if not resolved_ip:
+                    resolved_ip = ip
+            except ValueError:
+                pass
+
+        if resolved_ip:
+            original_url = request.url
+            new_extensions = dict(request.extensions)
+            new_extensions["sni_hostname"] = original_url.host
+
+            headers = request.headers.copy()
+            if "host" not in headers:
+                netloc_str = original_url.netloc.decode('ascii') if hasattr(original_url.netloc, 'decode') else str(original_url.netloc)
+                headers["host"] = netloc_str
+
+            new_req = httpx.Request(
+                method=request.method,
+                url=request.url.copy_with(host=resolved_ip),
+                headers=headers,
+                stream=request.stream,
+                extensions=new_extensions
+            )
+            return await super().handle_async_request(new_req)
+
+        raise httpx.RequestError(f"Could not determine safe IP for hostname: {hostname}", request=request)
 
 async def _fetch(url: str, headers: dict) -> httpx.Response:
     async with httpx.AsyncClient(
+        transport=SSRFTransport(verify=False),
         follow_redirects=True,
         timeout=PROXY_TIMEOUT,
-        verify=False,  # noqa: S501 — proxy needs to reach any site
-        event_hooks={'request': [verify_public_ip]}
     ) as client:
+
         return await client.get(url, headers=headers)
 
 
