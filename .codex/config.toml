@@ -1,0 +1,6 @@
+[mcp_servers.hostinger-mcp]
+command = "npx"
+args = ["hostinger-api-mcp@latest"]
+
+[mcp_servers.hostinger-mcp.env]
+API_TOKEN = "ZWv5Wi0sgZQWlNClWIIGPZ77p9VGFh8wNncJsgvBb0109fd4"

@@ -8,7 +8,7 @@ import {
 import { classifyEvent } from './eventClassifier';
 import { markEventProcessed } from './eventBus';
 import { capabilityForAction } from './toolRegistry';
-import { callDirectorDecision } from './aiDecisionContract';
+import { callDirectorDecision, normalizeDirectorDecision } from './aiDecisionContract';
 import { recordChatLearning, buildChatInsightsContext } from './chatLearning';
 import { recordGiftLearning, buildGiftInsightsContext } from './giftLearning';
 import { governPersonaDecision } from './liveAutonomyGovernor';
@@ -17,15 +17,18 @@ import { apiUrl } from '../lib/api';
 import {
   addTurn,
   buildMemoryContext,
+  buildRoundUserMemorySummary,
   buildUserContext,
   loadMemory,
   loadUserProfiles,
-  trackUserInteraction,
+  trackLiveEventInteraction,
 } from '../lib/memory';
 import type {
   AutopilotAction,
   AutopilotActionType,
   AutopilotCycle,
+  AuditTimelineEntry,
+  AuditTimelineType,
   AutomationRule,
   CycleLog,
   CycleStage,
@@ -69,6 +72,19 @@ export interface PersonaRuntimeOptions {
   triggers?: Array<{ id: string; name?: string; label?: string; enabled?: boolean }>;
   /** Cenas de OBS permitidas (switch_scene). */
   scenes?: string[];
+  /** Se true, o agente local pode executar clique/clipboard no chat visual. */
+  localAgentReady?: boolean;
+  prepareActions?: (
+    actions: AutopilotAction[],
+    decision: PersonaDecision,
+    cycle: AutopilotCycle,
+  ) =>
+    | AutopilotAction[]
+    | {
+        executableActions: AutopilotAction[];
+        plannedActions?: AutopilotAction[];
+        logs?: string[];
+      };
   onUpdate?: (cycle: AutopilotCycle) => void;
   onAction?: (action: AutopilotAction) => void;
 }
@@ -96,6 +112,44 @@ function log(label: string, status: CycleLog['status']): CycleLog {
     label,
     status,
   };
+}
+
+function auditTimeline(
+  type: AuditTimelineType,
+  title: string,
+  status: AuditTimelineEntry['status'],
+  payload?: Record<string, unknown>,
+  refs: Pick<AuditTimelineEntry, 'eventId' | 'actionId' | 'result'> = {},
+): AuditTimelineEntry {
+  const now = new Date();
+  return {
+    id: makeId('audit'),
+    at: now.toISOString(),
+    time: formatClock(now),
+    type,
+    title,
+    status,
+    payload,
+    ...refs,
+  };
+}
+
+function timelineTypeForAction(action: AutopilotAction): AuditTimelineType {
+  const capability = action.capability || capabilityForAction(action);
+  if (action.status === 'error') return 'error';
+  if (capability === 'chat.reply') return 'chat';
+  if (capability === 'gift.acknowledge') return 'gift';
+  if (capability === 'media.play_video' || capability === 'media.play_music' || capability === 'media.stop') return 'video';
+  if (capability === 'obs.switch_scene' || capability === 'obs.show_overlay') return 'obs';
+  if (capability === 'moderation.message') return 'moderation';
+  return 'execution';
+}
+
+function timelineStatusForAction(action: AutopilotAction): AuditTimelineEntry['status'] {
+  if (action.status === 'error') return 'error';
+  if (action.status === 'blocked' || action.status === 'approval_required') return 'blocked';
+  if (action.status === 'queued' || action.status === 'running' || action.status === 'n8n_dispatched') return 'queued';
+  return 'done';
 }
 
 type RuleMatches = ReturnType<typeof applyAutomationRules>;
@@ -176,13 +230,27 @@ export function exportAuditSession(payload: {
   cycles: AutopilotCycle[];
   tools: PersonaTool[];
   rules: AutomationRule[];
+  chatReplyQueue?: unknown[];
   contentItems?: unknown[];
 }) {
+  const errors = payload.cycles.flatMap((cycle) => [
+    ...(cycle.error ? [{ cycleId: cycle.id, stage: cycle.stage, message: cycle.error }] : []),
+    ...cycle.actions
+      .filter((action) => action.status === 'error' || action.status === 'blocked')
+      .map((action) => ({
+        cycleId: cycle.id,
+        actionId: action.id,
+        capability: action.capability,
+        status: action.status,
+        result: action.result,
+      })),
+  ]);
   return JSON.stringify(
     {
       product: 'Odessa',
       version: 'mvp-runtime-v1',
       exportedAt: new Date().toISOString(),
+      errors,
       ...payload,
     },
     null,
@@ -213,36 +281,6 @@ function normalizeAction(
   return { ...action, capability: capabilityForAction(action) };
 }
 
-function normalizeDecision(raw: Partial<PersonaDecision>, fallbackText: string): PersonaDecision {
-  const actions = Array.isArray(raw.actions) ? raw.actions : [];
-  const speech = raw.speech || 'Vou acompanhar isso com cuidado na live.';
-  const normalizedActions = actions.map((action, index) => normalizeAction(action, index, 'ai'));
-  if (!normalizedActions.some((action) => action.type === 'speak')) {
-    normalizedActions.unshift(
-      normalizeAction(
-        {
-          id: 'action-speak',
-          type: 'speak',
-          label: 'Falar via TTS',
-          payload: { text: speech || fallbackText },
-          simulated: false,
-        },
-        0,
-        'ai',
-      ),
-    );
-  }
-
-  return {
-    speech,
-    intent: raw.intent || 'respond_live_event',
-    confidence: Math.max(0, Math.min(1, Number(raw.confidence ?? 0.7))),
-    reason: raw.reason || 'Decisao gerada a partir do evento atual.',
-    priority: raw.priority || 'normal',
-    actions: normalizedActions,
-  };
-}
-
 function metadataText(event: LiveEvent, key: string, fallback = '') {
   const value = event.metadata?.[key];
   if (value === undefined || value === null || value === '') return fallback;
@@ -263,6 +301,15 @@ function localAction(
     index,
     'system',
   );
+}
+
+function buildLocalChatReply(event: LiveEvent, speech: string) {
+  const user = metadataText(event, 'user', '').trim();
+  const message = metadataText(event, 'message', event.text).trim();
+  if (user) return `@${user} vi sua mensagem, obrigada por chegar junto.`;
+  if (message && message.length <= 60) return `Vi aqui: ${message}`;
+  if (speech) return 'Vi sua mensagem e ja estou acompanhando daqui.';
+  return 'Vi sua mensagem no chat.';
 }
 
 function buildLocalDecision(
@@ -390,7 +437,12 @@ function buildLocalDecision(
         type: 'chat_reply',
         label: 'Resposta no chat',
         capability: 'chat.reply',
-        payload: { message: speech, text: event.text },
+        payload: {
+          message: buildLocalChatReply(event, speech).slice(0, 140),
+          text: event.text,
+          dryRun: true,
+          fallbackSource: 'director_offline',
+        },
         simulated: true,
       }),
     );
@@ -450,6 +502,19 @@ function mergeActions(ruleActions: AutopilotAction[], aiActions: AutopilotAction
   return merged;
 }
 
+function normalizePreparedActions(
+  prepared: ReturnType<NonNullable<PersonaRuntimeOptions['prepareActions']>>,
+) {
+  if (Array.isArray(prepared)) {
+    return { executableActions: prepared, plannedActions: prepared, logs: [] as string[] };
+  }
+  return {
+    executableActions: prepared.executableActions,
+    plannedActions: prepared.plannedActions || prepared.executableActions,
+    logs: prepared.logs || [],
+  };
+}
+
 import { globalMoodEngine } from './moodEngine';
 import { globalRAGMemory } from './longTermMemory';
 
@@ -481,6 +546,7 @@ async function requestDecision(
   _matchedRules: RuleMatches,
   contentUsed: UsedContentItem[],
   backendMemory: BackendMemoryRoundContext,
+  memoryUsed: string[],
 ) {
   const memory = loadMemory();
   const memoryBlock = buildMemoryContext(memory);
@@ -505,6 +571,11 @@ async function requestDecision(
   // Pré-definições de vídeo (Fase 3): regras de reação + cooldowns por vídeo.
   contextParts.push(buildVideoPresetsContext(options.videos || []));
   if (usersBlock) contextParts.push(`\n\n[PERFIS DE USUARIOS]:\n${usersBlock}`);
+  if (memoryUsed.length) {
+    contextParts.push(
+      `\n\n[MEMORIAS USADAS NA RODADA]\n${memoryUsed.join('\n')}\nUse isso para reconhecer recorrencia sem inventar intimidade.`,
+    );
+  }
   if (memoryBlock) contextParts.push(`\n\n[MEMORIA RECENTE]:\n${memoryBlock}`);
   if (backendMemory.context) {
     contextParts.push(`\n\n[MEMORIA PERSISTENTE SQLITE]:\n${backendMemory.context}`);
@@ -529,7 +600,12 @@ async function requestDecision(
 
   // null = sem chave de IA → lança para o chamador usar buildLocalDecision (offline).
   if (!raw) throw new Error('Diretora offline: nenhuma chave de IA configurada');
-  return normalizeDecision(raw as unknown as Partial<PersonaDecision>, primaryEvent.text);
+  return normalizeDirectorDecision(raw, {
+    videos: options.videos,
+    scenes: options.scenes,
+    tools: options.tools.map(({ capability, label, enabled }) => ({ capability, label, enabled })),
+    fallbackText: primaryEvent.text,
+  });
 }
 
 export async function runPersonaRound(
@@ -555,6 +631,13 @@ export async function runPersonaRound(
         'done',
       ),
     ],
+    timeline: [
+      auditTimeline('capture', 'Eventos capturados para a rodada', 'done', {
+        count: initialEvents.length,
+        events: initialEvents,
+        primaryEventId: initialPrimary.id,
+      }),
+    ],
     createdAt: new Date().toISOString(),
   };
 
@@ -578,7 +661,25 @@ export async function runPersonaRound(
     const primaryEvent = choosePrimaryEvent(classifiedEvents);
     classifiedEvents.forEach((event) => markEventProcessed(event.id));
     update(
-      { event: primaryEvent, events: classifiedEvents, stage: 'interpretado' },
+      {
+        event: primaryEvent,
+        events: classifiedEvents,
+        stage: 'interpretado',
+        timeline: [
+          ...(cycle.timeline || []),
+          auditTimeline('classification', 'Eventos classificados', 'done', {
+            count: classifiedEvents.length,
+            primaryEvent: primaryEvent.kind,
+            events: classifiedEvents.map((event) => ({
+              id: event.id,
+              kind: event.kind,
+              source: event.source,
+              text: event.text,
+              metadata: event.metadata,
+            })),
+          }),
+        ],
+      },
       `Rodada classificada: ${classifiedEvents.length} evento(s), principal ${primaryEvent.kind}`,
     );
 
@@ -625,6 +726,19 @@ export async function runPersonaRound(
         : 'Nenhuma regra automatica aplicada',
     );
 
+    const userMemoryUsed = buildRoundUserMemorySummary(classifiedEvents, loadUserProfiles());
+    const aggregateMemoryUsed = [
+      ...userMemoryUsed,
+      ...(backendMemory.context ? ['Memoria persistente SQLite disponivel para usuarios reconhecidos.'] : []),
+      ...(contentUsed.length ? [`Conteudo contextual: ${contentUsed.map((item) => item.title).join(', ')}`] : []),
+    ].slice(0, 8);
+    update(
+      { memoryUsed: aggregateMemoryUsed },
+      aggregateMemoryUsed.length
+        ? `Memorias usadas: ${aggregateMemoryUsed.join(' | ')}`
+        : 'Nenhuma memoria local relevante para esta rodada',
+    );
+
     let baseDecision: PersonaDecision;
     try {
       baseDecision = await requestDecision(
@@ -634,6 +748,7 @@ export async function runPersonaRound(
         matchedRules,
         contentUsed,
         backendMemory,
+        aggregateMemoryUsed,
       );
       update({}, 'Decisao de rodada gerada pela IA');
     } catch (decisionError) {
@@ -645,20 +760,82 @@ export async function runPersonaRound(
     }
 
     const mergedActions = mergeActions(ruleActions, baseDecision.actions);
-    const governed = governPersonaDecision(classifiedEvents, { ...baseDecision, actions: mergedActions });
+    const governed = governPersonaDecision(classifiedEvents, { ...baseDecision, actions: mergedActions }, {
+      hasLocalAgent: options.localAgentReady,
+    });
     const decision = governed.decision;
     update(
       {
         decision,
         actions: decision.actions,
         stage: 'decidido',
+        timeline: [
+          ...(cycle.timeline || []),
+          auditTimeline('decision', 'Decisao da IA/Diretora', 'done', {
+            intent: decision.intent,
+            confidence: decision.confidence,
+            priority: decision.priority,
+            reason: decision.reason,
+            speech: decision.speech,
+            actions: decision.actions.map((action) => ({
+              id: action.id,
+              type: action.type,
+              capability: action.capability,
+              payload: action.payload,
+              simulated: action.simulated,
+              requiresApproval: action.requiresApproval,
+            })),
+          }),
+          auditTimeline('governor', 'Governador aplicado', 'done', {
+            logs: governed.logs,
+            actions: decision.actions.map((action) => ({
+              id: action.id,
+              capability: action.capability,
+              payload: action.payload,
+              simulated: action.simulated,
+              requiresApproval: action.requiresApproval,
+            })),
+          }),
+        ],
       },
       `Decisao de diretor: ${decision.intent} (${Math.round(decision.confidence * 100)}%)`,
     );
     governed.logs.forEach((entry) => update({}, entry));
 
-    update({ stage: 'executando' }, 'Executando fila auditavel de acoes', 'running');
-    const executedActions = await executeActionQueue(decision.actions, decision, {
+    const prepared = options.prepareActions
+      ? normalizePreparedActions(options.prepareActions(decision.actions, decision, cycle))
+      : { executableActions: decision.actions, plannedActions: decision.actions, logs: [] as string[] };
+    const executableActions = prepared.executableActions;
+    const plannedActions = prepared.plannedActions;
+    prepared.logs.forEach((entry) => update({}, entry));
+    update(
+      {
+        actions: plannedActions,
+        stage: 'executando',
+        timeline: [
+          ...(cycle.timeline || []),
+          auditTimeline('execution', 'Fila de acoes preparada', 'running', {
+            planned: plannedActions.map((action) => ({
+              id: action.id,
+              label: action.label,
+              capability: action.capability,
+              mode: action.requiresApproval
+                ? 'approval_required'
+                : action.simulated
+                  ? 'simulated'
+                  : 'real',
+              payload: action.payload,
+            })),
+            executableActionIds: executableActions.map((action) => action.id),
+          }),
+        ],
+      },
+      executableActions.length === decision.actions.length
+        ? 'Executando fila auditavel de acoes'
+        : `Executando fila auditavel de acoes (${decision.actions.length - executableActions.length} resposta(s) no preview do chat)`,
+      'running',
+    );
+    const executedActions = await executeActionQueue(executableActions, decision, {
       tools: options.tools,
       voiceEnabled: options.voiceEnabled,
       onAction: options.onAction,
@@ -667,21 +844,49 @@ export async function runPersonaRound(
       cycle.logs.push(
         log(action.result || action.label, action.status === 'error' ? 'error' : 'done'),
       );
+      cycle.timeline = [
+        ...(cycle.timeline || []),
+        auditTimeline(
+          timelineTypeForAction(action),
+          action.label,
+          timelineStatusForAction(action),
+          {
+            type: action.type,
+            capability: action.capability,
+            mode: action.executionMode || (action.requiresApproval ? 'approval_required' : action.simulated ? 'simulated' : 'real'),
+            chatAutomationStatus: action.chatAutomationStatus,
+            status: action.status,
+            payload: action.payload,
+          },
+          { actionId: action.id, result: action.result },
+        ),
+      ];
     }
 
     cycle = {
       ...cycle,
       stage: 'concluido' as CycleStage,
-      actions: executedActions,
+      actions: [
+        ...executedActions,
+        ...plannedActions.filter(
+          (planned) => !executedActions.some((executed) => executed.id === planned.id),
+        ),
+      ],
       completedAt: new Date().toISOString(),
       logs: [...cycle.logs, log('Ciclo concluido e registrado', 'done')],
+      timeline: [
+        ...(cycle.timeline || []),
+        auditTimeline('execution', 'Ciclo concluido e registrado', 'done', {
+          actionCount: executedActions.length,
+        }),
+      ],
     };
 
     const currentMemory = loadMemory();
     addTurn(currentMemory, eventBatchSummary(classifiedEvents), decision.speech, 'autopilot');
     let profiles = loadUserProfiles();
     classifiedEvents.forEach((event) => {
-      profiles = trackUserInteraction(profiles, event.text);
+      profiles = trackLiveEventInteraction(profiles, event);
     });
     // Aprendizado (Fase 2): agrega o que o chat fala/pede e os presentes recebidos.
     recordChatLearning(classifiedEvents);
@@ -704,6 +909,13 @@ export async function runPersonaRound(
       error: err instanceof Error ? err.message : 'Erro desconhecido',
       completedAt: new Date().toISOString(),
       logs: [...cycle.logs, log(err instanceof Error ? err.message : 'Erro desconhecido', 'error')],
+      timeline: [
+        ...(cycle.timeline || []),
+        auditTimeline('error', 'Erro na rodada', 'error', {
+          stage: cycle.stage,
+          error: err instanceof Error ? err.message : 'Erro desconhecido',
+        }),
+      ],
     };
     appendAuditCycle(cycle);
     options.onUpdate?.({ ...cycle, logs: [...cycle.logs], actions: [...cycle.actions] });

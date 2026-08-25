@@ -31,6 +31,7 @@ import { processChatCapture } from './core/chatCapturePipeline';
 import { type GiftCatalogEntry, loadGiftCatalog, saveGiftCatalog } from './core/giftCatalog';
 import { apiUrl, API_BASE_URL } from './lib/api';
 import { cn } from './lib/utils';
+import { ChatVisualTargetPanel } from './components/ChatVisualTargetPanel';
 import type { CapturedMessage, LiveEventKind } from './types';
 
 interface CaptureStudioProps {
@@ -3243,6 +3244,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
               confidence: captureEvent.confidence ?? 1,
               author: eventAuthor,
               metadata: {
+                backendIngested: Boolean(ingestResult),
                 giftName: giftKey,
                 giftKey,
                 giftValue: null,
@@ -3259,6 +3261,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 zoneName: captureEvent.zoneName,
                 confidence: captureEvent.confidence ?? 1,
                 captureMode: captureEvent.captureMode,
+                backendIngested: Boolean(ingestResult),
               });
               const emittedEvents = chatPipeline.events.map((event) =>
                 emitEvent({
@@ -3271,6 +3274,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                     triggersFired: captureEvent.triggersFired,
                     triggerName: captureEvent.triggerName,
                     triggeredVideoId: captureEvent.triggeredVideoId,
+                    backendIngested: Boolean(ingestResult),
                     giftName: event.metadata?.giftName ?? giftKey,
                     giftKey,
                     author: event.metadata?.user ?? eventAuthor,
@@ -3302,6 +3306,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 zoneId: captureEvent.zoneId,
                 zoneRole: zone.role,
                 rawText: captureEvent.rawText,
+                backendIngested: Boolean(ingestResult),
                 confidence: captureEvent.confidence,
                 latencyMs: captureEvent.latencyMs,
                 triggersFired: captureEvent.triggersFired,
@@ -4495,6 +4500,8 @@ const CaptureStudio = React.memo(function CaptureStudio({
 
         <aside className="border-t border-[var(--odessa-border)] bg-[var(--odessa-surface)] xl:overflow-y-auto xl:border-l xl:border-t-0">
           <div className="space-y-4 p-4">
+            <ChatVisualTargetPanel />
+
             <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>

@@ -39,13 +39,22 @@ export type ChatAutomationTarget = {
   viewport?: ChatAutomationViewport;
 };
 
+export type ChatAutomationWebSendConfig = {
+  enabled: boolean;
+  url: string;
+  inputSelector: string;
+  sendButtonSelector: string;
+  typingDelayMs: number;
+};
+
 export type ChatAutomationConfig = {
   allowlist: ChatAutomationAllowEntry[];
   logs: Array<Record<string, unknown>>;
+  webSendConfig: ChatAutomationWebSendConfig;
 };
 
 export type ChatAutomationSendResult = {
-  status: 'blocked' | 'dry_run' | 'ready' | string;
+  status: 'blocked' | 'dry_run' | 'ready' | 'queued' | string;
   allowed: boolean;
   reason?: string;
   target?: ChatAutomationAllowEntry;
@@ -53,11 +62,17 @@ export type ChatAutomationSendResult = {
   wouldType?: boolean;
   wouldSend?: boolean;
   wouldClick?: boolean;
+  inputPoint?: ChatAutomationPoint | null;
+  sendPoint?: ChatAutomationPoint | null;
+  viewport?: ChatAutomationViewport | null;
+  plannedInputPixel?: { x: number; y: number } | null;
+  plannedSendPixel?: { x: number; y: number } | null;
   executed?: boolean;
   submit?: boolean;
   queued?: boolean;
   queueSize?: number;
   executionMode?: string;
+  commandId?: string;
   command?: Record<string, unknown>;
   execution?: {
     ok?: boolean;
@@ -158,12 +173,18 @@ export async function getChatAutomationConfig(): Promise<ChatAutomationConfig> {
 
 export async function saveChatAutomationConfig(
   allowlist: ChatAutomationAllowEntry[],
+  options?: { webSendConfig?: ChatAutomationWebSendConfig },
 ): Promise<ChatAutomationConfig> {
+  const body: Record<string, unknown> = { allowlist };
+  if (options?.webSendConfig) {
+    body.webSendConfig = options.webSendConfig;
+  }
+
   return parseJson<ChatAutomationConfig>(
     await fetch(apiUrl('/chat-automation/config'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ allowlist }),
+      body: JSON.stringify(body),
     }),
   );
 }
