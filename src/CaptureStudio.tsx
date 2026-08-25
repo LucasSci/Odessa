@@ -27,9 +27,11 @@ import {
 import { emitEvent } from './core/eventBus';
 import { buildOcrEvent } from './core/ocrEventContract';
 import type { OcrEvent } from './core/ocrEventContract';
+import { processChatCapture } from './core/chatCapturePipeline';
 import { type GiftCatalogEntry, loadGiftCatalog, saveGiftCatalog } from './core/giftCatalog';
 import { apiUrl, API_BASE_URL } from './lib/api';
 import { cn } from './lib/utils';
+import { ChatVisualTargetPanel } from './components/ChatVisualTargetPanel';
 import type { CapturedMessage, LiveEventKind } from './types';
 
 interface CaptureStudioProps {
@@ -3242,6 +3244,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
               confidence: captureEvent.confidence ?? 1,
               author: eventAuthor,
               metadata: {
+                backendIngested: Boolean(ingestResult),
                 giftName: giftKey,
                 giftKey,
                 giftValue: null,
@@ -3250,6 +3253,47 @@ const CaptureStudio = React.memo(function CaptureStudio({
               },
             });
 
+            const chatLikeZone =
+              zone.role === 'chat' || /chat|tango|coment/i.test(captureEvent.zoneName);
+            if (chatLikeZone) {
+              const chatPipeline = processChatCapture({
+                lines: resolvedLines,
+                zoneName: captureEvent.zoneName,
+                confidence: captureEvent.confidence ?? 1,
+                captureMode: captureEvent.captureMode,
+                backendIngested: Boolean(ingestResult),
+              });
+              const emittedEvents = chatPipeline.events.map((event) =>
+                emitEvent({
+                  ...event,
+                  metadata: {
+                    ...event.metadata,
+                    zoneId: captureEvent.zoneId,
+                    zoneRole: zone.role,
+                    latencyMs: captureEvent.latencyMs,
+                    triggersFired: captureEvent.triggersFired,
+                    triggerName: captureEvent.triggerName,
+                    triggeredVideoId: captureEvent.triggeredVideoId,
+                    backendIngested: Boolean(ingestResult),
+                    giftName: event.metadata?.giftName ?? giftKey,
+                    giftKey,
+                    author: event.metadata?.user ?? eventAuthor,
+                    ocrEvent: canonicalOcrEvent,
+                  },
+                }),
+              );
+              if (emittedEvents.length > 0) {
+                setCapturedText((current) =>
+                  [
+                    ...current.filter(
+                      (event) => !emittedEvents.some((emitted) => emitted.id === event.id),
+                    ),
+                    ...emittedEvents,
+                  ].slice(MAX_PERSONA_MESSAGES * -1),
+                );
+              }
+            }
+            if (!chatLikeZone) {
             const liveEvent = emitEvent({
               id: captureEvent.id,
               source: 'ocr',
@@ -3262,6 +3306,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 zoneId: captureEvent.zoneId,
                 zoneRole: zone.role,
                 rawText: captureEvent.rawText,
+                backendIngested: Boolean(ingestResult),
                 confidence: captureEvent.confidence,
                 latencyMs: captureEvent.latencyMs,
                 triggersFired: captureEvent.triggersFired,
@@ -3280,6 +3325,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 MAX_PERSONA_MESSAGES * -1,
               ),
             );
+            }
             // Show trigger feedback in the error bar
             if ((captureEvent.triggersFired ?? 0) > 0) {
               setError(null);
@@ -4454,6 +4500,8 @@ const CaptureStudio = React.memo(function CaptureStudio({
 
         <aside className="border-t border-[var(--odessa-border)] bg-[var(--odessa-surface)] xl:overflow-y-auto xl:border-l xl:border-t-0">
           <div className="space-y-4 p-4">
+            <ChatVisualTargetPanel />
+
             <section className="rounded-lg border border-[var(--odessa-border)] bg-[var(--odessa-surface-strong)] p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
