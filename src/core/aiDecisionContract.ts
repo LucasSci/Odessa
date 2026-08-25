@@ -9,9 +9,10 @@
  */
 
 import type { OcrEvent } from './ocrEventContract';
-import type { LiveEvent } from '../types';
+import type { AutopilotAction, AutopilotActionType, LiveEvent, PersonaDecision, ToolCapability } from '../types';
 import { getEffectiveGeminiKey, getEffectiveSystemPrompt, getAiConfig, hasActiveGeminiKey, getGeminiProxyUrl } from './aiConfig';
 import { apiUrl } from '../lib/api';
+import { capabilityForAction } from './toolRegistry';
 
 export type AiStatus = 'offline' | 'simulated' | 'online' | 'checking';
 export type AiIntentType =
@@ -133,6 +134,27 @@ const AI_TIMEOUT_MS = 10_000;
 const AI_VALID_INTENTS = ['gift_reaction','greeting','compliment_response','question_response','idle_maintenance','special_event','unknown'];
 const AI_VALID_EMOTIONS = ['happy','excited','grateful','neutral','shy','playful','surprised'];
 const AI_VALID_ACTIONS  = ['play_video','queue_video','wait','no_action'];
+
+const DIRECTOR_ACTION_LABELS: Record<AutopilotActionType, string> = {
+  speak: 'Falar via TTS',
+  chat_reply: 'Resposta no chat',
+  ack_gift: 'Agradecer presente',
+  moderate_message: 'Moderar mensagem',
+  switch_scene: 'Trocar cena',
+  show_overlay: 'Exibir overlay',
+  play_music: 'Tocar musica',
+  play_video: 'Tocar video',
+  webhook: 'Chamar webhook',
+  stop_media: 'Parar midia',
+  set_topic: 'Definir topico',
+  suggest_topic: 'Sugerir topico',
+  remember: 'Salvar memoria',
+  log_event: 'Registrar evento',
+};
+
+const DIRECTOR_ACTION_TYPES = new Set<AutopilotActionType>(
+  Object.keys(DIRECTOR_ACTION_LABELS) as AutopilotActionType[],
+);
 
 export type AiConfig = {
   videos?: Array<{ id: string; label?: string; name?: string }>;
@@ -339,6 +361,20 @@ Regras:
 - Tipos de ação válidos: speak, chat_reply, ack_gift, moderate_message, switch_scene,
   show_overlay, play_music, play_video, webhook, stop_media, set_topic, suggest_topic, remember.`;
 
+const DIRECTOR_RUNTIME_CONTRACT = `\
+Contrato operacional adicional:
+- Cada rodada pode ter fala, chat_reply, play_video, switch_scene, remember, webhook e moderacao como partes opcionais.
+- Use speech somente para voz/TTS. Deixe speech: "" quando nao houver fala util.
+- Use chat_reply somente para resposta publica curta; maximo 140 caracteres, natural, sem spam, sem pedir presente.
+- chat_reply.payload.message nao pode ser copia literal de speech. Se ambos existirem, devem ter funcoes diferentes.
+- Use play_video somente com videoId EXATO da lista de VIDEOS DISPONIVEIS.
+- Use switch_scene somente com sceneName EXATO da lista de CENAS PERMITIDAS.
+- Use remember somente para fato/preferencia util e nao sensivel.
+- Use webhook somente quando a ferramenta estiver habilitada e houver webhookId.
+- Use moderate_message para risco real; nao exponha detalhes sensiveis no chat.
+- Nao invente id de video, cena, webhook ou ferramenta. Se nao estiver listado/habilitado, omita a acao.
+- Se nada relevante, retorne actions: [] e speech: "".`;
+
 function buildDirectorUserMessage(events: LiveEvent[], ctx: DirectorContext): string {
   const lines: string[] = [];
   lines.push('EVENTOS DA RODADA:');
@@ -373,11 +409,11 @@ function buildDirectorUserMessage(events: LiveEvent[], ctx: DirectorContext): st
     lines.push('  ' + tools.map((t) => t.capability).join(', '));
   }
 
-  lines.push(`\n${DIRECTOR_INSTRUCTION}`);
+  lines.push(`\n${DIRECTOR_INSTRUCTION}\n\n${DIRECTOR_RUNTIME_CONTRACT}`);
   return lines.join('\n');
 }
 
-function parseDirectorDecision(raw: string): RawDirectorDecision | null {
+export function parseDirectorDecision(raw: string): RawDirectorDecision | null {
   let parsed: Record<string, unknown>;
   try {
     const clean = (raw || '').replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '').trim();
@@ -406,6 +442,172 @@ function parseDirectorDecision(raw: string): RawDirectorDecision | null {
       ? (parsed.priority as RawDirectorDecision['priority'])
       : 'normal',
     actions,
+  };
+}
+
+export type DirectorDecisionValidationContext = Pick<DirectorContext, 'videos' | 'scenes' | 'tools'> & {
+  fallbackText?: string;
+  source?: AutopilotAction['source'];
+};
+
+function makeDirectorActionId(index: number) {
+  return `director-${Date.now()}-${index}`;
+}
+
+function compactText(value: unknown, max = 240) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+function samePublicText(a: string, b: string) {
+  return compactText(a).toLowerCase() === compactText(b).toLowerCase();
+}
+
+function distinctChatReply(message: string, speech: string, fallbackText = '') {
+  const clean = compactText(message, 140);
+  if (!clean) return '';
+  if (!speech || !samePublicText(clean, speech)) return clean;
+
+  const source = compactText(fallbackText, 80);
+  if (source) return compactText(`Vi aqui no chat: ${source}`, 140);
+  return 'Vi sua mensagem e ja estou acompanhando daqui.';
+}
+
+function toolAllowed(capability: ToolCapability, tools?: DirectorContext['tools']) {
+  const enabledTools = (tools || []).filter((tool) => tool.enabled !== false);
+  if (!enabledTools.length) return true;
+  return enabledTools.some((tool) => tool.capability === capability);
+}
+
+function normalizeDirectorAction(
+  raw: RawDirectorDecision['actions'][number],
+  index: number,
+  ctx: DirectorDecisionValidationContext,
+  speech: string,
+): { action?: AutopilotAction; rejected?: string } {
+  const rawType = DIRECTOR_ACTION_TYPES.has(raw.type as AutopilotActionType)
+    ? (raw.type as AutopilotActionType)
+    : null;
+  if (!rawType) return { rejected: `tipo invalido ${raw.type || 'vazio'}` };
+
+  const payload = raw.payload && typeof raw.payload === 'object' ? raw.payload : {};
+  const capability = capabilityForAction({ type: rawType });
+  if (!toolAllowed(capability, ctx.tools)) {
+    return { rejected: `${rawType} sem ferramenta habilitada (${capability})` };
+  }
+
+  const nextPayload: Record<string, unknown> = { ...payload };
+  const videoIds = new Set((ctx.videos || []).map((video) => video.id));
+  const sceneNames = new Set(ctx.scenes || []);
+
+  if (rawType === 'speak') {
+    const text = compactText(nextPayload.text || speech, 220);
+    if (!text) return { rejected: 'speak sem texto' };
+    nextPayload.text = text;
+  }
+
+  if (rawType === 'chat_reply') {
+    const message = distinctChatReply(
+      compactText(nextPayload.message || nextPayload.text, 180),
+      speech,
+      ctx.fallbackText,
+    );
+    if (!message) return { rejected: 'chat_reply sem mensagem' };
+    nextPayload.message = message;
+    delete nextPayload.text;
+  }
+
+  if (rawType === 'play_video') {
+    const videoId = compactText(nextPayload.videoId || nextPayload.video, 120);
+    if (!videoId) return { rejected: 'play_video sem videoId' };
+    if (!videoIds.has(videoId)) return { rejected: `videoId fora do catalogo (${videoId})` };
+    nextPayload.videoId = videoId;
+    delete nextPayload.video;
+  }
+
+  if (rawType === 'switch_scene') {
+    const sceneName = compactText(
+      nextPayload.sceneName || nextPayload.scene || nextPayload.requestedScene,
+      120,
+    );
+    if (!sceneName) return { rejected: 'switch_scene sem sceneName' };
+    if (!sceneNames.has(sceneName)) return { rejected: `sceneName fora do catalogo (${sceneName})` };
+    nextPayload.sceneName = sceneName;
+    nextPayload.scene = sceneName;
+    delete nextPayload.requestedScene;
+  }
+
+  if (rawType === 'remember') {
+    const memory = compactText(nextPayload.memory || nextPayload.fact || nextPayload.message, 180);
+    if (!memory) return { rejected: 'remember sem memoria' };
+    nextPayload.memory = memory;
+  }
+
+  if (rawType === 'webhook') {
+    const webhookId = compactText(nextPayload.webhookId, 120);
+    if (!webhookId) return { rejected: 'webhook sem webhookId' };
+    nextPayload.webhookId = webhookId;
+  }
+
+  return {
+    action: {
+      id: makeDirectorActionId(index),
+      type: rawType,
+      label: raw.label || DIRECTOR_ACTION_LABELS[rawType],
+      capability,
+      payload: nextPayload,
+      simulated: rawType !== 'speak',
+      requiresApproval: undefined,
+      status: 'queued',
+      source: ctx.source || 'ai',
+      createdAt: new Date().toISOString(),
+    },
+  };
+}
+
+export function normalizeDirectorDecision(
+  raw: RawDirectorDecision,
+  ctx: DirectorDecisionValidationContext = {},
+): PersonaDecision {
+  const rejected: string[] = [];
+  const speech = compactText(raw.speech, 220);
+  const normalizedActions = raw.actions
+    .map((action, index) => normalizeDirectorAction(action, index, ctx, speech))
+    .flatMap((result) => {
+      if (result.rejected) rejected.push(result.rejected);
+      return result.action ? [result.action] : [];
+    });
+
+  if (speech && !normalizedActions.some((action) => action.type === 'speak')) {
+    normalizedActions.unshift({
+      id: 'action-speak',
+      type: 'speak',
+      label: DIRECTOR_ACTION_LABELS.speak,
+      capability: 'tts.speak',
+      payload: { text: speech },
+      simulated: false,
+      status: 'queued',
+      source: ctx.source || 'ai',
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  const reasonBase = compactText(raw.reason || 'Decisao da Diretora.', 240);
+  const reason = rejected.length
+    ? `${reasonBase} Acoes ignoradas: ${rejected.join('; ')}.`
+    : reasonBase;
+
+  return {
+    context_analysis: raw.context_analysis,
+    sentiment: raw.sentiment,
+    speech,
+    intent: raw.intent || 'respond_live_event',
+    confidence: Math.max(0, Math.min(1, Number(raw.confidence ?? 0.7))),
+    reason,
+    priority: raw.priority || 'normal',
+    actions: normalizedActions,
   };
 }
 

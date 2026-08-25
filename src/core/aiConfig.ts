@@ -62,6 +62,16 @@ export type AiLocalConfig = {
    * proxy do próprio servidor (/api/ai/gemini).
    */
   geminiProxyUrl: string;
+  /** Permite que a Diretora gere respostas publicas no chat ao vivo. */
+  autoChatReplyEnabled: boolean;
+  /** Dry-run por padrao; envio real precisa ser ativado explicitamente. */
+  autoChatReplyMode: 'dry_run' | 'real';
+  /** Cooldown minimo entre respostas publicas no chat. */
+  chatReplyCooldownMs: number;
+  /** Limite de respostas publicas por minuto. */
+  chatReplyMaxPerMinute: number;
+  /** Confiança minima do OCR para permitir resposta publica. */
+  chatReplyMinConfidence: number;
 };
 
 const DEFAULTS: AiLocalConfig = {
@@ -71,6 +81,11 @@ const DEFAULTS: AiLocalConfig = {
   confidenceThreshold: 0.65,
   autonomyLevel: 'assistido',
   geminiProxyUrl: '',
+  autoChatReplyEnabled: false,
+  autoChatReplyMode: 'dry_run',
+  chatReplyCooldownMs: 15_000,
+  chatReplyMaxPerMinute: 4,
+  chatReplyMinConfidence: 0.65,
 };
 
 function readRaw(): Partial<AiLocalConfig> {
@@ -99,6 +114,17 @@ export function getAiConfig(): AiLocalConfig {
       ? (stored.autonomyLevel as AiAutonomyLevel)
       : DEFAULTS.autonomyLevel,
     geminiProxyUrl: typeof stored.geminiProxyUrl === 'string' ? stored.geminiProxyUrl.trim() : DEFAULTS.geminiProxyUrl,
+    autoChatReplyEnabled: stored.autoChatReplyEnabled === true,
+    autoChatReplyMode: stored.autoChatReplyMode === 'real' ? 'real' : DEFAULTS.autoChatReplyMode,
+    chatReplyCooldownMs: typeof stored.chatReplyCooldownMs === 'number'
+      ? Math.max(3_000, Math.min(120_000, stored.chatReplyCooldownMs))
+      : DEFAULTS.chatReplyCooldownMs,
+    chatReplyMaxPerMinute: typeof stored.chatReplyMaxPerMinute === 'number'
+      ? Math.max(1, Math.min(20, Math.round(stored.chatReplyMaxPerMinute)))
+      : DEFAULTS.chatReplyMaxPerMinute,
+    chatReplyMinConfidence: typeof stored.chatReplyMinConfidence === 'number'
+      ? Math.max(0.1, Math.min(0.99, stored.chatReplyMinConfidence))
+      : DEFAULTS.chatReplyMinConfidence,
   };
 }
 
