@@ -9,9 +9,10 @@
  */
 
 import { callGeminiText } from './aiDecisionContract';
-import { getAiConfig, getEffectiveSystemPrompt } from './aiConfig';
+import { getAiConfig, hasActiveGeminiKey } from './aiConfig';
 import { PUBLIC_REPLY_BLOCKED_TERMS } from './liveAutonomyGovernor';
 import { buildChatInsightsContext } from './chatLearning';
+import { generateLocalReply } from './tangoReplyFallback';
 
 export interface TangoChatMessage {
   username: string;
@@ -81,6 +82,28 @@ export async function generateTangoChatReply(
   const basePrompt = customPrompt || config.systemPrompt || DEFAULT_TANGO_PROMPT;
   const insightsContext = buildChatInsightsContext();
 
+  // Sem chave Gemini configurada → usa o motor de respostas prontas locais.
+  // Funciona agora, sem custo. Quando a chave for configurada, a IA real assume.
+  if (!hasActiveGeminiKey()) {
+    const local = generateLocalReply(incoming, recentHistory);
+    const safety = checkSafetyRestrictions(local.reply);
+    if (!safety.safe) {
+      return {
+        ok: false,
+        reply: local.reply,
+        blocked: true,
+        blockedReason: `Termo bloqueado por segurança: "${safety.blockedTerm}"`,
+        confidence: 0,
+      };
+    }
+    return {
+      ok: true,
+      reply: local.reply,
+      confidence: 0.6,
+      reason: 'Resposta pronta local (sem chave Gemini — IA real ativa ao configurar a chave)',
+    };
+  }
+
   const historyContext = recentHistory
     .slice(-6)
     .map((msg) => `${msg.username}: ${msg.text}`)
@@ -103,13 +126,13 @@ export async function generateTangoChatReply(
     });
 
     if (!rawReply || !rawReply.trim()) {
-      // Fallback amigável se a IA não responder
-      const fallback = `@${incoming.username} Obrigada pelo carinho! ✨`;
+      // IA não devolveu texto → usa resposta pronta local contextual
+      const local = generateLocalReply(incoming, recentHistory);
       return {
         ok: true,
-        reply: fallback,
-        confidence: 0.5,
-        reason: 'Resposta fallback padrão (sem retorno da IA)',
+        reply: local.reply,
+        confidence: 0.55,
+        reason: 'Resposta pronta local (IA não retornou texto)',
       };
     }
 
@@ -134,11 +157,13 @@ export async function generateTangoChatReply(
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    // Erro na chamada de IA → usa resposta pronta local para não parar o chat
+    const local = generateLocalReply(incoming, recentHistory);
     return {
-      ok: false,
-      reply: `@${incoming.username} Obrigada por estar aqui na live! 💕`,
-      reason: `Erro na chamada de IA: ${errorMessage}`,
-      confidence: 0.3,
+      ok: true,
+      reply: local.reply,
+      reason: `IA indisponível (${errorMessage}) — resposta pronta local`,
+      confidence: 0.5,
     };
   }
 }
@@ -148,7 +173,7 @@ export async function generateTangoChatReply(
  */
 export async function generateTangoProactiveMessage(
   topic?: string,
-  recentHistory: TangoChatMessage[] = [],
+  _recentHistory: TangoChatMessage[] = [],
 ): Promise<GeneratedReplyResult> {
   const prompt = [
     DEFAULT_TANGO_PROMPT,
