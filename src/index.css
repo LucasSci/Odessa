@@ -7,46 +7,46 @@
   --font-display: 'Instrument Serif', 'Cormorant Garamond', Georgia, serif;
   --font-sans: 'Inter', 'Helvetica Neue', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Courier New', ui-monospace, SFMono-Regular, monospace;
-  --bg: #06070a;
-  --bg1: #0b0d10;
-  --bg2: #101114;
-  --bg3: #171a1f;
-  --bg4: #22262d;
-  --border: rgba(255, 255, 255, 0.06);
-  --border2: rgba(255, 255, 255, 0.1);
-  --border3: rgba(255, 255, 255, 0.16);
-  --t1: #f5f5f7;
-  --t2: #b7c0ca;
-  --t3: #67717e;
-  --accent: #7dd3fc;
-  --accent2: #fb7185;
-  --sky: #7dd3fc;
-  --sky-2: #38bdf8;
+  --bg: #04060c;
+  --bg1: #070a12;
+  --bg2: #0b0f1a;
+  --bg3: #111726;
+  --bg4: #1a2236;
+  --border: rgba(96, 165, 250, 0.08);
+  --border2: rgba(96, 165, 250, 0.14);
+  --border3: rgba(96, 165, 250, 0.22);
+  --t1: #eaf2ff;
+  --t2: #93a8c6;
+  --t3: #54668a;
+  --accent: #3b82f6;
+  --accent2: #60a5fa;
+  --sky: #38bdf8;
+  --sky-2: #0ea5e9;
   --rose: #fb7185;
   --rose-2: #f43f5e;
-  --cyan: #67e8f9;
-  --navy: #07111f;
-  --pink: #fb7185;
+  --cyan: #22d3ee;
+  --navy: #060d1a;
+  --pink: #f472b6;
   --green: #34d399;
   --amber: #fbbf24;
   --red: #f87171;
   --blue: #60a5fa;
-  --glow-a: rgba(125, 211, 252, 0.16);
-  --glow-p: rgba(251, 113, 133, 0.12);
-  --glow-sky: rgba(125, 211, 252, 0.18);
+  --glow-a: rgba(59, 130, 246, 0.18);
+  --glow-p: rgba(96, 165, 250, 0.14);
+  --glow-sky: rgba(56, 189, 248, 0.20);
   --glow-rose: rgba(251, 113, 133, 0.14);
-  --gold: #7dd3fc;
-  --lavender: #fb7185;
+  --gold: #60a5fa;
+  --lavender: #818cf8;
   --lime: #bef264;
-  --violet: #8b7cf6;
-  --accent-grad: linear-gradient(135deg, #8b7cf6 0%, #46c2f0 100%);
-  --accent-soft: linear-gradient(135deg, rgba(139,124,246,0.16), rgba(70,194,240,0.14));
-  --surface-strong: #1f1f25;
-  --grad-live: linear-gradient(135deg, var(--sky) 0%, var(--rose) 100%);
+  --violet: #6366f1;
+  --accent-grad: linear-gradient(135deg, #3b82f6 0%, #22d3ee 100%);
+  --accent-soft: linear-gradient(135deg, rgba(59,130,246,0.18), rgba(34,211,238,0.14));
+  --surface-strong: #111a2e;
+  --grad-live: linear-gradient(135deg, #3b82f6 0%, #22d3ee 100%);
   --grad-shell:
-    radial-gradient(circle at 18% 0%, rgba(125, 211, 252, 0.09), transparent 30%),
-    radial-gradient(circle at 82% 12%, rgba(251, 113, 133, 0.09), transparent 32%), var(--bg);
-  --shadow-live: 0 0 28px rgba(125, 211, 252, 0.22);
+    radial-gradient(circle at 18% 0%, rgba(59, 130, 246, 0.12), transparent 32%),
+    radial-gradient(circle at 82% 12%, rgba(34, 211, 238, 0.08), transparent 34%), var(--bg);
+  --shadow-live: 0 0 28px rgba(59, 130, 246, 0.28);
   --r-2xl: 28px;
   --r-3xl: 34px;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
@@ -214,9 +214,9 @@
 
 .odessa-stage-mesh {
   background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.055) 1px, transparent 1px),
-    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    radial-gradient(circle at 50% 45%, rgba(125, 211, 252, 0.16), transparent 34%), #07080a;
+    linear-gradient(90deg, rgba(96, 165, 250, 0.055) 1px, transparent 1px),
+    linear-gradient(rgba(96, 165, 250, 0.035) 1px, transparent 1px),
+    radial-gradient(circle at 50% 45%, rgba(59, 130, 246, 0.18), transparent 34%), #06080f;
   background-size:
     48px 48px,
     48px 48px,
@@ -1122,7 +1122,7 @@
 /* Auth card */
 .od-auth-shell {
   position: relative; height: 100%; width: 100%;
-  background: radial-gradient(50% 40% at 20% 22%, rgba(125, 211, 252, 0.10), transparent 60%), radial-gradient(60% 50% at 82% 78%, rgba(251, 113, 133, 0.10), transparent 60%), var(--bg);
+  background: radial-gradient(50% 40% at 20% 22%, rgba(59, 130, 246, 0.12), transparent 60%), radial-gradient(60% 50% at 82% 78%, rgba(34, 211, 238, 0.08), transparent 60%), var(--bg);
   display: grid; place-items: center; overflow: hidden;
 }
 .od-auth-shell::before {
@@ -1388,11 +1388,11 @@
 .odsa-stage-corner { position: absolute; top: 14px; right: 16px; display: flex; gap: 8px; }
 .odsa-stage-portrait {
   width: 138px; height: 138px; border-radius: 999px;
-  background: radial-gradient(circle at 36% 34%, rgba(125,211,252,0.7), transparent 60%), radial-gradient(circle at 70% 70%, rgba(251,113,133,0.55), transparent 64%), linear-gradient(135deg, #0b1726, #1a0a16);
-  box-shadow: 0 0 80px rgba(125,211,252,0.32); position: relative;
+  background: radial-gradient(circle at 36% 34%, rgba(56,189,248,0.7), transparent 60%), radial-gradient(circle at 70% 70%, rgba(99,102,241,0.5), transparent 64%), linear-gradient(135deg, #081427, #0a1330);
+  box-shadow: 0 0 80px rgba(59,130,246,0.34); position: relative;
 }
-.odsa-stage-portrait::after { content: ''; position: absolute; inset: -14px; border-radius: 999px; border: 1px solid rgba(125,211,252,0.32); }
-.odsa-stage-portrait::before { content: ''; position: absolute; inset: -28px; border-radius: 999px; border: 1px dashed rgba(125,211,252,0.18); }
+.odsa-stage-portrait::after { content: ''; position: absolute; inset: -14px; border-radius: 999px; border: 1px solid rgba(96,165,250,0.32); }
+.odsa-stage-portrait::before { content: ''; position: absolute; inset: -28px; border-radius: 999px; border: 1px dashed rgba(96,165,250,0.18); }
 
 /* ── Event feed ─────────────────────────────────────────────── */
 .odsa-feed { display: flex; flex-direction: column; gap: 8px; overflow: auto; min-height: 0; }
