@@ -39,9 +39,18 @@ export type ChatAutomationTarget = {
   viewport?: ChatAutomationViewport;
 };
 
+export type ChatAutomationWebSendConfig = {
+  enabled: boolean;
+  url: string;
+  inputSelector: string;
+  sendButtonSelector: string;
+  typingDelayMs: number;
+};
+
 export type ChatAutomationConfig = {
   allowlist: ChatAutomationAllowEntry[];
   logs: Array<Record<string, unknown>>;
+  webSendConfig: ChatAutomationWebSendConfig;
 };
 
 export type ChatAutomationSendResult = {
@@ -164,12 +173,18 @@ export async function getChatAutomationConfig(): Promise<ChatAutomationConfig> {
 
 export async function saveChatAutomationConfig(
   allowlist: ChatAutomationAllowEntry[],
+  options?: { webSendConfig?: ChatAutomationWebSendConfig },
 ): Promise<ChatAutomationConfig> {
+  const body: Record<string, unknown> = { allowlist };
+  if (options?.webSendConfig) {
+    body.webSendConfig = options.webSendConfig;
+  }
+
   return parseJson<ChatAutomationConfig>(
     await fetch(apiUrl('/chat-automation/config'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ allowlist }),
+      body: JSON.stringify(body),
     }),
   );
 }

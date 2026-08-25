@@ -252,9 +252,17 @@ export function governPersonaDecision(
   const minConfidence = confidenceForEvents(events);
   const history = loadHistory();
   const recent = history.filter((entry) => now - entry.at <= 60_000);
-  const lastPublic = [...history]
-    .reverse()
-    .find((entry) => entry.status === 'sent' || entry.status === 'dry_run');
+
+  // ⚡ Bolt: Using a backward for-loop instead of [...history].reverse().find(...)
+  // to avoid O(N) memory allocation and iterate efficiently from the end.
+  let lastPublic: typeof history[number] | undefined;
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].status === 'sent' || history[i].status === 'dry_run') {
+      lastPublic = history[i];
+      break;
+    }
+  }
+
   const cooldownRemaining = lastPublic
     ? Math.max(0, config.chatReplyCooldownMs - (now - lastPublic.at))
     : 0;
