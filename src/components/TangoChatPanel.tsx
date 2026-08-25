@@ -217,8 +217,8 @@ export function TangoChatPanel() {
 
   // ── IA & Configurações da Odessa ──────────────────
   const [aiPrompt, setAiPrompt] = useState(() => getAiConfig().systemPrompt || '');
-  const [cooldownSec, setCooldownSec] = useState(() => getAiConfig().autoChatCooldownSec || 15);
-  const [maxPerMinute, setMaxPerMinute] = useState(() => getAiConfig().autoChatMaxPerMinute || 4);
+  const [cooldownSec, setCooldownSec] = useState(() => Math.round((getAiConfig().chatReplyCooldownMs || 15000) / 1000));
+  const [maxPerMinute, setMaxPerMinute] = useState(() => getAiConfig().chatReplyMaxPerMinute || 4);
   const [lastSentAt, setLastSentAt] = useState<number>(0);
   const [cannedResponses, setCannedResponses] = useState<string[]>(DEFAULT_CANNED_RESPONSES);
   const [newCannedText, setNewCannedText] = useState('');
@@ -724,8 +724,8 @@ export function TangoChatPanel() {
   const handleSaveAiConfig = () => {
     saveAiConfig({
       systemPrompt: aiPrompt,
-      autoChatCooldownSec: cooldownSec,
-      autoChatMaxPerMinute: maxPerMinute,
+      chatReplyCooldownMs: Math.max(3, cooldownSec) * 1000,
+      chatReplyMaxPerMinute: maxPerMinute,
     });
   };
 

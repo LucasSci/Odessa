@@ -1,11 +1,53 @@
 import json
 import logging
+from typing import Any
+import httpx
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from server.config import GEMINI_API_KEY
 from server.models import AIRespondRequest, AIDecideRequest
 from server.utils.text_utils import extract_json_object
 
 router = APIRouter(tags=["AI"])
 logger = logging.getLogger("odessa.routes.ai")
+
+
+class GeminiProxyRequest(BaseModel):
+    key: str | None = None
+    model: str | None = None
+    payload: dict[str, Any] | None = None
+
+
+@router.post("/gemini")
+async def gemini_proxy(request: GeminiProxyRequest):
+    """Proxy same-origem para a Gemini generateContent.
+
+    O browser não consegue chamar a Gemini direto (CORS), então o cliente envia
+    { key, model, payload } e este endpoint encaminha ao Google. A chave vem no
+    corpo (guardada no cliente); se ausente, cai na GEMINI_API_KEY do servidor.
+    """
+    api_key = (request.key or "").strip() or (GEMINI_API_KEY or "")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Nenhuma chave Gemini disponível (cliente nem servidor).")
+    model = (request.model or "").strip() or "gemini-2.5-flash"
+    payload = request.payload
+    if not payload or not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload (corpo do generateContent) é obrigatório.")
+
+    upstream_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    try:
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            resp = await client.post(upstream_url, json=payload)
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"raw": resp.text}
+        return data
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Proxy Gemini: tempo esgotado ao contatar o Google.")
+    except Exception as exc:
+        logger.error("[ai/gemini proxy] %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Proxy Gemini falhou: {exc}") from exc
 
 
 def get_ai_service():
