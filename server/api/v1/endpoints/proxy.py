@@ -305,6 +305,7 @@ async def _fetch(url: str, headers: dict) -> httpx.Response:
         follow_redirects=True,
         timeout=PROXY_TIMEOUT,
     ) as client:
+
         return await client.get(url, headers=headers)
 
 
