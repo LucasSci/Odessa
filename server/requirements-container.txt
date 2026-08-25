@@ -1,0 +1,16 @@
+# Trimmed Python deps for the Base44 container.
+# Excludes heavy/optional packages that need system libs or are lazy-loaded
+# with fallbacks: pyautogui (unused), easyocr (needs torch), kokoro (needs
+# espeak-ng), soundfile (needs libsndfile). The app boots fine without them.
+edge-tts
+fastapi
+google-genai
+httpx
+numpy
+openai
+Pillow
+pydantic
+python-dotenv
+simpleobsws
+uvicorn[standard]
+python-multipart

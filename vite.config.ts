@@ -50,6 +50,7 @@ function odessaSchedulePlugin(): Plugin {
 }
 
 export default defineConfig(() => {
+  const apiTarget = process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8000';
   return {
     plugins: [
       react(),
@@ -79,12 +80,13 @@ export default defineConfig(() => {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify: file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
+      allowedHosts: true,
       proxy: {
-        '/api': 'http://127.0.0.1:8000',
-        '/auth': 'http://127.0.0.1:8000',
-        '/obs': 'http://127.0.0.1:8000',
-        '/agent': 'http://127.0.0.1:8000',
-        '/webhooks': 'http://127.0.0.1:8000',
+        '/api': apiTarget,
+        '/auth': apiTarget,
+        '/obs': apiTarget,
+        '/agent': apiTarget,
+        '/webhooks': apiTarget,
         '/tango-bridge': {
           target: 'http://127.0.0.1:7555',
           rewrite: (path: string) => path.replace(/^\/tango-bridge/, ''),
