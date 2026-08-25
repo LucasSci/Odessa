@@ -1,5 +1,18 @@
 # Odessa — instructions for Codex
 
+## Base44 dev environment
+
+The Base44 sandbox runs the app via `docker-compose.base44.yml` (two services):
+- **web** — Node 22 + Vite dev server on port 3000, bind-mounted source, live reload.
+- **api** — Python 3.12 + uvicorn on port 8000 (internal), bind-mounted source, `--reload`.
+- A one-shot **api-setup** service creates a venv (named volume `pyenv`) and installs `server/requirements-container.txt` (trimmed — excludes `pyautogui`, `easyocr`, `kokoro`, `soundfile` which need system libs or are heavy; all are lazy-loaded with fallbacks).
+
+The Vite proxy target is configurable via `VITE_API_PROXY_TARGET` (defaults to `http://127.0.0.1:8000` for local dev; set to `http://api:8000` in compose). `allowedHosts: true` is set so the preview's external hostname is accepted.
+
+The app boots in **simulation mode** (`SIMULATION_MODE=true`, `ENABLE_LOCAL_FALLBACK=true`) with no external secrets. Auth is disabled (`auth-disabled-2026-05-16` — login always succeeds). AI keys (`GEMINI_API_KEY`, `OPENAI_API_KEY`) are optional.
+
+Verify: `curl -sf http://localhost:3000/` (frontend) and `curl -sf http://localhost:8000/health` (backend).
+
 ## Branch policy: work directly on `main`
 
 This project is also edited via **Codex** (which pushes to `main` directly).

@@ -1,0 +1,54 @@
+# Base44 dev environment for Odessa
+# Frontend: Vite dev server on port 3000 (proxies API to the backend service)
+# Backend: Python FastAPI / uvicorn on port 8000 (internal only)
+services:
+  api-setup:
+    image: python:3.12-slim
+    working_dir: /app
+    volumes:
+      - .:/app
+      - pip-cache:/root/.cache/pip
+      - pyenv:/app/.venv
+    command: >
+      sh -c "python -m venv /app/.venv &&
+             . /app/.venv/bin/activate &&
+             pip install --upgrade pip &&
+             pip install -r server/requirements-container.txt"
+
+  api:
+    image: python:3.12-slim
+    working_dir: /app
+    volumes:
+      - .:/app
+      - pip-cache:/root/.cache/pip
+      - pyenv:/app/.venv
+    env_file:
+      - ./.env.base44-defaults
+      - /run/base44/app.env
+    command: >
+      sh -c ". /app/.venv/bin/activate &&
+             python -m uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/server"
+    depends_on:
+      api-setup:
+        condition: service_completed_successfully
+
+  web:
+    image: node:22-slim
+    working_dir: /app
+    volumes:
+      - .:/app
+      - node-modules:/app/node_modules
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_PROXY_TARGET=http://api:8000
+      - DISABLE_HMR=false
+    command: sh -c "npm install && npm run dev"
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  pip-cache:
+  pyenv:
+  node-modules:
