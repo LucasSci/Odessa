@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Teste de envio Playwright</title>
+</head>
+<body>
+  <h1>Teste de envio automatizado</h1>
+  <label for="chat-input">Campo de chat:</label>
+  <input id="chat-input" type="text" placeholder="Digite sua mensagem aqui" style="width: 100%; max-width: 400px; padding: 8px; margin: 8px 0;" />
+  <button id="send-button" type="button" style="padding: 8px 16px;">Enviar</button>
+  <p id="status">Status: aguardando envio...</p>
+
+  <script>
+    const input = document.getElementById('chat-input');
+    const status = document.getElementById('status');
+    document.getElementById('send-button').addEventListener('click', () => {
+      const value = input.value;
+      status.textContent = 'Botão clicado. Valor atual: ' + value;
+      console.log('Botão clicado. Valor atual:', value);
+      window.__lastMessage = value;
+    });
+  </script>
+</body>
+</html>

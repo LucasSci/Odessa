@@ -75,6 +75,7 @@ async function authed(
 
 describe('chat automation cloud API simulation', () => {
   beforeAll(async () => {
+    process.env.ODESSA_ADMIN_EMAIL = 'lucasbatista.c.l@gmail.com';
     process.env.ODESSA_ADMIN_PASSWORD_HASH = crypto
       .createHash('sha256')
       .update(adminPassword)
