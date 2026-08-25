@@ -1,0 +1,40 @@
+NOTAS DE CONFIGURAÇÃO DE ENVIO WEB - Odessa
+
+1. Abra a versão web da aplicação
+   - Acesse o URL da sua instância local ou de produção da Odessa.
+   - No menu principal, vá para a aba "IA".
+
+2. Localize a seção "Configuração de envio web"
+   - Dentro da aba IA, existe um bloco chamado "Configuração de envio web".
+   - Essa seção controla o envio direto de mensagens via navegador.
+
+3. Preencha os campos necessários
+   - Enviar por web: marque essa opção para ativar o envio direto.
+   - URL do chat: URL da página de chat onde a mensagem deve ser enviada.
+   - Seletor do input: seletor CSS do campo de texto onde a mensagem deve ser digitada.
+   - Seletor do botão: seletor CSS do botão que envia a mensagem.
+   - Delay de digitação (ms): tempo entre cada tecla digitada, em milissegundos.
+
+4. Salve a configuração
+   - Depois de preencher, salve a configuração pelo botão de salvar do painel.
+   - A aplicação grava esses valores no backend e passa a usá-los para o envio.
+
+5. Como verificar se o seletor está correto
+   - Abra a página de chat no navegador.
+   - Use Inspecionar elemento (F12) para copiar o seletor CSS do campo de texto.
+   - Cole esse seletor no campo "Seletor do input".
+   - Faça o mesmo para o botão de envio e coloque o seletor no campo "Seletor do botão".
+
+6. Quando o envio for executado
+   - O sistema usa esses seletores para encontrar o campo e o botão.
+   - Se os seletores estiverem corretos, ele digita a mensagem no campo definido e clica no botão.
+   - Se algum seletor estiver errado, o envio falhará porque o navegador não encontra o elemento.
+
+7. Dicas rápidas
+   - Use seletores estáveis, como IDs ou classes específicas que não mudam.
+   - Evite seletores muito genéricos como apenas ".button" ou "input".
+   - Teste o seletor manualmente no console do navegador com `document.querySelector(...)`.
+
+8. Observação
+   - Esta configuração é feita pela interface web da aplicação, sem precisar usar terminal.
+   - Se precisar, posso criar também um passo a passo visual ou uma tela de ajuda dentro da aplicação.
