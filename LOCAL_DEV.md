@@ -68,6 +68,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start-odessa.ps1 -Ba
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start-odessa.ps1 -FrontendOnly
 ```
 
+### Atalho do Windows
+
+Para criar um atalho na área de trabalho ou no menu Iniciar, execute:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\create-odessa-shortcut.ps1 -Desktop
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\create-odessa-shortcut.ps1 -StartMenu
+```
+
+Use `-Force` para substituir atalhos existentes:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\create-odessa-shortcut.ps1 -Desktop -Force
+```
+
 ## Diretoria IA, memoria e captura do chat
 
 A aba `Diretoria IA` agora e focada em configurar a IA e a memoria:
