@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { updateAutomationRule, loadAutomationRules } from './automationRules';
+import { executeAction } from './actionExecutor';
 import { loadContentItems } from './contentLibrary';
 import { clearEvents, emitEvent, getRecentEvents } from './eventBus';
 import {
@@ -10,15 +11,33 @@ import {
   runPersonaRound,
 } from './personaRuntime';
 import { loadToolRegistry, updateToolRegistry } from './toolRegistry';
+import { applyAutonomyToTools } from './autonomyMatrix';
+import {
+  mergeChatReplyQueue,
+  prepareChatReplyQueue,
+  updateChatReplyQueueFromAction,
+} from './chatReplyQueue';
+import {
+  buildLiveSupervisorSnapshot,
+  type LiveSupervisorSnapshot,
+  type RecoveryAction,
+} from './liveReadinessSupervisor';
+import {
+  applyLiveActionPolicy,
+  eventPriorityScore,
+  selectDirectorEventBatch,
+} from './liveActionPolicy';
 import { getAiConfig, saveAiConfig, type AiAutonomyLevel } from './aiConfig';
 import { apiUrl } from '../lib/api';
 import { isObsDirectAvailable, getObsStatus } from '../lib/obsWebSocket';
 import { loadMemory } from '../lib/memory';
+import { getChatAutomationConfig, loadChatAutomationTarget } from '../lib/chatAutomation';
 import type {
   AutopilotAction,
   AutopilotCycle,
   AutomationRule,
   CapturedMessage,
+  ChatReplyQueueItem,
   LiveEvent,
   LiveEventKind,
   PersonaDecision,
@@ -60,6 +79,32 @@ interface BackendHealth {
   };
 }
 
+interface AgentBridgeStatus {
+  ok?: boolean;
+  queueSize?: number;
+  mode?: string;
+  message?: string;
+  localAgent?: {
+    online?: boolean;
+    lastSeenAt?: string | null;
+    capabilities?: string[];
+  };
+}
+
+interface VideoBridgeStatus {
+  currentVideoId: string | null;
+  idleVideoId: string | null;
+  queueSize: number;
+  updatedAt: string | null;
+  error: string | null;
+}
+
+interface ChatAutomationMonitor {
+  allowlistReady: boolean;
+  lastSendStatus: string | null;
+  lastSendError: string | null;
+}
+
 export interface AutopilotRuntimeState {
   autopilotEnabled: boolean;
   testMode: boolean;
@@ -68,6 +113,7 @@ export interface AutopilotRuntimeState {
   currentRoundEvents: LiveEvent[];
   cycles: AutopilotCycle[];
   actionQueue: AutopilotAction[];
+  chatReplyQueue: ChatReplyQueueItem[];
   tools: PersonaTool[];
   rules: AutomationRule[];
   health: BackendHealth | null;
@@ -80,6 +126,11 @@ export interface AutopilotRuntimeState {
   obsScenes: string[];
   currentObsScene: string | null;
   obsError: string | null;
+  localAgentReady: boolean;
+  localAgentMessage: string;
+  videoMonitor: VideoBridgeStatus;
+  chatAutomationMonitor: ChatAutomationMonitor;
+  readiness: LiveSupervisorSnapshot;
   completedCycles: number;
   failedCycles: number;
   averageConfidence: number;
@@ -102,8 +153,14 @@ export interface AutopilotRuntimeState {
     patch: Partial<Pick<PersonaTool, 'enabled' | 'requiresApproval' | 'simulated'>>,
   ) => void;
   toggleRule: (ruleId: string, enabled: boolean) => void;
+  approveChatReply: (id: string) => void;
+  editChatReply: (id: string, text: string) => void;
+  discardChatReply: (id: string) => void;
+  sendChatReplyNow: (id: string) => Promise<void>;
+  replayRound: (cycleId: string) => Promise<void>;
   refreshHealth: () => Promise<void>;
   refreshObsScenes: () => Promise<void>;
+  refreshReadiness: () => Promise<void>;
 }
 
 interface UseAutopilotRuntimeOptions {
@@ -132,6 +189,7 @@ const ROUND_COLLECTION_MS = 2500;
 const MAX_EVENTS_PER_ROUND = 8;
 const SPEECH_COOLDOWN_MS = 7000;
 const IDLE_TIMEOUT_MS = 45000; // 45 seconds of silence triggers an idle event
+const RECOVERY_THROTTLE_MS = 30_000;
 
 function formatClock(date = new Date()) {
   return date.toLocaleTimeString([], {
@@ -162,6 +220,56 @@ function createLiveEvent(
   };
 }
 
+function metadataString(value: unknown, fallback = '') {
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+
+function metadataConfidence(value: unknown, fallback: number) {
+  const confidence = Number(value);
+  return Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : fallback;
+}
+
+export function normalizeDirectorEvent(event: LiveEvent): LiveEvent {
+  const text = String(event.text || event.metadata?.message || event.metadata?.rawText || '').trim();
+  const fallbackMessage = text.replace(/^[^:]{1,40}:\s*/, '').trim() || text;
+  const metadata = event.metadata || {};
+  const confidenceFallback = event.source === 'ocr' ? 0.85 : 1;
+
+  return {
+    ...event,
+    source: event.source || 'ocr',
+    zoneName: event.zoneName || (event.source === 'ocr' ? 'Chat Tango' : 'Controle Live'),
+    text,
+    kind: event.kind || 'chat',
+    metadata: {
+      ...metadata,
+      ...(event.source === 'ocr' ? { platform: metadata.platform || 'tango' } : {}),
+      user: metadataString(metadata.user, metadataString(metadata.author, '')),
+      message: metadataString(metadata.message, fallbackMessage),
+      confidence: metadataConfidence(metadata.confidence, confidenceFallback),
+    },
+  };
+}
+
+export function partitionDirectorEvents(events: LiveEvent[]): LiveEvent[] {
+  const rank: Record<string, number> = {
+    moderation: 0,
+    gift: 1,
+    alert: 2,
+    scene: 3,
+    system: 4,
+    chat: 5,
+  };
+
+  return [...events].sort((a, b) => {
+    const byPriority = eventPriorityScore(b) - eventPriorityScore(a);
+    if (byPriority !== 0) return byPriority;
+    const byKind = (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9);
+    if (byKind !== 0) return byKind;
+    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+  });
+}
+
 function upsertCycle(cycles: AutopilotCycle[], cycle: AutopilotCycle) {
   const next = cycles.filter((item) => item.id !== cycle.id);
   return [...next, cycle].slice(-80);
@@ -178,28 +286,30 @@ function loadInitialActions() {
     .slice(-100);
 }
 
+function auditLogAction(label: string, result: string): AutopilotAction {
+  return {
+    id: makeId('policy'),
+    type: 'log_event',
+    label,
+    capability: 'log.event',
+    payload: { message: result },
+    simulated: false,
+    requiresApproval: false,
+    status: 'done',
+    result,
+    source: 'system',
+    createdAt: new Date().toISOString(),
+  };
+}
+
 // Sempre executam sem aprovação (não são ações "para o público").
-const AUTONOMY_SAFE_CAPS = new Set(['log.event', 'memory.remember']);
 // No nível "assistido", apenas estas pedem aprovação.
-const AUTONOMY_GUARDED_CAPS = new Set(['moderation.message', 'webhook.call']);
 
 /**
  * Deriva `requiresApproval` das ferramentas a partir do nível de autonomia da
  * Diretora — sem persistir no registry (cópia só para a rodada). Assim o cockpit
  * pode mudar a autonomia e a próxima rodada já reflete.
  */
-function applyAutonomyToTools(tools: PersonaTool[], level: AiAutonomyLevel): PersonaTool[] {
-  if (level === 'auto') {
-    return tools.map((t) => ({ ...t, requiresApproval: false }));
-  }
-  if (level === 'manual') {
-    return tools.map((t) =>
-      AUTONOMY_SAFE_CAPS.has(t.capability) ? t : { ...t, requiresApproval: true },
-    );
-  }
-  // 'assistido'
-  return tools.map((t) => ({ ...t, requiresApproval: AUTONOMY_GUARDED_CAPS.has(t.capability) }));
-}
 
 export function useAutopilotRuntime({
   capturedText,
@@ -212,6 +322,7 @@ export function useAutopilotRuntime({
   const [currentRoundEvents, setCurrentRoundEvents] = useState<LiveEvent[]>([]);
   const [cycles, setCycles] = useState<AutopilotCycle[]>(() => loadAuditSession());
   const [actionQueue, setActionQueue] = useState<AutopilotAction[]>(loadInitialActions);
+  const [chatReplyQueue, setChatReplyQueue] = useState<ChatReplyQueueItem[]>([]);
   const [tools, setTools] = useState<PersonaTool[]>(() => loadToolRegistry());
   const [rules, setRules] = useState<AutomationRule[]>(() => loadAutomationRules());
   const [health, setHealth] = useState<BackendHealth | null>(null);
@@ -224,10 +335,26 @@ export function useAutopilotRuntime({
   const [obsScenes, setObsScenes] = useState<string[]>([]);
   const [currentObsScene, setCurrentObsScene] = useState<string | null>(null);
   const [obsError, setObsError] = useState<string | null>(null);
+  const [localAgentReady, setLocalAgentReady] = useState(false);
+  const [localAgentMessage, setLocalAgentMessage] = useState('Agente local nao verificado');
+  const [videoMonitor, setVideoMonitor] = useState<VideoBridgeStatus>({
+    currentVideoId: null,
+    idleVideoId: null,
+    queueSize: 0,
+    updatedAt: null,
+    error: null,
+  });
+  const [chatAutomationMonitor, setChatAutomationMonitor] = useState<ChatAutomationMonitor>({
+    allowlistReady: false,
+    lastSendStatus: null,
+    lastSendError: null,
+  });
   const [autonomyLevel, setAutonomyLevelState] = useState<AiAutonomyLevel>(() => getAiConfig().autonomyLevel);
-  const queuedOrProcessedIdsRef = useRef<Set<string>>(
-    new Set(capturedText.filter((event) => event.processedAt).map((event) => event.id)),
-  );
+  // ⚡ Bolt: Using lazy initialization pattern to prevent O(N) memory allocation and iteration on every render
+  const queuedOrProcessedIdsRef = useRef<Set<string> | null>(null);
+  if (queuedOrProcessedIdsRef.current === null) {
+    queuedOrProcessedIdsRef.current = new Set(capturedText.filter((event) => event.processedAt).map((event) => event.id));
+  }
   const pendingEventsRef = useRef<LiveEvent[]>([]);
   const roundTimerRef = useRef<number | null>(null);
   const lastSpeechAtRef = useRef(0);
@@ -239,6 +366,7 @@ export function useAutopilotRuntime({
   }>({ videos: [], triggers: [] });
   // Espelho de obsScenes para uso dentro do closure da rodada (sem disparar re-render).
   const obsScenesRef = useRef<string[]>([]);
+  const lastRecoveryAtRef = useRef<Record<string, number>>({});
 
   const latestCycle = cycles[cycles.length - 1];
   const latestDecision = latestCycle?.decision;
@@ -266,6 +394,53 @@ export function useAutopilotRuntime({
       averageConfidence: decisionCount === 0 ? 0 : Math.round((confidenceSum / decisionCount) * 100)
     };
   }, [cycles]);
+
+  const readiness = useMemo(() => {
+    const target = loadChatAutomationTarget();
+    const visualTargetReady = Boolean(
+      target.mode === 'visual' &&
+        target.inputPoint &&
+        typeof target.inputPoint.x === 'number' &&
+        typeof target.inputPoint.y === 'number' &&
+        target.viewport &&
+        typeof target.viewport.width === 'number' &&
+        typeof target.viewport.height === 'number',
+    );
+    return buildLiveSupervisorSnapshot({
+      now: Date.now(),
+      capturedEvents: capturedText,
+      healthError,
+      obs: {
+        connected: !obsError && (isObsDirectAvailable() || obsScenes.length > 0),
+        currentScene: currentObsScene,
+        scenes: obsScenes,
+        error: obsError,
+        hasOcrSource: obsScenes.length > 0 ? true : undefined,
+        hasStageSource: obsScenes.length > 0 ? true : undefined,
+        streaming: undefined,
+      },
+      video: videoMonitor,
+      chat: {
+        visualTargetReady,
+        allowlistReady: chatAutomationMonitor.allowlistReady,
+        localAgentReady,
+        lastSendStatus: chatAutomationMonitor.lastSendStatus,
+        lastSendError: chatAutomationMonitor.lastSendError,
+      },
+      autonomyLevel,
+      autoChatEnabled: getAiConfig().autoChatReplyEnabled,
+    });
+  }, [
+    capturedText,
+    healthError,
+    obsError,
+    obsScenes,
+    currentObsScene,
+    videoMonitor,
+    chatAutomationMonitor,
+    localAgentReady,
+    autonomyLevel,
+  ]);
 
   const refreshHealth = useCallback(async () => {
     try {
@@ -319,12 +494,96 @@ export function useAutopilotRuntime({
     }
   }, []);
 
+  const refreshAgentStatus = useCallback(async () => {
+    try {
+      const response = await fetch(apiUrl('/agent/status'));
+      const data = (await response.json().catch(() => ({}))) as AgentBridgeStatus;
+      const ready = data.ok === true && data.localAgent?.online === true;
+      setLocalAgentReady(ready);
+      setLocalAgentMessage(
+        ready
+          ? `Agente local pronto${data.localAgent?.lastSeenAt ? ` (${formatClock(new Date(data.localAgent.lastSeenAt))})` : ''}`
+          : data.message || 'Agente local offline',
+      );
+    } catch (err) {
+      setLocalAgentReady(false);
+      setLocalAgentMessage(err instanceof Error ? err.message : 'Falha ao consultar agente local');
+    }
+  }, []);
+
+  const refreshVideoMonitor = useCallback(async () => {
+    try {
+      const response = await fetch(apiUrl('/video/state'));
+      const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!response.ok) throw new Error(String(data.detail || `HTTP ${response.status}`));
+      const currentClip = (data.currentClip || {}) as Record<string, unknown>;
+      setVideoMonitor({
+        currentVideoId: String(data.current_video_id || data.currentVideoId || currentClip.videoId || '') || null,
+        idleVideoId: String(data.idleVideoId || data.idle_video_id || '') || null,
+        queueSize: Number(data.queueSize || data.triggerQueueSize || data.pendingQueueSize || 0) || 0,
+        updatedAt: String(data.updatedAt || data.startedAt || data.timestamp || '') || null,
+        error: null,
+      });
+    } catch (err) {
+      setVideoMonitor((current) => ({
+        ...current,
+        error: err instanceof Error ? err.message : 'Falha ao consultar video',
+      }));
+    }
+  }, []);
+
+  const refreshChatAutomationMonitor = useCallback(async () => {
+    try {
+      const config = await getChatAutomationConfig();
+      const visualAllowed = config.allowlist.some((entry) => entry.enabled !== false && entry.mode === 'visual');
+
+      // ⚡ Bolt: Use direct index access instead of [...config.logs].reverse()[0]
+      // to avoid unnecessary array allocation and copy overhead.
+      const latest = (config.logs.length > 0 ? config.logs[config.logs.length - 1] : undefined) as Record<string, unknown> | undefined;
+
+      const result = (latest?.result || {}) as Record<string, unknown>;
+      setChatAutomationMonitor({
+        allowlistReady: visualAllowed,
+        lastSendStatus: typeof result.status === 'string' ? result.status : null,
+        lastSendError:
+          typeof result.error === 'string'
+            ? result.error
+            : typeof result.reason === 'string' && ['blocked', 'failed'].includes(String(result.status))
+              ? result.reason
+              : null,
+      });
+    } catch (err) {
+      setChatAutomationMonitor((current) => ({
+        ...current,
+        lastSendStatus: 'blocked',
+        lastSendError: err instanceof Error ? err.message : 'Falha ao consultar automacao de chat',
+      }));
+    }
+  }, []);
+
+  const refreshReadiness = useCallback(async () => {
+    await Promise.allSettled([
+      refreshHealth(),
+      refreshObsScenes(),
+      refreshAgentStatus(),
+      refreshVideoMonitor(),
+      refreshChatAutomationMonitor(),
+    ]);
+  }, [
+    refreshHealth,
+    refreshObsScenes,
+    refreshAgentStatus,
+    refreshVideoMonitor,
+    refreshChatAutomationMonitor,
+  ]);
+
   const enqueueEvent = useCallback((event: LiveEvent) => {
-    if (event.processedAt || queuedOrProcessedIdsRef.current.has(event.id)) return;
-    queuedOrProcessedIdsRef.current.add(event.id);
+    const normalizedEvent = normalizeDirectorEvent(event);
+    if (normalizedEvent.processedAt || queuedOrProcessedIdsRef.current.has(normalizedEvent.id)) return;
+    queuedOrProcessedIdsRef.current.add(normalizedEvent.id);
     lastEventAtRef.current = Date.now();
     setPendingEvents((current) => {
-      const next = [...current, event].slice(-60);
+      const next = [...current, normalizedEvent].slice(-60);
       pendingEventsRef.current = next;
       return next;
     });
@@ -360,22 +619,92 @@ export function useAutopilotRuntime({
     const firstRun = window.setTimeout(refreshHealth, 0);
     const obsFirstRun = window.setTimeout(refreshObsScenes, 700);
     const catalogFirstRun = window.setTimeout(refreshCatalog, 300);
+    const agentFirstRun = window.setTimeout(refreshAgentStatus, 1000);
+    const videoFirstRun = window.setTimeout(refreshVideoMonitor, 1200);
+    const chatAutomationFirstRun = window.setTimeout(refreshChatAutomationMonitor, 1500);
     const interval = window.setInterval(refreshHealth, 15000);
     const obsInterval = window.setInterval(refreshObsScenes, 20000);
     const catalogInterval = window.setInterval(refreshCatalog, 30000);
+    const agentInterval = window.setInterval(refreshAgentStatus, 10000);
+    const videoInterval = window.setInterval(refreshVideoMonitor, 10000);
+    const chatAutomationInterval = window.setInterval(refreshChatAutomationMonitor, 12000);
     return () => {
       window.clearTimeout(firstRun);
       window.clearTimeout(obsFirstRun);
       window.clearTimeout(catalogFirstRun);
+      window.clearTimeout(agentFirstRun);
+      window.clearTimeout(videoFirstRun);
+      window.clearTimeout(chatAutomationFirstRun);
       window.clearInterval(interval);
       window.clearInterval(obsInterval);
       window.clearInterval(catalogInterval);
+      window.clearInterval(agentInterval);
+      window.clearInterval(videoInterval);
+      window.clearInterval(chatAutomationInterval);
     };
-  }, [refreshHealth, refreshObsScenes, refreshCatalog]);
+  }, [
+    refreshHealth,
+    refreshObsScenes,
+    refreshCatalog,
+    refreshAgentStatus,
+    refreshVideoMonitor,
+    refreshChatAutomationMonitor,
+  ]);
 
   useEffect(() => {
     capturedText.forEach(enqueueEvent);
   }, [capturedText, enqueueEvent]);
+
+  const runRecoveryAction = useCallback(
+    async (action: RecoveryAction) => {
+      const now = Date.now();
+      if (now - (lastRecoveryAtRef.current[action] || 0) < RECOVERY_THROTTLE_MS) return;
+      lastRecoveryAtRef.current[action] = now;
+
+      if (action === 'pause_auto_chat') {
+        const cfg = getAiConfig();
+        if (cfg.autoChatReplyEnabled) {
+          saveAiConfig({ autoChatReplyEnabled: false });
+          setLastError('Supervisor pausou auto-chat por falha de prontidao.');
+        }
+        return;
+      }
+
+      if (action === 'reduce_autonomy') {
+        const cfg = getAiConfig();
+        if (cfg.autonomyLevel === 'auto') {
+          saveAiConfig({ autonomyLevel: 'assistido' });
+          setAutonomyLevelState('assistido');
+          setLastError('Supervisor reduziu autonomia para Assistido.');
+        }
+        return;
+      }
+
+      if (action === 'reconnect_obs') {
+        await refreshObsScenes();
+        return;
+      }
+
+      if (action === 'return_to_idle') {
+        if (videoMonitor.idleVideoId) {
+          await fetch(apiUrl('/video/force'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ videoId: videoMonitor.idleVideoId, state: 'IDLE' }),
+          }).catch(() => undefined);
+          await refreshVideoMonitor();
+        }
+      }
+    },
+    [refreshObsScenes, refreshVideoMonitor, videoMonitor.idleVideoId],
+  );
+
+  useEffect(() => {
+    if (readiness.state === 'healthy') return;
+    readiness.recoveryActions.forEach((action) => {
+      void runRecoveryAction(action);
+    });
+  }, [readiness.state, readiness.recoveryActions, runRecoveryAction]);
 
   useEffect(() => {
     if (!autopilotEnabled) return;
@@ -421,11 +750,20 @@ export function useAutopilotRuntime({
     roundTimerRef.current = window.setTimeout(() => {
       roundTimerRef.current = null;
 
-      const batch = pendingEventsRef.current.slice(0, MAX_EVENTS_PER_ROUND);
+      const selection = selectDirectorEventBatch(pendingEventsRef.current, {
+        now: Date.now(),
+        maxEvents: MAX_EVENTS_PER_ROUND,
+      });
+      const batch = selection.batch;
+      pendingEventsRef.current = selection.remaining;
+      setPendingEvents(selection.remaining);
+      if (selection.discarded.length) {
+        const auditActions = selection.discarded.map(({ event, reason }) =>
+          auditLogAction('Evento descartado pela politica', `${reason} ${event.kind}: ${event.text}`),
+        );
+        setActionQueue((current) => [...current, ...auditActions].slice(-100));
+      }
       if (batch.length === 0) return;
-      const remaining = pendingEventsRef.current.slice(batch.length);
-      pendingEventsRef.current = remaining;
-      setPendingEvents(remaining);
 
       setCurrentRoundEvents(batch);
       setIsProcessing(true);
@@ -433,7 +771,23 @@ export function useAutopilotRuntime({
 
       // Autonomia atual da Diretora → define o que executa sozinho nesta rodada.
       const autonomy = getAiConfig().autonomyLevel;
-      const effectiveTools = applyAutonomyToTools(tools, autonomy);
+      const chatConfig = getAiConfig();
+      const target = loadChatAutomationTarget();
+      const visualTargetReady = Boolean(
+        target.mode === 'visual' &&
+          target.inputPoint &&
+          typeof target.inputPoint.x === 'number' &&
+          typeof target.inputPoint.y === 'number' &&
+          target.viewport &&
+          typeof target.viewport.width === 'number' &&
+          typeof target.viewport.height === 'number',
+      );
+      const effectiveTools = applyAutonomyToTools(tools, autonomy, {
+        autoChatEnabled: chatConfig.autoChatReplyEnabled,
+        chatRealRequested: chatConfig.autoChatReplyMode === 'real',
+        visualTargetReady,
+        localAgentReady,
+      });
 
       runPersonaRound(batch, {
         personaPrompt: PERSONA_AUTOPILOT_PROMPT,
@@ -443,8 +797,43 @@ export function useAutopilotRuntime({
         videos: catalogRef.current.videos,
         triggers: catalogRef.current.triggers,
         scenes: obsScenesRef.current,
+        localAgentReady,
+        prepareActions: (actions, decision, cycle) => {
+          const policy = applyLiveActionPolicy(actions, {
+            events: cycle.events,
+            primaryEvent: cycle.event,
+            decision,
+            now: Date.now(),
+            video: videoMonitor,
+          });
+          const policyActions = [...policy.executableActions, ...policy.heldActions];
+          policy.logs.forEach((entry) => {
+            setActionQueue((current) =>
+              upsertAction(current, auditLogAction('Politica de acoes', entry)),
+            );
+          });
+          if (policy.heldActions.length) {
+            setActionQueue((current) =>
+              policy.heldActions.reduce((next, action) => upsertAction(next, action), current),
+            );
+          }
+          const prepared = prepareChatReplyQueue(policyActions, cycle, decision, autonomy);
+          if (prepared.queueItems.length) {
+            setChatReplyQueue((current) => mergeChatReplyQueue(current, prepared.queueItems));
+          }
+          const heldIds = new Set(policy.heldActions.map((action) => action.id));
+          const executableActions = prepared.executableActions.filter((action) => !heldIds.has(action.id));
+          return {
+            executableActions,
+            plannedActions: policyActions,
+            logs: policy.logs,
+          };
+        },
         onUpdate: (cycle) => setCycles((current) => upsertCycle(current, cycle)),
-        onAction: (action) => setActionQueue((current) => upsertAction(current, action)),
+        onAction: (action) => {
+          setActionQueue((current) => upsertAction(current, action));
+          setChatReplyQueue((current) => updateChatReplyQueueFromAction(current, action));
+        },
       })
         .then((cycle) => {
           if (cycle.actions.some((action) => action.type === 'speak')) {
@@ -485,7 +874,9 @@ export function useAutopilotRuntime({
     rules,
     setCapturedText,
     tools,
+    localAgentReady,
     voiceEnabled,
+    videoMonitor,
   ]);
 
   useEffect(() => {
@@ -559,6 +950,7 @@ export function useAutopilotRuntime({
     setCurrentRoundEvents([]);
     setCycles([]);
     setActionQueue([]);
+    setChatReplyQueue([]);
     setLastError(null);
     lastSpeechAtRef.current = 0;
     clearEvents();
@@ -574,6 +966,7 @@ export function useAutopilotRuntime({
       cycles,
       tools,
       rules,
+      chatReplyQueue,
       contentItems: loadContentItems(),
     });
     const blob = new Blob([json], { type: 'application/json' });
@@ -583,7 +976,7 @@ export function useAutopilotRuntime({
     link.download = `odessa-session-${new Date().toISOString().slice(0, 19).replaceAll(':', '-')}.json`;
     link.click();
     URL.revokeObjectURL(url);
-  }, [cycles, rules, tools]);
+  }, [chatReplyQueue, cycles, rules, tools]);
 
   const toggleTool = useCallback(
     (
@@ -599,6 +992,221 @@ export function useAutopilotRuntime({
     setRules((current) => updateAutomationRule(current, ruleId, { enabled }));
   }, []);
 
+  const approveChatReply = useCallback((id: string) => {
+    const approvedAt = new Date().toISOString();
+    setChatReplyQueue((current) =>
+      current.map((item) =>
+        item.id === id && item.status === 'approval_required'
+          ? { ...item, status: 'queued', approvedAt, updatedAt: approvedAt, result: 'Aprovada pelo operador.' }
+          : item,
+      ),
+    );
+  }, []);
+
+  const editChatReply = useCallback((id: string, text: string) => {
+    const updatedAt = new Date().toISOString();
+    setChatReplyQueue((current) =>
+      current.map((item) =>
+        item.id === id && (item.status === 'approval_required' || item.status === 'queued')
+          ? {
+              ...item,
+              text,
+              action: {
+                ...item.action,
+                payload: { ...item.action.payload, message: text },
+              },
+              updatedAt,
+              result: 'Texto editado pelo operador.',
+            }
+          : item,
+      ),
+    );
+  }, []);
+
+  const discardChatReply = useCallback((id: string) => {
+    const updatedAt = new Date().toISOString();
+    setChatReplyQueue((current) =>
+      current.map((item) =>
+        item.id === id && item.status !== 'sent'
+          ? { ...item, status: 'blocked', result: 'Descartada pelo operador.', updatedAt }
+          : item,
+      ),
+    );
+  }, []);
+
+  const sendChatReplyNow = useCallback(
+    async (id: string) => {
+      const item = chatReplyQueue.find((entry) => entry.id === id);
+      if (!item) return;
+      const updatedAt = new Date().toISOString();
+      if (item.status === 'approval_required' && !item.approvedAt) {
+        setChatReplyQueue((current) =>
+          current.map((entry) =>
+            entry.id === id
+              ? {
+                  ...entry,
+                  status: 'approval_required',
+                  result: 'Aprove a resposta antes de enviar.',
+                  updatedAt,
+                }
+              : entry,
+          ),
+        );
+        return;
+      }
+      if (item.governorBlockedReason) {
+        setChatReplyQueue((current) =>
+          current.map((entry) =>
+            entry.id === id
+              ? {
+                  ...entry,
+                  status: 'blocked',
+                  result: `Bloqueada pelo governador: ${item.governorBlockedReason}`,
+                  updatedAt,
+                }
+              : entry,
+          ),
+        );
+        return;
+      }
+
+      const action: AutopilotAction = {
+        ...item.action,
+        payload: { ...item.action.payload, message: item.text },
+        requiresApproval: false,
+        status: 'queued',
+      };
+      const executionTools = tools.map((tool) =>
+        tool.capability === 'chat.reply'
+          ? { ...tool, requiresApproval: false, simulated: action.simulated }
+          : tool,
+      );
+      const cycleDecision =
+        cycles.find((cycle) => cycle.id === item.cycleId)?.decision ||
+        latestDecision || {
+          speech: '',
+          intent: 'chat_reply_manual_send',
+          confidence: item.confidence,
+          reason: item.reason,
+          priority: 'normal' as const,
+          actions: [action],
+        };
+
+      setChatReplyQueue((current) =>
+        current.map((entry) =>
+          entry.id === id ? { ...entry, status: 'sending', result: 'Enviando agora...', updatedAt } : entry,
+        ),
+      );
+      const result = await executeAction(action, cycleDecision, {
+        tools: executionTools,
+        voiceEnabled,
+      });
+      setActionQueue((current) => upsertAction(current, result));
+      setChatReplyQueue((current) =>
+        updateChatReplyQueueFromAction(
+          current.map((entry) =>
+            entry.id === id
+              ? {
+                  ...entry,
+                  action: result,
+                  text: String(result.payload?.message || entry.text),
+                }
+              : entry,
+          ),
+          result,
+        ),
+      );
+    },
+    [chatReplyQueue, cycles, latestDecision, tools, voiceEnabled],
+  );
+
+  const replayRound = useCallback(
+    async (cycleId: string) => {
+      const original = cycles.find((cycle) => cycle.id === cycleId);
+      if (!original || original.events.length === 0 || isProcessing) return;
+
+      setTestMode(true);
+      setIsProcessing(true);
+      setLastError(null);
+      const replayEvents = original.events.map((event) => ({
+        ...event,
+        id: makeId('replay-event'),
+        source: 'test' as const,
+        zoneName: 'Replay de teste',
+        createdAt: new Date().toISOString(),
+        time: formatClock(),
+        metadata: {
+          ...event.metadata,
+          replayOfCycleId: original.id,
+          replayOfEventId: event.id,
+        },
+      }));
+      setCurrentRoundEvents(replayEvents);
+
+      try {
+        const replayTools = tools.map((tool) => ({
+          ...tool,
+          simulated: true,
+          requiresApproval: false,
+        }));
+        const cycle = await runPersonaRound(replayEvents, {
+          personaPrompt: `${PERSONA_AUTOPILOT_PROMPT}\n\n[MODO REPLAY]\nEsta rodada e um replay de teste. Nao afirme execucao real; use dry-run/simulacao.`,
+          tools: replayTools,
+          rules,
+          voiceEnabled: false,
+          videos: catalogRef.current.videos,
+          triggers: catalogRef.current.triggers,
+          scenes: obsScenesRef.current,
+          localAgentReady: false,
+          prepareActions: (actions, decision, cycleDraft) => {
+            const simulatedActions = actions.map((action) => ({
+              ...action,
+              simulated: true,
+              requiresApproval: false,
+              payload: {
+                ...action.payload,
+                dryRun: true,
+                replayMode: true,
+                replayOfCycleId: original.id,
+              },
+            }));
+            const prepared = prepareChatReplyQueue(simulatedActions, cycleDraft, decision, 'auto');
+            if (prepared.queueItems.length) {
+              setChatReplyQueue((current) => mergeChatReplyQueue(current, prepared.queueItems));
+            }
+            return {
+              executableActions: prepared.executableActions,
+              plannedActions: simulatedActions,
+              logs: [`Replay de teste da rodada ${original.id}`],
+            };
+          },
+          onUpdate: (cycleUpdate) => setCycles((current) => upsertCycle(current, cycleUpdate)),
+          onAction: (action) => {
+            setActionQueue((current) => upsertAction(current, action));
+            setChatReplyQueue((current) => updateChatReplyQueueFromAction(current, action));
+          },
+        });
+        setCycles((current) => upsertCycle(current, cycle));
+        setActionQueue((current) => {
+          const cycleActionIds = new Set(cycle.actions.map((action) => action.id));
+          return [
+            ...current.filter((action) => !cycleActionIds.has(action.id)),
+            ...cycle.actions,
+          ].slice(-100);
+        });
+        if (cycle.stage === 'erro') {
+          setLastError(cycle.error || 'Erro ao reproduzir rodada');
+        }
+      } catch (err) {
+        setLastError(err instanceof Error ? err.message : 'Erro ao reproduzir rodada');
+      } finally {
+        setCurrentRoundEvents([]);
+        setIsProcessing(false);
+      }
+    },
+    [cycles, isProcessing, rules, tools],
+  );
+
   return {
     autopilotEnabled,
     testMode,
@@ -607,6 +1215,7 @@ export function useAutopilotRuntime({
     currentRoundEvents,
     cycles,
     actionQueue,
+    chatReplyQueue,
     tools,
     rules,
     health,
@@ -619,6 +1228,11 @@ export function useAutopilotRuntime({
     obsScenes,
     currentObsScene,
     obsError,
+    localAgentReady,
+    localAgentMessage,
+    videoMonitor,
+    chatAutomationMonitor,
+    readiness,
     completedCycles,
     failedCycles,
     averageConfidence,
@@ -638,7 +1252,13 @@ export function useAutopilotRuntime({
     exportSession,
     toggleTool,
     toggleRule,
+    approveChatReply,
+    editChatReply,
+    discardChatReply,
+    sendChatReplyNow,
+    replayRound,
     refreshHealth,
     refreshObsScenes,
+    refreshReadiness,
   };
 }

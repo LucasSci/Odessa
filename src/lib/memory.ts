@@ -92,6 +92,10 @@ export interface UserProfile {
   interactions: UserInteraction[];
   messageCount: number;
   giftCount: number;
+  lastMessage?: string;
+  recurringTopics?: Record<string, number>;
+  preferredTone?: 'playful' | 'warm' | 'direct' | 'supportive';
+  giftNames?: Record<string, number>;
   firstSeen: string;
   lastSeen: string;
 }
@@ -179,6 +183,60 @@ export function detectInteractionType(text: string): InteractionType {
   return 'chat';
 }
 
+function metadataText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function sanitizeMemoryText(text: string, max = 160): string {
+  const clean = text
+    .replace(/\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b/gi, '[email]')
+    .replace(/\b(?:\+?\d[\s().-]*){8,}\b/g, '[numero]')
+    .replace(/\b(?:\d[ -]*?){13,16}\b/g, '[cartao]')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return truncate(clean, max);
+}
+
+const TOPIC_STOPWORDS = new Set([
+  'chat', 'live', 'tango', 'juju', 'odessa', 'voce', 'voces', 'para', 'com', 'uma', 'esse', 'essa',
+  'isso', 'aqui', 'agora', 'muito', 'muita', 'mais', 'como', 'quando', 'onde', 'porque', 'the',
+  'and', 'you', 'your', 'this', 'that', 'what', 'when', 'where',
+]);
+
+function extractMemoryTopics(text: string): string[] {
+  const lower = text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const words = lower.match(/[a-z0-9]{4,}/g) || [];
+  return Array.from(new Set(words.filter((word) => !TOPIC_STOPWORDS.has(word)))).slice(0, 4);
+}
+
+function inferPreferredTone(text: string): UserProfile['preferredTone'] | undefined {
+  const lower = text.toLowerCase();
+  if (/[?!]{2,}|\b(k{2,}|haha|rsrs|brinca|zoa|engracad|funny)\b/i.test(lower)) return 'playful';
+  if (/\b(obrigad|valeu|boa|linda|amei|love|cute|top)\b/i.test(lower)) return 'warm';
+  if (/\b(ajuda|triste|cansad|dificil|forca|desabafo|support)\b/i.test(lower)) return 'supportive';
+  if (/\b(qual|quando|onde|faz|toca|mostra|manda|como)\b/i.test(lower)) return 'direct';
+  return undefined;
+}
+
+function pruneCounter(counter: Record<string, number>, limit = 12) {
+  return Object.fromEntries(
+    Object.entries(counter)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit),
+  );
+}
+
+function eventUsername(event: { text: string; metadata?: Record<string, unknown> }) {
+  return metadataText(event.metadata?.user) || metadataText(event.metadata?.sender) || extractUsername(event.text);
+}
+
+function eventMessage(event: { text: string; metadata?: Record<string, unknown> }) {
+  return metadataText(event.metadata?.message) || event.text.replace(/^@?[\w.-]{2,25}\s*[:>]\s*/, '').trim();
+}
+
 /**
  * Tracks a user interaction, updating their profile.
  */
@@ -195,9 +253,17 @@ export function trackUserInteraction(
   const key = username.toLowerCase();
 
   const existing = profiles[key];
+  const safeText = sanitizeMemoryText(text, 200);
+  const message = sanitizeMemoryText(text.replace(/^@?[\w.-]{2,25}\s*[:>]\s*/, '').trim(), 140);
+  const topics = extractMemoryTopics(message);
+  const recurringTopics = { ...(existing?.recurringTopics || {}) };
+  topics.forEach((topic) => {
+    recurringTopics[topic] = (recurringTopics[topic] || 0) + 1;
+  });
+  const preferredTone = inferPreferredTone(message) || existing?.preferredTone;
   const interaction: UserInteraction = {
     id: crypto.randomUUID(),
-    text: truncate(text, 200),
+    text: safeText,
     type,
     timestamp: now,
   };
@@ -208,6 +274,9 @@ export function trackUserInteraction(
         interactions: [...existing.interactions, interaction].slice(-MAX_INTERACTIONS_PER_USER),
         messageCount: existing.messageCount + (type === 'chat' ? 1 : 0),
         giftCount: existing.giftCount + (type === 'gift' ? 1 : 0),
+        lastMessage: type === 'chat' && message ? message : existing.lastMessage,
+        recurringTopics: pruneCounter(recurringTopics),
+        preferredTone,
         lastSeen: now,
       }
     : {
@@ -215,12 +284,53 @@ export function trackUserInteraction(
         interactions: [interaction],
         messageCount: type === 'chat' ? 1 : 0,
         giftCount: type === 'gift' ? 1 : 0,
+        lastMessage: type === 'chat' && message ? message : undefined,
+        recurringTopics: pruneCounter(recurringTopics),
+        preferredTone,
         firstSeen: now,
         lastSeen: now,
       };
 
   const updated = { ...profiles, [key]: profile };
   saveUserProfiles(updated);
+  return updated;
+}
+
+export function trackLiveEventInteraction(profiles: UserProfileMap, event: {
+  text: string;
+  kind?: string;
+  metadata?: Record<string, unknown>;
+}): UserProfileMap {
+  const username = eventUsername(event);
+  if (!username) return profiles;
+  const type: InteractionType =
+    event.kind === 'gift'
+      ? 'gift'
+      : event.kind === 'alert'
+        ? 'alert'
+        : event.kind === 'moderation'
+          ? 'moderation'
+          : 'chat';
+  const message = event.kind === 'gift'
+    ? `${username} enviou ${metadataText(event.metadata?.giftName) || metadataText(event.metadata?.giftKey) || 'presente'}`
+    : `${username}: ${eventMessage(event)}`;
+  const updated = trackUserInteraction(profiles, message, type);
+  const key = username.toLowerCase();
+  const profile = updated[key];
+  if (profile && type === 'gift') {
+    const gift = metadataText(event.metadata?.giftName) || metadataText(event.metadata?.giftKey);
+    if (gift) {
+      const safeGift = sanitizeMemoryText(gift, 40);
+      updated[key] = {
+        ...profile,
+        giftNames: pruneCounter({
+          ...(profile.giftNames || {}),
+          [safeGift]: (profile.giftNames?.[safeGift] || 0) + 1,
+        }),
+      };
+      saveUserProfiles(updated);
+    }
+  }
   return updated;
 }
 
@@ -240,6 +350,13 @@ export function buildUserContext(profiles: UserProfileMap, maxUsers = 8): string
 
     if (profile.messageCount > 0) parts.push(`${profile.messageCount} msgs`);
     if (profile.giftCount > 0) parts.push(`${profile.giftCount} presentes`);
+    if (profile.preferredTone) parts.push(`tom ${profile.preferredTone}`);
+    const topics = Object.entries(profile.recurringTopics || {})
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([topic]) => topic);
+    if (topics.length) parts.push(`temas: ${topics.join(', ')}`);
+    if (profile.lastMessage) parts.push(`ultima: "${truncate(profile.lastMessage, 70)}"`);
 
     // Show last 3 interactions as context
     const recentInteractions = profile.interactions.slice(-3);
@@ -257,6 +374,40 @@ export function buildUserContext(profiles: UserProfileMap, maxUsers = 8): string
   });
 
   return lines.join('\n');
+}
+
+export function buildRoundUserMemorySummary(
+  events: Array<{ text: string; kind?: string; metadata?: Record<string, unknown> }>,
+  profiles: UserProfileMap,
+  maxItems = 5,
+): string[] {
+  const names = Array.from(new Set(events.map(eventUsername).filter(Boolean) as string[]));
+  const summaries: string[] = [];
+  for (const name of names) {
+    const profile = profiles[name.toLowerCase()];
+    if (!profile) {
+      summaries.push(`@${name}: usuario novo ou sem historico local.`);
+      continue;
+    }
+    const status = profile.giftCount > 0
+      ? 'presenteador'
+      : profile.messageCount > 1
+        ? 'recorrente'
+        : 'novo';
+    const bits = [`@${profile.username}: ${status}`];
+    if (profile.messageCount > 1) bits.push(`${profile.messageCount} msgs`);
+    if (profile.giftCount > 0) bits.push(`${profile.giftCount} presentes`);
+    if (profile.preferredTone) bits.push(`tom ${profile.preferredTone}`);
+    const topics = Object.entries(profile.recurringTopics || {})
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([topic]) => topic);
+    if (topics.length) bits.push(`temas ${topics.join(', ')}`);
+    if (profile.lastMessage) bits.push(`ultima "${truncate(profile.lastMessage, 60)}"`);
+    summaries.push(bits.join('; '));
+    if (summaries.length >= maxItems) break;
+  }
+  return summaries;
 }
 
 /**

@@ -9,8 +9,12 @@ All responses have X-Frame-Options and Content-Security-Policy removed
 so the iframe can render them without being blocked.
 """
 
+import asyncio
+import ipaddress
 import logging
 import re
+import socket
+import ipaddress
 from urllib.parse import urljoin, urlparse, quote
 
 import httpx
@@ -119,10 +123,10 @@ def _rewrite_html(html: str, page_url: str, server_base: str) -> str:
     # attributes, not just a known whitelist, because SPAs dynamically create
     # many different tags.
     def rewrite_attr(m: re.Match) -> str:
-        before = m.group(1)      # everything before the URL value
+        before = m.group(1)  # everything before the URL value
         quote_char = m.group(2)  # " or '
-        url_val = m.group(3)     # the raw URL
-        after = m.group(4)       # everything after the closing quote
+        url_val = m.group(3)  # the raw URL
+        after = m.group(4)  # everything after the closing quote
 
         if not url_val or url_val.startswith(("data:", "javascript:", "#", "mailto:", "blob:")):
             return m.group(0)
@@ -153,8 +157,8 @@ def _rewrite_html(html: str, page_url: str, server_base: str) -> str:
 
     def rewrite_style_attr(m: re.Match) -> str:
         before = m.group(1)  # e.g. ' style='
-        quote = m.group(2)   # e.g. '"'
-        content = m.group(3) # e.g. 'background: url(...)'
+        quote = m.group(2)  # e.g. '"'
+        content = m.group(3)  # e.g. 'background: url(...)'
         new_content = re.sub(r"url\(([^)]+)\)", rewrite_css_url, content, flags=re.IGNORECASE)
         return f"{before}{quote}{new_content}{quote}"
 
@@ -237,19 +241,69 @@ def _rewrite_js(js: str, js_url: str, server_base: str) -> str:
     Only touches obvious string literals like "/path/..." to avoid breaking
     code logic.  This is best-effort and won't catch everything.
     """
-    parsed = urlparse(js_url)
-    origin = f"{parsed.scheme}://{parsed.netloc}"
     # We don't rewrite JS broadly to avoid breaking code.
     # The <base> tag handles most cases.
     return js
 
 
+class SSRFTransport(httpx.AsyncHTTPTransport):
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        import asyncio
+        hostname = request.url.host
+
+        # Don't try to resolve empty hostnames
+        if not hostname:
+            return await super().handle_async_request(request)
+
+        # Use asyncio.get_running_loop().getaddrinfo for non-blocking DNS resolution
+        # and support both IPv4 and IPv6
+        loop = asyncio.get_running_loop()
+        try:
+            addr_info = await loop.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+        except socket.gaierror:
+            # If we can't resolve it, fail securely
+            raise httpx.RequestError(f"Could not resolve hostname: {hostname}", request=request)
+
+        resolved_ip = None
+        for family, type, proto, canonname, sockaddr in addr_info:
+            ip = sockaddr[0]
+            try:
+                ip_obj = ipaddress.ip_address(ip)
+                if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_multicast or ip_obj.is_unspecified:
+                    raise httpx.RequestError(f"Blocked request to internal IP: {ip}", request=request)
+                if not resolved_ip:
+                    resolved_ip = ip
+            except ValueError:
+                pass
+
+        if resolved_ip:
+            original_url = request.url
+            new_extensions = dict(request.extensions)
+            new_extensions["sni_hostname"] = original_url.host
+
+            headers = request.headers.copy()
+            if "host" not in headers:
+                netloc_str = original_url.netloc.decode('ascii') if hasattr(original_url.netloc, 'decode') else str(original_url.netloc)
+                headers["host"] = netloc_str
+
+            new_req = httpx.Request(
+                method=request.method,
+                url=request.url.copy_with(host=resolved_ip),
+                headers=headers,
+                stream=request.stream,
+                extensions=new_extensions
+            )
+            return await super().handle_async_request(new_req)
+
+        raise httpx.RequestError(f"Could not determine safe IP for hostname: {hostname}", request=request)
+
 async def _fetch(url: str, headers: dict) -> httpx.Response:
     async with httpx.AsyncClient(
+        transport=SSRFTransport(verify=False),
         follow_redirects=True,
         timeout=PROXY_TIMEOUT,
-        verify=False,  # noqa: S501 — proxy needs to reach any site
     ) as client:
+
         return await client.get(url, headers=headers)
 
 
@@ -259,6 +313,23 @@ def _clean_response_headers(resp: httpx.Response) -> dict:
         for k, v in resp.headers.items()
         if k.lower() not in _DROP_RESPONSE_HEADERS
     }
+
+async def _is_safe_url(url: str) -> bool:
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if not hostname:
+        return False
+    try:
+        loop = asyncio.get_running_loop()
+        infos = await loop.getaddrinfo(hostname, None)
+        for info in infos:
+            ip_str = info[4][0]
+            ip = ipaddress.ip_address(ip_str)
+            if ip.is_private or ip.is_loopback or ip.is_link_local:
+                return False
+        return True
+    except Exception:
+        return False
 
 
 @router.get("", response_class=HTMLResponse, summary="Proxy a web page for iframe embedding")
@@ -272,6 +343,9 @@ async def proxy_page(
     """
     if not url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="url must start with http:// or https://")
+
+    if not await _is_safe_url(url):
+        raise HTTPException(status_code=403, detail="Unsafe URL requested")
 
     logger.info("[proxy] Fetching page: %s", url)
 
@@ -337,6 +411,9 @@ async def proxy_asset(
     """
     if not url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="url must be absolute")
+
+    if not await _is_safe_url(url):
+        raise HTTPException(status_code=403, detail="Unsafe URL requested")
 
     forward_headers = {
         "user-agent": CHROME_UA,
