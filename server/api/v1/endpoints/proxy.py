@@ -14,6 +14,7 @@ import ipaddress
 import logging
 import re
 import socket
+import ipaddress
 from urllib.parse import urljoin, urlparse, quote
 
 import httpx
@@ -247,42 +248,62 @@ def _rewrite_js(js: str, js_url: str, server_base: str) -> str:
     return js
 
 
-async def _block_internal_ips(request: httpx.Request):
-    loop = asyncio.get_running_loop()
-    host = request.url.host
-    try:
-        addr_info = await loop.getaddrinfo(host, request.url.port or 80, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM)
-    except socket.gaierror:
-        pass
-    else:
-        for res in addr_info:
-            ip_str = res[4][0]
+class SSRFTransport(httpx.AsyncHTTPTransport):
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        import asyncio
+        hostname = request.url.host
+
+        # Don't try to resolve empty hostnames
+        if not hostname:
+            return await super().handle_async_request(request)
+
+        # Use asyncio.get_running_loop().getaddrinfo for non-blocking DNS resolution
+        # and support both IPv4 and IPv6
+        loop = asyncio.get_running_loop()
+        try:
+            addr_info = await loop.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+        except socket.gaierror:
+            # If we can't resolve it, fail securely
+            raise httpx.RequestError(f"Could not resolve hostname: {hostname}", request=request)
+
+        resolved_ip = None
+        for family, type, proto, canonname, sockaddr in addr_info:
+            ip = sockaddr[0]
             try:
-                ip_obj = ipaddress.ip_address(ip_str)
-                # 🛡️ Sentinel: Note on SSRF and DNS Rebinding
-                # This mitigates simple SSRF by checking the resolved IP. However, due to TOCTOU
-                # (DNS rebinding), httpx will resolve the hostname again when establishing the connection.
-                # We cannot mutate request.url to the resolved IP here to pin the IP because doing so
-                # breaks SNI (causing SSL handshake failures with external CDNs) and relative redirects
-                # in httpx. A complete fix requires a custom Transport which is beyond current scope.
-                if (
-                    ip_obj.is_private
-                    or ip_obj.is_loopback
-                    or ip_obj.is_link_local
-                    or ip_obj.is_multicast
-                    or ip_obj.is_unspecified
-                ):
-                    raise httpx.RequestError(f"Access to internal IP {ip_str} is forbidden", request=request)
+                ip_obj = ipaddress.ip_address(ip)
+                if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_multicast or ip_obj.is_unspecified:
+                    raise httpx.RequestError(f"Blocked request to internal IP: {ip}", request=request)
+                if not resolved_ip:
+                    resolved_ip = ip
             except ValueError:
                 pass
 
+        if resolved_ip:
+            original_url = request.url
+            new_extensions = dict(request.extensions)
+            new_extensions["sni_hostname"] = original_url.host
+
+            headers = request.headers.copy()
+            if "host" not in headers:
+                netloc_str = original_url.netloc.decode('ascii') if hasattr(original_url.netloc, 'decode') else str(original_url.netloc)
+                headers["host"] = netloc_str
+
+            new_req = httpx.Request(
+                method=request.method,
+                url=request.url.copy_with(host=resolved_ip),
+                headers=headers,
+                stream=request.stream,
+                extensions=new_extensions
+            )
+            return await super().handle_async_request(new_req)
+
+        raise httpx.RequestError(f"Could not determine safe IP for hostname: {hostname}", request=request)
 
 async def _fetch(url: str, headers: dict) -> httpx.Response:
     async with httpx.AsyncClient(
+        transport=SSRFTransport(verify=False),
         follow_redirects=True,
         timeout=PROXY_TIMEOUT,
-        verify=False,  # noqa: S501 — proxy needs to reach any site
-        event_hooks={"request": [_block_internal_ips]},
     ) as client:
         return await client.get(url, headers=headers)
 
