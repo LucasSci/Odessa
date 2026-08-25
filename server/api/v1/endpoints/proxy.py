@@ -123,10 +123,10 @@ def _rewrite_html(html: str, page_url: str, server_base: str) -> str:
     # attributes, not just a known whitelist, because SPAs dynamically create
     # many different tags.
     def rewrite_attr(m: re.Match) -> str:
-        before = m.group(1)      # everything before the URL value
+        before = m.group(1)  # everything before the URL value
         quote_char = m.group(2)  # " or '
-        url_val = m.group(3)     # the raw URL
-        after = m.group(4)       # everything after the closing quote
+        url_val = m.group(3)  # the raw URL
+        after = m.group(4)  # everything after the closing quote
 
         if not url_val or url_val.startswith(("data:", "javascript:", "#", "mailto:", "blob:")):
             return m.group(0)
@@ -157,8 +157,8 @@ def _rewrite_html(html: str, page_url: str, server_base: str) -> str:
 
     def rewrite_style_attr(m: re.Match) -> str:
         before = m.group(1)  # e.g. ' style='
-        quote = m.group(2)   # e.g. '"'
-        content = m.group(3) # e.g. 'background: url(...)'
+        quote = m.group(2)  # e.g. '"'
+        content = m.group(3)  # e.g. 'background: url(...)'
         new_content = re.sub(r"url\(([^)]+)\)", rewrite_css_url, content, flags=re.IGNORECASE)
         return f"{before}{quote}{new_content}{quote}"
 
@@ -241,8 +241,6 @@ def _rewrite_js(js: str, js_url: str, server_base: str) -> str:
     Only touches obvious string literals like "/path/..." to avoid breaking
     code logic.  This is best-effort and won't catch everything.
     """
-    parsed = urlparse(js_url)
-    origin = f"{parsed.scheme}://{parsed.netloc}"
     # We don't rewrite JS broadly to avoid breaking code.
     # The <base> tag handles most cases.
     return js
