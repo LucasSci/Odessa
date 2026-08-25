@@ -85,6 +85,11 @@ export default defineConfig(() => {
         '/obs': 'http://127.0.0.1:8000',
         '/agent': 'http://127.0.0.1:8000',
         '/webhooks': 'http://127.0.0.1:8000',
+        '/tango-bridge': {
+          target: 'http://127.0.0.1:7555',
+          rewrite: (path: string) => path.replace(/^\/tango-bridge/, ''),
+          changeOrigin: true,
+        },
       },
     },
     optimizeDeps: {

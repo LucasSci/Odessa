@@ -10,10 +10,11 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Brain, Zap, Key, Sliders, FlaskConical, CheckCircle, XCircle, AlertCircle, Loader2, Eye, EyeOff, RotateCcw, Bot, Activity, Pause, Radio, Sparkles, Gift, MessageCircle, Trash2, Film, Clock, MapPin, RefreshCw, Save, ShieldCheck } from 'lucide-react';
+import { Brain, Zap, Key, Sliders, FlaskConical, CheckCircle, XCircle, AlertCircle, Loader2, Eye, EyeOff, RotateCcw, Bot, Activity, Pause, Radio, Sparkles, Gift, MessageCircle, Trash2, Film, Clock, RefreshCw, ShieldCheck, Wifi } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Badge, Button, Input, StatusDot } from './ui';
 import { AiDecisionPanel } from './AiDecisionPanel';
+import { TangoChatPanel } from './TangoChatPanel';
 import {
   getChatInsights,
   summarizeChatLearning,
@@ -47,15 +48,25 @@ import { buildOcrEvent } from '../core/ocrEventContract';
 import type { OcrEvent } from '../core/ocrEventContract';
 import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
 import {
+  AUTONOMY_MATRIX_CAPABILITIES,
+  buildAutonomyToolPolicies,
+  type AutonomyToolStatus,
+} from '../core/autonomyMatrix';
+import {
   LIVE_CHAT_SCREENSHOT_TARGET,
   getChatAutomationConfig,
   loadChatAutomationTarget,
   saveChatAutomationConfig,
-  saveChatAutomationTarget,
   validateChatAutomationTarget,
-  type ChatAutomationAllowEntry,
   type ChatAutomationTarget,
 } from '../lib/chatAutomation';
+import {
+  clearMemory,
+  clearUserProfiles,
+  getUserProfileList,
+  loadUserProfiles,
+  type UserProfile,
+} from '../lib/memory';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -65,6 +76,7 @@ interface AiConfigPanelProps {
   videos: Array<{ id: string; label?: string; name?: string; title?: string }>;
   triggers: Array<{ id: string; name?: string; label?: string; enabled?: boolean }>;
   runtime: AutopilotRuntimeState;
+  onOpenCapture?: () => void;
 }
 
 // Tipos de evento selecionáveis no perfil de reação.
@@ -138,14 +150,6 @@ function deriveStatusInfo(provider: AiProvider): {
   };
 }
 
-function percentFromPoint(value?: number) {
-  return value === undefined ? '' : String(Math.round(value * 1000) / 10);
-}
-
-function pointFromPercent(value: string) {
-  return Math.max(0, Math.min(1, (Number(value) || 0) / 100));
-}
-
 function isVisualTargetReady(target: ChatAutomationTarget) {
   return Boolean(
     target.mode === 'visual' &&
@@ -156,6 +160,20 @@ function isVisualTargetReady(target: ChatAutomationTarget) {
       typeof target.viewport.width === 'number' &&
       typeof target.viewport.height === 'number',
   );
+}
+
+function visualTargetErrors(target: ChatAutomationTarget, allowlistReady = true) {
+  const errors: string[] = [];
+  if (!target.viewport?.width || !target.viewport?.height) {
+    errors.push('Viewport ausente: informe largura e altura antes de validar.');
+  }
+  if (typeof target.inputPoint?.x !== 'number' || typeof target.inputPoint?.y !== 'number') {
+    errors.push('inputPoint ausente: clique no preview para marcar onde digitar.');
+  }
+  if (!allowlistReady) {
+    errors.push('Allowlist ausente: salve o alvo visual no backend como tango-live-chat.');
+  }
+  return errors;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -232,6 +250,49 @@ function ReadinessItem({
   );
 }
 
+function OperationalStateBadge({
+  state,
+  label,
+}: {
+  state: 'ready' | 'attention' | 'blocked' | 'simulated';
+  label: string;
+}) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em]',
+        state === 'ready' && 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300',
+        state === 'attention' && 'border-amber-400/30 bg-amber-500/10 text-amber-300',
+        state === 'blocked' && 'border-red-400/30 bg-red-500/10 text-red-300',
+        state === 'simulated' && 'border-sky-400/30 bg-sky-500/10 text-sky-300',
+      )}
+    >
+      <StatusDot
+        status={
+          state === 'ready'
+            ? 'online'
+            : state === 'blocked'
+              ? 'error'
+              : state === 'attention'
+                ? 'warn'
+                : 'idle'
+        }
+      />
+      {label}
+    </span>
+  );
+}
+
+const TOOL_STATUS_STYLE: Record<
+  AutonomyToolStatus,
+  { label: string; className: string }
+> = {
+  real: { label: 'Real', className: 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300' },
+  simulated: { label: 'Simulado', className: 'border-sky-400/30 bg-sky-500/10 text-sky-300' },
+  approval: { label: 'Aprovacao', className: 'border-amber-400/30 bg-amber-500/10 text-amber-300' },
+  blocked: { label: 'Bloqueado', className: 'border-red-400/30 bg-red-500/10 text-red-300' },
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -242,7 +303,7 @@ const AUTONOMY_INFO: Record<AiAutonomyLevel, { label: string; desc: string }> = 
   auto: { label: 'Autônomo', desc: 'A Diretora conduz tudo sozinha dentro do que está habilitado.' },
 };
 
-export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps) {
+export function AiConfigPanel({ videos, triggers, runtime, onOpenCapture }: AiConfigPanelProps) {
   const cfg = getAiConfig();
 
   // ── Status section ─────────────────────────────────────────────────────────
@@ -287,6 +348,11 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
   );
   const [autoChatMaxPerMinute, setAutoChatMaxPerMinute] = useState(cfg.chatReplyMaxPerMinute);
   const [autoChatMinConfidence, setAutoChatMinConfidence] = useState(cfg.chatReplyMinConfidence);
+  const [webSendEnabled, setWebSendEnabled] = useState(false);
+  const [webSendUrl, setWebSendUrl] = useState('');
+  const [webSendInputSelector, setWebSendInputSelector] = useState('');
+  const [webSendSendButtonSelector, setWebSendSendButtonSelector] = useState('');
+  const [webSendTypingDelayMs, setWebSendTypingDelayMs] = useState(65);
   const [chatTarget, setChatTarget] = useState<ChatAutomationTarget>(() => ({
     ...LIVE_CHAT_SCREENSHOT_TARGET,
     ...loadChatAutomationTarget(),
@@ -294,12 +360,16 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
   }));
   const [chatBridgeStatus, setChatBridgeStatus] = useState<'unknown' | 'ready' | 'blocked' | 'saving'>('unknown');
   const [chatBridgeMessage, setChatBridgeMessage] = useState('Pendente');
-  const [chatAutomationLogs, setChatAutomationLogs] = useState<Array<Record<string, unknown>>>([]);
   const [autoChatSaved, setAutoChatSaved] = useState(false);
+  const [chatReplyDrafts, setChatReplyDrafts] = useState<Record<string, string>>({});
+  const [chatReplySendingId, setChatReplySendingId] = useState<string | null>(null);
 
   // ── Aprendizado (chat + presentes) ──────────────────────────────────────────
   const [chatInsights, setChatInsights] = useState(() => getChatInsights());
   const [giftStats, setGiftStats] = useState<GiftStat[]>(() => getGiftLearning());
+  const [userMemories, setUserMemories] = useState<UserProfile[]>(() =>
+    getUserProfileList(loadUserProfiles()).slice(0, 12),
+  );
   const [summarizing, setSummarizing] = useState(false);
 
   // ── Derived ────────────────────────────────────────────────────────────────
@@ -309,16 +379,43 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
   const geminiReady = hasActiveGeminiKey() && currentProvider !== 'mock';
   const chatReplyTool = runtime.tools.find((tool) => tool.capability === 'chat.reply');
   const visualTargetReady = isVisualTargetReady(chatTarget) && chatBridgeStatus === 'ready';
+  const autonomyPolicies = buildAutonomyToolPolicies(runtime.tools, runtime.autonomyLevel, {
+    autoChatEnabled,
+    chatRealRequested: autoChatMode === 'real',
+    visualTargetReady,
+    localAgentReady: runtime.localAgentReady,
+  }).filter((policy) => AUTONOMY_MATRIX_CAPABILITIES.includes(policy.capability));
   const chatReplyReady = Boolean(chatReplyTool?.enabled) && autoChatEnabled;
   const realSendReady =
     autoChatMode === 'real' &&
     autoChatEnabled &&
     visualTargetReady &&
+    runtime.localAgentReady &&
     runtime.autonomyLevel === 'auto';
+  const ocrCheck = runtime.readiness.checklist.find((item) => item.id === 'ocr');
+  const chatCheck = runtime.readiness.checklist.find((item) => item.id === 'chat');
+  const cockpitState: 'ready' | 'attention' | 'blocked' | 'simulated' =
+    autoChatMode === 'dry_run'
+      ? 'simulated'
+      : realSendReady && runtime.readiness.readyToStart
+        ? 'ready'
+        : runtime.readiness.state === 'blocked'
+          ? 'blocked'
+          : 'attention';
+  const cockpitLabel =
+    cockpitState === 'ready'
+      ? 'Chat real pronto'
+      : cockpitState === 'simulated'
+        ? 'Somente simulado'
+        : cockpitState === 'blocked'
+          ? 'Bloqueado'
+          : 'Atencao';
   const nextSetupAction = !geminiReady
     ? 'Cole uma chave Gemini ou configure VITE_GEMINI_API_KEY.'
     : !visualTargetReady
       ? 'Salve e valide o ponto visual onde o Tango recebe mensagens.'
+      : !runtime.localAgentReady
+        ? 'Conecte o agente local para liberar clique/clipboard real.'
       : !autoChatEnabled
         ? 'Ative "Responder chat automaticamente" e salve.'
         : runtime.autonomyLevel !== 'auto'
@@ -327,20 +424,52 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
             ? 'Troque de Simular para Enviar real quando estiver pronto.'
             : 'Pronto para live: mantenha OCR e Diretora ligados.';
 
+  useEffect(() => {
+    setChatReplyDrafts((current) => {
+      const next = { ...current };
+      for (const item of runtime.chatReplyQueue) {
+        if (next[item.id] === undefined) next[item.id] = item.text;
+      }
+      for (const id of Object.keys(next)) {
+        if (!runtime.chatReplyQueue.some((item) => item.id === id)) delete next[id];
+      }
+      return next;
+    });
+  }, [runtime.chatReplyQueue]);
+
+  const handleSendQueuedReply = useCallback(
+    async (id: string) => {
+      setChatReplySendingId(id);
+      try {
+        await runtime.sendChatReplyNow(id);
+      } finally {
+        setChatReplySendingId(null);
+      }
+    },
+    [runtime],
+  );
+
   const refreshChatAutomation = useCallback(async () => {
     const savedTarget = { ...LIVE_CHAT_SCREENSHOT_TARGET, ...loadChatAutomationTarget(), mode: 'visual' as const };
     setChatTarget(savedTarget);
     try {
       const config = await getChatAutomationConfig();
-      setChatAutomationLogs(config.logs.slice(-8).reverse());
-      if (!isVisualTargetReady(savedTarget)) {
+      if (config.webSendConfig) {
+        setWebSendEnabled(config.webSendConfig.enabled);
+        setWebSendUrl(config.webSendConfig.url);
+        setWebSendInputSelector(config.webSendConfig.inputSelector);
+        setWebSendSendButtonSelector(config.webSendConfig.sendButtonSelector);
+        setWebSendTypingDelayMs(config.webSendConfig.typingDelayMs);
+      }
+      const localErrors = visualTargetErrors(savedTarget);
+      if (localErrors.length > 0) {
         setChatBridgeStatus('unknown');
-        setChatBridgeMessage('Ponto visual pendente');
+        setChatBridgeMessage(localErrors[0]);
         return;
       }
       const validation = await validateChatAutomationTarget(savedTarget);
       setChatBridgeStatus(validation.allowed ? 'ready' : 'blocked');
-      setChatBridgeMessage(validation.allowed ? 'Alvo visual validado' : validation.reason || 'Bloqueado');
+      setChatBridgeMessage(validation.allowed ? 'Alvo visual validado' : 'Allowlist ausente: salve o alvo visual no backend como tango-live-chat.');
     } catch (err) {
       setChatBridgeStatus('blocked');
       setChatBridgeMessage(err instanceof Error ? err.message : 'Falha ao validar chat');
@@ -352,10 +481,8 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
     const refresh = () => {
       setChatInsights(getChatInsights());
       setGiftStats(getGiftLearning());
+      setUserMemories(getUserProfileList(loadUserProfiles()).slice(0, 12));
       setVideoPresets(loadVideoPresets());
-      void getChatAutomationConfig()
-        .then((config) => setChatAutomationLogs(config.logs.slice(-8).reverse()))
-        .catch(() => undefined);
     };
     refresh();
     void refreshChatAutomation();
@@ -363,16 +490,9 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
     return () => window.clearInterval(timer);
   }, [refreshChatAutomation]);
 
-  const handleSaveAutoChat = useCallback(async () => {
+  const handleSaveAutoChatPolicy = useCallback(async () => {
     setChatBridgeStatus('saving');
-    setChatBridgeMessage('Salvando...');
-    const normalized: ChatAutomationTarget = {
-      ...chatTarget,
-      mode: 'visual',
-      url: chatTarget.url || LIVE_CHAT_SCREENSHOT_TARGET.url,
-      inputSelector: '',
-      sendSelector: '',
-    };
+    setChatBridgeMessage('Salvando politica...');
     saveAiConfig({
       autoChatReplyEnabled: autoChatEnabled,
       autoChatReplyMode: autoChatMode,
@@ -381,34 +501,39 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
       chatReplyMinConfidence: autoChatMinConfidence,
     });
     try {
-      const config = await getChatAutomationConfig().catch(() => ({ allowlist: [], logs: [] }));
-      const entry: ChatAutomationAllowEntry = {
-        id: 'tango-live-chat',
-        label: 'Tango live chat',
-        mode: 'visual',
-        domain: 'visual:tango-live',
-        urlPattern: '.*',
-        inputSelector: 'visual-point',
-        sendSelector: '',
-        inputPoint: normalized.inputPoint,
-        sendPoint: normalized.sendPoint,
-        viewport: normalized.viewport,
-        submitWithEnter: true,
-        typingDelayMs: 25,
-        maxPerMinute: autoChatMaxPerMinute,
-        enabled: true,
-      };
-      await saveChatAutomationConfig([
-        entry,
-        ...config.allowlist.filter((item) => item.id !== entry.id),
-      ]);
-      saveChatAutomationTarget(normalized);
+      const config = await getChatAutomationConfig();
+      const allowlist = config.allowlist.map((item) =>
+        item.id === 'tango-live-chat'
+          ? { ...item, maxPerMinute: autoChatMaxPerMinute }
+          : item,
+      );
+      if (allowlist.some((item) => item.id === 'tango-live-chat')) {
+        await saveChatAutomationConfig(allowlist, {
+          webSendConfig: {
+            enabled: webSendEnabled,
+            url: webSendUrl,
+            inputSelector: webSendInputSelector,
+            sendButtonSelector: webSendSendButtonSelector,
+            typingDelayMs: webSendTypingDelayMs,
+          },
+        });
+      } else {
+        await saveChatAutomationConfig(allowlist, {
+          webSendConfig: {
+            enabled: webSendEnabled,
+            url: webSendUrl,
+            inputSelector: webSendInputSelector,
+            sendButtonSelector: webSendSendButtonSelector,
+            typingDelayMs: webSendTypingDelayMs,
+          },
+        });
+      }
       setAutoChatSaved(true);
       await refreshChatAutomation();
       window.setTimeout(() => setAutoChatSaved(false), 1800);
     } catch (err) {
-      setChatBridgeStatus('blocked');
-      setChatBridgeMessage(err instanceof Error ? err.message : 'Falha ao salvar chat autonomo');
+      setChatBridgeStatus(visualTargetReady ? 'ready' : 'unknown');
+      setChatBridgeMessage(err instanceof Error ? err.message : 'Politica salva localmente; alvo visual nao foi revalidado.');
     }
   }, [
     autoChatCooldownSec,
@@ -416,8 +541,13 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
     autoChatMaxPerMinute,
     autoChatMinConfidence,
     autoChatMode,
-    chatTarget,
     refreshChatAutomation,
+    visualTargetReady,
+    webSendEnabled,
+    webSendUrl,
+    webSendInputSelector,
+    webSendSendButtonSelector,
+    webSendTypingDelayMs,
   ]);
 
   const handleSummarizeLearning = useCallback(async () => {
@@ -440,6 +570,16 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
   const handleClearGiftLearning = useCallback(() => {
     clearGiftLearning();
     setGiftStats(getGiftLearning());
+  }, []);
+
+  const handleResetLearning = useCallback(() => {
+    clearChatLearning();
+    clearGiftLearning();
+    clearMemory();
+    clearUserProfiles();
+    setChatInsights(getChatInsights());
+    setGiftStats(getGiftLearning());
+    setUserMemories(getUserProfileList(loadUserProfiles()).slice(0, 12));
   }, []);
 
   // ── Reações por vídeo (Fase 3) ───────────────────────────────────────────────
@@ -583,11 +723,66 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
           Odessa console
         </div>
         <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-white">
-          Central de IA
+          Diretoria IA
         </h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-400">
-          Configure a chave da API, personalidade e parâmetros da IA. Teste em tempo real antes de ir ao ar.
+          Configure o cerebro, a personalidade, a politica de resposta e a memoria da Odessa. A captura fisica do chat fica em Fontes / OCR.
         </p>
+      </div>
+
+      <div className="mb-4 shrink-0 rounded-[28px] border border-white/10 bg-[#0b0d10] p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <OperationalStateBadge state={cockpitState} label={cockpitLabel} />
+          <Button
+            size="sm"
+            variant={runtime.autopilotEnabled ? 'danger' : 'primary'}
+            onClick={() => (runtime.autopilotEnabled ? runtime.pause() : runtime.start())}
+          >
+            {runtime.autopilotEnabled ? <Pause className="h-3.5 w-3.5" /> : <Activity className="h-3.5 w-3.5" />}
+            {runtime.autopilotEnabled ? 'Pausar Diretora' : 'Iniciar dry-run'}
+          </Button>
+          {onOpenCapture && (
+            <Button size="sm" variant="secondary" onClick={onOpenCapture}>
+              <MessageCircle className="h-3.5 w-3.5" />
+              Abrir OCR do chat
+            </Button>
+          )}
+          <span className="ml-auto text-xs text-slate-500">
+            {runtime.autopilotEnabled ? 'Diretora observando eventos da live.' : 'Configure e teste antes de ir ao ar.'}
+          </span>
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-4">
+          <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Cerebro</div>
+            <div className="mt-1 text-sm font-semibold text-white">
+              {geminiReady ? 'Gemini pronto' : currentProvider === 'mock' ? 'Mock ativo' : 'Sem chave'}
+            </div>
+            <div className="mt-1 line-clamp-2 text-xs text-slate-500">{statusInfo.sublabel}</div>
+          </div>
+          <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Memoria</div>
+            <div className="mt-1 text-sm font-semibold text-white">
+              {chatInsights.totalMessages} msgs / {userMemories.length} perfis
+            </div>
+            <div className="mt-1 text-xs text-slate-500">{giftStats.length} presentes aprendidos</div>
+          </div>
+          <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Chat publico</div>
+            <div className="mt-1 text-sm font-semibold text-white">
+              {autoChatEnabled ? (autoChatMode === 'real' ? 'Envio real selecionado' : 'Dry-run seguro') : 'Desligado'}
+            </div>
+            <div className="mt-1 text-xs text-slate-500">
+              {autoChatCooldownSec}s cooldown / {autoChatMaxPerMinute} por min
+            </div>
+          </div>
+          <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Ambiente visual</div>
+            <div className="mt-1 text-sm font-semibold text-white">
+              {visualTargetReady ? 'Alvo validado' : 'Configurar em OCR'}
+            </div>
+            <div className="mt-1 line-clamp-2 text-xs text-slate-500">{chatBridgeMessage}</div>
+          </div>
+        </div>
       </div>
 
       {/* Scrollable content */}
@@ -639,73 +834,59 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
             )}
           </SectionCard>
 
-          {/* ── Diretora ao vivo (cockpit) ────────────────────────────────── */}
-          <SectionCard icon={<ShieldCheck className="h-4 w-4" />} title="Prontidao para responder no Tango" className="lg:col-span-2">
-            <div className="rounded-xl border border-sky-400/20 bg-sky-500/8 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-sky-100">
-                    Google Gemini + OCR do chat + envio visual seguro
-                  </p>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-400">
-                    A resposta automatica so sai quando estes blocos estao prontos: IA generativa,
-                    captura OCR do chat Tango, ponto onde escrever, Diretora ligada e permissao de envio.
-                  </p>
-                </div>
-                <Badge variant={realSendReady ? 'success' : 'warning'}>
-                  {realSendReady ? 'Pronto para envio real' : 'Faltam ajustes'}
-                </Badge>
+          {/* ── Saude do ambiente usado pela IA ───────────────────────────── */}
+          <SectionCard icon={<ShieldCheck className="h-4 w-4" />} title="Ambiente da IA" className="lg:col-span-2">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-400/20 bg-sky-500/8 p-4">
+              <div>
+                <p className="text-sm font-semibold text-sky-100">Sinais que a Diretoria usa para decidir</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-400">{runtime.readiness.summary}</p>
               </div>
-              <p className="mt-3 rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-[11px] text-sky-200">
-                Proximo passo: {nextSetupAction}
-              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={runtime.readiness.readyToStart ? 'success' : runtime.readiness.state === 'blocked' ? 'danger' : 'warning'}>
+                  {runtime.readiness.state}
+                </Badge>
+                <Button variant="secondary" size="sm" onClick={() => void runtime.refreshReadiness()}>
+                  <RefreshCw className="h-3 w-3" />
+                  Atualizar
+                </Button>
+                {onOpenCapture && (
+                  <Button variant="secondary" size="sm" onClick={onOpenCapture}>
+                    <MessageCircle className="h-3 w-3" />
+                    Ajustar OCR/chat
+                  </Button>
+                )}
+              </div>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <ReadinessItem
                 status={geminiReady ? 'ready' : 'blocked'}
-                title="1. Gemini"
-                detail={geminiReady ? 'IA generativa do Google disponivel.' : 'Sem chave ativa ou provedor em mock.'}
-                action={!geminiReady ? 'Configure a chave na secao Chave da API.' : undefined}
+                title="Gemini"
+                detail={geminiReady ? 'IA generativa disponivel.' : 'Sem chave ativa ou provedor em mock.'}
+                action={!geminiReady ? 'Configure a chave da API nesta tela.' : undefined}
               />
               <ReadinessItem
-                status="warning"
-                title="2. OCR do chat"
-                detail="A zona de captura precisa ler as linhas do chat Tango."
-                action="Em Fontes / OCR, use uma zona de chat chamada Chat Tango."
+                status={ocrCheck?.state === 'healthy' ? 'ready' : ocrCheck?.state === 'blocked' ? 'blocked' : 'warning'}
+                title="OCR do chat"
+                detail={ocrCheck?.detail || 'A zona Chat Tango alimenta a memoria e as respostas.'}
+                action={ocrCheck?.suggestedAction || 'Configure em Fontes / OCR.'}
               />
               <ReadinessItem
                 status={visualTargetReady ? 'ready' : 'blocked'}
-                title="3. Onde escrever"
-                detail={visualTargetReady ? 'Ponto visual e viewport validados.' : 'Falta validar inputPoint e viewport do chat.'}
-                action={!visualTargetReady ? 'Ajuste Campo X/Y, viewport e clique Salvar chat.' : undefined}
+                title="Alvo visual"
+                detail={visualTargetReady ? 'Campo de chat validado em Fontes / OCR.' : chatCheck?.detail || 'Falta calibrar inputPoint e viewport.'}
+                action={!visualTargetReady ? 'Abra Fontes / OCR e salve o alvo visual do chat.' : undefined}
               />
               <ReadinessItem
-                status={chatReplyReady ? 'ready' : 'blocked'}
-                title="4. Diretora"
-                detail={
-                  chatReplyReady
-                    ? 'Resposta automatica habilitada para as rodadas.'
-                    : 'A ferramenta chat.reply ou o toggle automatico estao desligados.'
-                }
-                action={!chatReplyReady ? 'Ative o toggle e mantenha chat.reply habilitada.' : undefined}
-              />
-              <ReadinessItem
-                status={realSendReady ? 'ready' : autoChatMode === 'dry_run' ? 'warning' : 'blocked'}
-                title="5. Envio"
-                detail={
-                  autoChatMode === 'dry_run'
-                    ? 'Modo seguro: so registra dry-run.'
-                    : runtime.autonomyLevel === 'auto'
-                      ? 'Modo real liberado pelo cockpit.'
-                      : 'Modo real requer autonomia Autonomo.'
-                }
-                action={autoChatMode === 'dry_run' ? 'Troque para Enviar real apenas depois dos testes.' : undefined}
+                status={runtime.localAgentReady ? 'ready' : autoChatMode === 'dry_run' ? 'warning' : 'blocked'}
+                title="Agente local"
+                detail={runtime.localAgentReady ? runtime.localAgentMessage : 'Necessario apenas para clique/clipboard real.'}
+                action={!runtime.localAgentReady && autoChatMode === 'real' ? 'Inicie o agente local antes de liberar envio real.' : undefined}
               />
             </div>
           </SectionCard>
 
-          <SectionCard icon={<Bot className="h-4 w-4" />} title="Diretora ao vivo" className="lg:col-span-2">
+          <SectionCard icon={<Bot className="h-4 w-4" />} title="Politica da IA no chat" className="lg:col-span-2">
             {/* Estado + controle */}
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/8 bg-[#0a0b0d] p-3">
               <div className="flex items-center gap-2">
@@ -770,12 +951,41 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
               <p className="text-[11px] text-slate-600">{AUTONOMY_INFO[runtime.autonomyLevel].desc}</p>
             </div>
 
+            <details className="rounded-xl border border-white/8 bg-[#0a0b0d] p-3">
+              <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  Matriz de permissoes da proxima rodada
+                </span>
+                <span className="text-[10px] text-slate-600">
+                  {runtime.localAgentReady ? runtime.localAgentMessage : 'Agente local offline para chat real'}
+                </span>
+              </summary>
+              <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {autonomyPolicies.map((policy) => {
+                  const style = TOOL_STATUS_STYLE[policy.status];
+                  return (
+                    <div key={policy.capability} className="rounded-lg border border-white/8 bg-black/20 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate font-mono text-[11px] text-slate-200">
+                          {policy.capability}
+                        </span>
+                        <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest', style.className)}>
+                          {style.label}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[10px] leading-relaxed text-slate-500">{policy.reason}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
+
             <div className="space-y-3 rounded-xl border border-white/8 bg-[#0a0b0d] p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <MessageCircle className="h-3.5 w-3.5 text-sky-400" />
                   <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                    Resposta automatica Tango
+                    Resposta publica: modo, limites e confianca
                   </span>
                   <Badge variant={chatBridgeStatus === 'ready' ? 'success' : chatBridgeStatus === 'blocked' ? 'danger' : 'warning'}>
                     <StatusDot status={chatBridgeStatus === 'ready' ? 'online' : chatBridgeStatus === 'blocked' ? 'error' : 'warn'} pulse={chatBridgeStatus === 'saving'} />
@@ -807,13 +1017,15 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                 </div>
                 <div className="rounded-lg border border-white/8 bg-black/20 px-3 py-2">
                   <span className="block text-[9px] font-bold uppercase tracking-widest text-slate-600">
-                    Saida
+                    Ambiente
                   </span>
-                  <span className="text-slate-300">Clique/digitacao no input visual</span>
+                  <span className="text-slate-300">
+                    {visualTargetReady ? 'Alvo visual validado em OCR' : 'Alvo visual pendente em Fontes / OCR'}
+                  </span>
                 </div>
               </div>
 
-              <div className="grid gap-3 lg:grid-cols-3">
+              <div className="grid gap-3 lg:grid-cols-4">
                 <label className="block">
                   <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
                     Modo
@@ -843,63 +1055,6 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                   value={autoChatMaxPerMinute}
                   onChange={(event) => setAutoChatMaxPerMinute(Math.max(1, Math.min(20, Number(event.target.value) || 1)))}
                 />
-              </div>
-
-              <div className="grid gap-3 lg:grid-cols-5">
-                <Input
-                  label="Campo X (%)"
-                  value={percentFromPoint(chatTarget.inputPoint?.x)}
-                  onChange={(event) =>
-                    setChatTarget((current) => ({
-                      ...current,
-                      inputPoint: {
-                        x: pointFromPercent(event.target.value),
-                        y: current.inputPoint?.y ?? LIVE_CHAT_SCREENSHOT_TARGET.inputPoint?.y ?? 0,
-                      },
-                    }))
-                  }
-                />
-                <Input
-                  label="Campo Y (%)"
-                  value={percentFromPoint(chatTarget.inputPoint?.y)}
-                  onChange={(event) =>
-                    setChatTarget((current) => ({
-                      ...current,
-                      inputPoint: {
-                        x: current.inputPoint?.x ?? LIVE_CHAT_SCREENSHOT_TARGET.inputPoint?.x ?? 0,
-                        y: pointFromPercent(event.target.value),
-                      },
-                    }))
-                  }
-                />
-                <Input
-                  label="Viewport W"
-                  type="number"
-                  value={chatTarget.viewport?.width || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.width || 1920}
-                  onChange={(event) =>
-                    setChatTarget((current) => ({
-                      ...current,
-                      viewport: {
-                        width: Math.max(1, Number(event.target.value) || 1),
-                        height: current.viewport?.height || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.height || 938,
-                      },
-                    }))
-                  }
-                />
-                <Input
-                  label="Viewport H"
-                  type="number"
-                  value={chatTarget.viewport?.height || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.height || 938}
-                  onChange={(event) =>
-                    setChatTarget((current) => ({
-                      ...current,
-                      viewport: {
-                        width: current.viewport?.width || LIVE_CHAT_SCREENSHOT_TARGET.viewport?.width || 1920,
-                        height: Math.max(1, Number(event.target.value) || 1),
-                      },
-                    }))
-                  }
-                />
                 <Input
                   label="Conf. min."
                   type="number"
@@ -911,18 +1066,109 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                 />
               </div>
 
+              <div className="rounded-xl border border-white/8 bg-black/20 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Configuração de envio web</p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                      Configure o modo de envio direto via navegador para o chat web.
+                    </p>
+                  </div>
+                  <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={webSendEnabled}
+                      onChange={(event) => setWebSendEnabled(event.target.checked)}
+                    />
+                    Enviar por web
+                  </label>
+                </div>
+
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <Input
+                    label="URL do chat"
+                    type="text"
+                    value={webSendUrl}
+                    onChange={(event) => setWebSendUrl(event.target.value)}
+                  />
+                  <Input
+                    label="Seletor do input"
+                    type="text"
+                    value={webSendInputSelector}
+                    onChange={(event) => setWebSendInputSelector(event.target.value)}
+                  />
+                  <Input
+                    label="Seletor do botão"
+                    type="text"
+                    value={webSendSendButtonSelector}
+                    onChange={(event) => setWebSendSendButtonSelector(event.target.value)}
+                  />
+                  <Input
+                    label="Delay de digitação (ms)"
+                    type="number"
+                    min={10}
+                    max={500}
+                    value={webSendTypingDelayMs}
+                    onChange={(event) => setWebSendTypingDelayMs(Math.max(10, Math.min(500, Number(event.target.value) || 65)))}
+                  />
+                </div>
+              </div>
+
+              {autoChatMode === 'real' && (
+                <div className="rounded-xl border border-red-400/35 bg-red-500/12 p-3">
+                  <div className="flex items-start gap-2">
+                    <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-widest text-red-200">
+                        Envio real ligado
+                      </p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-red-100/85">
+                        A Odessa podera clicar e publicar no chat visual quando o governador liberar. Confirme Gemini, OCR, alvo visual, agente local e autonomia antes de iniciar a Diretora.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="rounded-xl border border-white/8 bg-black/20 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                      Captura e alvo visual
+                    </p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                      A calibracao fisica do chat foi movida para Fontes / OCR, junto com as zonas de captura.
+                      A Diretoria apenas consome esse estado para decidir se pode responder.
+                    </p>
+                  </div>
+                  <Badge variant={visualTargetReady ? 'success' : 'warning'}>
+                    <StatusDot status={visualTargetReady ? 'online' : 'warn'} />
+                    {visualTargetReady ? 'alvo validado' : 'ajuste no OCR'}
+                  </Badge>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {onOpenCapture && (
+                    <Button variant="secondary" size="sm" onClick={onOpenCapture}>
+                      <MessageCircle className="h-3.5 w-3.5" />
+                      Abrir Fontes / OCR
+                    </Button>
+                  )}
+                  <Button variant="secondary" size="sm" onClick={() => void refreshChatAutomation()}>
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Atualizar alvo
+                  </Button>
+                  <span className="text-[10px] text-slate-500">{chatBridgeMessage}</span>
+                </div>
+              </div>
+
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="secondary" size="sm" onClick={() => setChatTarget(LIVE_CHAT_SCREENSHOT_TARGET)}>
-                  <MapPin className="h-3.5 w-3.5" />
-                  Layout do print
-                </Button>
                 <Button variant="secondary" size="sm" onClick={() => void refreshChatAutomation()}>
                   <RefreshCw className="h-3.5 w-3.5" />
-                  Validar
+                  Revalidar ambiente
                 </Button>
-                <Button variant="primary" size="sm" loading={chatBridgeStatus === 'saving'} onClick={() => void handleSaveAutoChat()}>
-                  <Save className="h-3.5 w-3.5" />
-                  {autoChatSaved ? 'Salvo' : 'Salvar chat'}
+                <Button variant="primary" size="sm" loading={chatBridgeStatus === 'saving'} onClick={() => void handleSaveAutoChatPolicy()}>
+                  <CheckCircle className="h-3.5 w-3.5" />
+                  {autoChatSaved ? 'Salvo' : 'Salvar politica'}
                 </Button>
                 {autoChatMode === 'real' && (
                   <span className="flex items-center gap-1 text-[10px] text-amber-300">
@@ -931,104 +1177,163 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                   </span>
                 )}
               </div>
+            </div>
 
-              <div className="space-y-1">
-                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">
-                  Ultimos logs de envio
+            {/* Fila de respostas publicas */}
+            <details open={runtime.chatReplyQueue.length > 0} className="rounded-xl border border-white/8 bg-[#0a0b0d] p-3">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <MessageCircle className="h-3.5 w-3.5 text-sky-400" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                    Fila de respostas publicas
+                  </span>
+                </div>
+                <span className="font-mono text-[10px] text-slate-500">
+                  {runtime.chatReplyQueue.length} item(s)
                 </span>
-                {chatAutomationLogs.length === 0 ? (
-                  <p className="text-[11px] text-slate-600">Nenhum envio ou bloqueio registrado.</p>
+              </summary>
+
+              <div className="mt-3">
+                {runtime.chatReplyQueue.length === 0 ? (
+                  <p className="text-[11px] text-slate-600">
+                    Nenhuma sugestao de chat na fila. Em Manual/Assistido, a proxima resposta aparece aqui antes do envio.
+                  </p>
                 ) : (
-                  <div className="grid gap-1">
-                    {chatAutomationLogs.map((entry, index) => {
-                      const result = entry.result as Record<string, unknown> | undefined;
+                  <div className="space-y-2">
+                    {runtime.chatReplyQueue
+                      .slice(-5)
+                      .reverse()
+                      .map((item) => {
+                      const draft = chatReplyDrafts[item.id] ?? item.text;
+                      const canEdit = item.status === 'approval_required' || item.status === 'queued';
+                      const canApprove = item.status === 'approval_required';
+                      const canSend =
+                        item.status === 'queued' &&
+                        !item.governorBlockedReason &&
+                        draft.trim().length > 0;
+                      const canDiscard = item.status !== 'sent' && item.status !== 'sending';
+                      const statusClass =
+                        item.status === 'sent'
+                          ? 'bg-emerald-500/10 text-emerald-300'
+                          : item.status === 'blocked' || item.status === 'error'
+                            ? 'bg-red-500/10 text-red-300'
+                            : item.status === 'approval_required'
+                              ? 'bg-amber-500/10 text-amber-300'
+                              : item.status === 'sending'
+                                ? 'bg-sky-500/10 text-sky-300'
+                                : 'bg-slate-700/30 text-slate-300';
+
                       return (
-                        <div key={String(entry.id || index)} className="flex items-center justify-between gap-2 rounded-lg border border-white/8 bg-black/20 px-2 py-1.5 text-[10px]">
-                          <span className="truncate text-slate-300">{String(entry.text || '')}</span>
-                          <span className={cn('shrink-0 font-mono', result?.status === 'blocked' ? 'text-red-300' : result?.status === 'ready' ? 'text-emerald-300' : 'text-sky-300')}>
-                            {String(result?.reason || result?.status || 'log')}
-                          </span>
+                        <div key={item.id} className="rounded-lg border border-white/8 bg-black/20 p-2.5">
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <span className="truncate text-[11px] text-slate-400">
+                              <span className="text-slate-600">[{item.sourceEvent.kind}]</span>{' '}
+                              {item.sourceEvent.text}
+                            </span>
+                            <span className={cn('shrink-0 rounded px-1.5 py-0.5 font-mono text-[9px]', statusClass)}>
+                              {item.status}
+                            </span>
+                          </div>
+
+                          <textarea
+                            value={draft}
+                            disabled={!canEdit}
+                            onChange={(event) =>
+                              setChatReplyDrafts((current) => ({
+                                ...current,
+                                [item.id]: event.target.value,
+                              }))
+                            }
+                            className="min-h-[58px] w-full resize-none rounded-lg border border-white/8 bg-black/30 px-2 py-1.5 text-[11px] text-slate-200 outline-none focus:border-sky-400/40 disabled:opacity-70"
+                          />
+
+                          <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-slate-500 md:grid-cols-4">
+                            <span>Conf. {Math.round(item.confidence * 100)}%</span>
+                            <span>Cooldown {Math.ceil(item.cooldownMs / 1000)}s</span>
+                            <span className="truncate">Motivo: {item.reason}</span>
+                            <span className="truncate">
+                              Resultado: {item.result || item.governorBlockedReason || 'aguardando'}
+                            </span>
+                          </div>
+
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="success"
+                              disabled={!canApprove}
+                              onClick={() => runtime.approveChatReply(item.id)}
+                            >
+                              Aprovar
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={!canEdit || draft === item.text}
+                              onClick={() => runtime.editChatReply(item.id, draft)}
+                            >
+                              Salvar edicao
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              disabled={!canSend || chatReplySendingId === item.id}
+                              loading={chatReplySendingId === item.id}
+                              onClick={() => handleSendQueuedReply(item.id)}
+                            >
+                              Enviar agora
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="danger"
+                              disabled={!canDiscard}
+                              onClick={() => runtime.discardChatReply(item.id)}
+                            >
+                              Descartar
+                            </Button>
+                          </div>
                         </div>
                       );
-                    })}
+                      })}
                   </div>
                 )}
               </div>
-            </div>
-
-            {/* Feed de decisões da Diretora */}
-            <div className="space-y-2">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
-                Últimas decisões
-              </span>
-              {runtime.cycles.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-white/8 p-5 text-center text-[11px] text-slate-600">
-                  Nenhuma decisão ainda. Inicie a Diretora e os eventos do chat aparecerão aqui.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {runtime.cycles
-                    .slice(-6)
-                    .reverse()
-                    .map((cycle) => (
-                      <div
-                        key={cycle.id}
-                        className="rounded-xl border border-white/8 bg-[#0a0b0d] p-3 space-y-1.5"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11px] text-slate-300 truncate">
-                            <span className="text-slate-600">[{cycle.event?.kind || 'evento'}]</span>{' '}
-                            {cycle.event?.text || '—'}
-                          </span>
-                          {cycle.decision && (
-                            <span className="shrink-0 font-mono text-[10px] text-violet-300">
-                              {Math.round((cycle.decision.confidence || 0) * 100)}%
-                            </span>
-                          )}
-                        </div>
-                        {cycle.decision?.speech && (
-                          <p className="text-[11px] text-sky-200/80 italic">“{cycle.decision.speech}”</p>
-                        )}
-                        {cycle.decision?.reason && (
-                          <p className="text-[10px] text-slate-500">{cycle.decision.reason}</p>
-                        )}
-                        {cycle.actions.length > 0 && (
-                          <div className="flex flex-wrap gap-1 pt-0.5">
-                            {cycle.actions.map((action) => (
-                              <span
-                                key={action.id}
-                                className={cn(
-                                  'rounded px-1.5 py-0.5 font-mono text-[9px]',
-                                  action.status === 'done'
-                                    ? 'bg-emerald-500/10 text-emerald-300'
-                                    : action.status === 'error' || action.status === 'blocked'
-                                      ? 'bg-red-500/10 text-red-300'
-                                      : action.status === 'approval_required'
-                                        ? 'bg-amber-500/10 text-amber-300'
-                                        : 'bg-slate-700/30 text-slate-400',
-                                )}
-                                title={action.result || action.status}
-                              >
-                                {action.type}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                </div>
-              )}
-            </div>
+            </details>
           </SectionCard>
 
           {/* ── Aprendizado (chat + presentes) ────────────────────────────── */}
           <SectionCard icon={<Sparkles className="h-4 w-4" />} title="Aprendizado" className="lg:col-span-2">
+            <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-white/8 bg-white/[0.02] p-3">
+              <p className="max-w-2xl text-[11px] text-slate-500">
+                Memoria segura da live: usuarios recorrentes, tom preferido, temas que funcionam,
+                temas que esfriam e presentes recebidos. Nao use isso para inventar intimidade.
+              </p>
+              <Button variant="secondary" size="sm" onClick={handleResetLearning}>
+                <Trash2 className="h-3 w-3" />
+                Resetar aprendizado
+              </Button>
+            </div>
+
+            {runtime.latestCycle?.memoryUsed && runtime.latestCycle.memoryUsed.length > 0 && (
+              <div className="rounded-xl border border-sky-500/15 bg-sky-500/8 p-3">
+                <div className="mb-2 flex items-center gap-2">
+                  <Brain className="h-3.5 w-3.5 text-sky-300" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-sky-200">Memorias usadas na ultima decisao</span>
+                </div>
+                <div className="grid gap-1.5 md:grid-cols-2">
+                  {runtime.latestCycle.memoryUsed.slice(0, 8).map((memory, index) => (
+                    <div key={`${memory}-${index}`} className="rounded-lg bg-black/20 px-2.5 py-1.5 text-[11px] text-sky-100/90">
+                      {memory}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <p className="text-[11px] text-slate-500">
               A Diretora aprende com a live: o que o chat fala/pede/curte e os presentes recebidos.
               Esses dados entram no contexto das decisões automaticamente.
             </p>
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
               {/* Chat */}
               <div className="rounded-xl border border-white/8 bg-[#0a0b0d] p-3 space-y-3">
                 <div className="flex items-center gap-2">
@@ -1081,6 +1386,35 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                       </div>
                     )}
 
+                    {(chatInsights.workingTopics.length > 0 || chatInsights.coolingTopics.length > 0) && (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {chatInsights.workingTopics.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-500/80">Funcionando</span>
+                            <div className="flex flex-wrap gap-1">
+                              {chatInsights.workingTopics.slice(0, 5).map(([key, c]) => (
+                                <span key={key} className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                                  {key} Â· {c.count}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {chatInsights.coolingTopics.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-amber-500/80">Esfriando</span>
+                            <div className="flex flex-wrap gap-1">
+                              {chatInsights.coolingTopics.slice(0, 5).map(([key, c]) => (
+                                <span key={key} className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300">
+                                  {key} Â· {c.count}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {chatInsights.aiSummary && (
                       <p className="rounded-lg border border-sky-500/20 bg-sky-500/8 px-2.5 py-1.5 text-[11px] text-sky-200/90">
                         {chatInsights.aiSummary.text}
@@ -1108,6 +1442,55 @@ export function AiConfigPanel({ videos, triggers, runtime }: AiConfigPanelProps)
                       </button>
                     </div>
                   </>
+                )}
+              </div>
+
+              {/* Usuarios */}
+              <div className="rounded-xl border border-white/8 bg-[#0a0b0d] p-3 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Bot className="h-3.5 w-3.5 text-violet-400" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Usuarios</span>
+                  <span className="ml-auto font-mono text-[10px] text-slate-500">{userMemories.length} recentes</span>
+                </div>
+
+                {userMemories.length === 0 ? (
+                  <p className="text-[11px] text-slate-600">
+                    Sem perfis locais ainda. A Odessa guarda apenas padroes uteis da live, sem dados sensiveis.
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-72 overflow-y-auto">
+                    {userMemories.slice(0, 12).map((profile) => {
+                      const topics = Object.entries(profile.recurringTopics || {})
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 3)
+                        .map(([topic]) => topic);
+                      return (
+                        <div key={profile.username} className="rounded-lg border border-white/6 bg-white/[0.02] px-2.5 py-2 text-[11px]">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate font-semibold text-slate-200">@{profile.username}</span>
+                            {profile.giftCount > 0 && (
+                              <span className="rounded bg-pink-500/12 px-1.5 py-0.5 text-[9px] text-pink-300">presenteador</span>
+                            )}
+                            {profile.messageCount > 1 && (
+                              <span className="rounded bg-violet-500/12 px-1.5 py-0.5 text-[9px] text-violet-300">recorrente</span>
+                            )}
+                            <span className="ml-auto font-mono text-[10px] text-slate-500">{profile.messageCount}m/{profile.giftCount}p</span>
+                          </div>
+                          {profile.lastMessage && (
+                            <p className="mt-1 truncate text-slate-500">Ultima: {profile.lastMessage}</p>
+                          )}
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {profile.preferredTone && (
+                              <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[9px] text-sky-300">tom {profile.preferredTone}</span>
+                            )}
+                            {topics.map((topic) => (
+                              <span key={topic} className="rounded bg-slate-700/40 px-1.5 py-0.5 text-[9px] text-slate-400">{topic}</span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
 
