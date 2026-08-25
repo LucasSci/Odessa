@@ -19,6 +19,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "test": "vitest",
+    "simulate:live": "node scripts/simulate-live-round.mjs",
     "test:backend": "venv\\Scripts\\python.exe -m pytest"
   },
   "dependencies": {
@@ -26,6 +27,7 @@
     "clsx": "^2.1.1",
     "lucide-react": "^1.14.0",
     "obs-websocket-js": "^5.0.8",
+    "playwright": "^1.62.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.5.0",
@@ -53,6 +55,6 @@
     "typescript": "~5.8.2",
     "typescript-eslint": "^8.59.4",
     "vite": "^8.0.13",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.10"
   }
 }

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import nodePath from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sendAutomatedMessage } from '../server/automation/sendController.js';
 
 // Strip any query string from import.meta.url before passing to fileURLToPath.
 // The old hot-reload mechanism appends ?v=mtime to force a new cache entry;
@@ -13,6 +14,7 @@ const SESSION_COOKIE_NAME = 'odessa_admin_session';
 const PERSONA_CONFIG_KEY = 'persona_config';
 const CONVERSATIONS_KEY = 'conversations';
 const CHAT_AUTOMATION_KEY = 'chat_automation';
+const CHAT_RESPONSE_CONFIG_KEY = 'chat_response_config';
 const AUTH_BUILD = 'ai-decide-2026-05-27-gemini-v1';
 const SESSION_TTL_SECONDS = Number(process.env.ODESSA_SESSION_TTL_SECONDS || 12 * 60 * 60);
 const DEFAULT_ADMIN_EMAIL = 'lucasbatista.c.l@gmail.com';
@@ -44,6 +46,7 @@ try { fs.mkdirSync(nodePath.join(UPLOADS_DIR, 'videos'), { recursive: true }); }
 const cloudStore = (globalThis.__ODESSA_CLOUD_STORE ||= {
   agentStatus: null,
   commandQueue: [],
+  commandRecords: {},
   events: [],
   pendingTriggerQueue: [],
 });
@@ -337,10 +340,10 @@ function sanitizeAiDecision(raw, ocrEvent) {
   };
 }
 
-async function callAiGemini(userMessage) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
+async function callAiGemini(userMessage, systemPrompt = AI_SYSTEM_PROMPT, model = GEMINI_MODEL) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`;
   const body = {
-    system_instruction: { parts: [{ text: AI_SYSTEM_PROMPT }] },
+    system_instruction: { parts: [{ text: systemPrompt }] },
     contents: [{ role: 'user', parts: [{ text: userMessage }] }],
     generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 256, temperature: 0.3 },
   };
@@ -539,10 +542,10 @@ function buildConversationPrompt(conversation) {
   );
 }
 
-async function callConversationGemini({ systemPrompt, userPrompt, model, temperature }) {
+async function callConversationGemini({ systemPrompt, userPrompt, model = GEMINI_MODEL, temperature }) {
   if (!GEMINI_KEY) throw new Error('GEMINI_API_KEY nao configurada');
   const upstream = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model || GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -562,13 +565,13 @@ async function callConversationGemini({ systemPrompt, userPrompt, model, tempera
   return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
-async function callConversationOpenAi({ systemPrompt, userPrompt, temperature }) {
+async function callConversationOpenAi({ systemPrompt, userPrompt, temperature, model = OPENAI_MODEL }) {
   if (!OPENAI_KEY) throw new Error('OPENAI_API_KEY nao configurada');
   const upstream = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_KEY}` },
     body: JSON.stringify({
-      model: OPENAI_MODEL,
+      model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -647,8 +650,32 @@ function approveConversationMessageRecord(conversationId, body) {
   return message;
 }
 
+function emptyChatAutomationWebSendConfig() {
+  return {
+    enabled: false,
+    url: '',
+    inputSelector: '',
+    sendButtonSelector: '',
+    typingDelayMs: 65,
+  };
+}
+
+function normalizeChatAutomationWebSendConfig(config) {
+  return {
+    enabled: config?.enabled === true,
+    url: String(config?.url || '').trim(),
+    inputSelector: String(config?.inputSelector || '').trim(),
+    sendButtonSelector: String(config?.sendButtonSelector || '').trim(),
+    typingDelayMs: Math.max(10, Math.min(Number(config?.typingDelayMs || 65), 500)),
+  };
+}
+
 function emptyChatAutomationConfig() {
-  return { allowlist: [], logs: [] };
+  return {
+    allowlist: [],
+    logs: [],
+    webSendConfig: emptyChatAutomationWebSendConfig(),
+  };
 }
 
 function loadChatAutomationConfig() {
@@ -657,16 +684,177 @@ function loadChatAutomationConfig() {
   return {
     allowlist: Array.isArray(value.allowlist) ? value.allowlist : [],
     logs: Array.isArray(value.logs) ? value.logs : [],
+    webSendConfig: normalizeChatAutomationWebSendConfig(value.webSendConfig),
   };
 }
 
 function saveChatAutomationConfig(config) {
+  const current = loadChatAutomationConfig();
   const next = {
     allowlist: Array.isArray(config.allowlist) ? config.allowlist : [],
-    logs: Array.isArray(config.logs) ? config.logs.slice(-300) : [],
+    logs: Array.isArray(config.logs) ? config.logs.slice(-300) : current.logs,
+    webSendConfig: config.webSendConfig
+      ? normalizeChatAutomationWebSendConfig(config.webSendConfig)
+      : current.webSendConfig,
   };
   setCloudValue(CHAT_AUTOMATION_KEY, next);
   return next;
+}
+
+function emptyChatResponseConfig() {
+  return {
+    enabled: true,
+    systemPrompt: 'Você é a persona Odessa, assistente de chat para lives TikTok. Gere uma resposta de chat curta, clara e empática, usando o tom definido na configuração.',
+    responseStyle: {
+      tone: 'friendly',
+      formality: 'informal',
+      language: 'pt-BR',
+      maxCharacters: 180,
+    },
+    responseSpace: {
+      field: 'responseText',
+      startMarker: '<<response>>',
+      endMarker: '<</response>>',
+      maxChars: 180,
+    },
+    rules: [
+      'Responda apenas ao comentário extraído pelo OCR.',
+      'Não explique a lógica interna do sistema.',
+      'Não peça dados pessoais.',
+      'Use linguagem natural, leve e direta.',
+    ],
+    model: AI_PROVIDER === 'openai' ? OPENAI_MODEL : GEMINI_MODEL,
+  };
+}
+
+function loadChatResponseConfig() {
+  const stored = getCloudValue(CHAT_RESPONSE_CONFIG_KEY);
+  return stored?.value && typeof stored.value === 'object' ? normalizeChatResponseConfig(stored.value) : emptyChatResponseConfig();
+}
+
+function saveChatResponseConfig(config) {
+  const next = normalizeChatResponseConfig(config);
+  setCloudValue(CHAT_RESPONSE_CONFIG_KEY, next);
+  return next;
+}
+
+function normalizeChatResponseConfig(config) {
+  const responseStyle = config?.responseStyle || {};
+  const responseSpace = config?.responseSpace || {};
+  return {
+    enabled: config?.enabled !== false,
+    systemPrompt: String(config?.systemPrompt || emptyChatResponseConfig().systemPrompt).trim(),
+    responseStyle: {
+      tone: String(responseStyle.tone || 'friendly').trim(),
+      formality: String(responseStyle.formality || 'informal').trim(),
+      language: String(responseStyle.language || 'pt-BR').trim(),
+      maxCharacters: Math.max(32, Math.min(Number(responseStyle.maxCharacters || 180), 512)),
+    },
+    responseSpace: {
+      field: String(responseSpace.field || 'responseText').trim(),
+      startMarker: String(responseSpace.startMarker || '<<response>>').trim(),
+      endMarker: String(responseSpace.endMarker || '<</response>>').trim(),
+      maxChars: Math.max(32, Math.min(Number(responseSpace.maxChars || Number(responseStyle.maxCharacters || 180)), 512)),
+    },
+    rules: Array.isArray(config?.rules) ? config.rules.filter((item) => typeof item === 'string').slice(0, 20) : [],
+    model: String(config?.model || (AI_PROVIDER === 'openai' ? OPENAI_MODEL : GEMINI_MODEL)).trim(),
+  };
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildChatResponseSystemPrompt(responseConfig) {
+  const lines = [
+    responseConfig.systemPrompt,
+    '',
+    'Estilo de resposta:',
+    `- Tom: ${responseConfig.responseStyle.tone}`,
+    `- Formalidade: ${responseConfig.responseStyle.formality}`,
+    `- Idioma: ${responseConfig.responseStyle.language}`,
+    `- Máximo de caracteres: ${responseConfig.responseStyle.maxCharacters}`,
+    '',
+  ];
+  if (responseConfig.rules.length) {
+    lines.push('Regras obrigatórias:');
+    responseConfig.rules.forEach((rule) => lines.push(`- ${rule}`));
+    lines.push('');
+  }
+  lines.push('RETORNE SOMENTE um objeto JSON válido com a seguinte estrutura:');
+  lines.push(`{ "${responseConfig.responseSpace.field}": "<texto da resposta>" }`);
+  lines.push(`O valor deve conter no máximo ${responseConfig.responseSpace.maxChars} caracteres.`);
+  lines.push('Não inclua texto fora do JSON. Não use markdown ou explicações adicionais.');
+  return lines.join('\n');
+}
+
+function buildChatResponseUserMessage(ocrEvent) {
+  const lines = [
+    'Dados OCR para gerar a resposta de chat:',
+    `- Texto bruto: "${String(ocrEvent.rawText || ocrEvent.text || '')}"`,
+    `- Texto normalizado: "${String(ocrEvent.normalizedText || '')}"`,
+    `- Tipo de evento: ${String(ocrEvent.eventType || 'chat')}`,
+    `- Zona: ${String(ocrEvent.zoneName || ocrEvent.zone || 'desconhecida')}`,
+    `- Confiança do OCR: ${Math.round(Number(ocrEvent.confidence ?? 0) * 100)}%`,
+  ];
+  if (ocrEvent.author) lines.push(`- Autor: ${String(ocrEvent.author)}`);
+  if (ocrEvent.metadata?.giftName) lines.push(`- Presente: ${String(ocrEvent.metadata.giftName)}`);
+  if (ocrEvent.metadata?.giftKey) lines.push(`- Gift key: ${String(ocrEvent.metadata.giftKey)}`);
+  lines.push('', 'Use esses dados para escrever uma resposta adequada ao chat da live.');
+  return lines.join('\n');
+}
+
+function sanitizeChatResponse(raw, responseConfig) {
+  let text = String(raw || '').trim();
+  if (!text) return null;
+  const start = responseConfig.responseSpace.startMarker;
+  const end = responseConfig.responseSpace.endMarker;
+  if (start && end) {
+    const markerRegex = new RegExp(`${escapeRegex(start)}([\s\S]*?)${escapeRegex(end)}`);
+    const match = text.match(markerRegex);
+    if (match?.[1]) {
+      text = match[1].trim();
+    }
+  }
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === 'object' && typeof parsed[responseConfig.responseSpace.field] === 'string') {
+      return parsed[responseConfig.responseSpace.field].trim().slice(0, responseConfig.responseSpace.maxChars);
+    }
+  } catch {
+    // not JSON, continue
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && typeof parsed[responseConfig.responseSpace.field] === 'string') {
+      return parsed[responseConfig.responseSpace.field].trim().slice(0, responseConfig.responseSpace.maxChars);
+    }
+  } catch {
+    // not JSON
+  }
+  if (responseConfig.responseSpace.field && text.startsWith('{') && text.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === 'object' && typeof parsed[responseConfig.responseSpace.field] === 'string') {
+        return parsed[responseConfig.responseSpace.field].trim().slice(0, responseConfig.responseSpace.maxChars);
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return text.slice(0, responseConfig.responseSpace.maxChars);
+}
+
+function buildChatResponsePayload(responseText, raw, responseConfig) {
+  return {
+    ok: true,
+    responseText,
+    responseSpace: responseConfig.responseSpace,
+    rawText: raw,
+    model: responseConfig.model,
+    provider: AI_PROVIDER,
+    timestamp: new Date().toISOString(),
+  };
 }
 
 function normalizeChatAutomationAllowlist(allowlist) {
@@ -774,6 +962,26 @@ function logChatAutomationAttempt(url, text, result, inputSelector = '', mode = 
   saveChatAutomationConfig(config);
 }
 
+function updateChatAutomationCommandLog(commandId, patch) {
+  if (!commandId) return;
+  const config = loadChatAutomationConfig();
+  let changed = false;
+  config.logs = config.logs.map((entry) => {
+    const result = entry?.result || {};
+    if (result.commandId !== commandId && result.command?.id !== commandId) return entry;
+    changed = true;
+    return {
+      ...entry,
+      updatedAt: nowIso(),
+      result: {
+        ...result,
+        ...patch,
+      },
+    };
+  });
+  if (changed) saveChatAutomationConfig(config);
+}
+
 function validateChatAutomationTarget(body) {
   const mode = body?.mode === 'visual' ? 'visual' : 'selector';
   const target = matchChatAutomationTarget(body?.url, body?.inputSelector, mode, body?.inputPoint);
@@ -818,29 +1026,48 @@ function sendChatAutomationMessageRecord(body) {
     wouldSend: !dryRun && submit,
   };
   if (mode === 'visual' && !dryRun) {
+    const commandId = crypto.randomUUID();
     const queued = enqueueAgentCommand({
-      type: 'chat.reply',
+      id: commandId,
+      type: 'chat.send_visual',
+      timeoutMs: Number(body?.timeoutMs || 20_000),
+      maxAttempts: Number(body?.maxAttempts || 2),
       payload: {
+        commandId,
         text,
+        mode,
+        targetUrl: url,
         inputPoint: result.inputPoint,
         sendPoint: result.sendPoint,
         viewport: result.viewport,
+        plannedInputPixel: result.plannedInputPixel,
+        plannedSendPixel: result.plannedSendPixel,
         submit,
       },
     });
+    result.status = 'queued';
     result.queued = true;
+    result.commandId = commandId;
     result.command = queued.command;
     result.queueSize = queued.queueSize;
     result.executionMode = 'cloud-agent';
+    result.reason = 'queued_for_local_agent';
   }
   logChatAutomationAttempt(url, text, result, inputSelector, mode, inputPoint);
   return result;
 }
 
-function stateFromAgentStatus(_agentStatus) {
+function stateFromAgentStatus(agentStatus) {
+  const lastSeenMs = Date.parse(agentStatus?.lastSeenAt || '');
+  const online = Number.isFinite(lastSeenMs) && Date.now() - lastSeenMs < 45_000;
   return {
-    mode: 'cloud',
-    message: 'Odessa Cloud esta online.',
+    mode: online ? 'local-agent' : 'cloud',
+    message: online ? 'Agente local conectado.' : 'Odessa Cloud esta online; agente local offline.',
+    localAgent: {
+      online,
+      lastSeenAt: agentStatus?.lastSeenAt || null,
+      capabilities: Array.isArray(agentStatus?.capabilities) ? agentStatus.capabilities : [],
+    },
   };
 }
 
@@ -889,26 +1116,132 @@ function saveProfiles(kind, profiles) {
 }
 
 function enqueueAgentCommand(command) {
+  const id = command.id || crypto.randomUUID();
+  const now = new Date().toISOString();
   const normalized = {
-    id: command.id || crypto.randomUUID(),
+    id,
     type: command.type || 'noop',
     payload: command.payload || {},
-    createdAt: command.createdAt || new Date().toISOString(),
+    createdAt: command.createdAt || now,
+    updatedAt: now,
+    status: 'queued',
+    attempts: 0,
+    maxAttempts: Math.max(1, Math.min(Number(command.maxAttempts || 2), 5)),
+    timeoutMs: Math.max(5_000, Math.min(Number(command.timeoutMs || 20_000), 120_000)),
   };
-  cloudStore.commandQueue.push(normalized);
-  return { command: normalized, queueSize: cloudStore.commandQueue.length, persisted: false };
+  cloudStore.commandRecords ||= {};
+  cloudStore.commandRecords[id] = normalized;
+  cloudStore.commandQueue.push(id);
+  return { command: publicAgentCommand(normalized), queueSize: cloudStore.commandQueue.length, persisted: false };
+}
+
+function publicAgentCommand(command) {
+  if (!command) return null;
+  return {
+    id: command.id,
+    type: command.type,
+    payload: command.payload || {},
+    createdAt: command.createdAt,
+    attempt: command.attempts || 0,
+    timeoutMs: command.timeoutMs,
+  };
+}
+
+function refreshTimedOutCommands(now = Date.now()) {
+  cloudStore.commandRecords ||= {};
+  for (const command of Object.values(cloudStore.commandRecords)) {
+    if (!command || command.status !== 'in_flight') continue;
+    const claimedAtMs = Date.parse(command.claimedAt || '');
+    if (!Number.isFinite(claimedAtMs) || now - claimedAtMs <= command.timeoutMs) continue;
+    if ((command.attempts || 0) < command.maxAttempts) {
+      command.status = 'queued';
+      command.updatedAt = new Date(now).toISOString();
+      command.lastError = 'agent_command_timeout';
+      cloudStore.commandQueue.push(command.id);
+      updateChatAutomationCommandLog(command.id, {
+        status: 'queued',
+        reason: 'retry_after_agent_timeout',
+        attempts: command.attempts || 0,
+        error: 'agent_command_timeout',
+      });
+    } else {
+      command.status = 'failed';
+      command.updatedAt = new Date(now).toISOString();
+      command.completedAt = new Date(now).toISOString();
+      command.error = 'agent_command_timeout';
+      updateChatAutomationCommandLog(command.id, {
+        status: 'failed',
+        executed: false,
+        completedAt: command.completedAt,
+        error: 'agent_command_timeout',
+      });
+    }
+  }
 }
 
 function claimNextAgentCommand() {
-  return { command: cloudStore.commandQueue.shift() || null, queueSize: cloudStore.commandQueue.length };
+  refreshTimedOutCommands();
+  cloudStore.commandRecords ||= {};
+  while (cloudStore.commandQueue.length) {
+    const queued = cloudStore.commandQueue.shift();
+    let command = typeof queued === 'string' ? cloudStore.commandRecords[queued] : queued;
+    if (!command) continue;
+    if (typeof queued !== 'string') {
+      command = {
+        id: command.id || crypto.randomUUID(),
+        type: command.type || 'noop',
+        payload: command.payload || {},
+        createdAt: command.createdAt || new Date().toISOString(),
+        status: 'queued',
+        attempts: command.attempts || 0,
+        maxAttempts: command.maxAttempts || 2,
+        timeoutMs: command.timeoutMs || 20_000,
+      };
+      cloudStore.commandRecords[command.id] = command;
+    }
+    if (command.status !== 'queued') continue;
+    command.status = 'in_flight';
+    command.claimedAt = new Date().toISOString();
+    command.updatedAt = command.claimedAt;
+    command.attempts = (command.attempts || 0) + 1;
+    return { command: publicAgentCommand(command), queueSize: cloudStore.commandQueue.length };
+  }
+  return { command: null, queueSize: cloudStore.commandQueue.length };
 }
 
 function queuedCommandCount() {
-  return cloudStore.commandQueue.length;
+  refreshTimedOutCommands();
+  cloudStore.commandRecords ||= {};
+  return Object.values(cloudStore.commandRecords).filter((command) =>
+    command && (command.status === 'queued' || command.status === 'in_flight')
+  ).length;
 }
 
 function recordAgentEvent(event) {
   const payload = { ...event, receivedAt: new Date().toISOString() };
+  const commandId = payload.commandId || payload.command?.id || payload.command?.commandId;
+  if (commandId) {
+    cloudStore.commandRecords ||= {};
+    const record = cloudStore.commandRecords[commandId];
+    const result = payload.result || {};
+    const status = payload.status || (result.ok === true ? 'executed' : result.ok === false ? 'failed' : 'reported');
+    if (record) {
+      record.status = status === 'executed' || status === 'sent' || status === 'done' ? 'executed' : status === 'queued' ? 'queued' : status === 'sending' ? 'in_flight' : 'failed';
+      record.updatedAt = payload.receivedAt;
+      record.completedAt = payload.receivedAt;
+      record.result = result.result || result;
+      record.coordinates = payload.coordinates || result.coordinates || result.result?.coordinates || null;
+      record.error = payload.error || result.error || result.result?.reason || null;
+    }
+    updateChatAutomationCommandLog(commandId, {
+      status: status === 'executed' || status === 'sent' || status === 'done' ? 'executed' : 'failed',
+      executed: status === 'executed' || status === 'sent' || status === 'done',
+      completedAt: payload.receivedAt,
+      coordinates: payload.coordinates || result.coordinates || result.result?.coordinates || null,
+      error: payload.error || result.error || result.result?.reason || null,
+      agentResult: result,
+    });
+  }
   cloudStore.events.push(payload);
   cloudStore.events = cloudStore.events.slice(-100);
   return { persisted: false };
@@ -916,6 +1249,27 @@ function recordAgentEvent(event) {
 
 function recentAgentEvents() {
   return cloudStore.events.slice(-20);
+}
+
+function recentAgentCommands() {
+  refreshTimedOutCommands();
+  cloudStore.commandRecords ||= {};
+  return Object.values(cloudStore.commandRecords)
+    .filter(Boolean)
+    .sort((a, b) => Date.parse(a.updatedAt || a.createdAt || '') - Date.parse(b.updatedAt || b.createdAt || ''))
+    .slice(-20)
+    .map((command) => ({
+      id: command.id,
+      type: command.type,
+      status: command.status,
+      attempts: command.attempts || 0,
+      maxAttempts: command.maxAttempts,
+      createdAt: command.createdAt,
+      updatedAt: command.updatedAt,
+      completedAt: command.completedAt,
+      coordinates: command.coordinates || null,
+      error: command.error || null,
+    }));
 }
 
 // ── Trigger queue helpers ──────────────────────────────────────────────────
@@ -1365,6 +1719,7 @@ async function agentResponse(req, res, path) {
       ok: true,
       queueSize: queuedCommandCount(),
       recentEvents: recentAgentEvents(),
+      recentCommands: recentAgentCommands(),
       ...stateFromAgentStatus(agentStatus),
     });
   }
@@ -2747,7 +3102,11 @@ async function protectedResponse(req, res, rawPath) {
 
   if (path === '/chat-automation/config' && req.method === 'GET') {
     const config = loadChatAutomationConfig();
-    return json(res, 200, { allowlist: config.allowlist, logs: config.logs.slice(-100) });
+    return json(res, 200, {
+      allowlist: config.allowlist,
+      logs: config.logs.slice(-100),
+      webSendConfig: config.webSendConfig,
+    });
   }
 
   if (path === '/chat-automation/config' && req.method === 'POST') {
@@ -2756,8 +3115,74 @@ async function protectedResponse(req, res, rawPath) {
     const next = saveChatAutomationConfig({
       allowlist: normalizeChatAutomationAllowlist(body?.allowlist),
       logs: current.logs,
+      webSendConfig: body?.webSendConfig ? normalizeChatAutomationWebSendConfig(body.webSendConfig) : current.webSendConfig,
     });
-    return json(res, 200, { allowlist: next.allowlist, logs: next.logs.slice(-100) });
+    return json(res, 200, {
+      allowlist: next.allowlist,
+      logs: next.logs.slice(-100),
+      webSendConfig: next.webSendConfig,
+    });
+  }
+
+  if (path === '/chat-automation/web-send' && req.method === 'POST') {
+    const body = await readBody(req);
+    const response = await sendAutomatedMessage({
+      conversationContext: body?.conversationContext || body?.context || {},
+      url: String(body?.url || '').trim(),
+      inputSelector: String(body?.inputSelector || '').trim(),
+      sendButtonSelector: String(body?.sendButtonSelector || '').trim(),
+      typingDelayMs: Number(body?.typingDelayMs ?? 65),
+      metadata: body?.metadata || {},
+    });
+    return json(res, response.ok ? 200 : 502, response);
+  }
+
+  if (path === '/chat-automation/response-config' && req.method === 'GET') {
+    const config = loadChatResponseConfig();
+    return json(res, 200, { config });
+  }
+
+  if (path === '/chat-automation/response-config' && req.method === 'POST') {
+    const body = await readBody(req);
+    const config = body?.config && typeof body.config === 'object' ? body.config : body;
+    const saved = saveChatResponseConfig(config);
+    return json(res, 200, { ok: true, config: saved });
+  }
+
+  if (path === '/chat-automation/response' && req.method === 'POST') {
+    const body = await readBody(req);
+    const ocrEvent = body?.ocrEvent || body?.event || null;
+    if (!ocrEvent || (!ocrEvent.rawText && !ocrEvent.normalizedText && !ocrEvent.text)) {
+      return json(res, 400, { error: 'ocrEvent com rawText ou normalizedText é obrigatório.' });
+    }
+
+    const responseConfig = body?.overrideConfig && typeof body.overrideConfig === 'object'
+      ? normalizeChatResponseConfig(body.overrideConfig)
+      : loadChatResponseConfig();
+    if (!responseConfig.enabled) {
+      return json(res, 403, { error: 'Configuração de resposta de chat está desativada.' });
+    }
+
+    try {
+      const systemPrompt = buildChatResponseSystemPrompt(responseConfig);
+      const userMessage = buildChatResponseUserMessage(ocrEvent);
+      if (AI_PROVIDER === 'openai' && !OPENAI_KEY) {
+        throw new Error('OPENAI_API_KEY não configurada no servidor');
+      }
+      if (AI_PROVIDER === 'gemini' && !GEMINI_KEY) {
+        throw new Error('GEMINI_API_KEY não configurada no servidor');
+      }
+      const rawText = AI_PROVIDER === 'openai'
+        ? await callAiOpenAi(userMessage, systemPrompt, responseConfig.model)
+        : await callAiGemini(userMessage, systemPrompt, responseConfig.model);
+      const responseText = sanitizeChatResponse(rawText, responseConfig);
+      if (!responseText) throw new Error('IA retornou texto vazio ou inválido.');
+      return json(res, 200, buildChatResponsePayload(responseText, rawText, responseConfig));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erro desconhecido';
+      console.error('[chat-automation/response]', message);
+      return json(res, 502, { error: message, provider: AI_PROVIDER });
+    }
   }
 
   if (path === '/chat-automation/validate' && req.method === 'POST') {
@@ -2902,6 +3327,9 @@ async function protectedResponse(req, res, rawPath) {
 
 export default async function handler(req, res) {
   let path = routePath(req);
+  if (path.startsWith('/v1/')) {
+    path = path.replace(/^\/v1/, '');
+  }
   if ((path === '/' || path === '/agent') && req.query.obsAction) {
     path = `/obs/${String(req.query.obsAction).replace(/^\/+/, '')}`;
   }

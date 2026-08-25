@@ -7,17 +7,20 @@ import {
   ClipboardCheck,
   Copy,
   Database,
+  Download,
   FastForward,
   Film,
   Home,
   Link2,
   ListVideo,
   Maximize2,
+  MessageCircle,
   Minimize2,
   Pause,
   Play,
   RadioTower,
   RefreshCw,
+  RotateCcw,
   Rewind,
   Route,
   Save,
@@ -45,11 +48,11 @@ import {
 } from './lib/obsCommandRouter';
 import { cn } from './lib/utils';
 import type { AutopilotRuntimeState } from './core/useAutopilotRuntime';
-import type { CapturedMessage } from './types';
+import type { AuditTimelineEntry, AutopilotCycle, CapturedMessage } from './types';
 import { Badge, Button, Card, ConfirmButton, Input, StatusDot, Tooltip } from './components/ui';
 import { AiDecisionPanel } from './components/AiDecisionPanel';
 import { AiConfigPanel } from './components/AiConfigPanel';
-import { DirectorOneToOnePanel } from './components/DirectorOneToOnePanel';
+import { TangoChatPanel } from './components/TangoChatPanel';
 import VideoEditor from './components/VideoEditor';
 import { DebugLogPanel, logEntry } from './components/DebugLogPanel';
 import { StatusBadge, deriveStageStatus } from './components/StatusBadge';
@@ -131,7 +134,7 @@ interface OdessaLiveCenterProps {
   onObsSettingsChanged?: (settings: Record<string, unknown>) => void;
 }
 
-type TabKey = 'home' | 'stage' | 'ai' | 'flow' | 'canvas' | 'library' | 'sources' | 'logs' | 'settings';
+type TabKey = 'home' | 'stage' | 'ai' | 'chat' | 'flow' | 'canvas' | 'library' | 'sources' | 'logs' | 'settings';
 
 type VideoEntry = {
   id: string;
@@ -509,9 +512,9 @@ export default function OdessaLiveCenter({
     }
   }, []);
 
-  // ⚡ Bolt: Using lazy initialization pattern to prevent O(N) memory allocation and iteration on every render
   const processedGiftIdsRef = useRef<Set<string> | null>(null);
   if (processedGiftIdsRef.current === null) {
+    // ⚡ Bolt: Lazily initialize the Set to avoid O(N) memory allocation and iteration on every render.
     processedGiftIdsRef.current = new Set(capturedText.map((event) => event.id));
   }
 
@@ -919,6 +922,7 @@ export default function OdessaLiveCenter({
             <SideNavButton icon={<Home />}       label="Início"       active={activeTab === 'home'}     onClick={() => setActiveTab('home')} />
             <SideNavButton icon={<Video />}      label="Palco"        active={activeTab === 'stage'}    onClick={() => setActiveTab('stage')} />
             <SideNavButton icon={<Brain />}      label="Diretora IA"  active={activeTab === 'ai'}       onClick={() => setActiveTab('ai')} />
+            <SideNavButton icon={<MessageCircle />} label="Tango Chat"   active={activeTab === 'chat'}     onClick={() => setActiveTab('chat')} />
           </div>
           <div className="odsa-nav-group">
             <span className="odsa-nav-label">Conteúdo</span>
@@ -988,7 +992,7 @@ export default function OdessaLiveCenter({
       <div className="flex gap-1 overflow-x-auto border-b border-[var(--border)] px-3 py-1.5 lg:hidden" style={{ background: 'rgba(6,7,10,0.86)', backdropFilter: 'blur(20px)' }}>
         {([
           { id: 'home', label: 'Início' }, { id: 'stage', label: 'Palco' },
-          { id: 'ai', label: 'IA' }, { id: 'flow', label: 'Fluxo' }, { id: 'canvas', label: 'Mural' },
+          { id: 'ai', label: 'IA' }, { id: 'chat', label: 'Tango Chat' }, { id: 'flow', label: 'Fluxo' }, { id: 'canvas', label: 'Mural' },
           { id: 'library', label: 'Biblioteca' }, { id: 'sources', label: 'Fontes' },
           { id: 'logs', label: 'Logs' }, { id: 'settings', label: 'Config' },
         ] as { id: TabKey; label: string }[]).map(({ id, label }) => (
@@ -1035,10 +1039,17 @@ export default function OdessaLiveCenter({
         )}
         {activeTab === 'ai' && (
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            <div className="grid gap-4 2xl:grid-cols-[minmax(520px,0.95fr)_minmax(620px,1.05fr)]">
-              <DirectorOneToOnePanel />
-              <AiConfigPanel videos={view.videos} triggers={view.triggers} runtime={runtime} />
-            </div>
+            <AiConfigPanel
+              videos={view.videos}
+              triggers={view.triggers}
+              runtime={runtime}
+              onOpenCapture={() => setActiveTab('sources')}
+            />
+          </div>
+        )}
+        {activeTab === 'chat' && (
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
+            <TangoChatPanel />
           </div>
         )}
         {activeTab === 'flow' && (
@@ -1104,6 +1115,7 @@ export default function OdessaLiveCenter({
               error={reactiveError}
               busy={reactiveBusy}
               videoState={videoState}
+              runtime={runtime}
               onRefreshLogs={refreshAutomationLogs}
               onRun={runReactiveFlow}
             />
@@ -2572,6 +2584,7 @@ function ReactiveFlowLogLab({
   error,
   busy,
   videoState,
+  runtime,
   onRefreshLogs,
   onRun,
 }: {
@@ -2581,10 +2594,14 @@ function ReactiveFlowLogLab({
   error: string | null;
   busy: boolean;
   videoState: VideoState | null;
+  runtime: AutopilotRuntimeState;
   onRefreshLogs: () => Promise<void>;
   onRun: (text: string, source?: string) => Promise<ReactiveRunResult | null>;
 }) {
   const [text, setText] = useState('Lucas enviou Rosa');
+  const [auditFilter, setAuditFilter] = useState<AuditTimelineFilter>('all');
+  const [expandedCycleId, setExpandedCycleId] = useState<string | null>(null);
+  const [visibleRounds, setVisibleRounds] = useState(8);
   const parsedEvent = latestRun?.test.events?.[0];
   const matched = latestRun?.test.matchedTriggers || [];
   const queued = latestRun?.test.queuedActions || [];
@@ -2601,8 +2618,18 @@ function ReactiveFlowLogLab({
     void onRun(nextText, 'test');
   };
 
+  // ⚡ Bolt: Using a backward for-loop instead of .slice().reverse().filter().slice()
+  // to avoid O(N) memory allocation and multiple traversals on every render.
+  const auditCycles: typeof runtime.cycles = [];
+  for (let i = runtime.cycles.length - 1; i >= 0 && auditCycles.length < visibleRounds; i--) {
+    const cycle = runtime.cycles[i];
+    if (auditFilter === 'all' || auditEntriesForCycle(cycle).some((entry) => matchesAuditFilter(entry, auditFilter))) {
+      auditCycles.push(cycle);
+    }
+  }
+
   return (
-    <div className="grid min-h-full gap-4 p-4 xl:grid-cols-[minmax(520px,1fr)_360px]">
+    <div className="grid min-h-full gap-4 p-4 xl:grid-cols-[minmax(540px,1fr)_420px]">
       <section className="flex min-h-0 flex-col gap-4">
         <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
@@ -2650,6 +2677,88 @@ function ReactiveFlowLogLab({
           <Metric label="Execucoes" value={executed.length} />
         </div>
 
+        <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <SectionTitle icon={<ClipboardCheck />} title="Timeline da Diretora" />
+            <div className="ml-auto flex flex-wrap gap-1.5">
+              {AUDIT_FILTERS.map((filter) => (
+                <button
+                  key={filter.id}
+                  onClick={() => setAuditFilter(filter.id)}
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest transition',
+                    auditFilter === filter.id
+                      ? 'border-sky-200/45 bg-sky-300/15 text-sky-100'
+                      : 'border-white/10 bg-white/[0.035] text-slate-500 hover:text-slate-200',
+                  )}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-3">
+            {auditCycles.map((cycle) => {
+              const entries = auditEntriesForCycle(cycle).filter((entry) =>
+                matchesAuditFilter(entry, auditFilter),
+              );
+              const chatStatus = cycle.actions.find((action) => action.capability === 'chat.reply')?.chatAutomationStatus;
+              const hasError = cycle.stage === 'erro' || entries.some((entry) => entry.status === 'error');
+              const expanded = expandedCycleId === cycle.id;
+              return (
+                <div key={cycle.id} className={cn('rounded-2xl border bg-white/[0.035] p-3', hasError ? 'border-red-400/30' : 'border-white/10')}>
+                  <div className="flex flex-wrap items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={hasError ? 'warning' : cycle.stage === 'concluido' ? 'success' : 'lavender'}>
+                          {cycle.stage}
+                        </Badge>
+                        <span className="truncate text-sm font-semibold text-white">
+                          {cycle.event.kind} / {cycle.decision?.intent || 'sem decisao'}
+                        </span>
+                        {chatStatus && <span className="rounded-full border border-white/10 bg-black/25 px-2 py-0.5 text-[10px] uppercase tracking-widest text-slate-300">chat: {chatStatus}</span>}
+                      </div>
+                      <div className="mt-1 line-clamp-2 text-xs text-slate-400">{cycle.event.text}</div>
+                      {cycle.error && <div className="mt-2 text-xs text-red-200">{cycle.error}</div>}
+                    </div>
+                    <button
+                      className="odsa-btn odsa-btn-secondary odsa-btn-md odsa-btn-icon"
+                      title="Replay em modo teste"
+                      disabled={runtime.isProcessing}
+                      onClick={() => void runtime.replayRound(cycle.id)}
+                    >
+                      <RotateCcw style={{ width: 14, height: 14 }} />
+                    </button>
+                    <button
+                      className="odsa-btn odsa-btn-secondary odsa-btn-md"
+                      onClick={() => setExpandedCycleId(expanded ? null : cycle.id)}
+                    >
+                      {expanded ? 'Ocultar' : 'Detalhes'}
+                    </button>
+                  </div>
+                  {expanded && (
+                    <div className="mt-3 space-y-2">
+                      {entries.map((entry) => (
+                        <AuditTimelineRow key={entry.id} entry={entry} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {!auditCycles.length && (
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-500">
+                Nenhuma rodada encontrada para este filtro.
+              </div>
+            )}
+            {runtime.cycles.length > visibleRounds && (
+              <Button variant="secondary" onClick={() => setVisibleRounds((value) => value + 8)}>
+                Mostrar mais rodadas
+              </Button>
+            )}
+          </div>
+        </div>
+
         <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
           <div className="min-h-[260px] overflow-y-auto rounded-[28px] border border-white/10 bg-[#101114] p-4">
             <SectionTitle icon={<RadioTower />} title="Ultimo teste" />
@@ -2670,15 +2779,29 @@ function ReactiveFlowLogLab({
           <div className="min-h-[260px] overflow-y-auto rounded-[28px] border border-white/10 bg-[#101114] p-4">
             <SectionTitle icon={<ListVideo />} title="Eventos capturados" />
             <div className="mt-4 space-y-2 pr-1">
-              {capturedText.slice(-10).reverse().map((event) => (
-                <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
-                  <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-[var(--t3)]">
-                    <span>{event.kind}</span>
-                    <span>{event.time}</span>
+              {(() => {
+                // ⚡ Bolt: Using backward loop instead of slice(-10).reverse()
+                const recentEvents = [];
+                for (let i = capturedText.length - 1; i >= Math.max(0, capturedText.length - 10); i--) {
+                  recentEvents.push(capturedText[i]);
+                }
+                return recentEvents.map((event) => (
+                  <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
+                    <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-[var(--t3)]">
+                      <span>{event.kind} / {event.source}</span>
+                      <span>{event.time}</span>
+                    </div>
+                    <div className="line-clamp-2 text-sm text-slate-200">{event.text}</div>
+                    <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-wide text-slate-500">
+                      <span>{event.zoneName || 'sem zona'}</span>
+                      {typeof event.metadata?.confidence === 'number' && (
+                        <span>{Math.round(event.metadata.confidence * 100)}% conf.</span>
+                      )}
+                      {event.metadata?.backendIngested === true && <span>backend</span>}
+                    </div>
                   </div>
-                  <div className="line-clamp-2 text-sm text-slate-200">{event.text}</div>
-                </div>
-              ))}
+                ));
+              })()}
               {!capturedText.length && <div className="text-sm text-slate-500">Nenhum evento capturado.</div>}
             </div>
           </div>
@@ -2686,7 +2809,13 @@ function ReactiveFlowLogLab({
       </section>
 
       <aside className="min-h-[320px] overflow-y-auto rounded-[28px] border border-white/10 bg-[#101114] p-4">
-        <SectionTitle icon={<ListVideo />} title="Timeline backend" />
+        <div className="flex items-center gap-2">
+          <SectionTitle icon={<ListVideo />} title="Timeline backend" />
+          <Button variant="secondary" onClick={runtime.exportSession}>
+            <Download className="h-4 w-4" />
+            JSON
+          </Button>
+        </div>
         <div className="mt-4 space-y-2 pr-1">
           {logs.map((entry, index) => (
             <div key={`${entry.timestamp}-${index}`} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
@@ -2709,6 +2838,126 @@ function ReactiveFlowLogLab({
           {!logs.length && <div className="text-sm text-slate-500">Sem logs do backend ainda.</div>}
         </div>
       </aside>
+    </div>
+  );
+}
+
+type AuditTimelineFilter = 'all' | 'chat' | 'gift' | 'video' | 'obs' | 'moderation' | 'error';
+
+const AUDIT_FILTERS: Array<{ id: AuditTimelineFilter; label: string }> = [
+  { id: 'all', label: 'Todos' },
+  { id: 'chat', label: 'Chat' },
+  { id: 'gift', label: 'Presente' },
+  { id: 'video', label: 'Video' },
+  { id: 'obs', label: 'OBS' },
+  { id: 'moderation', label: 'Moderacao' },
+  { id: 'error', label: 'Erro' },
+];
+
+function actionAuditType(action: AutopilotCycle['actions'][number]): AuditTimelineEntry['type'] {
+  if (action.status === 'error') return 'error';
+  if (action.capability === 'chat.reply') return 'chat';
+  if (action.capability === 'gift.acknowledge') return 'gift';
+  if (action.capability === 'media.play_video' || action.capability === 'media.play_music') return 'video';
+  if (action.capability === 'obs.switch_scene' || action.capability === 'obs.show_overlay') return 'obs';
+  if (action.capability === 'moderation.message') return 'moderation';
+  return 'execution';
+}
+
+function auditEntriesForCycle(cycle: AutopilotCycle): AuditTimelineEntry[] {
+  if (Array.isArray(cycle.timeline) && cycle.timeline.length) return cycle.timeline;
+  const createdAt = cycle.createdAt || new Date().toISOString();
+  return [
+    {
+      id: `${cycle.id}-capture`,
+      at: createdAt,
+      time: cycle.event.time,
+      type: 'capture',
+      title: 'Eventos capturados para a rodada',
+      status: 'done',
+      payload: { events: cycle.events },
+    },
+    ...(cycle.decision
+      ? [{
+          id: `${cycle.id}-decision`,
+          at: createdAt,
+          time: cycle.event.time,
+          type: 'decision' as const,
+          title: 'Decisao da IA/Diretora',
+          status: 'done' as const,
+          payload: cycle.decision as unknown as Record<string, unknown>,
+        }]
+      : []),
+    ...cycle.actions.map((action): AuditTimelineEntry => {
+      const status: AuditTimelineEntry['status'] =
+        action.status === 'error'
+          ? 'error'
+          : action.status === 'blocked' || action.status === 'approval_required'
+            ? 'blocked'
+            : action.status === 'queued' || action.status === 'running'
+              ? 'queued'
+              : 'done';
+      return {
+        id: `${cycle.id}-${action.id}`,
+        at: action.createdAt || createdAt,
+        time: cycle.event.time,
+        type: actionAuditType(action),
+        title: action.label,
+        status,
+        actionId: action.id,
+        payload: {
+          capability: action.capability,
+          mode: action.executionMode || (action.requiresApproval ? 'approval_required' : action.simulated ? 'simulated' : 'real'),
+          chatAutomationStatus: action.chatAutomationStatus,
+          status: action.status,
+          payload: action.payload,
+        },
+        result: action.result,
+      };
+    }),
+    ...(cycle.error
+      ? [{
+          id: `${cycle.id}-error`,
+          at: cycle.completedAt || createdAt,
+          time: cycle.event.time,
+          type: 'error' as const,
+          title: 'Erro na rodada',
+          status: 'error' as const,
+          payload: { stage: cycle.stage, error: cycle.error },
+          result: cycle.error,
+        }]
+      : []),
+  ];
+}
+
+function matchesAuditFilter(entry: AuditTimelineEntry, filter: AuditTimelineFilter) {
+  if (filter === 'all') return true;
+  if (filter === 'error') return entry.type === 'error' || entry.status === 'error';
+  return entry.type === filter;
+}
+
+function AuditTimelineRow({ entry }: { entry: AuditTimelineEntry }) {
+  const mode = typeof entry.payload?.mode === 'string' ? entry.payload.mode : null;
+  const chatStatus = typeof entry.payload?.chatAutomationStatus === 'string'
+    ? entry.payload.chatAutomationStatus
+    : null;
+  return (
+    <div className={cn('rounded-xl border bg-black/25 p-3', entry.status === 'error' ? 'border-red-400/30' : 'border-white/10')}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="w-16 shrink-0 font-mono text-[10px] text-slate-500">{entry.time}</span>
+        <Badge variant={entry.status === 'error' || entry.status === 'blocked' ? 'warning' : entry.status === 'done' ? 'success' : 'lavender'}>
+          {entry.type}
+        </Badge>
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-100">{entry.title}</span>
+        {mode && <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-widest text-slate-300">{mode}</span>}
+        {chatStatus && <span className="rounded-full border border-sky-200/20 bg-sky-300/10 px-2 py-0.5 text-[10px] uppercase tracking-widest text-sky-100">{chatStatus}</span>}
+      </div>
+      {entry.result && <div className="mt-2 text-xs text-slate-300">{entry.result}</div>}
+      {entry.payload && (
+        <pre className="mt-2 max-h-44 overflow-auto rounded-xl bg-black/40 p-2 text-[10px] text-slate-400">
+          {JSON.stringify(entry.payload, null, 2)}
+        </pre>
+      )}
     </div>
   );
 }
@@ -2751,6 +3000,7 @@ const TAB_META: Record<TabKey, { group: string; title: string }> = {
   home:     { group: 'Operação', title: 'Início' },
   stage:    { group: 'Operação', title: 'Palco' },
   ai:       { group: 'Operação', title: 'Diretora IA' },
+  chat:     { group: 'Operação', title: 'Tango Chat' },
   flow:     { group: 'Conteúdo', title: 'Fluxo Reativo' },
   canvas:   { group: 'Conteúdo', title: 'Mural' },
   library:  { group: 'Conteúdo', title: 'Biblioteca' },
@@ -2822,7 +3072,11 @@ function HomeDashboard({
   onRefresh: () => void;
   onSimulateGift: () => void;
 }) {
-  const latestEvents = capturedText.slice(-6).reverse();
+  // ⚡ Bolt: Using backward loop instead of slice(-6).reverse()
+  const latestEvents = [];
+  for (let i = capturedText.length - 1; i >= Math.max(0, capturedText.length - 6); i--) {
+    latestEvents.push(capturedText[i]);
+  }
   const activeConnections = view.connections
     .map((connection) => ({
       connection,
@@ -3933,7 +4187,13 @@ function StagePanel({
         : null);
   const displayClip = connectionPreviewClip || activeClip;
   const upcomingClips = Array.isArray(videoState?.upcoming) ? videoState.upcoming : [];
-  const latestSignals = capturedText.slice(-3).reverse();
+
+  // ⚡ Bolt: Using backward loop instead of slice(-3).reverse()
+  const latestSignals = [];
+  for (let i = capturedText.length - 1; i >= Math.max(0, capturedText.length - 3); i--) {
+    latestSignals.push(capturedText[i]);
+  }
+
   const activeClipLabel = activeClip ? clipDisplayName(activeClip, view.videos) : 'Sem video selecionado';
   const activeNodeId = videoState?.activeNodeId || activeClip?.nodeId || null;
   const activeConnectionId = videoState?.activeConnectionId || null;

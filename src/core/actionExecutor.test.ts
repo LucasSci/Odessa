@@ -99,6 +99,39 @@ describe('actionExecutor chat.reply visual safety', () => {
     expect(body.inputPoint).toEqual({ x: 0.1, y: 0.9 });
   });
 
+  it('reports cloud-agent queued chat replies as completed handoff', async () => {
+    (fetch as any).mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          status: 'queued',
+          allowed: true,
+          queued: true,
+          commandId: 'cmd-123',
+          text: 'Oi!',
+          executionMode: 'cloud-agent',
+        }),
+    });
+
+    const result = await executeAction(
+      {
+        id: 'chat-queued',
+        type: 'chat_reply',
+        label: 'Responder',
+        capability: 'chat.reply',
+        payload: { message: 'Oi!', governorAllowed: true, dryRun: false },
+        simulated: false,
+        status: 'queued',
+      },
+      decision,
+      { tools: [{ ...tools[0], simulated: false }], voiceEnabled: false },
+    );
+
+    expect(result.status).toBe('done');
+    expect(result.simulated).toBe(false);
+    expect(result.result).toContain('cmd-123');
+  });
+
   it('blocks governor-denied chat replies before fetch', async () => {
     const result = await executeAction(
       {
