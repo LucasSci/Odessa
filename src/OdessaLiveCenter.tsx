@@ -14,6 +14,7 @@ import {
   Link2,
   ListVideo,
   Maximize2,
+  MessageCircle,
   Minimize2,
   Pause,
   Play,
@@ -51,6 +52,7 @@ import type { AuditTimelineEntry, AutopilotCycle, CapturedMessage } from './type
 import { Badge, Button, Card, ConfirmButton, Input, StatusDot, Tooltip } from './components/ui';
 import { AiDecisionPanel } from './components/AiDecisionPanel';
 import { AiConfigPanel } from './components/AiConfigPanel';
+import { TangoChatPanel } from './components/TangoChatPanel';
 import VideoEditor from './components/VideoEditor';
 import { DebugLogPanel, logEntry } from './components/DebugLogPanel';
 import { StatusBadge, deriveStageStatus } from './components/StatusBadge';
@@ -132,7 +134,7 @@ interface OdessaLiveCenterProps {
   onObsSettingsChanged?: (settings: Record<string, unknown>) => void;
 }
 
-type TabKey = 'home' | 'stage' | 'ai' | 'flow' | 'canvas' | 'library' | 'sources' | 'logs' | 'settings';
+type TabKey = 'home' | 'stage' | 'ai' | 'chat' | 'flow' | 'canvas' | 'library' | 'sources' | 'logs' | 'settings';
 
 type VideoEntry = {
   id: string;
@@ -916,6 +918,7 @@ export default function OdessaLiveCenter({
             <SideNavButton icon={<Home />}       label="Início"       active={activeTab === 'home'}     onClick={() => setActiveTab('home')} />
             <SideNavButton icon={<Video />}      label="Palco"        active={activeTab === 'stage'}    onClick={() => setActiveTab('stage')} />
             <SideNavButton icon={<Brain />}      label="Diretora IA"  active={activeTab === 'ai'}       onClick={() => setActiveTab('ai')} />
+            <SideNavButton icon={<MessageCircle />} label="Tango Chat"   active={activeTab === 'chat'}     onClick={() => setActiveTab('chat')} />
           </div>
           <div className="odsa-nav-group">
             <span className="odsa-nav-label">Conteúdo</span>
@@ -985,7 +988,7 @@ export default function OdessaLiveCenter({
       <div className="flex gap-1 overflow-x-auto border-b border-[var(--border)] px-3 py-1.5 lg:hidden" style={{ background: 'rgba(6,7,10,0.86)', backdropFilter: 'blur(20px)' }}>
         {([
           { id: 'home', label: 'Início' }, { id: 'stage', label: 'Palco' },
-          { id: 'ai', label: 'IA' }, { id: 'flow', label: 'Fluxo' }, { id: 'canvas', label: 'Mural' },
+          { id: 'ai', label: 'IA' }, { id: 'chat', label: 'Tango Chat' }, { id: 'flow', label: 'Fluxo' }, { id: 'canvas', label: 'Mural' },
           { id: 'library', label: 'Biblioteca' }, { id: 'sources', label: 'Fontes' },
           { id: 'logs', label: 'Logs' }, { id: 'settings', label: 'Config' },
         ] as { id: TabKey; label: string }[]).map(({ id, label }) => (
@@ -1038,6 +1041,11 @@ export default function OdessaLiveCenter({
               runtime={runtime}
               onOpenCapture={() => setActiveTab('sources')}
             />
+          </div>
+        )}
+        {activeTab === 'chat' && (
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
+            <TangoChatPanel />
           </div>
         )}
         {activeTab === 'flow' && (
@@ -2606,8 +2614,9 @@ function ReactiveFlowLogLab({
     void onRun(nextText, 'test');
   };
 
-  // ⚡ Bolt: Using a backward for-loop to avoid O(N) array copying and reversing on every render
-  const auditCycles = [];
+  // ⚡ Bolt: Using a backward for-loop instead of .slice().reverse().filter().slice()
+  // to avoid O(N) memory allocation and multiple traversals on every render.
+  const auditCycles: typeof runtime.cycles = [];
   for (let i = runtime.cycles.length - 1; i >= 0 && auditCycles.length < visibleRounds; i--) {
     const cycle = runtime.cycles[i];
     if (auditFilter === 'all' || auditEntriesForCycle(cycle).some((entry) => matchesAuditFilter(entry, auditFilter))) {
@@ -2766,22 +2775,29 @@ function ReactiveFlowLogLab({
           <div className="min-h-[260px] overflow-y-auto rounded-[28px] border border-white/10 bg-[#101114] p-4">
             <SectionTitle icon={<ListVideo />} title="Eventos capturados" />
             <div className="mt-4 space-y-2 pr-1">
-              {capturedText.slice(-10).reverse().map((event) => (
-                <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
-                  <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-[var(--t3)]">
-                    <span>{event.kind} / {event.source}</span>
-                    <span>{event.time}</span>
+              {(() => {
+                // ⚡ Bolt: Using backward loop instead of slice(-10).reverse()
+                const recentEvents = [];
+                for (let i = capturedText.length - 1; i >= Math.max(0, capturedText.length - 10); i--) {
+                  recentEvents.push(capturedText[i]);
+                }
+                return recentEvents.map((event) => (
+                  <div key={event.id} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
+                    <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-[var(--t3)]">
+                      <span>{event.kind} / {event.source}</span>
+                      <span>{event.time}</span>
+                    </div>
+                    <div className="line-clamp-2 text-sm text-slate-200">{event.text}</div>
+                    <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-wide text-slate-500">
+                      <span>{event.zoneName || 'sem zona'}</span>
+                      {typeof event.metadata?.confidence === 'number' && (
+                        <span>{Math.round(event.metadata.confidence * 100)}% conf.</span>
+                      )}
+                      {event.metadata?.backendIngested === true && <span>backend</span>}
+                    </div>
                   </div>
-                  <div className="line-clamp-2 text-sm text-slate-200">{event.text}</div>
-                  <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-wide text-slate-500">
-                    <span>{event.zoneName || 'sem zona'}</span>
-                    {typeof event.metadata?.confidence === 'number' && (
-                      <span>{Math.round(event.metadata.confidence * 100)}% conf.</span>
-                    )}
-                    {event.metadata?.backendIngested === true && <span>backend</span>}
-                  </div>
-                </div>
-              ))}
+                ));
+              })()}
               {!capturedText.length && <div className="text-sm text-slate-500">Nenhum evento capturado.</div>}
             </div>
           </div>
@@ -2980,6 +2996,7 @@ const TAB_META: Record<TabKey, { group: string; title: string }> = {
   home:     { group: 'Operação', title: 'Início' },
   stage:    { group: 'Operação', title: 'Palco' },
   ai:       { group: 'Operação', title: 'Diretora IA' },
+  chat:     { group: 'Operação', title: 'Tango Chat' },
   flow:     { group: 'Conteúdo', title: 'Fluxo Reativo' },
   canvas:   { group: 'Conteúdo', title: 'Mural' },
   library:  { group: 'Conteúdo', title: 'Biblioteca' },
@@ -3051,7 +3068,11 @@ function HomeDashboard({
   onRefresh: () => void;
   onSimulateGift: () => void;
 }) {
-  const latestEvents = capturedText.slice(-6).reverse();
+  // ⚡ Bolt: Using backward loop instead of slice(-6).reverse()
+  const latestEvents = [];
+  for (let i = capturedText.length - 1; i >= Math.max(0, capturedText.length - 6); i--) {
+    latestEvents.push(capturedText[i]);
+  }
   const activeConnections = view.connections
     .map((connection) => ({
       connection,
@@ -4162,7 +4183,13 @@ function StagePanel({
         : null);
   const displayClip = connectionPreviewClip || activeClip;
   const upcomingClips = Array.isArray(videoState?.upcoming) ? videoState.upcoming : [];
-  const latestSignals = capturedText.slice(-3).reverse();
+
+  // ⚡ Bolt: Using backward loop instead of slice(-3).reverse()
+  const latestSignals = [];
+  for (let i = capturedText.length - 1; i >= Math.max(0, capturedText.length - 3); i--) {
+    latestSignals.push(capturedText[i]);
+  }
+
   const activeClipLabel = activeClip ? clipDisplayName(activeClip, view.videos) : 'Sem video selecionado';
   const activeNodeId = videoState?.activeNodeId || activeClip?.nodeId || null;
   const activeConnectionId = videoState?.activeConnectionId || null;

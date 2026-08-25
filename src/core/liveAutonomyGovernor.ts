@@ -253,8 +253,9 @@ export function governPersonaDecision(
   const history = loadHistory();
   const recent = history.filter((entry) => now - entry.at <= 60_000);
 
-  // ⚡ Bolt: Using a backward for-loop to avoid O(N) array allocation and reverse() for finding the latest element
-  let lastPublic: ReplyHistoryEntry | undefined;
+  // ⚡ Bolt: Using a backward for-loop instead of [...history].reverse().find(...)
+  // to avoid O(N) memory allocation and iterate efficiently from the end.
+  let lastPublic: typeof history[number] | undefined;
   for (let i = history.length - 1; i >= 0; i--) {
     if (history[i].status === 'sent' || history[i].status === 'dry_run') {
       lastPublic = history[i];
