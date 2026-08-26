@@ -44,7 +44,12 @@ async def require_admin_session(request: Request, call_next):
     return await call_next(request)
 
 # Include Modular API Routers
+# Auth is mounted at both /auth (local dev) and /api/auth (cloud/preview mode,
+# matching the Hostinger api/auth/*.js layout the frontend's cloud-mode URL
+# builder expects). Without /api/auth the preview's POST /api/auth/login hits the
+# SPA catch-all (GET-only) and returns 405, breaking login.
 app.include_router(auth.router, prefix="/auth")
+app.include_router(auth.router, prefix="/api/auth")
 app.include_router(api_router, prefix="/api/v1")
 app.include_router(api_router, prefix="/api")
 app.include_router(obs.router, prefix="/obs")
@@ -53,8 +58,11 @@ app.include_router(webhooks.router, prefix="/webhooks")
 # Proxy mounted at /proxy — strips X-Frame-Options/CSP for iframe embedding
 app.include_router(proxy_router.router, prefix="/proxy")
 
-# Health check at root
+# Health check — available at /health (local dev) and /api/health (cloud/preview
+# mode, matching the Hostinger layout). The frontend's cloud-mode URL builder
+# rewrites /health to /api/health.
 @app.get("/health")
+@app.get("/api/health")
 async def health_check():
     root_dir = Path(__file__).resolve().parents[1]
     user_data_dir = os.getenv("ODESSA_USER_DATA_DIR")

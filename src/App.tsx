@@ -117,7 +117,8 @@ function loadLiveConfig(): LiveConfig {
 export default function App() {
   // A sessão é mantida viva por login automático (ver useEffect abaixo). Começa
   // "carregando" (null) até confirmar; o overlay (live) entra direto.
-  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  // Login desativado por enquanto — entra direto no painel.
+  const [authenticated, setAuthenticated] = useState<boolean | null>(true);
   const [requestedPanel, setRequestedPanel] = useState<AdvancedPanel>(() => getPanelFromHash());
   const [capturedText, setCapturedTextState] = useState<CapturedMessage[]>(() => getRecentEvents());
   const [liveConfigOpen, setLiveConfigOpen] = useState(false);
@@ -139,9 +140,11 @@ export default function App() {
     // estiver válida → entra direto, sem tela de login (lives 24/7). Se a sessão
     // vencer e NÃO houver login automático, mostra o login — assim os dados
     // (vídeos/fluxo) nunca vêm vazios "em silêncio". A live (overlay) é auth-free.
+    // Login desativado por enquanto — mantém a sessão fresca em segundo
+    // plano, mas nunca bloqueia a entrada na tela de login.
     (async () => {
       await ensureFreshSession();
-      setAuthenticated(hasValidSession());
+      setAuthenticated(true);
     })();
   }, []);
 
