@@ -221,11 +221,6 @@ class TangoChatBridge:
             self._page_url = self._page.url
             log.info("Pagina conectada: %s (modo %s)", self._page_url, self._mode)
 
-            # Registra funcao Python que o JS vai chamar
-            await self._page.expose_function(
-                "__onNewChatMessage", self._handle_incoming_message
-            )
-
             # Espera container do chat
             log.info("Esperando container do chat...")
             try:
@@ -388,11 +383,17 @@ class TangoChatBridge:
         if not self._page:
             raise RuntimeError("Nenhuma pagina conectada.")
 
-        # Injeta callback bridge
-        await self._page.expose_function(
-            "__onNewChatMessage",
-            lambda payload: asyncio.create_task(self._handle_incoming_message(payload)),
-        )
+        # Injeta callback bridge (ignora se já registrado — acontece em reconexão)
+        try:
+            await self._page.expose_function(
+                "__onNewChatMessage",
+                lambda payload: asyncio.create_task(self._handle_incoming_message(payload)),
+            )
+        except Exception as _e:
+            if "already registered" in str(_e).lower():
+                log.debug("__onNewChatMessage ja registrado, ignorando.")
+            else:
+                raise
 
         js_code = f"""
         (() => {{
