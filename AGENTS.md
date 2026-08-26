@@ -39,6 +39,19 @@ Compress-Archive -Path dist, api, public, src, workflows, package.json, package-
 
 Then call `mcp__hostinger-mcp__hosting_deployJsApplication` with `archivePath` pointing at `deploy.zip` and `domain` = `darkgrey-shark-457698.hostingersite.com`.
 
+## Cloud-mode API URL alignment (Base44 preview)
+
+The frontend `src/lib/api.ts` runs in **cloud/same-origin mode** whenever the
+hostname is not localhost (i.e. the Base44 preview, and the Hostinger deploy).
+In that mode it rewrites `/auth/*` → `/api/auth/*` and `/health` → `/api/health`
+to match the Hostinger `api/auth/*.js` / `api/health` layout.
+
+The FastAPI dev backend must therefore serve these under `/api` too, or login
+breaks: `POST /api/auth/login` would otherwise hit the GET-only SPA catch-all
+(`@app.get("/{full_path:path}")`) and return **405**, leaving the app stuck on
+the login screen. `server/main.py` mounts `auth.router` at both `/auth` and
+`/api/auth`, and registers `health_check` at both `/health` and `/api/health`.
+
 ## API routing gotcha
 
 Hostinger only invokes API handlers that exist as physical files in `api/`.
