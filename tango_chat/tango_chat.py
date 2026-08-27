@@ -830,6 +830,190 @@ async def handle_goto(request: web.Request) -> web.Response:
         return web.json_response({"error": str(exc)}, status=500)
 
 
+# ── Códigos de tecla virtual (Windows) p/ dispatch de teclado CDP ──
+_VK_CODES = {
+    "Enter": 13, "NumpadEnter": 13, "Backspace": 8, "Tab": 9,
+    "Escape": 27, "Delete": 46, "ArrowLeft": 37, "ArrowUp": 38,
+    "ArrowRight": 39, "ArrowDown": 40, "Home": 36, "End": 35,
+    "PageUp": 33, "PageDown": 34, "Space": 32,
+}
+
+
+async def _cdp_mouse(cdp, data: dict) -> None:
+    """Dispatch de mouse via CDP (coordenadas em pixels CSS do viewport)."""
+    x = float(data.get("x", 0))
+    y = float(data.get("y", 0))
+    btn = data.get("button", "left")
+    btn = btn if btn in ("left", "right", "middle") else "left"
+    action = data.get("action", "click")
+    if action == "move":
+        await cdp.send("Input.dispatchMouseEvent",
+                       {"type": "mouseMoved", "x": x, "y": y})
+    elif action == "down":
+        await cdp.send("Input.dispatchMouseEvent",
+                       {"type": "mousePressed", "x": x, "y": y,
+                        "button": btn, "clickCount": 1})
+    elif action == "up":
+        await cdp.send("Input.dispatchMouseEvent",
+                       {"type": "mouseReleased", "x": x, "y": y,
+                        "button": btn, "clickCount": 1})
+    else:  # click completo
+        await cdp.send("Input.dispatchMouseEvent",
+                       {"type": "mouseMoved", "x": x, "y": y})
+        await cdp.send("Input.dispatchMouseEvent",
+                       {"type": "mousePressed", "x": x, "y": y,
+                        "button": btn, "clickCount": 1})
+        await cdp.send("Input.dispatchMouseEvent",
+                       {"type": "mouseReleased", "x": x, "y": y,
+                        "button": btn, "clickCount": 1})
+
+
+async def _cdp_wheel(cdp, data: dict) -> None:
+    """Dispatch de roda do mouse via CDP."""
+    x = float(data.get("x", 0))
+    y = float(data.get("y", 0))
+    dx = float(data.get("deltaX", 0))
+    dy = float(data.get("deltaY", 0))
+    await cdp.send("Input.dispatchMouseEvent",
+                   {"type": "mouseWheel", "x": x, "y": y,
+                    "button": "none", "deltaX": dx, "deltaY": dy})
+
+
+async def _cdp_key(cdp, data: dict) -> None:
+    """Dispatch de teclado via CDP (texto imprimivel ou tecla especial)."""
+    text = data.get("text", "")
+    key = data.get("key", "")
+    if text and len(text) == 1:
+        # Caractere imprimivel -> insere direto no foco
+        await cdp.send("Input.dispatchKeyEvent",
+                       {"type": "char", "text": text})
+    elif key in _VK_CODES:
+        vk = _VK_CODES[key]
+        await cdp.send("Input.dispatchKeyEvent",
+                       {"type": "rawKeyDown", "key": key, "code": key,
+                        "windowsVirtualKeyCode": vk})
+        await cdp.send("Input.dispatchKeyEvent",
+                       {"type": "keyUp", "key": key, "code": key,
+                        "windowsVirtualKeyCode": vk})
+        # Enter em campos de texto geralmente precisa do char \r
+        if key in ("Enter", "NumpadEnter"):
+            await cdp.send("Input.dispatchKeyEvent",
+                           {"type": "char", "text": "\r"})
+
+
+async def handle_live_ws(request: web.Request) -> web.WebSocketResponse:
+    """GET /live — WebSocket de VIDEO EM TEMPO REAL (CDP Screencast) + interacao.
+
+    Fluxo:
+      - Server inicia Page.startScreencast na pagina conectada e envia cada
+        frame (JPEG base64) assim que a pagina muda (tempo real, nao polling).
+      - Client envia eventos de mouse/teclado/scroll que sao repassados via
+        CDP Input.dispatch* — interacao de verdade, como Chrome Remote Desktop.
+    """
+    if not bridge or not bridge._page:
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        await ws.send_json({"type": "error", "error": "Sem pagina conectada"})
+        await ws.close()
+        return ws
+
+    ws = web.WebSocketResponse(max_msg_size=0)
+    await ws.prepare(request)
+
+    cdp = None
+    screencast_on = False
+    outgoing: asyncio.Queue = asyncio.Queue()
+
+    async def _sender() -> None:
+        """Drena a fila de saida e envia pelo ws (serializa sends)."""
+        while True:
+            item = await outgoing.get()
+            if item is None:
+                break
+            try:
+                await ws.send_json(item)
+            except Exception:
+                break
+
+    def _on_frame(frame: dict) -> None:
+        """Callback de cada frame do screencast — encaminha e acka."""
+        meta = frame.get("metadata", {}) or {}
+        w = meta.get("width") or meta.get("deviceWidth") or 1280
+        h = meta.get("height") or meta.get("deviceHeight") or 720
+        try:
+            outgoing.put_nowait(
+                {"type": "frame", "data": frame.get("data", ""),
+                 "w": w, "h": h}
+            )
+        except Exception:
+            pass
+        # Ack obrigatorio para receber o proximo frame
+        asyncio.create_task(
+            cdp.send("Page.screencastFrameAck",
+                     {"sessionId": frame.get("sessionId", 0)})
+        )
+
+    sender_task = asyncio.create_task(_sender())
+
+    try:
+        cdp = await bridge._page.context.new_cdp_session(bridge._page)
+        cdp.on("Page.screencastFrame", _on_frame)
+
+        # Dimensoes CSS do viewport (p/ mapear cliques do cliente)
+        try:
+            info = await bridge._page.evaluate(
+                "() => ({ w: window.innerWidth, h: window.innerHeight, "
+                "url: location.href, title: document.title })"
+            )
+            await outgoing.put({"type": "viewport", **info})
+        except Exception:
+            pass
+
+        await cdp.send("Page.startScreencast", {
+            "format": "jpeg", "quality": 60,
+            "maxWidth": 1280, "maxHeight": 720,
+        })
+        screencast_on = True
+        log.info("Live WS: screencast iniciado")
+
+        async for msg in ws:
+            if msg.type == web.WSMsgType.TEXT:
+                try:
+                    data = json.loads(msg.data)
+                except json.JSONDecodeError:
+                    continue
+                mtype = data.get("type")
+                try:
+                    if mtype == "mouse":
+                        await _cdp_mouse(cdp, data)
+                    elif mtype == "wheel":
+                        await _cdp_wheel(cdp, data)
+                    elif mtype == "key":
+                        await _cdp_key(cdp, data)
+                except Exception as exc:
+                    log.warning("Live WS input error: %s", exc)
+            elif msg.type == web.WSMsgType.ERROR:
+                log.warning("Live WS erro de transporte")
+                break
+    except Exception as exc:
+        log.exception("Live WS falhou: %s", exc)
+    finally:
+        if screencast_on and cdp:
+            try:
+                await cdp.send("Page.stopScreencast")
+            except Exception:
+                pass
+        if cdp:
+            try:
+                await cdp.detach()
+            except Exception:
+                pass
+        await outgoing.put(None)
+        await sender_task
+        log.info("Live WS encerrado")
+    return ws
+
+
 async def handle_config(request: web.Request) -> web.Response:
     """POST /config — recebe config dinamica do frontend."""
     if not bridge:
@@ -878,6 +1062,7 @@ def create_app() -> web.Application:
     app.router.add_get("/debug-dom", handle_debug_dom)
     app.router.add_get("/screenshot", handle_screenshot)
     app.router.add_get("/viewport", handle_viewport)
+    app.router.add_get("/live", handle_live_ws)
     app.router.add_get("/logs", handle_logs)
     app.router.add_post("/send", handle_send)
     app.router.add_post("/connect", handle_connect)
@@ -922,6 +1107,7 @@ async def main() -> None:
     log.info("    GET  /history       Ultimas mensagens")
     log.info("    GET  /screenshot    Captura do viewport (JPEG)")
     log.info("    GET  /viewport      Dimensoes do viewport")
+    log.info("    GET  /live          WebSocket video tempo real + interacao")
     log.info("    POST /click         Clicar em (x,y)")
     log.info("    POST /type          Digitar texto no foco")
     log.info("    POST /key           Pressionar tecla")
