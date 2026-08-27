@@ -66,6 +66,7 @@ import {
 } from '../core/tangoAiChatService';
 import { getChatInsights } from '../core/chatLearning';
 import { getAiConfig, saveAiConfig } from '../core/aiConfig';
+import { LiveVisionMonitor } from './LiveVisionMonitor';
 
 // ─── Config & Endpoints ──────────────────────────────────────────────
 const BRIDGE_URL = '/tango-bridge';
@@ -1908,57 +1909,9 @@ export function TangoChatPanel() {
         </div>
       )}
 
-      {/* ── ABA 4: MONITOR DE VISÃO ─────────────────────────────────── */}
+      {/* ── ABA 4: MONITOR DE VISÃO (AO VIVO + INTERAÇÃO) ─────────────── */}
       {subTab === 'vision' && (
-        <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Eye className="h-4 w-4 text-emerald-400" />
-              <h3 className="text-sm font-bold text-white">Visão da Stream do Tango</h3>
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                id="goto-url-cockpit"
-                placeholder="Navegar para URL da Live..."
-                className="h-8 w-72 rounded-lg border border-white/10 bg-black/40 px-3 text-xs text-white"
-              />
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={async () => {
-                  const url = (document.getElementById('goto-url-cockpit') as HTMLInputElement).value;
-                  if (url) await fetchJson(`${BRIDGE_URL}/goto`, { method: 'POST', body: JSON.stringify({ url }) });
-                }}
-              >
-                Navegar
-              </Button>
-            </div>
-          </div>
-
-          <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-black/50">
-            <img
-              src={`${BRIDGE_URL}/screenshot?t=${Date.now()}`}
-              alt="Visão da Live"
-              className="h-full w-full object-contain"
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-              onLoad={(e) => { (e.target as HTMLImageElement).style.display = 'block'; }}
-            />
-            <div className="absolute bottom-3 right-3">
-              <Button
-                size="sm"
-                variant="secondary"
-                className="opacity-90 hover:opacity-100 shadow"
-                onClick={(e) => {
-                  const img = (e.currentTarget as HTMLElement).parentElement?.previousElementSibling as HTMLImageElement;
-                  if (img) img.src = `${BRIDGE_URL}/screenshot?t=${Date.now()}`;
-                }}
-              >
-                <RefreshCw className="mr-1 h-3 w-3" /> Atualizar Imagem
-              </Button>
-            </div>
-          </div>
-        </div>
+        <LiveVisionMonitor connected={bridgeConnected} />
       )}
 
       {/* ── ABA 5: APRENDIZADO DO CHAT ──────────────────────────────── */}

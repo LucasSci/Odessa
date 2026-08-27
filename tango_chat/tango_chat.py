@@ -717,16 +717,103 @@ async def handle_debug_dom(request: web.Request) -> web.Response:
 
 
 async def handle_screenshot(request: web.Request) -> web.Response:
-    """GET /screenshot - Retorna a imagem atual da tela em PNG"""
+    """GET /screenshot - Retorna a imagem atual do viewport em JPEG.
+
+    Query params opcionais:
+      quality (1-100, default 60) — qualidade do JPEG (menor = mais rapido)
+      full (0/1, default 0)        — capturar a pagina inteira (nao so o viewport)
+    """
     if not bridge or not bridge._page:
         return web.Response(status=404, text="Sem pagina conectada")
     try:
-        image_bytes = await bridge._page.screenshot(type="jpeg", quality=60)
+        quality = int(request.query.get("quality", "60"))
+        quality = min(max(quality, 10), 100)
+        full = request.query.get("full", "0") == "1"
+        image_bytes = await bridge._page.screenshot(
+            type="jpeg", quality=quality, full_page=full
+        )
         return web.Response(body=image_bytes, content_type="image/jpeg", headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"
         })
     except Exception as exc:
         return web.Response(status=500, text=str(exc))
+
+
+async def handle_viewport(request: web.Request) -> web.Response:
+    """GET /viewport - Retorna as dimensoes do viewport da pagina conectada."""
+    if not bridge or not bridge._page:
+        return web.json_response({"error": "Sem pagina conectada"}, status=404)
+    try:
+        info = await bridge._page.evaluate(
+            "() => ({ w: window.innerWidth, h: window.innerHeight, "
+            "url: location.href, title: document.title })"
+        )
+        return web.json_response({"ok": True, **info})
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def handle_click(request: web.Request) -> web.Response:
+    """POST /click - Clica em uma coordenada (x,y) do viewport da pagina."""
+    if not bridge or not bridge._page:
+        return web.json_response({"error": "Sem pagina conectada"}, status=400)
+    try:
+        body = await request.json()
+        x = float(body.get("x", 0))
+        y = float(body.get("y", 0))
+        button = body.get("button", "left")
+        click_count = int(body.get("clickCount", 1))
+        # Move + clica diretamente nas coordenadas do viewport
+        await bridge._page.mouse.move(x, y)
+        await bridge._page.mouse.click(x, y, button=button, click_count=click_count)
+        return web.json_response({"ok": True, "x": x, "y": y})
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def handle_type_text(request: web.Request) -> web.Response:
+    """POST /type - Digita um texto no elemento atualmente focado da pagina."""
+    if not bridge or not bridge._page:
+        return web.json_response({"error": "Sem pagina conectada"}, status=400)
+    try:
+        body = await request.json()
+        text = str(body.get("text", ""))
+        delay = int(body.get("delay", 0))
+        if delay > 0:
+            await bridge._page.keyboard.type(text, delay=delay)
+        else:
+            await bridge._page.keyboard.type(text)
+        return web.json_response({"ok": True})
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def handle_key(request: web.Request) -> web.Response:
+    """POST /key - Pressiona uma tecla (ex: Enter, Tab, Escape, Backspace)."""
+    if not bridge or not bridge._page:
+        return web.json_response({"error": "Sem pagina conectada"}, status=400)
+    try:
+        body = await request.json()
+        key = str(body.get("key", "Enter"))
+        await bridge._page.keyboard.press(key)
+        return web.json_response({"ok": True, "key": key})
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def handle_scroll(request: web.Request) -> web.Response:
+    """POST /scroll - Rola a pagina por um delta (em pixels) a partir de (x,y)."""
+    if not bridge or not bridge._page:
+        return web.json_response({"error": "Sem pagina conectada"}, status=400)
+    try:
+        body = await request.json()
+        x = float(body.get("x", 0))
+        y = float(body.get("y", 0))
+        delta_y = float(body.get("deltaY", 0))
+        await bridge._page.mouse.wheel(x, y, delta_y=delta_y)
+        return web.json_response({"ok": True, "deltaY": delta_y})
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
 
 async def handle_goto(request: web.Request) -> web.Response:
     """POST /goto - Navega o robo para uma URL especifica"""
@@ -790,12 +877,17 @@ def create_app() -> web.Application:
     app.router.add_get("/messages", handle_messages_sse)
     app.router.add_get("/debug-dom", handle_debug_dom)
     app.router.add_get("/screenshot", handle_screenshot)
+    app.router.add_get("/viewport", handle_viewport)
     app.router.add_get("/logs", handle_logs)
     app.router.add_post("/send", handle_send)
     app.router.add_post("/connect", handle_connect)
     app.router.add_post("/disconnect", handle_disconnect)
     app.router.add_post("/goto", handle_goto)
     app.router.add_post("/config", handle_config)
+    app.router.add_post("/click", handle_click)
+    app.router.add_post("/type", handle_type_text)
+    app.router.add_post("/key", handle_key)
+    app.router.add_post("/scroll", handle_scroll)
     app.router.add_post("/start", handle_connect)
     app.router.add_post("/stop", handle_disconnect)
     app.router.add_route("OPTIONS", "/{tail:.*}", lambda r: web.Response(status=204))
@@ -828,6 +920,13 @@ async def main() -> None:
     log.info("    POST /disconnect    Desconectar")
     log.info("    POST /send          Enviar mensagem")
     log.info("    GET  /history       Ultimas mensagens")
+    log.info("    GET  /screenshot    Captura do viewport (JPEG)")
+    log.info("    GET  /viewport      Dimensoes do viewport")
+    log.info("    POST /click         Clicar em (x,y)")
+    log.info("    POST /type          Digitar texto no foco")
+    log.info("    POST /key           Pressionar tecla")
+    log.info("    POST /scroll        Rolar pagina")
+    log.info("    POST /goto          Navegar para URL")
     log.info("")
     log.info("  Modos de conexao:")
     log.info("    1. CDP        -> Chrome com --remote-debugging-port=9222")
