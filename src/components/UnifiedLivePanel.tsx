@@ -146,6 +146,21 @@ export function UnifiedLivePanel({
     return { chatCount: chat.length, giftCount: gifts.length, total: capturedText.length };
   }, [capturedText]);
 
+  // ── Mensagens unificadas: usa mensagens da bridge se houver, senão converte capturedText ──
+  // Quando a bridge NÃO está conectada, as mensagens da bridge estão vazias.
+  // Precisamos mostrar as mensagens capturadas pelo runtime do Odessa (OCR, manual, etc.)
+  // no formato TangoChatMessage para o TangoChatFeed exibi-las.
+  const unifiedMessages = useMemo<TangoChatMessage[]>(() => {
+    if (messages.length > 0) return messages; // bridge messages têm prioridade
+    return (capturedText || [])
+      .filter((m) => m.kind === 'chat' || m.kind === 'gift')
+      .map((m) => ({
+        username: (m.metadata?.username as string) || m.zoneName || 'Espectador',
+        text: m.text,
+        timestamp: m.createdAt,
+      }));
+  }, [messages, capturedText]);
+
   // Fila de respostas IA pendentes (draft + blocked)
   const pendingReplies = useMemo(
     () => replyQueue.filter((r) => r.status === 'draft' || r.status === 'blocked'),
@@ -395,7 +410,7 @@ export function UnifiedLivePanel({
         {/* ── Chat + Fila de Respostas IA ── */}
         <div className="xl:col-span-2 space-y-4">
           <TangoChatFeed
-            messages={messages}
+            messages={unifiedMessages}
             bridgeConnected={true}
             cooldownRemaining={cooldownRemaining}
             generatingForId={generatingForId}

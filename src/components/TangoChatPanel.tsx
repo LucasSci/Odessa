@@ -272,6 +272,21 @@ export function TangoChatPanel({
   const bridgeConnected = processStatus?.bridgeStatus?.status === 'connected';
   const bridgeError = processStatus?.bridgeStatus?.error;
 
+  // ── Mensagens unificadas: bridge + capturedText do Odessa ──
+  // Quando a bridge está offline, messages (bridge) está vazia. Convertemos
+  // capturedText (eventos do runtime: OCR, manual, etc.) para o formato
+  // TangoChatMessage para que a IA tenha contexto ao gerar respostas.
+  const unifiedMessages = useMemo<TangoChatMessage[]>(() => {
+    if (messages.length > 0 || bridgeConnected) return messages;
+    return (odessaCapturedText || [])
+      .filter((m) => m.kind === 'chat' || m.kind === 'gift')
+      .map((m) => ({
+        username: (m.metadata?.username as string) || m.zoneName || 'Espectador',
+        text: m.text,
+        timestamp: m.createdAt,
+      }));
+  }, [messages, bridgeConnected, odessaCapturedText]);
+
   const combinedStatus = bridgeConnected
     ? 'connected'
     : connecting
@@ -516,7 +531,7 @@ export function TangoChatPanel({
         text: 'Olá! Sistema de monitoramento do chat configurado com sucesso.',
         timestamp: new Date().toISOString(),
       };
-      const aiRes = await generateTangoChatReply(sampleMsg, messages, aiPrompt);
+      const aiRes = await generateTangoChatReply(sampleMsg, unifiedMessages, aiPrompt);
 
       if (aiRes.ok && aiRes.reply) {
         // Tenta enviar a resposta pela bridge (só funciona se conectado de verdade)
@@ -582,7 +597,7 @@ export function TangoChatPanel({
         text: 'Oi Odessa, a live está incrível! Você consegue ler minha mensagem?',
         timestamp: new Date().toISOString(),
       };
-      const result = await generateTangoChatReply(sampleMsg, messages, aiPrompt);
+      const result = await generateTangoChatReply(sampleMsg, unifiedMessages, aiPrompt);
       if (result.ok && result.reply) {
         const sent = await executeSendMessage(result.reply);
         if (sent) {
@@ -677,7 +692,7 @@ export function TangoChatPanel({
   const handleGenerateReplyForMessage = async (msg: TangoChatMessage) => {
     setGeneratingForId(msg.timestamp || msg.text);
     try {
-      const result = await generateTangoChatReply(msg, messages, aiPrompt);
+      const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt);
       const newItem: TangoReplyItem = {
         id: `reply-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         sourceMessage: msg,
@@ -704,7 +719,7 @@ export function TangoChatPanel({
     // Filtra mensagens curtas/ruído se necessário
     if (!msg.text || msg.text.length < 2) return;
 
-    const result = await generateTangoChatReply(msg, messages, aiPrompt);
+    const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt);
     if (!result.ok || result.blocked || !result.reply) return;
 
     const newItem: TangoReplyItem = {
@@ -754,7 +769,7 @@ export function TangoChatPanel({
     setReplyQueue((prev) =>
       prev.map((i) => (i.id === item.id ? { ...i, status: 'draft', text: 'Regenerando com IA...' } : i))
     );
-    const result = await generateTangoChatReply(item.sourceMessage, messages, aiPrompt);
+    const result = await generateTangoChatReply(item.sourceMessage, unifiedMessages, aiPrompt);
     setReplyQueue((prev) =>
       prev.map((i) =>
         i.id === item.id
@@ -774,7 +789,7 @@ export function TangoChatPanel({
   const handleGenerateProactive = async () => {
     setGeneratingProactive(true);
     try {
-      const result = await generateTangoProactiveMessage(undefined, messages);
+      const result = await generateTangoProactiveMessage(undefined, unifiedMessages);
       setDraftText(result.reply);
     } finally {
       setGeneratingProactive(false);
