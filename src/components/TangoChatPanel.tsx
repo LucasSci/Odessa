@@ -68,6 +68,7 @@ import { getAiConfig, saveAiConfig } from '../core/aiConfig';
 import { LiveVisionMonitor } from './LiveVisionMonitor';
 import { TangoChatFeed } from './TangoChatFeed';
 import { UnifiedLivePanel, type VideoStateLite } from './UnifiedLivePanel';
+import { BridgeConnectionGuide } from './BridgeConnectionGuide';
 import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
 import type { CapturedMessage } from '../types';
 
@@ -1258,6 +1259,21 @@ export function TangoChatPanel({
                 )}
               </div>
 
+              {/* Guia de diagnóstico quando a bridge não conecta */}
+              {!bridgeConnected && (
+                <BridgeConnectionGuide
+                  chromeRunning={!!chromeStatus?.runningWithDebug}
+                  processRunning={processRunning}
+                  bridgeConnected={bridgeConnected}
+                  bridgeReachable={bridgeReachable}
+                  onGoUnified={() => setSubTab('unified')}
+                  onStartBridge={() => void (processRunning ? handleConnectBridge() : handleStartProcess())}
+                  onLaunchChrome={() => void handleLaunchChrome()}
+                  starting={starting}
+                  launching={launchingChrome}
+                />
+              )}
+
               <div className="flex justify-between pt-3 border-t border-white/8">
                 <Button size="sm" variant="secondary" onClick={() => setWizardStep(2)}>
                   ⬅ Voltar
@@ -1573,6 +1589,21 @@ export function TangoChatPanel({
               </div>
             )}
           </div>
+
+          {/* ── Guia de diagnóstico e resolução da bridge ── */}
+          {!bridgeConnected && (
+            <BridgeConnectionGuide
+              chromeRunning={!!chromeStatus?.runningWithDebug}
+              processRunning={processRunning}
+              bridgeConnected={bridgeConnected}
+              bridgeReachable={bridgeReachable}
+              onGoUnified={() => setSubTab('unified')}
+              onStartBridge={() => void (processRunning ? handleConnectBridge() : handleStartProcess())}
+              onLaunchChrome={() => void handleLaunchChrome()}
+              starting={starting}
+              launching={launchingChrome}
+            />
+          )}
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           {/* Coluna Esquerda/Centro: Feed do Chat e Envio (2/3 da largura) */}
