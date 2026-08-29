@@ -67,6 +67,10 @@ import { getChatInsights } from '../core/chatLearning';
 import { getAiConfig, saveAiConfig } from '../core/aiConfig';
 import { LiveVisionMonitor } from './LiveVisionMonitor';
 import { TangoChatFeed } from './TangoChatFeed';
+import { UnifiedLivePanel, type VideoStateLite } from './UnifiedLivePanel';
+import { BridgeConnectionGuide } from './BridgeConnectionGuide';
+import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
+import type { CapturedMessage } from '../types';
 
 // ─── Config & Endpoints ──────────────────────────────────────────────
 const BRIDGE_URL = '/tango-bridge';
@@ -191,9 +195,25 @@ function defaultConfig(): BridgeConfig {
 
 // ─── Main Component ──────────────────────────────────────────────────
 
-export function TangoChatPanel() {
+export type TangoChatPanelProps = {
+  /** Eventos capturados pelo runtime do Odessa (OCR, manual, etc.) — alimentam o Painel Unificado quando a bridge está offline. */
+  capturedText?: CapturedMessage[];
+  /** Runtime do autopilot do Odessa — controles de iniciar/pausar, decisão da IA, saúde. */
+  runtime?: AutopilotRuntimeState;
+  /** Estado atual do vídeo (vindo do backend) — exibido no palco do Painel Unificado. */
+  videoState?: VideoStateLite | null;
+  /** Callback para iniciar a live (configura OBS + automação + captura). */
+  onStartLive?: () => void | Promise<void>;
+};
+
+export function TangoChatPanel({
+  capturedText: odessaCapturedText,
+  runtime: odessaRuntime,
+  videoState: odessaVideoState,
+  onStartLive: odessaStartLive,
+}: TangoChatPanelProps = {}) {
   // ── Navegação & Modos ─────────────────────────────
-  const [subTab, setSubTab] = useState<SubTab>('cockpit');
+  const [subTab, setSubTab] = useState<SubTab>('unified');
   const [autonomyMode, setAutonomyMode] = useState<AutonomyMode>('assistido');
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('real');
 
@@ -251,6 +271,21 @@ export function TangoChatPanel() {
   const bridgeReachable = processStatus?.bridgeReachable ?? false;
   const bridgeConnected = processStatus?.bridgeStatus?.status === 'connected';
   const bridgeError = processStatus?.bridgeStatus?.error;
+
+  // ── Mensagens unificadas: bridge + capturedText do Odessa ──
+  // Quando a bridge está offline, messages (bridge) está vazia. Convertemos
+  // capturedText (eventos do runtime: OCR, manual, etc.) para o formato
+  // TangoChatMessage para que a IA tenha contexto ao gerar respostas.
+  const unifiedMessages = useMemo<TangoChatMessage[]>(() => {
+    if (messages.length > 0 || bridgeConnected) return messages;
+    return (odessaCapturedText || [])
+      .filter((m) => m.kind === 'chat' || m.kind === 'gift')
+      .map((m) => ({
+        username: (m.metadata?.username as string) || m.zoneName || 'Espectador',
+        text: m.text,
+        timestamp: m.createdAt,
+      }));
+  }, [messages, bridgeConnected, odessaCapturedText]);
 
   const combinedStatus = bridgeConnected
     ? 'connected'
@@ -467,21 +502,69 @@ export function TangoChatPanel() {
       await new Promise((r) => setTimeout(r, 1500));
       await refreshStatus();
 
-      // 4. Teste de Validação
+      // ── Verificação HONESTA: a bridge realmente conectou? ──
+      // Antes este passo reportava "100% validado" mesmo com a bridge offline,
+      // porque a IA gera respostas sem precisar da bridge. Agora só prossegue
+      // se a conexão foi confirmada de verdade.
+      const actuallyConnected =
+        processStatus?.bridgeStatus?.status === 'connected' && processStatus?.bridgeStatus?.observerInjected;
+
+      if (!actuallyConnected) {
+        const bridgeErr = processStatus?.bridgeStatus?.error || 'conexão não estabelecida';
+        setWizardStep(3); // volta para o passo 3 para o usuário tentar de novo
+        setWizardTestResult(
+          '⚠️ A bridge NÃO conectou à aba do navegador.\n' +
+          `Erro: ${bridgeErr}\n\n` +
+          'Verifique se:\n' +
+          '• O Chrome foi aberto com a porta de depuração 9222\n' +
+          '• A aba da transmissão está aberta e visível\n' +
+          '• Nenhuma outra instância do Chrome está usando a porta\n\n' +
+          'Dica: use o atalho no Desktop para abrir o Chrome corretamente.',
+        );
+        return; // NÃO reporta falso positivo — para aqui
+      }
+
+      // 4. Teste de Validação — só roda se a bridge conectou de verdade
       setAutoConfigStepName('4/4: Executando teste de resposta da IA...');
       const sampleMsg: TangoChatMessage = {
         username: 'Odessa_Tester',
         text: 'Olá! Sistema de monitoramento do chat configurado com sucesso.',
         timestamp: new Date().toISOString(),
       };
-      const aiRes = await generateTangoChatReply(sampleMsg, messages, aiPrompt);
+      const aiRes = await generateTangoChatReply(sampleMsg, unifiedMessages, aiPrompt);
+
       if (aiRes.ok && aiRes.reply) {
-        await executeSendMessage(aiRes.reply);
-        setWizardTestResult(`🎉 Configuração 100% Concluída e Validada!\nO robô se conectou à página e respondeu:\n"${aiRes.reply}"`);
+        // Tenta enviar a resposta pela bridge (só funciona se conectado de verdade)
+        const sent = await executeSendMessage(aiRes.reply);
+        if (sent) {
+          setWizardTestResult(
+            `🎉 Configuração 100% Concluída e Validada!\n` +
+            `A bridge se conectou à página e o robô digitou:\n"${aiRes.reply}"`,
+          );
+        } else {
+          // Bridge conectou mas o envio falhou — reporta honestamente
+          setWizardTestResult(
+            '✅ Bridge conectada à aba!\n' +
+            '⚠️ O envio da mensagem de teste falhou, mas a conexão está ativa.\n' +
+            `A IA gerou: "${aiRes.reply}"\n\n` +
+            'Você pode testar o envio manualmente no passo 4.',
+          );
+        }
       } else {
-        setWizardTestResult('✅ Bridge conectada com sucesso à página!');
+        // Bridge conectou mas a IA não gerou resposta — ainda é sucesso parcial
+        setWizardTestResult(
+          '✅ Bridge conectada com sucesso à página!\n' +
+          '⚠️ A IA não gerou uma resposta de teste (verifique a chave da API na aba "Personalidade da IA").\n\n' +
+          'A conexão está ativa — você já pode usar o Painel Unificado.',
+        );
       }
+
       setWizardStep(4);
+
+      // ── Navega para o Painel Unificado ao concluir ──
+      // O usuário pediu: ao final da configuração automática, cair direto
+      // no painel interativo (live + chat lado a lado).
+      setSubTab('unified');
     } catch (err) {
       setWizardTestResult('❌ Erro durante configuração automática: ' + String(err));
     } finally {
@@ -514,13 +597,16 @@ export function TangoChatPanel() {
         text: 'Oi Odessa, a live está incrível! Você consegue ler minha mensagem?',
         timestamp: new Date().toISOString(),
       };
-      const result = await generateTangoChatReply(sampleMsg, messages, aiPrompt);
+      const result = await generateTangoChatReply(sampleMsg, unifiedMessages, aiPrompt);
       if (result.ok && result.reply) {
         const sent = await executeSendMessage(result.reply);
         if (sent) {
           setWizardTestResult(`🎉 Sucesso! A IA gerou a resposta e o robô digitou no alvo:\n"${result.reply}"`);
         } else {
-          setWizardTestResult(`⚠️ IA gerou a resposta: "${result.reply}", mas o envio falhou.`);
+          setWizardTestResult(
+            `⚠️ IA gerou a resposta: "${result.reply}", mas o envio falhou.\n` +
+            'Verifique se a bridge está conectada à aba.',
+          );
         }
       } else {
         setWizardTestResult('❌ Erro na geração da IA: ' + (result.blockedReason || result.reason));
@@ -606,7 +692,7 @@ export function TangoChatPanel() {
   const handleGenerateReplyForMessage = async (msg: TangoChatMessage) => {
     setGeneratingForId(msg.timestamp || msg.text);
     try {
-      const result = await generateTangoChatReply(msg, messages, aiPrompt);
+      const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt);
       const newItem: TangoReplyItem = {
         id: `reply-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         sourceMessage: msg,
@@ -633,7 +719,7 @@ export function TangoChatPanel() {
     // Filtra mensagens curtas/ruído se necessário
     if (!msg.text || msg.text.length < 2) return;
 
-    const result = await generateTangoChatReply(msg, messages, aiPrompt);
+    const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt);
     if (!result.ok || result.blocked || !result.reply) return;
 
     const newItem: TangoReplyItem = {
@@ -683,7 +769,7 @@ export function TangoChatPanel() {
     setReplyQueue((prev) =>
       prev.map((i) => (i.id === item.id ? { ...i, status: 'draft', text: 'Regenerando com IA...' } : i))
     );
-    const result = await generateTangoChatReply(item.sourceMessage, messages, aiPrompt);
+    const result = await generateTangoChatReply(item.sourceMessage, unifiedMessages, aiPrompt);
     setReplyQueue((prev) =>
       prev.map((i) =>
         i.id === item.id
@@ -703,7 +789,7 @@ export function TangoChatPanel() {
   const handleGenerateProactive = async () => {
     setGeneratingProactive(true);
     try {
-      const result = await generateTangoProactiveMessage(undefined, messages);
+      const result = await generateTangoProactiveMessage(undefined, unifiedMessages);
       setDraftText(result.reply);
     } finally {
       setGeneratingProactive(false);
@@ -1188,6 +1274,21 @@ export function TangoChatPanel() {
                 )}
               </div>
 
+              {/* Guia de diagnóstico quando a bridge não conecta */}
+              {!bridgeConnected && (
+                <BridgeConnectionGuide
+                  chromeRunning={!!chromeStatus?.runningWithDebug}
+                  processRunning={processRunning}
+                  bridgeConnected={bridgeConnected}
+                  bridgeReachable={bridgeReachable}
+                  onGoUnified={() => setSubTab('unified')}
+                  onStartBridge={() => void (processRunning ? handleConnectBridge() : handleStartProcess())}
+                  onLaunchChrome={() => void handleLaunchChrome()}
+                  starting={starting}
+                  launching={launchingChrome}
+                />
+              )}
+
               <div className="flex justify-between pt-3 border-t border-white/8">
                 <Button size="sm" variant="secondary" onClick={() => setWizardStep(2)}>
                   ⬅ Voltar
@@ -1268,9 +1369,9 @@ export function TangoChatPanel() {
                   size="sm"
                   variant="primary"
                   className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
-                  onClick={() => setSubTab('cockpit')}
+                  onClick={() => setSubTab('unified')}
                 >
-                  🎉 Concluir e Ir para o Cockpit do Chat
+                  🎉 Concluir e Ir para o Painel Unificado
                 </Button>
               </div>
             </div>
@@ -1278,47 +1379,90 @@ export function TangoChatPanel() {
         </div>
       )}
 
-      {/* ── ABA: PAINEL UNIFICADO (Transmissão + Chat lado a lado) ──── */}
+      {/* ── ABA: PAINEL UNIFICADO (Live + Chat lado a lado) ─────────── */}
       {subTab === 'unified' && (
         <div className="space-y-4">
-          {/* Aviso de sessão compartilhada */}
-          <div className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] px-3 py-2">
-            <Tv className="h-4 w-4 shrink-0 text-emerald-400" />
-            <p className="text-[11px] text-slate-300 leading-relaxed">
-              <strong className="text-emerald-300">Painel Unificado:</strong> a transmissão ao vivo (esquerda) e o chat (direita) compartilham a
-              <strong> mesma aba/sessão da live</strong>. Clique e digite direto na tela; as mensagens capturadas aparecem no chat em tempo real.
-            </p>
-          </div>
+          {bridgeConnected ? (
+            <>
+              {/* Modo bridge conectada: CDP screencast interativo + chat */}
+              <div className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] px-3 py-2">
+                <Tv className="h-4 w-4 shrink-0 text-emerald-400" />
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  <strong className="text-emerald-300">Painel Unificado:</strong> a transmissão ao vivo (esquerda) e o chat (direita) compartilham a
+                  <strong> mesma aba/sessão da live</strong>. Clique e digite direto na tela; as mensagens capturadas aparecem no chat em tempo real.
+                </p>
+              </div>
 
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
-            {/* Transmissão ao vivo (compartilhamento de tela interativo) */}
-            <div className="xl:col-span-3">
-              <LiveVisionMonitor connected={bridgeConnected} />
-            </div>
-
-            {/* Chat da live lado a lado — mesma sessão da bridge */}
-            <div className="xl:col-span-2">
-              <TangoChatFeed
-                messages={messages}
-                bridgeConnected={bridgeConnected}
-                cooldownRemaining={cooldownRemaining}
-                generatingForId={generatingForId}
-                onGenerateReply={(msg) => void handleGenerateReplyForMessage(msg)}
-                cannedResponses={cannedResponses}
-                onPickCanned={setDraftText}
-                generatingProactive={generatingProactive}
-                onGenerateProactive={() => void handleGenerateProactive()}
-                draftText={draftText}
-                onDraftChange={setDraftText}
-                onSend={() => void handleSendManual()}
-                sending={sending}
-                messagesEndRef={messagesEndRef}
-                replyQueueCount={replyQueue.length}
-                onViewReplies={() => setSubTab('cockpit')}
-                heightClass="h-full min-h-[520px]"
-              />
-            </div>
-          </div>
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
+                <div className="xl:col-span-3">
+                  <LiveVisionMonitor connected={bridgeConnected} />
+                </div>
+                <div className="xl:col-span-2">
+                  <TangoChatFeed
+                    messages={messages}
+                    bridgeConnected={bridgeConnected}
+                    cooldownRemaining={cooldownRemaining}
+                    generatingForId={generatingForId}
+                    onGenerateReply={(msg) => void handleGenerateReplyForMessage(msg)}
+                    cannedResponses={cannedResponses}
+                    onPickCanned={setDraftText}
+                    generatingProactive={generatingProactive}
+                    onGenerateProactive={() => void handleGenerateProactive()}
+                    draftText={draftText}
+                    onDraftChange={setDraftText}
+                    onSend={() => void handleSendManual()}
+                    sending={sending}
+                    messagesEndRef={messagesEndRef}
+                    replyQueueCount={replyQueue.length}
+                    onViewReplies={() => setSubTab('cockpit')}
+                    heightClass="h-full min-h-[520px]"
+                  />
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Modo offline (sem bridge): painel interativo via runtime do Odessa */}
+              {odessaRuntime ? (
+                <UnifiedLivePanel
+                  capturedText={odessaCapturedText || []}
+                  runtime={odessaRuntime}
+                  videoState={odessaVideoState || null}
+                  onStartLive={odessaStartLive}
+                  messages={messages}
+                  replyQueue={replyQueue}
+                  autonomyMode={autonomyMode}
+                  executionMode={executionMode}
+                  onSetAutonomy={setAutonomyMode}
+                  onSetExecution={setExecutionMode}
+                  generatingForId={generatingForId}
+                  cooldownRemaining={cooldownRemaining}
+                  cannedResponses={cannedResponses}
+                  generatingProactive={generatingProactive}
+                  draftText={draftText}
+                  sending={sending}
+                  onGenerateReply={(msg) => void handleGenerateReplyForMessage(msg)}
+                  onPickCanned={setDraftText}
+                  onGenerateProactive={() => void handleGenerateProactive()}
+                  onDraftChange={setDraftText}
+                  onSend={() => void handleSendManual()}
+                  onApproveReply={(item) => void handleApproveReply(item)}
+                  onDiscardReply={handleDiscardReply}
+                  onViewReplies={() => setSubTab('cockpit')}
+                  messagesEndRef={messagesEndRef}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-[#0c0e12] p-12 text-center">
+                  <Tv className="h-12 w-12 text-slate-700 mb-4" />
+                  <p className="text-sm font-semibold text-slate-400">Painel Unificado indisponível</p>
+                  <p className="text-xs text-slate-600 mt-1 max-w-md">
+                    O runtime do Odessa não está conectado a este painel. Navegue pela aba "Início" no menu lateral
+                    para usar o painel principal, ou conecte a bridge na aba "Cockpit".
+                  </p>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -1460,6 +1604,21 @@ export function TangoChatPanel() {
               </div>
             )}
           </div>
+
+          {/* ── Guia de diagnóstico e resolução da bridge ── */}
+          {!bridgeConnected && (
+            <BridgeConnectionGuide
+              chromeRunning={!!chromeStatus?.runningWithDebug}
+              processRunning={processRunning}
+              bridgeConnected={bridgeConnected}
+              bridgeReachable={bridgeReachable}
+              onGoUnified={() => setSubTab('unified')}
+              onStartBridge={() => void (processRunning ? handleConnectBridge() : handleStartProcess())}
+              onLaunchChrome={() => void handleLaunchChrome()}
+              starting={starting}
+              launching={launchingChrome}
+            />
+          )}
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           {/* Coluna Esquerda/Centro: Feed do Chat e Envio (2/3 da largura) */}

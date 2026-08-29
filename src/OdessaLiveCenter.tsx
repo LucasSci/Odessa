@@ -1049,7 +1049,12 @@ export default function OdessaLiveCenter({
         )}
         {activeTab === 'chat' && (
           <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
-            <TangoChatPanel />
+            <TangoChatPanel
+              capturedText={capturedText}
+              runtime={runtime}
+              videoState={videoState}
+              onStartLive={onStartLive}
+            />
           </div>
         )}
         {activeTab === 'flow' && (
