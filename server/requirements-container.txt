@@ -14,3 +14,6 @@ python-dotenv
 simpleobsws
 uvicorn[standard]
 python-multipart
+# Browser automation for the Tango chat bridge (tango_chat.py).
+# The Chromium binary itself is downloaded at setup time via `playwright install`.
+playwright
