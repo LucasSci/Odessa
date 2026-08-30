@@ -13,6 +13,36 @@ The app boots in **simulation mode** (`SIMULATION_MODE=true`, `ENABLE_LOCAL_FALL
 
 Verify: `curl -sf http://localhost:3000/` (frontend) and `curl -sf http://localhost:8000/health` (backend).
 
+## Tango chat/live bridge (headless Chromium)
+
+The bridge (`tango_chat/tango_chat.py`) drives a browser to capture the live
+chat (MutationObserver) and stream the live screen (CDP Screencast over the
+`/tango-bridge/live` WebSocket). It runs as a subprocess of the API, managed by
+`server/services/bridge_manager.py`, and listens on port 7555 inside the `api`
+container.
+
+- **Playwright + Chromium** are installed in the container: the `api`/`api-setup`
+  services build from `Dockerfile.base44-api` (python:3.12-slim + Chromium OS
+  libs). `api-setup` also runs `playwright install chromium` into the shared
+  `playwright-cache` volume so the browser binary persists across restarts.
+- **Headless auto-detection**: `tango_chat.py` runs Chromium headless when there
+  is no display (`TANGO_HEADLESS=true` is set in compose for the container). On a
+  user's desktop (Windows/Mac) it keeps a visible window. Override with the
+  `TANGO_HEADLESS` env var.
+- **Proxy routing**: the Vite `/tango-bridge` proxy target is configurable via
+  `VITE_BRIDGE_PROXY_TARGET` (defaults to `http://127.0.0.1:7555` for local dev;
+  set to `http://api:7555` in compose since the bridge runs inside the `api`
+  container, not on the web container's localhost).
+- The Tango login session persists in the `tango-profile` volume. The first time
+  the page needs login, use the interactive LiveVisionMonitor (click/type on the
+  screencast) to log in; subsequent restarts reuse the session.
+
+To verify the bridge end-to-end:
+`curl -sf http://localhost:3000/api/v1/chat-automation/bridge/status` →
+`bridgeStatus.status` should be `connected` with `observerInjected: true`.
+`curl -sf http://localhost:3000/tango-bridge/screenshot -o /tmp/live.jpg` →
+returns a JPEG of the live page.
+
 ## Branch policy: work directly on `main`
 
 This project is also edited via **Codex** (which pushes to `main` directly).

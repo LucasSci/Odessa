@@ -51,6 +51,9 @@ function odessaSchedulePlugin(): Plugin {
 
 export default defineConfig(() => {
   const apiTarget = process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8000';
+  // Tango bridge (tango_chat.py) — runs as a subprocess of the API. In local dev
+  // it's on localhost:7555; in the container it's on the `api` service at port 7555.
+  const bridgeTarget = process.env.VITE_BRIDGE_PROXY_TARGET || 'http://127.0.0.1:7555';
   return {
     plugins: [
       react(),
@@ -88,7 +91,7 @@ export default defineConfig(() => {
         '/agent': apiTarget,
         '/webhooks': apiTarget,
         '/tango-bridge': {
-          target: 'http://127.0.0.1:7555',
+          target: bridgeTarget,
           rewrite: (path: string) => path.replace(/^\/tango-bridge/, ''),
           changeOrigin: true,
           ws: true,

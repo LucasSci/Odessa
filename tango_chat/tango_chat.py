@@ -69,6 +69,18 @@ PROFILE_DIR: str = os.environ.get(
     str(Path.home() / ".tango_profile"),
 )
 
+# Headless automatico: em containers Linux sem display (servidor/Docker/preview),
+# o Chromium roda sem janela visivel e a tela e transmitida via CDP Screencast.
+# No desktop do usuario (Windows/Mac/Linux com X11) mantem janela visivel.
+# Override explicito via TANGO_HEADLESS=1|0.
+def _resolve_headless() -> bool:
+    v = os.environ.get("TANGO_HEADLESS", "").strip().lower()
+    if v in ("1", "true", "yes"):
+        return True
+    if v in ("0", "false", "no"):
+        return False
+    return sys.platform.startswith("linux") and not os.environ.get("DISPLAY")
+
 # Padrao para identificar a aba do Tango na lista de paginas (modo CDP).
 TANGO_URL_PATTERN: str = os.environ.get("TANGO_URL_PATTERN", "tango.me")
 
@@ -286,7 +298,7 @@ class TangoChatBridge:
 
         self._context = await self._playwright.chromium.launch_persistent_context(
             PROFILE_DIR,
-            headless=False,
+            headless=_resolve_headless(),
             viewport={"width": 1280, "height": 900},
             locale="pt-BR",
             timezone_id="America/Sao_Paulo",
