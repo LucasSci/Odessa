@@ -34,7 +34,6 @@ services:
       - playwright-cache:/root/.cache/ms-playwright
       - tango-profile:/root/.tango_profile
     env_file:
-      - ./.env.base44-defaults
       - /run/base44/app.env
     environment:
       # Headless Chromium in the container (no display server available).

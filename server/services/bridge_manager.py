@@ -74,18 +74,26 @@ class BridgeProcessManager:
         if not TANGO_CHAT_SCRIPT.exists():
             return {"ok": False, "error": f"Script not found: {script}"}
 
+        effective_config = dict(config or {})
+        if mode:
+            effective_config["mode"] = mode
+
         args = [sys.executable, script]
+        if effective_config:
+            # Pass the complete configuration, including selectors. Environment
+            # variables alone previously dropped selector overrides silently.
+            args.append(f"--config={json.dumps(effective_config, ensure_ascii=False)}")
         if autoconnect:
             args.append("--autoconnect")
 
         env_overrides: dict[str, str] = {}
-        if config:
-            if config.get("cdpUrl"):
-                env_overrides["TANGO_CDP_URL"] = config["cdpUrl"]
-            if config.get("roomUrl"):
-                env_overrides["TANGO_ROOM_URL"] = config["roomUrl"]
-            if config.get("port"):
-                env_overrides["TANGO_BRIDGE_PORT"] = str(config["port"])
+        if effective_config:
+            if effective_config.get("cdpUrl"):
+                env_overrides["TANGO_CDP_URL"] = effective_config["cdpUrl"]
+            if effective_config.get("roomUrl"):
+                env_overrides["TANGO_ROOM_URL"] = effective_config["roomUrl"]
+            if effective_config.get("port"):
+                env_overrides["TANGO_BRIDGE_PORT"] = str(effective_config["port"])
 
         import os
         env = {**os.environ, **env_overrides}

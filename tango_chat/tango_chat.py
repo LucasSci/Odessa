@@ -233,22 +233,9 @@ class TangoChatBridge:
             self._page_url = self._page.url
             log.info("Pagina conectada: %s (modo %s)", self._page_url, self._mode)
 
-            # Espera container do chat
-            log.info("Esperando container do chat...")
-            try:
-                await self._page.wait_for_selector(
-                    SELETOR_CONTAINER_CHAT, timeout=WAIT_TIMEOUT_S * 1000
-                )
-                log.info("Container do chat encontrado!")
-            except Exception:
-                log.warning(
-                    "Container do chat nao apareceu em %ds. "
-                    "O chat pode nao estar visivel ainda. "
-                    "Continuando mesmo assim...",
-                    WAIT_TIMEOUT_S,
-                )
-
-            # Injeta observer
+            # Injeta imediatamente um observer resiliente. O chat do Tango pode
+            # aparecer apenas depois do login/entrada na live; bloquear aqui por
+            # 30 segundos também impedia a UI de abrir o stream da tela.
             await self._inject_observer()
 
             self._status = "connected"
@@ -409,7 +396,10 @@ class TangoChatBridge:
 
         js_code = f"""
         (() => {{
-            if (window.__tangoChatObserverActive) return;
+            // Reinjeção segura após navegação/reconexão/configuração nova.
+            window.__tangoChatObserver?.disconnect();
+            window.__tangoChatContainerWatcher?.disconnect();
+            if (window.__tangoChatAttachTimer) clearInterval(window.__tangoChatAttachTimer);
             window.__tangoChatObserverActive = true;
 
             const containerSelector = `{SELETOR_CONTAINER_CHAT}`;
@@ -424,59 +414,130 @@ class TangoChatBridge:
                 }}
             }};
 
-            const container = document.querySelector(containerSelector);
-            if (!container) {{
-                console.warn('[OdessaBot] Container nao encontrado imediatamente:', containerSelector);
-                return;
+            const seenNodes = new WeakSet();
+            const recentKeys = new Map();
+
+            function firstMatch(root, primary, fallbacks) {{
+                if (primary) {{
+                    try {{
+                        const found = root.querySelector(primary);
+                        if (found) return found;
+                    }} catch (_) {{ /* seletor configurado invalido */ }}
+                }}
+                for (const selector of fallbacks) {{
+                    const found = root.querySelector(selector);
+                    if (found) return found;
+                }}
+                return null;
             }}
 
-            const seen = new Set();
-
             function extractMessage(node) {{
-                if (!node || !node.querySelector) return null;
-                const msgEl = node.matches(messageSelector)
-                    ? node
-                    : node.querySelector(messageSelector);
+                if (!node || !node.querySelector || seenNodes.has(node)) return null;
+                let msgEl = null;
+                try {{
+                    msgEl = messageSelector && node.matches(messageSelector)
+                        ? node
+                        : firstMatch(node, messageSelector, [
+                            '[data-testid^="chat-event-"]',
+                            '[data-testid*="chat-message"]',
+                            '[data-testid*="comment"]',
+                        ]);
+                }} catch (_) {{ /* fallback abaixo */ }}
                 if (!msgEl) return null;
+                seenNodes.add(node);
 
-                const usernameEl = msgEl.querySelector(usernameSelector);
-                const textEl     = msgEl.querySelector(textSelector);
+                const usernameEl = firstMatch(msgEl, usernameSelector, [
+                    '[data-testid*="username"]', '[data-testid*="author"]',
+                    '[class*="username"]', '[class*="author"]',
+                ]);
+                const textEl = firstMatch(msgEl, textSelector, [
+                    '[data-testid*="message-text"]', '[data-testid*="comment-text"]',
+                    '[class*="messageText"]', '[class*="commentText"]',
+                ]);
 
-                const username = usernameEl ? usernameEl.innerText.trim() : '???';
-                const text     = textEl     ? textEl.innerText.trim()     : '';
+                const username = usernameEl?.textContent?.trim() || 'Espectador';
+                const text = textEl?.textContent?.trim() || '';
                 if (!text) return null;
 
-                const hash = `${{username}}::${{text}}::${{Date.now()}}`;
-                return {{ username, text, hash }};
+                const stableId = msgEl.getAttribute('data-testid') || msgEl.id || '';
+                const key = stableId || `${{username}}::${{text}}`;
+                const now = Date.now();
+                const lastSeen = recentKeys.get(key) || 0;
+                if (now - lastSeen < 5000) return null;
+                recentKeys.set(key, now);
+                if (recentKeys.size > 1000) {{
+                    for (const [oldKey, timestamp] of recentKeys) {{
+                        if (now - timestamp > 60000) recentKeys.delete(oldKey);
+                    }}
+                }}
+                return {{ username, text }};
             }}
 
             const observer = new MutationObserver((mutations) => {{
                 for (const mutation of mutations) {{
                     for (const node of mutation.addedNodes) {{
                         if (node.nodeType !== Node.ELEMENT_NODE) continue;
-                        const msg = extractMessage(node);
-                        if (msg && !seen.has(msg.hash)) {{
-                            seen.add(msg.hash);
-                            if (seen.size > 2000) {{
-                                const keep = [...seen].slice(-1500);
-                                seen.clear();
-                                keep.forEach(h => seen.add(h));
+                        const descendants = node.querySelectorAll ? Array.from(node.querySelectorAll('*')) : [];
+                        const candidates = [node, ...descendants];
+                        for (const candidate of candidates) {{
+                            const msg = extractMessage(candidate);
+                            if (msg) {{
+                                window.__onNewChatMessage(JSON.stringify(msg));
                             }}
-                            window.__onNewChatMessage(JSON.stringify({{
-                                username: msg.username,
-                                text: msg.text
-                            }}));
                         }}
                     }}
                 }}
             }});
 
-            observer.observe(container, {{
-                childList: true,
-                subtree: true
-            }});
+            function findContainer() {{
+                return firstMatch(document, containerSelector, [
+                    '[data-testid="virtuoso-item-list"]',
+                    '[data-testid*="chat"] [role="list"]',
+                    '[role="log"]',
+                ]);
+            }}
 
-            console.log('[OdessaBot] MutationObserver ativo');
+            function attachToContainer() {{
+                const container = findContainer();
+                if (!container) return false;
+                window.__tangoChatObserver?.disconnect();
+                observer.observe(container, {{ childList: true, subtree: true }});
+                window.__tangoChatObserver = observer;
+
+                // Captura também mensagens que já estavam visíveis antes da injeção.
+                const existing = [];
+                try {{
+                    if (messageSelector) existing.push(...container.querySelectorAll(messageSelector));
+                }} catch (_) {{ /* usa fallbacks */ }}
+                for (const selector of ['[data-testid^="chat-event-"]', '[data-testid*="chat-message"]', '[data-testid*="comment"]']) {{
+                    existing.push(...container.querySelectorAll(selector));
+                }}
+                for (const node of [...new Set(existing)]) {{
+                    const msg = extractMessage(node);
+                    if (msg) window.__onNewChatMessage(JSON.stringify(msg));
+                }}
+                console.log('[OdessaBot] MutationObserver ativo em', container);
+                return true;
+            }}
+
+            if (!attachToContainer()) {{
+                console.warn('[OdessaBot] Chat ainda nao apareceu; aguardando no DOM:', containerSelector);
+                const watcher = new MutationObserver(() => {{
+                    if (attachToContainer()) {{
+                        watcher.disconnect();
+                        clearInterval(window.__tangoChatAttachTimer);
+                    }}
+                }});
+                watcher.observe(document.documentElement, {{ childList: true, subtree: true }});
+                window.__tangoChatContainerWatcher = watcher;
+                // O intervalo cobre SPAs que reutilizam nós sem mutações observáveis no root.
+                window.__tangoChatAttachTimer = setInterval(() => {{
+                    if (attachToContainer()) {{
+                        watcher.disconnect();
+                        clearInterval(window.__tangoChatAttachTimer);
+                    }}
+                }}, 2000);
+            }}
         }})();
         """
         try:
@@ -1137,7 +1198,7 @@ async def main() -> None:
     if "--autoconnect" in sys.argv:
         log.info("Flag --autoconnect detectada. Tentando conectar...")
         try:
-            await bridge.connect()
+            await bridge.connect(force_mode=str(_cli_config.get("mode", "")))
         except Exception:
             log.exception("Falha no autoconnect.")
 
