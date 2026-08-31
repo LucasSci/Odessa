@@ -36,6 +36,9 @@ container.
 - The Tango login session persists in the `tango-profile` volume. The first time
   the page needs login, use the interactive LiveVisionMonitor (click/type on the
   screencast) to log in; subsequent restarts reuse the session.
+- Chat rows are virtualized: the observer must accept text changes on reused DOM
+  nodes and reinject after login/navigation. Posting bridge selector config now
+  reapplies the observer immediately, without requiring a process restart.
 
 To verify the bridge end-to-end:
 `curl -sf http://localhost:3000/api/v1/chat-automation/bridge/status` →
