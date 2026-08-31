@@ -21,10 +21,12 @@ Integracao com Odessa:
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
 import random
+import struct
 import sys
 import time
 from collections import deque
@@ -942,11 +944,17 @@ async def _cdp_mouse(cdp, data: dict) -> None:
 
 
 async def _cdp_wheel(cdp, data: dict) -> None:
-    """Dispatch de roda do mouse via CDP."""
+    """Dispatch de roda do mouse via CDP.
+
+    Move o cursor para a posição antes do scroll — sem isso o browser não
+ sabe em qual elemento aplicar o wheel (modais, containers scrolláveis, etc).
+    """
     x = float(data.get("x", 0))
     y = float(data.get("y", 0))
     dx = float(data.get("deltaX", 0))
     dy = float(data.get("deltaY", 0))
+    await cdp.send("Input.dispatchMouseEvent",
+                   {"type": "mouseMoved", "x": x, "y": y})
     await cdp.send("Input.dispatchMouseEvent",
                    {"type": "mouseWheel", "x": x, "y": y,
                     "button": "none", "deltaX": dx, "deltaY": dy})
@@ -996,37 +1004,52 @@ async def handle_live_ws(request: web.Request) -> web.WebSocketResponse:
     cdp = None
     screencast_on = False
     outgoing: asyncio.Queue = asyncio.Queue()
+    ack_queue: asyncio.Queue = asyncio.Queue()
 
     async def _sender() -> None:
-        """Drena a fila de saida e envia pelo ws (serializa sends)."""
+        """Drena a fila de saida: binary p/ frames, JSON p/ controle."""
         while True:
             item = await outgoing.get()
             if item is None:
                 break
             try:
-                await ws.send_json(item)
+                if isinstance(item, (bytes, bytearray)):
+                    await ws.send_bytes(item)
+                else:
+                    await ws.send_json(item)
+            except Exception:
+                break
+
+    async def _acker() -> None:
+        """Drena fila de acks — separado do sender p/ nao bloquear input."""
+        while True:
+            session_id = await ack_queue.get()
+            if session_id is None:
+                break
+            try:
+                await cdp.send("Page.screencastFrameAck",
+                               {"sessionId": session_id})
             except Exception:
                 break
 
     def _on_frame(frame: dict) -> None:
-        """Callback de cada frame do screencast — encaminha e acka."""
+        """Callback de cada frame — encaminha binario e acka sem create_task."""
         meta = frame.get("metadata", {}) or {}
         w = meta.get("width") or meta.get("deviceWidth") or 1280
         h = meta.get("height") or meta.get("deviceHeight") or 720
+        raw_b64 = frame.get("data", "")
         try:
-            outgoing.put_nowait(
-                {"type": "frame", "data": frame.get("data", ""),
-                 "w": w, "h": h}
-            )
+            jpeg_bytes = base64.b64decode(raw_b64) if raw_b64 else b""
+            outgoing.put_nowait(struct.pack(">HH", w, h) + jpeg_bytes)
+        except Exception as exc:
+            log.warning("Live WS frame encode error: %s", exc)
+        try:
+            ack_queue.put_nowait(frame.get("sessionId", 0))
         except Exception:
             pass
-        # Ack obrigatorio para receber o proximo frame
-        asyncio.create_task(
-            cdp.send("Page.screencastFrameAck",
-                     {"sessionId": frame.get("sessionId", 0)})
-        )
 
     sender_task = asyncio.create_task(_sender())
+    acker_task = asyncio.create_task(_acker())
 
     try:
         cdp = await bridge._page.context.new_cdp_session(bridge._page)
@@ -1043,10 +1066,15 @@ async def handle_live_ws(request: web.Request) -> web.WebSocketResponse:
             pass
 
         await cdp.send("Page.startScreencast", {
-            "format": "jpeg", "quality": 60,
+            "format": "jpeg", "quality": 55,
             "maxWidth": 1280, "maxHeight": 720,
         })
         screencast_on = True
+        # Força um repaint para garantir o primeiro frame em páginas estáticas.
+        try:
+            await bridge._page.evaluate("() => requestAnimationFrame(() => document.body.style.opacity = '0.999')")
+        except Exception:
+            pass
         log.info("Live WS: screencast iniciado")
 
         async for msg in ws:
@@ -1081,6 +1109,8 @@ async def handle_live_ws(request: web.Request) -> web.WebSocketResponse:
                 await cdp.detach()
             except Exception:
                 pass
+        await ack_queue.put(None)
+        await acker_task
         await outgoing.put(None)
         await sender_task
         log.info("Live WS encerrado")
