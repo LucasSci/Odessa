@@ -113,9 +113,34 @@ def get_bridge_config():
 
 
 @router.post("/bridge/config")
-def update_bridge_config(request: BridgeConfigRequest):
-    """Salva a configuração da bridge."""
-    return save_bridge_config(request.model_dump())
+async def update_bridge_config(request: BridgeConfigRequest):
+    """Salva a configuração e a aplica imediatamente à bridge ativa."""
+    config = save_bridge_config(request.model_dump())
+    if bridge_manager.is_running:
+        import asyncio
+        import json
+        import logging
+        import urllib.request
+
+        def apply_to_running_bridge() -> None:
+            port = config.get("port", 7555)
+            payload = json.dumps(config).encode("utf-8")
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/config",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=3):
+                pass
+
+        try:
+            await asyncio.to_thread(apply_to_running_bridge)
+        except Exception as exc:
+            logging.getLogger("odessa.bridge").warning(
+                "Bridge config saved but could not be applied immediately: %s", exc
+            )
+    return config
 
 
 @router.get("/bridge/logs")

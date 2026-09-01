@@ -3,8 +3,9 @@
  *
  * Funciona SEM a bridge (Chrome/CDP), usando o runtime do Odessa:
  * - Barra de controles da live (iniciar/pausar, status automação, status vídeo)
- * - Visão do palco/vídeo atual (esquerda) — estado do vídeo + decisão da IA
+ * - Tela da live em tempo real (esquerda) — LiveVisionMonitor + estado do vídeo
  * - Chat capturado + respostas da IA (direita) — feed + fila de respostas
+ * - Configuração da IA (rodapé) — personalidade, regras e modelo
  *
  * Quando a bridge ESTÁ conectada, o TangoChatPanel usa o LiveVisionMonitor
  * em vez deste componente (modo CDP screencast interativo).
@@ -19,21 +20,20 @@ import {
   Bot,
   Brain,
   Check,
-  Film,
   Loader2,
-  Monitor,
   Pause,
   Play,
   Radio,
   Sparkles,
   Trash2,
-  Video,
   X,
   Zap,
 } from 'lucide-react';
 import { Badge, Button } from './ui';
 import { cn } from '../lib/utils';
 import { TangoChatFeed } from './TangoChatFeed';
+import { LiveVisionMonitor } from './LiveVisionMonitor';
+import { AiConfigPanel } from './AiConfigPanel';
 import type { TangoChatMessage } from '../core/tangoAiChatService';
 import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
 import type { CapturedMessage } from '../types';
@@ -53,6 +53,7 @@ export interface UnifiedLivePanelProps {
   runtime: AutopilotRuntimeState;
   videoState: VideoStateLite | null;
   onStartLive?: () => void | Promise<void>;
+  bridgeConnected: boolean;
 
   // ── Chat state & callbacks (gerenciados pelo TangoChatPanel) ──
   messages: TangoChatMessage[];
@@ -78,36 +79,6 @@ export interface UnifiedLivePanelProps {
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
 }
 
-// ── Helpers ──
-
-function stateLabel(state?: string): string {
-  switch (state) {
-    case 'ACTION':
-      return 'Reagindo';
-    case 'IDLE':
-      return 'Idle (aguardando)';
-    case 'TRANSITION':
-      return 'Transição';
-    case 'STOPPED':
-      return 'Parado';
-    default:
-      return state || '—';
-  }
-}
-
-function stateColor(state?: string): string {
-  switch (state) {
-    case 'ACTION':
-      return 'text-amber-400';
-    case 'IDLE':
-      return 'text-sky-400';
-    case 'TRANSITION':
-      return 'text-violet-400';
-    default:
-      return 'text-slate-400';
-  }
-}
-
 // ── Component ──
 
 export function UnifiedLivePanel({
@@ -115,6 +86,7 @@ export function UnifiedLivePanel({
   runtime,
   videoState,
   onStartLive,
+  bridgeConnected,
   messages,
   replyQueue,
   autonomyMode,
@@ -267,89 +239,30 @@ export function UnifiedLivePanel({
 
       {/* ── Grid: Palco (esquerda) + Chat (direita) ── */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
-        {/* ── Palco / Estado do Vídeo ── */}
+        {/* ── Palco: Tela da Live + Decisão da IA ── */}
         <div className="xl:col-span-3 space-y-4">
-          {/* Card do vídeo atual */}
-          <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-5 shadow-lg">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <Monitor className="h-4 w-4 text-sky-400" />
-                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-300">Palco ao Vivo</h3>
-              </div>
-              <span
-                className={cn(
-                  'text-[11px] font-bold px-2.5 py-0.5 rounded-full border',
-                  videoState?.state === 'ACTION'
-                    ? 'border-amber-500/30 bg-amber-500/10 text-amber-400'
-                    : videoState?.state === 'IDLE'
-                      ? 'border-sky-500/30 bg-sky-500/10 text-sky-400'
-                      : 'border-white/10 bg-black/40 text-slate-500',
-                )}
-              >
-                {stateLabel(videoState?.state)}
-              </span>
+          {/* Tela da live em tempo real (ou overlay desconectado) */}
+          <LiveVisionMonitor connected={bridgeConnected} />
+
+          {/* Barra compacta de estado do vídeo */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Vídeo Atual</p>
+              <p className="text-xs font-semibold text-slate-200 mt-1 truncate">
+                {videoState?.currentClip?.label || videoState?.current_video_id || '—'}
+              </p>
             </div>
-
-            {/* Preview do vídeo */}
-            <div className="relative overflow-hidden rounded-xl border border-white/10 bg-black/60" style={{ aspectRatio: '9 / 16', maxHeight: '420px' }}>
-              {videoState?.current_video_id ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
-                  <Film className="h-12 w-12 text-slate-600" />
-                  <div>
-                    <p className="text-sm font-semibold text-slate-300">
-                      {videoState.currentClip?.label || videoState.current_video_id}
-                    </p>
-                    <p className={cn('text-xs mt-1', stateColor(videoState?.state))}>
-                      {stateLabel(videoState?.state)}
-                    </p>
-                  </div>
-                  {videoState.activeNodeId && (
-                    <Badge variant="default" className="text-[10px]">
-                      Nó: {videoState.activeNodeId}
-                    </Badge>
-                  )}
-                </div>
-              ) : (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
-                  <Video className="h-12 w-12 text-slate-700" />
-                  <div>
-                    <p className="text-sm font-semibold text-slate-400">Nenhum vídeo ativo</p>
-                    <p className="text-xs text-slate-600 mt-1">
-                      {isLive ? 'Aguardando gatilho...' : 'Inicie a live para começar'}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Badge AO VIVO sobre o preview */}
-              {isLive && (
-                <div className="absolute top-3 left-3 flex items-center gap-1.5 rounded-lg bg-black/60 px-2.5 py-1 backdrop-blur">
-                  <span className="h-2 w-2 animate-ping rounded-full bg-red-500" />
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-red-400">Ao Vivo</span>
-                </div>
-              )}
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Fila</p>
+              <p className="text-xs font-semibold text-slate-200 mt-1">
+                {videoState?.queue_len ?? 0} clip(s)
+              </p>
             </div>
-
-            {/* Info do vídeo + fila */}
-            <div className="mt-4 grid grid-cols-3 gap-3">
-              <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Vídeo Atual</p>
-                <p className="text-xs font-semibold text-slate-200 mt-1 truncate">
-                  {videoState?.currentClip?.label || videoState?.current_video_id || '—'}
-                </p>
-              </div>
-              <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Fila</p>
-                <p className="text-xs font-semibold text-slate-200 mt-1">
-                  {videoState?.queue_len ?? 0} clip(s)
-                </p>
-              </div>
-              <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Ciclos IA</p>
-                <p className="text-xs font-semibold text-slate-200 mt-1">
-                  {runtime.completedCycles} completos
-                </p>
-              </div>
+            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Ciclos IA</p>
+              <p className="text-xs font-semibold text-slate-200 mt-1">
+                {runtime.completedCycles} completos
+              </p>
             </div>
           </div>
 
@@ -503,6 +416,9 @@ export function UnifiedLivePanel({
           )}
         </div>
       </div>
+
+      {/* ── Configuração da IA ── */}
+      <AiConfigPanel />
     </div>
   );
 }
