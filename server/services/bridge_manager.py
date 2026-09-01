@@ -314,19 +314,32 @@ def create_desktop_shortcut(url: str = "https://tango.me/stream/broadcast", port
     shortcut_path = desktop_dir / "Tango Live Studio (Odessa).lnk"
     arguments = f'--remote-debugging-port={port} "{url}"'
 
-    ps_script = f"""
+    ps_script = """
+    $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json
     $WshShell = New-Object -ComObject WScript.Shell
-    $Shortcut = $WshShell.CreateShortcut('{shortcut_path}')
-    $Shortcut.TargetPath = '{chrome_path}'
-    $Shortcut.Arguments = '{arguments}'
+    $Shortcut = $WshShell.CreateShortcut($payload.shortcut_path)
+    $Shortcut.TargetPath = $payload.chrome_path
+    $Shortcut.Arguments = $payload.arguments
     $Shortcut.Description = 'Abre o Chrome com depuração ativa para o Tango Live da Odessa'
-    $Shortcut.IconLocation = '{chrome_path},0'
+    $Shortcut.IconLocation = "$($payload.chrome_path),0"
     $Shortcut.Save()
     """
 
     try:
+        import json
         import subprocess
-        subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], check=True, capture_output=True)
+        payload = json.dumps({
+            "shortcut_path": str(shortcut_path),
+            "chrome_path": str(chrome_path),
+            "arguments": arguments
+        })
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_script],
+            input=payload,
+            text=True,
+            check=True,
+            capture_output=True
+        )
         return {
             "ok": True,
             "shortcutPath": str(shortcut_path),
