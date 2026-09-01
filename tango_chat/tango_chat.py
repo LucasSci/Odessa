@@ -21,10 +21,12 @@ Integracao com Odessa:
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
 import random
+import struct
 import sys
 import time
 from collections import deque
@@ -191,6 +193,8 @@ class TangoChatBridge:
         self._started_at: str | None = None
         self._message_count: int = 0
         self._page_url: str = ""
+        self._observer_reinject_task: asyncio.Task[None] | None = None
+        self._observer_page: Page | None = None
 
     # == Conectar =====================================================
 
@@ -236,6 +240,7 @@ class TangoChatBridge:
             # Injeta imediatamente um observer resiliente. O chat do Tango pode
             # aparecer apenas depois do login/entrada na live; bloquear aqui por
             # 30 segundos também impedia a UI de abrir o stream da tela.
+            self._watch_page_navigations()
             await self._inject_observer()
 
             self._status = "connected"
@@ -358,6 +363,10 @@ class TangoChatBridge:
 
     async def _cleanup(self) -> None:
         """Limpa referencias."""
+        if self._observer_reinject_task and not self._observer_reinject_task.done():
+            self._observer_reinject_task.cancel()
+        self._observer_reinject_task = None
+        self._observer_page = None
         if self._mode == "standalone" and self._context:
             try:
                 await self._context.close()
@@ -376,6 +385,34 @@ class TangoChatBridge:
             self._playwright = None
 
     # == Leitura: MutationObserver =====================================
+
+    def _watch_page_navigations(self) -> None:
+        """Reinstala o observer quando login/SPA troca o documento da pagina."""
+        if not self._page or self._observer_page is self._page:
+            return
+        self._observer_page = self._page
+
+        def schedule_reinject(*_args: Any) -> None:
+            self._observer_injected = False
+            if self._observer_reinject_task and not self._observer_reinject_task.done():
+                self._observer_reinject_task.cancel()
+            self._observer_reinject_task = asyncio.create_task(self._reinject_observer_after_navigation())
+
+        self._page.on("domcontentloaded", schedule_reinject)
+
+    async def _reinject_observer_after_navigation(self) -> None:
+        """Espera o novo documento estabilizar e reinstala o leitor de chat."""
+        try:
+            await asyncio.sleep(0.25)
+            await self._inject_observer()
+            if self._page:
+                self._page_url = self._page.url
+            log.info("Observer de chat reinjetado apos navegacao.")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self._observer_injected = False
+            log.warning("Falha ao reinjetar observer apos navegacao: %s", exc)
 
     async def _inject_observer(self) -> None:
         """Injeta MutationObserver na pagina com fallback para simulador."""
@@ -400,6 +437,7 @@ class TangoChatBridge:
             window.__tangoChatObserver?.disconnect();
             window.__tangoChatContainerWatcher?.disconnect();
             if (window.__tangoChatAttachTimer) clearInterval(window.__tangoChatAttachTimer);
+            window.__tangoChatObservedContainer = null;
             window.__tangoChatObserverActive = true;
 
             const containerSelector = `{SELETOR_CONTAINER_CHAT}`;
@@ -414,7 +452,10 @@ class TangoChatBridge:
                 }}
             }};
 
-            const seenNodes = new WeakSet();
+            // Virtualizadores reutilizam o mesmo elemento para mensagens novas.
+            // Guardamos o ultimo conteudo por elemento, em vez de bloquear o no
+            // para sempre, e deduplicamos pelo conteudo real da mensagem.
+            const lastContentByElement = new WeakMap();
             const recentKeys = new Map();
 
             function firstMatch(root, primary, fallbacks) {{
@@ -432,7 +473,7 @@ class TangoChatBridge:
             }}
 
             function extractMessage(node) {{
-                if (!node || !node.querySelector || seenNodes.has(node)) return null;
+                if (!node || !node.querySelector) return null;
                 let msgEl = null;
                 try {{
                     msgEl = messageSelector && node.matches(messageSelector)
@@ -444,7 +485,6 @@ class TangoChatBridge:
                         ]);
                 }} catch (_) {{ /* fallback abaixo */ }}
                 if (!msgEl) return null;
-                seenNodes.add(node);
 
                 const usernameEl = firstMatch(msgEl, usernameSelector, [
                     '[data-testid*="username"]', '[data-testid*="author"]',
@@ -459,11 +499,13 @@ class TangoChatBridge:
                 const text = textEl?.textContent?.trim() || '';
                 if (!text) return null;
 
-                const stableId = msgEl.getAttribute('data-testid') || msgEl.id || '';
-                const key = stableId || `${{username}}::${{text}}`;
+                const key = `${{username}}::${{text}}`;
+                if (lastContentByElement.get(msgEl) === key) return null;
+                lastContentByElement.set(msgEl, key);
+
                 const now = Date.now();
                 const lastSeen = recentKeys.get(key) || 0;
-                if (now - lastSeen < 5000) return null;
+                if (now - lastSeen < 1500) return null;
                 recentKeys.set(key, now);
                 if (recentKeys.size > 1000) {{
                     for (const [oldKey, timestamp] of recentKeys) {{
@@ -473,19 +515,29 @@ class TangoChatBridge:
                 return {{ username, text }};
             }}
 
+            function emitFrom(node) {{
+                const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+                if (!element) return;
+                const candidates = new Set([element]);
+                try {{
+                    const closest = messageSelector ? element.closest(messageSelector) : null;
+                    if (closest) candidates.add(closest);
+                }} catch (_) {{ /* seletor configurado invalido */ }}
+                for (const selector of ['[data-testid^="chat-event-"]', '[data-testid*="chat-message"]', '[data-testid*="comment"]']) {{
+                    const closest = element.closest?.(selector);
+                    if (closest) candidates.add(closest);
+                }}
+                const descendants = element.querySelectorAll ? Array.from(element.querySelectorAll('*')) : [];
+                for (const candidate of [element, ...descendants, ...candidates]) {{
+                    const msg = extractMessage(candidate);
+                    if (msg) window.__onNewChatMessage(JSON.stringify(msg));
+                }}
+            }}
+
             const observer = new MutationObserver((mutations) => {{
                 for (const mutation of mutations) {{
-                    for (const node of mutation.addedNodes) {{
-                        if (node.nodeType !== Node.ELEMENT_NODE) continue;
-                        const descendants = node.querySelectorAll ? Array.from(node.querySelectorAll('*')) : [];
-                        const candidates = [node, ...descendants];
-                        for (const candidate of candidates) {{
-                            const msg = extractMessage(candidate);
-                            if (msg) {{
-                                window.__onNewChatMessage(JSON.stringify(msg));
-                            }}
-                        }}
-                    }}
+                    if (mutation.type === 'characterData') emitFrom(mutation.target);
+                    for (const node of mutation.addedNodes) emitFrom(node);
                 }}
             }});
 
@@ -500,9 +552,13 @@ class TangoChatBridge:
             function attachToContainer() {{
                 const container = findContainer();
                 if (!container) return false;
-                window.__tangoChatObserver?.disconnect();
-                observer.observe(container, {{ childList: true, subtree: true }});
-                window.__tangoChatObserver = observer;
+                const current = window.__tangoChatObservedContainer;
+                if (current !== container || !current?.isConnected) {{
+                    window.__tangoChatObserver?.disconnect();
+                    observer.observe(container, {{ childList: true, subtree: true, characterData: true }});
+                    window.__tangoChatObserver = observer;
+                    window.__tangoChatObservedContainer = container;
+                }}
 
                 // Captura também mensagens que já estavam visíveis antes da injeção.
                 const existing = [];
@@ -523,21 +579,13 @@ class TangoChatBridge:
             if (!attachToContainer()) {{
                 console.warn('[OdessaBot] Chat ainda nao apareceu; aguardando no DOM:', containerSelector);
                 const watcher = new MutationObserver(() => {{
-                    if (attachToContainer()) {{
-                        watcher.disconnect();
-                        clearInterval(window.__tangoChatAttachTimer);
-                    }}
+                    if (attachToContainer()) watcher.disconnect();
                 }});
                 watcher.observe(document.documentElement, {{ childList: true, subtree: true }});
                 window.__tangoChatContainerWatcher = watcher;
-                // O intervalo cobre SPAs que reutilizam nós sem mutações observáveis no root.
-                window.__tangoChatAttachTimer = setInterval(() => {{
-                    if (attachToContainer()) {{
-                        watcher.disconnect();
-                        clearInterval(window.__tangoChatAttachTimer);
-                    }}
-                }}, 2000);
             }}
+            // Mantem a ligacao viva quando a SPA substitui o container do chat.
+            window.__tangoChatAttachTimer = setInterval(attachToContainer, 2000);
         }})();
         """
         try:
@@ -942,11 +990,17 @@ async def _cdp_mouse(cdp, data: dict) -> None:
 
 
 async def _cdp_wheel(cdp, data: dict) -> None:
-    """Dispatch de roda do mouse via CDP."""
+    """Dispatch de roda do mouse via CDP.
+
+    Move o cursor para a posição antes do scroll — sem isso o browser não
+ sabe em qual elemento aplicar o wheel (modais, containers scrolláveis, etc).
+    """
     x = float(data.get("x", 0))
     y = float(data.get("y", 0))
     dx = float(data.get("deltaX", 0))
     dy = float(data.get("deltaY", 0))
+    await cdp.send("Input.dispatchMouseEvent",
+                   {"type": "mouseMoved", "x": x, "y": y})
     await cdp.send("Input.dispatchMouseEvent",
                    {"type": "mouseWheel", "x": x, "y": y,
                     "button": "none", "deltaX": dx, "deltaY": dy})
@@ -996,37 +1050,52 @@ async def handle_live_ws(request: web.Request) -> web.WebSocketResponse:
     cdp = None
     screencast_on = False
     outgoing: asyncio.Queue = asyncio.Queue()
+    ack_queue: asyncio.Queue = asyncio.Queue()
 
     async def _sender() -> None:
-        """Drena a fila de saida e envia pelo ws (serializa sends)."""
+        """Drena a fila de saida: binary p/ frames, JSON p/ controle."""
         while True:
             item = await outgoing.get()
             if item is None:
                 break
             try:
-                await ws.send_json(item)
+                if isinstance(item, (bytes, bytearray)):
+                    await ws.send_bytes(item)
+                else:
+                    await ws.send_json(item)
+            except Exception:
+                break
+
+    async def _acker() -> None:
+        """Drena fila de acks — separado do sender p/ nao bloquear input."""
+        while True:
+            session_id = await ack_queue.get()
+            if session_id is None:
+                break
+            try:
+                await cdp.send("Page.screencastFrameAck",
+                               {"sessionId": session_id})
             except Exception:
                 break
 
     def _on_frame(frame: dict) -> None:
-        """Callback de cada frame do screencast — encaminha e acka."""
+        """Callback de cada frame — encaminha binario e acka sem create_task."""
         meta = frame.get("metadata", {}) or {}
         w = meta.get("width") or meta.get("deviceWidth") or 1280
         h = meta.get("height") or meta.get("deviceHeight") or 720
+        raw_b64 = frame.get("data", "")
         try:
-            outgoing.put_nowait(
-                {"type": "frame", "data": frame.get("data", ""),
-                 "w": w, "h": h}
-            )
+            jpeg_bytes = base64.b64decode(raw_b64) if raw_b64 else b""
+            outgoing.put_nowait(struct.pack(">HH", w, h) + jpeg_bytes)
+        except Exception as exc:
+            log.warning("Live WS frame encode error: %s", exc)
+        try:
+            ack_queue.put_nowait(frame.get("sessionId", 0))
         except Exception:
             pass
-        # Ack obrigatorio para receber o proximo frame
-        asyncio.create_task(
-            cdp.send("Page.screencastFrameAck",
-                     {"sessionId": frame.get("sessionId", 0)})
-        )
 
     sender_task = asyncio.create_task(_sender())
+    acker_task = asyncio.create_task(_acker())
 
     try:
         cdp = await bridge._page.context.new_cdp_session(bridge._page)
@@ -1043,10 +1112,15 @@ async def handle_live_ws(request: web.Request) -> web.WebSocketResponse:
             pass
 
         await cdp.send("Page.startScreencast", {
-            "format": "jpeg", "quality": 60,
+            "format": "jpeg", "quality": 55,
             "maxWidth": 1280, "maxHeight": 720,
         })
         screencast_on = True
+        # Força um repaint para garantir o primeiro frame em páginas estáticas.
+        try:
+            await bridge._page.evaluate("() => requestAnimationFrame(() => document.body.style.opacity = '0.999')")
+        except Exception:
+            pass
         log.info("Live WS: screencast iniciado")
 
         async for msg in ws:
@@ -1081,6 +1155,8 @@ async def handle_live_ws(request: web.Request) -> web.WebSocketResponse:
                 await cdp.detach()
             except Exception:
                 pass
+        await ack_queue.put(None)
+        await acker_task
         await outgoing.put(None)
         await sender_task
         log.info("Live WS encerrado")
@@ -1113,7 +1189,9 @@ async def handle_config(request: web.Request) -> web.Response:
             SELETOR_INPUT_TEXTO = selectors["inputTexto"]
         if "botaoEnviar" in selectors:
             SELETOR_BOTAO_ENVIAR = selectors["botaoEnviar"]
-        log.info("Config atualizada via API")
+        if bridge._status == "connected" and bridge._page:
+            await bridge._inject_observer()
+        log.info("Config atualizada via API e observer sincronizado")
         return web.json_response({"ok": True})
     except Exception as exc:
         return web.json_response({"error": str(exc)}, status=500)

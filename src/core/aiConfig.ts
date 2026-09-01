@@ -125,6 +125,11 @@ export function getAiConfig(): AiLocalConfig {
     chatReplyMinConfidence: typeof stored.chatReplyMinConfidence === 'number'
       ? Math.max(0.1, Math.min(0.99, stored.chatReplyMinConfidence))
       : DEFAULTS.chatReplyMinConfidence,
+    localModelUrl: typeof stored.localModelUrl === 'string' ? stored.localModelUrl.trim() : DEFAULTS.localModelUrl,
+    localModelName: typeof stored.localModelName === 'string' ? stored.localModelName.trim() : DEFAULTS.localModelName,
+    localModelTemperature: typeof stored.localModelTemperature === 'number'
+      ? Math.max(0, Math.min(2, stored.localModelTemperature))
+      : DEFAULTS.localModelTemperature,
   };
 }
 
