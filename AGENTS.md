@@ -9,7 +9,7 @@ The Base44 sandbox runs the app via `docker-compose.base44.yml` (two services):
 
 The Vite proxy target is configurable via `VITE_API_PROXY_TARGET` (defaults to `http://127.0.0.1:8000` for local dev; set to `http://api:8000` in compose). `allowedHosts: true` is set so the preview's external hostname is accepted.
 
-The app boots in **simulation mode** (`SIMULATION_MODE=true`, `ENABLE_LOCAL_FALLBACK=true`) with no external secrets. Auth is disabled (`auth-disabled-2026-05-16` — login always succeeds). AI keys (`GEMINI_API_KEY`, `OPENAI_API_KEY`) are optional.
+The app boots in **simulation mode** (`SIMULATION_MODE` and `ENABLE_LOCAL_FALLBACK` default to `true` in `server/config.py`) with no external secrets. Auth is disabled (`auth-disabled-2026-05-16` — login always succeeds). AI keys (`GEMINI_API_KEY`, `OPENAI_API_KEY`) are optional. Compose intentionally relies on these code defaults rather than an ignored local env file.
 
 Verify: `curl -sf http://localhost:3000/` (frontend) and `curl -sf http://localhost:8000/health` (backend).
 
@@ -36,6 +36,9 @@ container.
 - The Tango login session persists in the `tango-profile` volume. The first time
   the page needs login, use the interactive LiveVisionMonitor (click/type on the
   screencast) to log in; subsequent restarts reuse the session.
+- Chat rows are virtualized: the observer must accept text changes on reused DOM
+  nodes and reinject after login/navigation. Posting bridge selector config now
+  reapplies the observer immediately, without requiring a process restart.
 
 To verify the bridge end-to-end:
 `curl -sf http://localhost:3000/api/v1/chat-automation/bridge/status` →

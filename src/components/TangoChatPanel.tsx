@@ -68,6 +68,7 @@ import { getAiConfig, saveAiConfig } from '../core/aiConfig';
 import { LiveVisionMonitor } from './LiveVisionMonitor';
 import { TangoChatFeed } from './TangoChatFeed';
 import { UnifiedLivePanel, type VideoStateLite } from './UnifiedLivePanel';
+import { AiConfigPanel } from './AiConfigPanel';
 import { BridgeConnectionGuide } from './BridgeConnectionGuide';
 import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
 import type { CapturedMessage } from '../types';
@@ -1419,6 +1420,9 @@ export function TangoChatPanel({
                   />
                 </div>
               </div>
+
+              {/* ── Configuração da IA ── */}
+              <AiConfigPanel />
             </>
           ) : (
             <>
@@ -1429,6 +1433,7 @@ export function TangoChatPanel({
                   runtime={odessaRuntime}
                   videoState={odessaVideoState || null}
                   onStartLive={odessaStartLive}
+                  bridgeConnected={bridgeConnected}
                   messages={messages}
                   replyQueue={replyQueue}
                   autonomyMode={autonomyMode}

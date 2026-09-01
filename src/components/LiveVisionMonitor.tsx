@@ -60,6 +60,8 @@ export function LiveVisionMonitor({ connected }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const viewportRef = useRef<{ w: number; h: number }>({ w: 1280, h: 720 });
+  // Rastreia se o gesto é clique simples (sem arrastar) p/ enviar 1 só mensagem.
+  const pointerDownRef = useRef<{ x: number; y: number; dragging: boolean } | null>(null);
 
   const [streaming, setStreaming] = useState(true);
   const [live, setLive] = useState(false);
@@ -146,7 +148,33 @@ export function LiveVisionMonitor({ connected }: Props) {
 
     ws.onmessage = async (ev) => {
       if (cancelled) return;
-      // Frames podem vir como JSON (texto) — nunca binário aqui.
+
+      // Frames binários: [width uint16 BE][height uint16 BE][JPEG bytes...]
+      // Elimina overhead de base64 (+33%) e parse JSON — menos latência.
+      if (ev.data instanceof ArrayBuffer) {
+        const dv = new DataView(ev.data);
+        const fw = dv.getUint16(0, false); // big-endian
+        const fh = dv.getUint16(2, false);
+        const jpeg = new Uint8Array(ev.data, 4);
+        const canvas = canvasRef.current;
+        if (!canvas || jpeg.length === 0) return;
+        if (canvas.width !== fw) canvas.width = fw;
+        if (canvas.height !== fh) canvas.height = fh;
+        try {
+          const blob = new Blob([jpeg], { type: 'image/jpeg' });
+          const bmp = await createImageBitmap(blob);
+          const ctx = canvas.getContext('2d');
+          if (ctx) ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+          bmp.close();
+          fpsCounter++;
+          setFrameCount((n) => n + 1);
+        } catch {
+          /* frame corrompido — ignora */
+        }
+        return;
+      }
+
+      // Mensagens de controle (viewport, error) continuam em JSON texto.
       let data: Record<string, unknown>;
       try {
         data = JSON.parse(typeof ev.data === 'string' ? ev.data : '');
@@ -163,31 +191,6 @@ export function LiveVisionMonitor({ connected }: Props) {
         if (data.url) {
           setPageUrl(data.url as string);
           setGotoUrl(data.url as string);
-        }
-      } else if (type === 'frame') {
-        const b64 = data.data as string;
-        const fw = (data.w as number) || viewportRef.current.w;
-        const fh = (data.h as number) || viewportRef.current.h;
-        const canvas = canvasRef.current;
-        if (!canvas || !b64) return;
-        if (canvas.width !== fw) canvas.width = fw;
-        if (canvas.height !== fh) canvas.height = fh;
-        try {
-          // Decodifica base64 -> Blob -> ImageBitmap (rápido p/ alta fps)
-          const bin = atob(b64);
-          const bytes = new Uint8Array(bin.length);
-          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-          const blob = new Blob([bytes], { type: 'image/jpeg' });
-          const bmp = await createImageBitmap(blob);
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-          }
-          bmp.close();
-          fpsCounter++;
-          setFrameCount((n) => n + 1);
-        } catch {
-          /* frame corrompido — ignora */
         }
       } else if (type === 'error') {
         logAction(`Erro: ${(data.error as string) || 'desconhecido'}`);
@@ -223,38 +226,54 @@ export function LiveVisionMonitor({ connected }: Props) {
   }, [connected, streaming, logAction]);
 
   // ── Interação de mouse no canvas ───────────────────────
+  // Clique simples = 1 mensagem (action: 'click'). Arrastar = down + moves + up.
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (!live) return;
       const p = mapToPage(e.clientX, e.clientY);
       if (!p) return;
-      setLastClick(p);
-      logAction(`Clique (${p.x}, ${p.y})`);
-      sendWs({ type: 'mouse', action: 'down', x: p.x, y: p.y, button: e.button === 2 ? 'right' : 'left' });
+      pointerDownRef.current = { x: p.x, y: p.y, dragging: false };
     },
-    [live, mapToPage, logAction, sendWs]
-  );
-
-  const handleMouseUp = useCallback(
-    (e: React.MouseEvent<HTMLCanvasElement>) => {
-      if (!live) return;
-      const p = mapToPage(e.clientX, e.clientY);
-      if (!p) return;
-      sendWs({ type: 'mouse', action: 'up', x: p.x, y: p.y, button: e.button === 2 ? 'right' : 'left' });
-    },
-    [live, mapToPage, sendWs]
+    [live, mapToPage]
   );
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
-      if (!live) return;
-      // Só envia move quando o botão está pressionado (arrastar) p/ economizar.
+      if (!live || !pointerDownRef.current) return;
       if (e.buttons === 0) return;
       const p = mapToPage(e.clientX, e.clientY);
       if (!p) return;
+      if (!pointerDownRef.current.dragging) {
+        const dx = p.x - pointerDownRef.current.x;
+        const dy = p.y - pointerDownRef.current.y;
+        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+        pointerDownRef.current.dragging = true;
+        sendWs({ type: 'mouse', action: 'down', x: pointerDownRef.current.x, y: pointerDownRef.current.y, button: 'left' });
+      }
       sendWs({ type: 'mouse', action: 'move', x: p.x, y: p.y });
     },
     [live, mapToPage, sendWs]
+  );
+
+  const handleMouseUp = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (!live || !pointerDownRef.current) return;
+      const p = mapToPage(e.clientX, e.clientY);
+      const btn = e.button === 2 ? 'right' : 'left';
+      if (!p) {
+        pointerDownRef.current = null;
+        return;
+      }
+      if (pointerDownRef.current.dragging) {
+        sendWs({ type: 'mouse', action: 'up', x: p.x, y: p.y, button: btn });
+      } else {
+        setLastClick(p);
+        logAction(`Clique (${p.x}, ${p.y})`);
+        sendWs({ type: 'mouse', action: 'click', x: p.x, y: p.y, button: btn });
+      }
+      pointerDownRef.current = null;
+    },
+    [live, mapToPage, logAction, sendWs]
   );
 
   const handleWheel = useCallback(
@@ -262,7 +281,10 @@ export function LiveVisionMonitor({ connected }: Props) {
       if (!live) return;
       const p = mapToPage(e.clientX, e.clientY);
       if (!p) return;
-      sendWs({ type: 'wheel', x: p.x, y: p.y, deltaY: e.deltaY, deltaX: e.deltaX });
+      // Amplifica o delta p/ scroll mais responsivo em modais e containers.
+      const deltaY = Math.sign(e.deltaY) * Math.max(Math.abs(e.deltaY) * 2, 150);
+      const deltaX = Math.sign(e.deltaX) * Math.max(Math.abs(e.deltaX) * 2, 150);
+      sendWs({ type: 'wheel', x: p.x, y: p.y, deltaY, deltaX });
     },
     [live, mapToPage, sendWs]
   );
@@ -314,7 +336,7 @@ export function LiveVisionMonitor({ connected }: Props) {
   const handleScrollBtn = useCallback(
     (dir: 'up' | 'down') => {
       if (!live) return;
-      const delta = dir === 'down' ? 600 : -600;
+      const delta = dir === 'down' ? 800 : -800;
       logAction(`Scroll ${dir}`);
       sendWs({ type: 'wheel', x: viewportRef.current.w / 2, y: viewportRef.current.h / 2, deltaY: delta });
     },
@@ -425,7 +447,6 @@ export function LiveVisionMonitor({ connected }: Props) {
         {connected ? (
           <canvas
             ref={canvasRef}
-            onClick={handleMouseDown}
             onMouseDown={handleMouseDown}
             onMouseUp={handleMouseUp}
             onMouseMove={handleMouseMove}
