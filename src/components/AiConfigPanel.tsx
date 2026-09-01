@@ -155,7 +155,7 @@ export function AiConfigPanel() {
                   Provedor
                 </span>
                 <div className="flex gap-1.5">
-                  {(['auto', 'gemini', 'mock'] as AiProvider[]).map((p) => (
+                  {(['auto', 'gemini', 'local', 'mock'] as AiProvider[]).map((p) => (
                     <button
                       key={p}
                       onClick={() => update({ provider: p })}
@@ -166,7 +166,7 @@ export function AiConfigPanel() {
                           : 'border-white/10 bg-black/40 text-slate-500 hover:text-slate-300',
                       )}
                     >
-                      {p === 'auto' ? 'Auto' : p === 'gemini' ? 'Gemini' : 'Mock'}
+                      {p === 'auto' ? 'Auto' : p === 'gemini' ? 'Gemini' : p === 'local' ? 'Local' : 'Mock'}
                     </button>
                   ))}
                 </div>
@@ -188,6 +188,48 @@ export function AiConfigPanel() {
               />
             </div>
           </div>
+
+          {/* ── 4. Modelo Local (Offline) ── */}
+          {config.provider === 'local' && (
+            <div>
+              <div className="mb-2 flex items-center gap-1.5">
+                <Cpu className="h-3.5 w-3.5 text-emerald-400" />
+                <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                  Modelo Local (Offline)
+                </span>
+              </div>
+              <div className="space-y-3">
+                <Input
+                  label="URL do servidor (Ollama, LM Studio, etc.)"
+                  value={config.localModelUrl}
+                  onChange={(e) => update({ localModelUrl: e.target.value })}
+                  placeholder="http://localhost:11434"
+                  className="h-9 text-xs"
+                />
+                <Input
+                  label="Nome do modelo"
+                  value={config.localModelName}
+                  onChange={(e) => update({ localModelName: e.target.value })}
+                  placeholder="llama3, mistral, phi3…"
+                  className="h-9 text-xs"
+                />
+                <Input
+                  label="Temperatura (0–2)"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="2"
+                  value={config.localModelTemperature}
+                  onChange={(e) => update({ localModelTemperature: Number(e.target.value) })}
+                  className="h-9 text-xs"
+                />
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  Use um modelo local (Ollama, LM Studio, llama.cpp) em vez de APIs pagas.
+                  O servidor precisa estar rodando e acessível na URL acima.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
