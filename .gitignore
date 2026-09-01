@@ -19,6 +19,7 @@ certs/dev/*.pfx
 certs/dev/*.password.txt
 .env*
 !.env.example
+!.env.base44-defaults
 
 # Hostinger runtime data (gerado automaticamente)
 data/*.db
