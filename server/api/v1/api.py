@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from server.api.v1.endpoints import video, ocr, ai, tts, memory, misc, automation, obs, webhooks, proxy, conversations, chat_automation, workflow
+from server.api.v1.endpoints import video, ocr, ai, tts, memory, misc, automation, obs, webhooks, proxy, conversations, chat_automation, workflow, personas
 
 api_router = APIRouter()
 
@@ -16,3 +16,4 @@ api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"]
 api_router.include_router(proxy.router, prefix="/proxy", tags=["proxy"])
 api_router.include_router(conversations.router, prefix="/conversations", tags=["conversations"])
 api_router.include_router(chat_automation.router, prefix="/chat-automation", tags=["chat-automation"])
+api_router.include_router(personas.router, prefix="/personas", tags=["personas"])
