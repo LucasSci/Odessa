@@ -328,13 +328,19 @@ export function TangoChatPanel({
   }, []);
 
   // ── Histórico ao Conectar ─────────────────────────
-  useEffect(() => {
-    if (!bridgeConnected) return;
-    (async () => {
-      const data = await fetchJson<{ messages: TangoChatMessage[] }>(`${BRIDGE_URL}/history?limit=150`);
-      if (data?.messages) setMessages(data.messages);
-    })();
-  }, [bridgeConnected]);
+  // Não carrega mais o histórico antigo da bridge ao conectar: a bridge mantém
+  // mensagens de sessões anteriores em memória, o que poluía o feed com um
+  // "histórico aleatório". O feed começa limpo e só mostra mensagens ao vivo
+  // da sessão atual (via SSE). O usuário pode carregar o histórico manualmente
+  // com o botão "Carregar histórico".
+  const handleLoadHistory = async () => {
+    const data = await fetchJson<{ messages: TangoChatMessage[] }>(`${BRIDGE_URL}/history?limit=150`);
+    if (data?.messages) setMessages(data.messages);
+  };
+
+  const handleClearChat = () => {
+    setMessages([]);
+  };
 
   // ── SSE Stream de Mensagens ───────────────────────
   useEffect(() => {
@@ -1468,6 +1474,8 @@ export function TangoChatPanel({
                     messagesEndRef={messagesEndRef}
                     replyQueueCount={replyQueue.length}
                     onViewReplies={() => setSubTab('cockpit')}
+                    onLoadHistory={() => void handleLoadHistory()}
+                    onClearChat={handleClearChat}
                     heightClass="h-full min-h-[520px]"
                   />
                 </div>
@@ -1697,6 +1705,8 @@ export function TangoChatPanel({
               messagesEndRef={messagesEndRef}
               replyQueueCount={replyQueue.length}
               onViewReplies={() => setSubTab('cockpit')}
+              onLoadHistory={() => void handleLoadHistory()}
+              onClearChat={handleClearChat}
             />
           </div>
 

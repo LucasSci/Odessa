@@ -10,10 +10,12 @@
 import { useRef } from 'react';
 import {
   Clock,
+  History,
   Loader2,
   MessageCircle,
   Send,
   Sparkles,
+  Trash2,
 } from 'lucide-react';
 import { Badge, Button } from './ui';
 import { cn } from '../lib/utils';
@@ -37,6 +39,10 @@ export type TangoChatFeedProps = {
   /** Quantidade de respostas IA pendentes (p/ atalho "ver fila") */
   replyQueueCount?: number;
   onViewReplies?: () => void;
+  /** Carrega o histórico antigo da bridge manualmente */
+  onLoadHistory?: () => void;
+  /** Limpa o feed de mensagens */
+  onClearChat?: () => void;
   /** Classe de altura do painel (default h-[520px]) */
   heightClass?: string;
   className?: string;
@@ -59,6 +65,8 @@ export function TangoChatFeed({
   messagesEndRef,
   replyQueueCount = 0,
   onViewReplies,
+  onLoadHistory,
+  onClearChat,
   heightClass = 'h-[520px]',
   className,
 }: TangoChatFeedProps) {
@@ -74,6 +82,24 @@ export function TangoChatFeed({
           </Badge>
         </div>
         <div className="flex items-center gap-2">
+          {onLoadHistory && (
+            <button
+              className="flex items-center gap-1 text-[11px] font-semibold text-slate-400 bg-white/5 px-2 py-0.5 rounded border border-white/10 hover:bg-white/10 transition"
+              onClick={onLoadHistory}
+              title="Carregar o histórico antigo da bridge"
+            >
+              <History className="h-3 w-3" /> Histórico
+            </button>
+          )}
+          {onClearChat && messages.length > 0 && (
+            <button
+              className="flex items-center gap-1 text-[11px] font-semibold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20 hover:bg-rose-500/20 transition"
+              onClick={onClearChat}
+              title="Limpar o feed de mensagens"
+            >
+              <Trash2 className="h-3 w-3" /> Limpar
+            </button>
+          )}
           {replyQueueCount > 0 && onViewReplies && (
             <button
               className="flex items-center gap-1 text-[11px] font-semibold text-violet-300 bg-violet-500/10 px-2 py-0.5 rounded border border-violet-500/20 hover:bg-violet-500/20 transition"
@@ -100,11 +126,13 @@ export function TangoChatFeed({
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center text-center p-6">
             <MessageCircle className="h-10 w-10 text-slate-600 mb-2" />
-            <p className="text-sm font-semibold text-slate-400">Nenhuma mensagem capturada ainda</p>
+            <p className="text-sm font-semibold text-slate-400">
+              {bridgeConnected ? 'Aguardando mensagens ao vivo' : 'Nenhuma mensagem capturada'}
+            </p>
             <p className="text-xs text-slate-600 mt-1 max-w-sm">
               {bridgeConnected
-                ? 'Aguardando espectadores falarem no chat da stream...'
-                : 'Inicie a bridge para conectar à live.'}
+                ? 'O feed começa limpo: só aparecem mensagens novas da sessão atual. Use "Histórico" para ver as anteriores.'
+                : 'Inicie a bridge para monitorar o chat da live. O feed fica limpo até haver mensagens reais.'}
             </p>
           </div>
         ) : (

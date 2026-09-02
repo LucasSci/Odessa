@@ -52,6 +52,7 @@ class BridgeProcessManager:
         self._log_buffer: deque[str] = deque(maxlen=MAX_LOG_LINES)
         self._started_at: str | None = None
         self._reader_task: asyncio.Task | None = None
+        self._adopted: bool = False
 
     @property
     def is_running(self) -> bool:
@@ -61,6 +62,27 @@ class BridgeProcessManager:
     def pid(self) -> int | None:
         return self._process.pid if self.is_running else None
 
+    def _probe_bridge(self, port: int) -> dict[str, Any] | None:
+        """Consulta o /status de um bridge na porta, se houver um respondendo."""
+        try:
+            import urllib.request
+            url = f"http://127.0.0.1:{port}/status"
+            req = urllib.request.Request(url, method="GET")
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                return json.loads(resp.read().decode())
+        except Exception:
+            return None
+
+    def _port_in_use(self, port: int) -> bool:
+        """Verifica se algo já está escutando na porta (bridge órfã, etc.)."""
+        try:
+            import socket
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                return s.connect_ex(("127.0.0.1", port)) == 0
+        except Exception:
+            return False
+
     async def start(
         self,
         mode: str = "",
@@ -69,6 +91,25 @@ class BridgeProcessManager:
     ) -> dict[str, Any]:
         if self.is_running:
             return {"ok": False, "error": "already_running", "pid": self.pid}
+
+        # Se já existe um bridge respondendo na porta (ex.: processo órfão de
+        # uma execução anterior do backend), adota-o em vez de tentar iniciar
+        # outro e falhar com "porta em uso".
+        effective_config = dict(config or {})
+        if mode:
+            effective_config["mode"] = mode
+        port = int(effective_config.get("port", 7555))
+        existing = self._probe_bridge(port)
+        if existing is not None:
+            self._adopted = True
+            self._started_at = existing.get("startedAt") or datetime.now(timezone.utc).isoformat()
+            log.info("Adopting already-running bridge on port %s", port)
+            return {
+                "ok": True,
+                "pid": None,
+                "adopted": True,
+                "bridgeStatus": existing,
+            }
 
         script = str(TANGO_CHAT_SCRIPT)
         if not TANGO_CHAT_SCRIPT.exists():
@@ -142,26 +183,19 @@ class BridgeProcessManager:
         return {"ok": True, "pid": pid}
 
     async def get_status(self) -> dict[str, Any]:
-        bridge_reachable = False
-        bridge_status: dict[str, Any] | None = None
-
         config = load_bridge_config()
         port = config.get("port", 7555)
 
-        if self.is_running:
-            try:
-                import urllib.request
-                url = f"http://127.0.0.1:{port}/status"
-                req = urllib.request.Request(url, method="GET")
-                with urllib.request.urlopen(req, timeout=2) as resp:
-                    bridge_status = json.loads(resp.read().decode())
-                    bridge_reachable = True
-            except Exception:
-                pass
+        # Sempre sonda a porta: mesmo sem processo gerenciado (ex.: bridge órfã
+        # de uma execução anterior), reflete a realidade da conectividade.
+        bridge_status = self._probe_bridge(port)
+        bridge_reachable = bridge_status is not None
+        process_running = self.is_running or self._adopted
 
         return {
-            "processRunning": self.is_running,
+            "processRunning": process_running,
             "pid": self.pid,
+            "adopted": self._adopted,
             "startedAt": self._started_at,
             "bridgeUrl": f"http://127.0.0.1:{port}",
             "bridgeReachable": bridge_reachable,
