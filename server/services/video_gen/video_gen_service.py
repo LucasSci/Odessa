@@ -218,18 +218,35 @@ class VideoGenService:
         video_id: Optional[str] = None,
         video_path: Optional[str] = None,
     ) -> None:
-        storage.append_history(
-            {
-                "promptId": item.get("promptId"),
-                "prompt": item.get("prompt"),
-                "framePath": item.get("framePath"),
-                "ok": ok,
-                "error": error,
-                "videoId": video_id,
-                "videoPath": video_path,
-            },
-            persona_id=persona_id,
-        )
+          storage.append_history(
+              {
+                  "promptId": item.get("promptId"),
+                  "prompt": item.get("prompt"),
+                  "framePath": item.get("framePath"),
+                  "ok": ok,
+                  "error": error,
+                  "videoId": video_id,
+                  "videoPath": video_path,
+              },
+              persona_id=persona_id,
+          )
+          try:
+              from server.services.session_history import session_history
+
+              session_history.record(
+                  "video.generated",
+                  {
+                      "personaId": persona_id,
+                      "promptId": item.get("promptId"),
+                      "prompt": item.get("prompt"),
+                      "ok": ok,
+                      "error": error,
+                      "videoId": video_id,
+                      "videoPath": video_path,
+                  },
+              )
+          except Exception:  # noqa: BLE001
+              pass
 
     # ── Estado completo ─────────────────────────────────────────────────────
     def get_state(self, persona_id: Optional[str] = None) -> Dict[str, Any]:

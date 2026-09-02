@@ -20,7 +20,8 @@ class VideoService:
         self.current_video_start_ts = time.time()
 
     def _idle_video_id(self) -> str:
-        idle_id = self._config.get("idleVideoId") or (self._config.get("action_map", {}).get("idle", [""])[0])
+        idle_list = self._config.get("action_map", {}).get("idle") or []
+        idle_id = self._config.get("idleVideoId") or (idle_list[0] if idle_list else "")
         return str(idle_id or "").replace("video_", "").replace(".mp4", "").strip()
 
     def _video_label(self, video_id: str) -> str:

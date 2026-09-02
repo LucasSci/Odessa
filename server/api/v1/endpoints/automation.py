@@ -155,6 +155,7 @@ async def dry_run_event(request: AutomationIngestRequest):
         },
         queue_actions=False,
         workflow_config=workflow_config,
+        record_history=False,
     )
     from server.services.video_service import video_service
 

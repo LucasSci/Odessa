@@ -9,6 +9,7 @@ from server.services.automation.logger import execution_logger
 from server.services.automation.metrics import automation_metrics
 from server.services.automation.parser import event_parser
 from server.services.automation.queue import action_queue
+from server.services.session_history import session_history
 
 logger = logging.getLogger("odessa.automation.service")
 
@@ -75,6 +76,7 @@ class AutomationService:
         event_hint: Optional[Dict[str, Any]] = None,
         queue_actions: bool = True,
         workflow_config: Optional[Dict[str, Any]] = None,
+        record_history: bool = True,
     ) -> Dict[str, Any]:
         """Process one raw OCR/chat line and return a testable execution summary."""
         event_hint = event_hint or {}
@@ -123,6 +125,29 @@ class AutomationService:
 
             _feed_video_gen(event)
 
+            if record_history:
+                if event.get("kind") == "chat":
+                    session_history.record(
+                        "chat.received",
+                        {
+                            "user": event.get("user", "unknown"),
+                            "text": event.get("text", raw_text),
+                            "zoneName": event.get("zoneName"),
+                            "source": event_hint.get("source", "ocr"),
+                        },
+                    )
+                elif event.get("kind") == "gift":
+                    session_history.record(
+                        "gift.received",
+                        {
+                            "sender": event.get("user", "unknown"),
+                            "receiver": event.get("receiver", "Odessa"),
+                            "giftName": event.get("giftName", "Unknown"),
+                            "quantity": event.get("quantity", 1),
+                            "aggregated": event.get("aggregated", False),
+                        },
+                    )
+
             if event.get("kind") == "gift" and queue_actions:
                 ledger_summary = self.ledger.record_gift(event)
                 record("LEDGER", "Presente registrado no placar da sessao", ledger_summary)
@@ -155,6 +180,15 @@ class AutomationService:
             summary["matchedTriggers"].extend(matched)
             summary["actions"].extend(actions)
             record("TRIGGER", f"{len(actions)} gatilho(s) casaram com o evento", {"matches": matched})
+            if record_history:
+                session_history.record(
+                    "trigger.fired",
+                    {
+                        "eventKind": event.get("kind"),
+                        "user": event.get("user", "unknown"),
+                        "matches": matched,
+                    },
+                )
 
             queued_actions = self.queue.add_actions(actions) if queue_actions else []
             blocked_actions = list(getattr(self.queue, "last_blocked_actions", [])) if queue_actions else []
@@ -195,12 +229,38 @@ class AutomationService:
         if event.get("kind") == "gift":
             ledger_summary = self.ledger.record_gift(event)
             self.exec_logger.log("LEDGER", "Presente registrado no placar da sessao", ledger_summary)
+            session_history.record(
+                "gift.received",
+                {
+                    "sender": event.get("user", "unknown"),
+                    "receiver": event.get("receiver", "Odessa"),
+                    "giftName": event.get("giftName", "Unknown"),
+                    "quantity": event.get("quantity", 1),
+                    "aggregated": event.get("aggregated", False),
+                },
+            )
 
         actions = self.engine.match_event(event)
         if actions:
             queued_actions = self.queue.add_actions(actions)
             self.metrics.increment("done_actions", len(queued_actions))
             self.exec_logger.log("QUEUE", f"Enfileiradas {len(queued_actions)} acoes", {"actions": queued_actions})
+            session_history.record(
+                "trigger.fired",
+                {
+                    "eventKind": event.get("kind"),
+                    "user": event.get("user", "unknown"),
+                    "matches": [
+                        {
+                            "id": action.get("trigger_id"),
+                            "name": action.get("trigger_name"),
+                            "actionType": action.get("type"),
+                            "videoId": action.get("videoId"),
+                        }
+                        for action in actions
+                    ],
+                },
+            )
             logger.info(
                 "Processed event %s from %s. %s actions queued.",
                 event.get("kind"),

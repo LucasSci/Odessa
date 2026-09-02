@@ -10,6 +10,7 @@ release/
 coverage/
 .DS_Store
 *.log
+*.log.err
 *.jsonl
 *.pyc
 *.traineddata

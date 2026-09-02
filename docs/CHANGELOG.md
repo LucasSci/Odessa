@@ -16,6 +16,13 @@ Todas as mudanças relevantes do projeto Odessa.
   (`server/services/video_gen/`, `server/api/v1/endpoints/video_gen.py`,
   `src/core/frameCapture.ts`, `src/core/videoGenApi.ts`,
   `src/components/VideoGenPanel.tsx`)
+- **Histórico de sessão da live** — registro central de tudo o que acontece
+  durante a live (mensagens recebidas, presentes, gatilhos disparados, vídeos
+  gerados, respostas de IA) persistido em JSONL por sessão e **exportável em
+  JSON ou CSV**. Painel **Histórico da Live** no `TangoChatPanel` com resumo
+  por tipo, filtros e botões de exportação. (`server/services/session_history.py`,
+  `server/api/v1/endpoints/session_history.py`, `src/core/sessionHistory.ts`,
+  `src/components/SessionHistoryPanel.tsx`)
 - **Perfis de IA (personas)** — múltiplas personas selecionáveis, cada uma com
   vídeos, fluxo, gatilhos e personalidade próprios. Personas padrão: Odessa,
   Viktoria, Barbara. (`server/core/persona_manager.py`, `server/api/v1/endpoints/personas.py`,

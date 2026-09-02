@@ -201,6 +201,21 @@ frame da live. Detalhes em [`VIDEO-GEN.md`](VIDEO-GEN.md).
 | GET | `/api/v1/video-gen/video/{id}` | Serve um vídeo gerado |
 | GET | `/api/v1/video-gen/state` | Estado completo para o painel em tempo real |
 
+## Histórico de sessão da live
+
+Registra tudo o que acontece durante a live (mensagens, presentes, gatilhos,
+vídeos gerados, respostas de IA) e permite exportar em JSON/CSV. Detalhes em
+[`SESSION-HISTORY.md`](SESSION-HISTORY.md).
+
+| Método | Rota | Descrição |
+|---|---|---|
+| GET | `/api/v1/session-history` | Lista eventos (sessão ativa por padrão) |
+| GET | `/api/v1/session-history/sessions` | Lista as sessões registradas |
+| GET | `/api/v1/session-history/export?format=json\|csv` | Exporta o histórico (download) |
+| POST | `/api/v1/session-history/events` | Registra um evento manualmente |
+| POST | `/api/v1/session-history/start` | Inicia/reinicia a sessão |
+| POST | `/api/v1/session-history/end` | Encerra a sessão ativa |
+
 ## Bridge do Tango (porta 7555)
 
 A bridge expõe um servidor aiohttp próprio:

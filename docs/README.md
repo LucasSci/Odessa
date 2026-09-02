@@ -16,6 +16,7 @@ Source no OBS.
 | [OBS-TANGO.md](OBS-TANGO.md) | Configuração do OBS e da bridge do Tango |
 | [PERSONAS.md](PERSONAS.md) | Perfis de persona e conversa automática com IA |
 | [VIDEO-GEN.md](VIDEO-GEN.md) | Geração de vídeo em tempo real a partir do chat |
+| [SESSION-HISTORY.md](SESSION-HISTORY.md) | Histórico exportável da live (mensagens, presentes, vídeos, respostas) |
 | [TESTING.md](TESTING.md) | Como rodar os testes (frontend + backend) |
 | [CHANGELOG.md](CHANGELOG.md) | Histórico de mudanças e versões |
 

@@ -27,6 +27,7 @@ import {
   Eye,
   Gift,
   HelpCircle,
+  History,
   Key,
   Layers,
   ListFilter,
@@ -72,6 +73,8 @@ import {
   recordIncomingMessage,
 } from '../core/chatConversationGovernor';
 import { LiveVisionMonitor } from './LiveVisionMonitor';
+import { SessionHistoryPanel } from './SessionHistoryPanel';
+import { recordSessionEvent } from '../core/sessionHistory';
 import { TangoChatFeed } from './TangoChatFeed';
 import { UnifiedLivePanel, type VideoStateLite } from './UnifiedLivePanel';
 import { AiConfigPanel } from './AiConfigPanel';
@@ -157,7 +160,7 @@ type ChromeStatus = {
   tangoTabFound: boolean;
 };
 
-type SubTab = 'wizard' | 'unified' | 'cockpit' | 'ai_config' | 'bridge_config' | 'vision' | 'diagnostics' | 'insights';
+type SubTab = 'wizard' | 'unified' | 'cockpit' | 'ai_config' | 'bridge_config' | 'vision' | 'diagnostics' | 'insights' | 'history';
 
 const DEFAULT_CANNED_RESPONSES = [
   'Obrigada pelo carinho, amores! 💕',
@@ -704,6 +707,14 @@ export function TangoChatPanel({
     setGeneratingForId(msg.timestamp || msg.text);
     try {
       const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt);
+      recordSessionEvent('ai.reply', {
+        username: msg.username,
+        sourceText: msg.text,
+        reply: result.reply,
+        confidence: result.confidence,
+        blocked: result.blocked,
+        reason: result.reason,
+      });
       const newItem: TangoReplyItem = {
         id: `reply-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         sourceMessage: msg,
@@ -737,6 +748,14 @@ export function TangoChatPanel({
     const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt);
     if (!result.ok || result.blocked || !result.reply) return;
 
+    recordSessionEvent('ai.reply', {
+      username: msg.username,
+      sourceText: msg.text,
+      reply: result.reply,
+      confidence: result.confidence,
+      autonomous: true,
+    });
+
     const newItem: TangoReplyItem = {
       id: `reply-auto-${Date.now()}`,
       sourceMessage: msg,
@@ -751,7 +770,14 @@ export function TangoChatPanel({
     setReplyQueue((prev) => [newItem, ...prev].slice(0, 30));
 
     const sent = await executeSendMessage(result.reply);
-    if (sent) recordChatReplySent(msg.username);
+    if (sent) {
+      recordChatReplySent(msg.username);
+      recordSessionEvent('ai.reply.sent', {
+        username: msg.username,
+        sourceText: msg.text,
+        reply: result.reply,
+      });
+    }
     setReplyQueue((prev) =>
       prev.map((item) =>
         item.id === newItem.id
@@ -767,6 +793,13 @@ export function TangoChatPanel({
     );
 
     const ok = await executeSendMessage(item.text);
+    if (ok) {
+      recordSessionEvent('message.sent', {
+        text: item.text,
+        source: 'approved_reply',
+        username: item.sourceMessage.username,
+      });
+    }
 
     setReplyQueue((prev) =>
       prev.map((i) =>
@@ -818,7 +851,10 @@ export function TangoChatPanel({
     setSending(true);
     try {
       const ok = await executeSendMessage(text);
-      if (ok) setDraftText('');
+      if (ok) {
+        setDraftText('');
+        recordSessionEvent('message.sent', { text, source: 'manual' });
+      }
     } finally {
       setSending(false);
     }
@@ -979,6 +1015,7 @@ export function TangoChatPanel({
           { id: 'bridge_config' as SubTab, label: 'Configuração Bridge', icon: <Settings className="h-3.5 w-3.5" /> },
           { id: 'vision' as SubTab, label: 'Monitor de Visão', icon: <Eye className="h-3.5 w-3.5" /> },
           { id: 'insights' as SubTab, label: 'Aprendizado do Chat', icon: <Sparkles className="h-3.5 w-3.5" /> },
+          { id: 'history' as SubTab, label: 'Histórico da Live', icon: <History className="h-3.5 w-3.5" /> },
           { id: 'diagnostics' as SubTab, label: 'Diagnóstico & Logs', icon: <Terminal className="h-3.5 w-3.5" /> },
         ].map((t) => (
           <button
@@ -2086,6 +2123,8 @@ export function TangoChatPanel({
       )}
 
       {/* ── ABA 6: DIAGNÓSTICO & LOGS ────────────────────────────────── */}
+      {subTab === 'history' && <SessionHistoryPanel active={subTab === 'history'} />}
+
       {subTab === 'diagnostics' && (
         <div className="space-y-4">
           {/* Checks de Conectividade */}
