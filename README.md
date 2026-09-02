@@ -25,6 +25,7 @@ vídeo.
 - **Perfis de IA (personas)** — múltiplas personas selecionáveis, cada uma com vídeos, fluxo, gatilhos e personalidade próprios
 - **Conversa automática** — o chat responde com IA generativa, com governança anti-flood
 - **Chat → gatilhos** — mensagens do chat disparam troca de vídeo por palavra-chave/presente
+- **Geração de vídeo em tempo real** — interações do chat geram prompts e vídeos a partir do último frame da live, registrados no fluxo da persona
 - **Bridge do Tango** — captura de chat e tela em tempo real (Playwright/CDP)
 - **Agendamentos** — disparam vídeos automaticamente em intervalos configurados
 - **OCR/Captura** — lê chat ao vivo via captura de tela (CaptureStudio)
@@ -67,6 +68,7 @@ A documentação completa está em [`docs/`](docs/README.md):
 | [API](docs/API.md) | Referência dos endpoints |
 | [OBS + Tango](docs/OBS-TANGO.md) | Configuração do OBS e da bridge do Tango |
 | [Personas](docs/PERSONAS.md) | Perfis de persona e conversa com IA |
+| [Geração de vídeo](docs/VIDEO-GEN.md) | Pipeline de geração de vídeo em tempo real |
 | [Testes](docs/TESTING.md) | Como rodar os testes |
 | [Changelog](docs/CHANGELOG.md) | Histórico de mudanças |
 

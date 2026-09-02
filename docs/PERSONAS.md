@@ -87,3 +87,13 @@ OPENAI_TEXT_MODEL=route-llm
 
 Para usar a OpenAI oficial, troque `OPENAI_BASE_URL` para
 `https://api.openai.com/v1` e `OPENAI_TEXT_MODEL` para um modelo OpenAI.
+
+## Geração de vídeo por persona
+
+Cada persona tem seu próprio pipeline de geração de vídeo em tempo real,
+isolado em `server/runtime/video-gen/{persona_id}/` (prompts, frames, vídeos,
+fila e histórico). As interações do chat alimentam um buffer de prompts; ao
+atingir o limiar, um prompt é gerado via RouteLLM e um vídeo é criado a partir
+do último frame da live. O vídeo gerado é registrado no fluxo da persona ativa
+(`config["videos"]` com `group="generated"`, um `flowNode` e uma
+`flowConnection` a partir do nó idle). Detalhes em [`VIDEO-GEN.md`](VIDEO-GEN.md).

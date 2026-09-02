@@ -31,7 +31,10 @@ class ActionExecutor:
         elif action_type in {"webhook", "webhook.call", "call_webhook"} or capability == "webhook.call":
             result = await self._handle_webhook(action)
         elif action_type == "play_video" or str(action_type).startswith("video."):
-            result = self._handle_video(action)
+            if action_type == "video.generate":
+                result = self._handle_video_generate(action)
+            else:
+                result = self._handle_video(action)
         elif action_type == "media.play_music":
             result = self._handle_media(action)
 
@@ -99,6 +102,26 @@ class ActionExecutor:
 
     def _handle_video(self, action: Dict[str, Any]) -> Dict[str, Any]:
         return video_service.handle_video_action(action)
+
+    def _handle_video_generate(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        """Gera um vídeo em tempo real a partir do buffer de prompts + frame base."""
+        try:
+            from server.services.video_gen.video_gen_service import video_gen_service
+
+            payload = action.get("payload", {}) if isinstance(action.get("payload"), dict) else {}
+            custom_instruction = (
+                action.get("customInstruction")
+                or payload.get("customInstruction")
+                or action.get("text")
+                or payload.get("text")
+            )
+            result = video_gen_service.auto_generate(custom_instruction=custom_instruction)
+            if result.get("ok"):
+                return {"status": "done", **result}
+            return {"status": "blocked", "reason": result.get("error", "video_gen_failed"), **result}
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"video.generate falhou: {exc}")
+            return {"status": "error", "reason": str(exc)}
 
     def _handle_media(self, action: Dict[str, Any]) -> Dict[str, Any]:
         from server.config import SIMULATION_MODE

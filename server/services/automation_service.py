@@ -13,6 +13,16 @@ from server.services.automation.queue import action_queue
 logger = logging.getLogger("odessa.automation.service")
 
 
+def _feed_video_gen(event: Dict[str, Any]) -> None:
+    """Alimenta o buffer de prompts de geração de vídeo com interações de chat."""
+    try:
+        from server.services.video_gen.video_gen_service import video_gen_service
+
+        video_gen_service.ingest_event(event)
+    except Exception:  # noqa: BLE001
+        logger.debug("video_gen não disponível para o evento", exc_info=True)
+
+
 class AutomationService:
     """
     Orchestrates OCR/chat text -> parser -> reactive trigger engine -> action queue.
@@ -111,6 +121,8 @@ class AutomationService:
                 record("FILTER", "Evento bloqueado por moderacao", event)
                 continue
 
+            _feed_video_gen(event)
+
             if event.get("kind") == "gift" and queue_actions:
                 ledger_summary = self.ledger.record_gift(event)
                 record("LEDGER", "Presente registrado no placar da sessao", ledger_summary)
@@ -178,6 +190,8 @@ class AutomationService:
 
     async def _dispatch_event(self, event: Dict[str, Any]):
         """Dispatch aggregated events through the same reactive trigger engine."""
+        _feed_video_gen(event)
+
         if event.get("kind") == "gift":
             ledger_summary = self.ledger.record_gift(event)
             self.exec_logger.log("LEDGER", "Presente registrado no placar da sessao", ledger_summary)

@@ -11,6 +11,7 @@
  * comentários comuns.
  */
 import type { TangoChatMessage } from './tangoAiChatService';
+import { sendActiveFrame } from './frameCapture';
 
 const INGEST_URL = '/api/automation/ingest';
 const MIN_INTERVAL_MS = 800;
@@ -41,6 +42,9 @@ export async function routeChatToTriggers(msg: TangoChatMessage): Promise<void> 
   const now = Date.now();
   if (now - lastIngestAt < MIN_INTERVAL_MS) return;
   lastIngestAt = now;
+
+  // Captura o frame base do vídeo em reprodução para o pipeline de geração.
+  void sendActiveFrame();
 
   try {
     await fetch(INGEST_URL, {

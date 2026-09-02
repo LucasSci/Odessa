@@ -101,6 +101,7 @@ Odessa/
 | `server/services/automation/engine.py` | Trigger engine (casa eventos com gatilhos) |
 | `server/services/bridge_manager.py` | Gerencia o processo da bridge do Tango |
 | `server/services/video_service.py` | Player de vídeo e estado do fluxo |
+| `server/services/video_gen/` | Pipeline de geração de vídeo em tempo real (prompt + frame → vídeo → fluxo) |
 
 ## Decisões de arquitetura
 
@@ -111,3 +112,13 @@ Odessa/
   chat nunca parar.
 - **Personas por arquivo:** índice `personas.json` + um arquivo de config por
   persona; a persona padrão "odessa" aponta para o config legado.
+- **Geração de vídeo plugável:** provedor selecionado por `VIDEO_GEN_PROVIDER`
+  (`placeholder` testa o pipeline sem API real; `routellm` usa a Abacus.AI).
+- **Frame capturado no frontend:** o frame base é desenhado do `<video>` ativo
+  num canvas (sem ffmpeg no backend), garantindo pixel-exact e compatibilidade
+  Windows.
+- **Processamento assíncrono:** a fila de vídeos evolui `queued → generating →
+  done/error` em thread de fundo, sem bloquear a API.
+- **Isolamento por persona:** cada persona tem seu diretório em
+  `server/runtime/video-gen/{persona_id}/` (prompts, frames, vídeos, fila,
+  histórico).

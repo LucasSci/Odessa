@@ -5,6 +5,17 @@ Todas as mudanças relevantes do projeto Odessa.
 ## [1.1.0] — Em desenvolvimento
 
 ### Adicionado
+- **Geração de vídeo em tempo real** — as interações do chat (mensagens +
+  gatilhos) alimentam um buffer de prompts; ao atingir o limiar, um prompt é
+  gerado via RouteLLM e um vídeo é criado a partir do último frame da live. O
+  vídeo é salvo por persona, enfileirado (queued → generating → done/error) e
+  registrado no fluxo da persona ativa. Provedor plugável via
+  `VIDEO_GEN_PROVIDER` (`placeholder` testa o pipeline sem API real; `routellm`
+  usa a Abacus.AI). Painel em tempo real (`VideoGenPanel`) mostra fila,
+  histórico de mensagens, prompts, próximo vídeo e frames usados.
+  (`server/services/video_gen/`, `server/api/v1/endpoints/video_gen.py`,
+  `src/core/frameCapture.ts`, `src/core/videoGenApi.ts`,
+  `src/components/VideoGenPanel.tsx`)
 - **Perfis de IA (personas)** — múltiplas personas selecionáveis, cada uma com
   vídeos, fluxo, gatilhos e personalidade próprios. Personas padrão: Odessa,
   Viktoria, Barbara. (`server/core/persona_manager.py`, `server/api/v1/endpoints/personas.py`,

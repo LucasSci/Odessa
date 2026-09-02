@@ -37,6 +37,7 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { emitEvent } from './core/eventBus';
+import { registerFrameCapture, unregisterFrameCapture, captureVideoFrame } from './core/frameCapture';
 import { apiUrl } from './lib/api';
 import {
   routeSetupLiveScene,
@@ -3522,6 +3523,15 @@ export function ContinuityPlayer({
 
   // Pausa a trilha ao desmontar o player.
   useEffect(() => () => trackAudioRef.current?.pause(), []);
+
+  // Registra a captura do frame ativo para o pipeline de geração de vídeo.
+  useEffect(() => {
+    registerFrameCapture(() => {
+      const element = refs[activeSlotRef.current].current;
+      return Promise.resolve(captureVideoFrame(element));
+    });
+    return () => unregisterFrameCapture();
+  }, [refs]);
 
   return (
     <div className={cn('relative h-full w-full overflow-hidden bg-black', className)}>

@@ -184,6 +184,23 @@ curl -X POST http://localhost:8000/api/v1/ai/respond \
 | GET | `/api/v1/proxy` | Proxy de página para iframe (remove X-Frame-Options/CSP) |
 | GET | `/api/v1/proxy/asset` | Proxy de asset estático |
 
+## Geração de vídeo em tempo real
+
+Pipeline que transforma interações do chat em vídeos gerados a partir do último
+frame da live. Detalhes em [`VIDEO-GEN.md`](VIDEO-GEN.md).
+
+| Método | Rota | Descrição |
+|---|---|---|
+| POST | `/api/v1/video-gen/frame` | Recebe o frame base (data URL) e persiste por persona |
+| GET | `/api/v1/video-gen/frame` | Retorna o último frame base |
+| POST | `/api/v1/video-gen/prompt` | Gera um prompt a partir do buffer de chat |
+| GET | `/api/v1/video-gen/prompts` | Lista os prompts gerados |
+| POST | `/api/v1/video-gen/generate` | Enfileira a geração de um vídeo |
+| GET | `/api/v1/video-gen/queue` | Fila de vídeos pendentes/em geração |
+| GET | `/api/v1/video-gen/history` | Histórico de gerações |
+| GET | `/api/v1/video-gen/video/{id}` | Serve um vídeo gerado |
+| GET | `/api/v1/video-gen/state` | Estado completo para o painel em tempo real |
+
 ## Bridge do Tango (porta 7555)
 
 A bridge expõe um servidor aiohttp próprio:

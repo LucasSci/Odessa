@@ -412,5 +412,101 @@ class WorkflowService:
             ],
         }
 
+    def register_generated_video(
+        self,
+        *,
+        video_id: str,
+        video_path: Any,
+        prompt: str = "",
+        persona_id: str = "",
+    ) -> dict[str, Any]:
+        """Registra um vídeo gerado no fluxo da persona ativa.
+
+        Adiciona o vídeo a config["videos"] (group="generated"), cria um
+        flowNode e uma flowConnection a partir do nó idle, e salva/atualiza os
+        serviços em runtime.
+        """
+        config = load_persona_config()
+        videos = config.get("videos", [])
+        if any(v.get("id") == video_id for v in videos):
+            return {"ok": True, "status": "already_registered", "videoId": video_id}
+
+        label = f"Gerado: {video_id}"
+        videos.append(
+            {
+                "id": video_id,
+                "label": label,
+                "group": "generated",
+                "description": (prompt or "Vídeo gerado em tempo real").strip()[:200],
+                "loop": False,
+                "generated": True,
+                "generatedAt": self._now(),
+                "personaId": persona_id,
+            }
+        )
+        config["videos"] = videos
+
+        # Posiciona o nó gerado ao lado do nó idle (ou no canto).
+        idle_node = next(
+            (n for n in config.get("flowNodes", []) if n.get("videoId") == config.get("idleVideoId")),
+            None,
+        )
+        base_x = idle_node.get("position", {}).get("x", 0) if idle_node else 0
+        base_y = idle_node.get("position", {}).get("y", 0) if idle_node else 0
+        offset = 60 + 40 * (len(videos) % 6)
+        node_id = f"node-{video_id}-{int(time.time() * 1000)}"
+        flow_node = {
+            "nodeId": node_id,
+            "videoId": video_id,
+            "label": label,
+            "position": {"x": base_x + offset, "y": base_y + offset},
+            "playback": {"startSec": 0.0, "endSec": None, "transitionMs": 220},
+            "audio": {"mode": "muted", "volume": 1.0, "trackId": "", "trackUrl": ""},
+            "generated": True,
+        }
+        config.setdefault("flowNodes", []).append(flow_node)
+
+        # Conexão a partir do nó idle (se existir) para o nó gerado.
+        if idle_node:
+            connection = {
+                "id": f"flow-generated-{int(time.time() * 1000)}",
+                "fromNodeId": idle_node.get("nodeId"),
+                "toNodeId": node_id,
+                "fromVideoId": idle_node.get("videoId"),
+                "toVideoId": video_id,
+                "triggerId": "",
+                "returnToIdle": True,
+                "connectionSettings": {"transitionMs": 220, "fadeMode": "crossfade", "previewTailSec": 2.0, "previewHeadSec": 2.0},
+                "generated": True,
+            }
+            config.setdefault("flowConnections", []).append(connection)
+
+        canvas_ids = config.get("flowCanvasVideoIds", [])
+        if video_id not in canvas_ids:
+            canvas_ids.append(video_id)
+        config["flowCanvasVideoIds"] = canvas_ids
+
+        if not save_persona_config(config):
+            return {"ok": False, "status": "save_failed", "videoId": video_id}
+
+        self._refresh_runtime_config()
+        return {
+            "ok": True,
+            "status": "registered",
+            "videoId": video_id,
+            "nodeId": node_id,
+            "label": label,
+        }
+
+    def _refresh_runtime_config(self) -> None:
+        try:
+            from server.services.video_service import video_service
+            from server.services.automation.engine import trigger_engine
+
+            video_service.refresh_config()
+            trigger_engine.refresh_config()
+        except Exception:  # noqa: BLE001
+            pass
+
 
 workflow_service = WorkflowService()

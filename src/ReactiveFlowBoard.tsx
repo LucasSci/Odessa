@@ -55,6 +55,7 @@ type VideoEntry = {
   loop?: boolean;
   tags?: string[];
   missingFile?: boolean;
+  generated?: boolean;
 };
 
 type PlaybackSettings = {
@@ -430,6 +431,7 @@ function VideoFlowNode({ data, selected }: NodeProps<VideoFlowNodeType>) {
       className={cn(
         'w-56 overflow-hidden rounded-[24px] border bg-[#0b0d10] shadow-2xl transition',
         data.isActive && 'odessa-flow-node-active border-lime-200/80',
+        data.video.generated && 'border-violet-400/60 shadow-[0_0_30px_rgba(167,139,250,0.25)]',
         selected ? 'border-sky-200/70 shadow-[0_0_40px_rgba(125,211,252,0.2)]' : 'border-[var(--border)]',
       )}
     >
@@ -440,6 +442,7 @@ function VideoFlowNode({ data, selected }: NodeProps<VideoFlowNodeType>) {
           {data.isIdle && <Badge variant="gold">Idle</Badge>}
           {data.isActive && <Badge variant="success">Agora</Badge>}
           {data.video.missingFile && <Badge variant="warning">Sem arquivo</Badge>}
+          {data.video.generated && <Badge variant="lavender">Gerado</Badge>}
           <Badge variant="lavender">{secondsLabel(playback.startSec)} {'->'} {secondsLabel(playback.endSec)}</Badge>
         </div>
       </div>

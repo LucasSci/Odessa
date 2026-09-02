@@ -102,3 +102,27 @@ TOPIC_SUGGEST_COOLDOWN_MS = int(os.getenv("TOPIC_SUGGEST_COOLDOWN_MS", "60000"))
 VIDEO_TRIGGER_COOLDOWN_MS = int(os.getenv("VIDEO_TRIGGER_COOLDOWN_MS", "15000"))
 
 DEFAULT_RECEIVER = os.getenv("DEFAULT_RECEIVER", "Odessa").strip()
+
+# ── Video Generation Pipeline ──────────────────────────────────────────────
+# Provedor de geração de vídeo. "placeholder" simula o pipeline completo sem
+# chamar API real (ideal para testes). "routellm" tenta a API de vídeo da
+# Abacus.AI via RouteLLM (OpenAI-compatível).
+VIDEO_GEN_PROVIDER = os.getenv("VIDEO_GEN_PROVIDER", "placeholder").strip().lower()
+VIDEO_GEN_API_KEY = os.getenv("VIDEO_GEN_API_KEY", "").strip()
+VIDEO_GEN_MODEL = os.getenv("VIDEO_GEN_MODEL", "video-gen").strip()
+# Gera vídeo automaticamente quando o buffer de prompts atinge o limiar.
+VIDEO_GEN_AUTO = os.getenv("VIDEO_GEN_AUTO", "true").strip().lower() not in {"0", "false", "no"}
+# Diretório raiz de persistência por persona (server/runtime/video-gen/{persona_id}/).
+ODESSA_VIDEO_GEN_DIR = Path(os.getenv("ODESSA_VIDEO_GEN_DIR", RUNTIME_DIR / "video-gen"))
+# Tamanho máximo da fila de vídeos pendentes por persona.
+VIDEO_GEN_MAX_QUEUE = int(os.getenv("VIDEO_GEN_MAX_QUEUE", "8"))
+# Formato do frame base capturado (png|jpg).
+VIDEO_GEN_FRAME_FORMAT = os.getenv("VIDEO_GEN_FRAME_FORMAT", "png").strip().lower()
+# Duração (segundos) e resolução padrão do vídeo gerado.
+VIDEO_GEN_DURATION_SEC = float(os.getenv("VIDEO_GEN_DURATION_SEC", "4"))
+VIDEO_GEN_WIDTH = int(os.getenv("VIDEO_GEN_WIDTH", "720"))
+VIDEO_GEN_HEIGHT = int(os.getenv("VIDEO_GEN_HEIGHT", "1280"))
+# Nº de interações de chat acumuladas antes de gerar um prompt automaticamente.
+VIDEO_GEN_PROMPT_THRESHOLD = int(os.getenv("VIDEO_GEN_PROMPT_THRESHOLD", "5"))
+# Cooldown mínimo (ms) entre gerações automáticas.
+VIDEO_GEN_COOLDOWN_MS = int(os.getenv("VIDEO_GEN_COOLDOWN_MS", "30000"))

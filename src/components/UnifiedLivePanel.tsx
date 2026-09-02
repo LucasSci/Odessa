@@ -34,6 +34,7 @@ import { cn } from '../lib/utils';
 import { TangoChatFeed } from './TangoChatFeed';
 import { LiveVisionMonitor } from './LiveVisionMonitor';
 import { AiConfigPanel } from './AiConfigPanel';
+import { VideoGenPanel } from './VideoGenPanel';
 import type { TangoChatMessage } from '../core/tangoAiChatService';
 import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
 import type { CapturedMessage } from '../types';
@@ -318,6 +319,9 @@ export function UnifiedLivePanel({
               </div>
             )}
           </div>
+
+          {/* Pipeline de geração de vídeo em tempo real */}
+          <VideoGenPanel />
         </div>
 
         {/* ── Chat + Fila de Respostas IA ── */}
