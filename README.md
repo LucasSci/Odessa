@@ -1,186 +1,106 @@
 # Odessa
 
-Sistema de persona virtual para lives — reproduz clipes de vídeo em resposta a presentes, comentários e agendamentos, de forma automática e em tempo real.
+Sistema de persona virtual para lives (TikTok/Tango Live): um player inteligente
+de vídeo que reage a presentes, comentários e agendamentos em tempo real,
+controlado por um editor visual de fluxo (**ReactiveFlow**) e exibido como
+Browser Source no OBS.
 
 ## O que é
 
-A Odessa é um app web (React + Node.js) que atua como um player inteligente de vídeo para lives no TikTok Live. Através de um editor visual de fluxo (**ReactiveFlow**), você conecta clipes de vídeo a gatilhos (presente, palavra-chave no chat, tempo) e a Odessa cuida de reproduzir a sequência certa no momento certo, sem intervenção manual.
+A Odessa atua como um player inteligente de vídeo para lives. Através de um
+editor visual de fluxo, você conecta clipes de vídeo a gatilhos (presente,
+palavra-chave no chat, tempo) e a Odessa reproduz a sequência certa no momento
+certo, sem intervenção manual. O OBS aponta uma **Browser Source** para o
+overlay, e a Odessa gerencia qual vídeo tocar — incluindo looping do idle,
+transições suaves e retorno ao idle após cada reação.
 
-O OBS aponta uma **Browser Source** para a URL do overlay, e a Odessa gerencia qual vídeo tocar — incluindo looping do idle, transições suaves e retorno ao idle depois de cada reação.
-
-## Arquitetura
-
-```
-┌─────────────────────────────────┐
-│  Hostinger (Node.js Web App)    │
-│                                 │
-│  hostinger-server.mjs           │  ← servidor único: serve dist/ + API
-│  api/[...path].js               │  ← handlers de vídeo, auth, automação
-│  dist/                          │  ← frontend React (gerado pelo Vite)
-│  public/odessa-schedules.json   │  ← config de agendamentos (estático)
-│                                 │
-│  KV store: ~/odessa-data/       │  ← persona_config, estado de vídeo
-└──────────────┬──────────────────┘
-               │ HTTPS
-┌──────────────▼──────────────────┐
-│  OBS (máquina da live)          │
-│                                 │
-│  Browser Source → /#overlay     │  ← PersonaOverlay.tsx
-│    polling /api/video/state     │    a cada 500ms
-│    dispara agendamentos         │    client-side
-└─────────────────────────────────┘
-```
-
-**Stack principal (produção):**
-
-| Camada | Tecnologia |
-|---|---|
-| Servidor | Node.js 22 + `hostinger-server.mjs` |
-| Frontend | React 19 + Vite + Tailwind CSS 4 |
-| Persistência | KV em disco (`~/odessa-data/data/kv.json`) |
-| Hospedagem | Hostinger Business Web Hosting |
-| Domínio | configurado no hPanel |
-
-**Stack local (dev):**
-
-| Camada | Tecnologia |
-|---|---|
-| Dev server | Vite (porta 3000) |
-| API | Python FastAPI / uvicorn (porta 8000) |
-| OCR | Tesseract.js + Browser TextDetector |
+Além disso, a Odessa **conversa com o público automaticamente**: captura o chat
+do Tango via bridge, responde com IA generativa (RouteLLM) usando a
+personalidade da persona ativa, e reage a palavras-chave/presentes trocando de
+vídeo.
 
 ## Funcionalidades
 
 - **ReactiveFlow** — editor visual de fluxo; conecta vídeos a gatilhos (presente, palavra, tempo)
-- **Agendamentos** — disparam vídeos automaticamente em intervalos configurados; executados client-side pela PersonaOverlay
-- **OCR/Captura** — lê chat ao vivo via captura de tela (CaptureStudio) para identificar comentários e gatilhos
-- **Reconhecimento visual de presentes** — identifica presentes do TikTok por perceptual hash
+- **Perfis de IA (personas)** — múltiplas personas selecionáveis, cada uma com vídeos, fluxo, gatilhos e personalidade próprios
+- **Conversa automática** — o chat responde com IA generativa, com governança anti-flood
+- **Chat → gatilhos** — mensagens do chat disparam troca de vídeo por palavra-chave/presente
+- **Bridge do Tango** — captura de chat e tela em tempo real (Playwright/CDP)
+- **Agendamentos** — disparam vídeos automaticamente em intervalos configurados
+- **OCR/Captura** — lê chat ao vivo via captura de tela (CaptureStudio)
 - **OdessaLiveCenter** — painel central de controle da live
-- **PersonaStudio** — configuração do perfil e comportamento da persona
 - **Biblioteca de vídeos** — upload, organização e pré-visualização dos clipes
+
+## Stack
+
+| Camada | Tecnologia |
+|---|---|
+| Frontend | React 19 + Vite + Tailwind CSS 4 + TypeScript |
+| Backend (dev/desktop) | Python FastAPI / uvicorn |
+| Backend (produção) | Node.js (`hostinger-server.mjs` + `api/`) |
+| Bridge do Tango | Python aiohttp (porta 7555) + Playwright/CDP |
+| IA generativa | RouteLLM da Abacus.AI (compatível com OpenAI) |
+| Persistência | KV em disco (`~/odessa-data/`) + SQLite (`server/runtime/`) |
+| Hospedagem | Hostinger Business Web Hosting |
+
+## Início rápido
+
+```powershell
+# 1. Setup (instala dependências, cria venv e .env)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup-local.ps1
+
+# 2. Rodar (backend FastAPI + frontend Vite)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start-odessa.ps1
+```
+
+Acesse o painel em `http://localhost:3000`.
+
+## Documentação
+
+A documentação completa está em [`docs/`](docs/README.md):
+
+| Documento | Conteúdo |
+|---|---|
+| [Arquitetura](docs/ARCHITECTURE.md) | Arquitetura, os 3 runtimes, fluxo de dados |
+| [Setup](docs/SETUP.md) | Setup e execução em desenvolvimento local |
+| [Deploy](docs/DEPLOY.md) | Build e deploy na Hostinger |
+| [API](docs/API.md) | Referência dos endpoints |
+| [OBS + Tango](docs/OBS-TANGO.md) | Configuração do OBS e da bridge do Tango |
+| [Personas](docs/PERSONAS.md) | Perfis de persona e conversa com IA |
+| [Testes](docs/TESTING.md) | Como rodar os testes |
+| [Changelog](docs/CHANGELOG.md) | Histórico de mudanças |
 
 ## Estrutura de pastas
 
 ```
 odessa/
-├── api/                    # Handlers de API (Hostinger/Vercel-style)
-│   ├── [...path].js        # Catch-all (roteamento principal)
-│   ├── auth/               # login, logout, me
-│   ├── ocr/                # ingestão de OCR
-│   └── v1/                 # endpoints versionados (video, workflow)
-├── assets/
-│   ├── branding/           # ícones e logotipos
-│   └── videos/             # clipes de vídeo locais (dev)
-├── electron/               # Runtime desktop (Electron — opcional)
-├── public/
-│   ├── odessa-schedules.json  # config de agendamentos servida estaticamente
-│   └── timer-worker.js        # worker para timers no overlay
-├── scripts/                # scripts utilitários (PowerShell, Python)
-├── server/                 # Backend Python (FastAPI — dev local)
-│   ├── api/v1/endpoints/   # rotas da API Python
-│   ├── core/               # auth, db, config manager
-│   ├── services/           # AI, OCR, vídeo, automação, workflow
-│   └── tests/              # testes Python
 ├── src/                    # Frontend React
-│   ├── core/               # engine de automação client-side
-│   ├── lib/                # utilitários (api, obs, tts)
-│   ├── components/         # componentes UI compartilhados
-│   ├── PersonaOverlay.tsx  # browser source do OBS
-│   ├── ReactiveFlowBoard.tsx # editor de fluxo visual
-│   ├── OdessaLiveCenter.tsx  # painel da live
-│   └── CaptureStudio.tsx   # captura + OCR
-├── workflows/n8n/          # workflows n8n (opcional)
-├── hostinger-server.mjs    # servidor Node.js de produção
-├── vite.config.ts          # build config + injeção de schedules
-└── CLAUDE.md               # instruções para o Claude Code
+│   ├── core/               # Engine de automação, IA, personas, governança
+│   ├── lib/                # Utilitários (api, obs, tts)
+│   ├── components/         # Componentes UI compartilhados
+│   ├── OdessaLiveCenter.tsx  # Painel central da live
+│   ├── PersonaOverlay.tsx  # Browser source do OBS
+│   └── ReactiveFlowBoard.tsx # Editor de fluxo visual
+├── server/                 # Backend Python (FastAPI)
+│   ├── api/v1/endpoints/   # Rotas da API
+│   ├── core/               # auth, config_manager, persona_manager
+│   ├── services/           # AI, OCR, vídeo, automação, workflow
+│   └── data/               # personas.json, persona_config.json
+├── api/                    # Handlers Node de produção (Hostinger)
+├── tango_chat/             # Bridge do Tango (porta 7555)
+├── electron/               # Runtime desktop (Electron)
+├── scripts/                # Scripts utilitários (PowerShell, Python)
+├── workflows/n8n/          # Workflows n8n (opcional)
+├── docs/                   # Documentação do projeto
+└── assets/                 # Branding e vídeos locais (dev)
 ```
 
-## Setup local (dev)
+## Autenticação
 
-### Pré-requisitos
+Use o email e a senha configurados em `ODESSA_ADMIN_PASSWORD` (ou
+`ODESSA_ADMIN_PASSWORD_HASH`) no `.env`. O token de sessão vem no campo
+`sessionToken` da resposta de login e vai no header:
 
-- Node.js 22+
-- Python 3.11+
-- OBS Studio (para testar o overlay)
-
-### Instalar
-
-```powershell
-npm install
-python -m venv venv
-venv\Scripts\python.exe -m pip install -r server\requirements.txt
-```
-
-### Configurar
-
-```powershell
-copy .env.example .env
-```
-
-Edite `.env` e configure pelo menos:
-- `ODESSA_ADMIN_PASSWORD` — senha do painel admin
-- `ODESSA_SESSION_SECRET` — segredo aleatório para sessões
-
-### Rodar
-
-```powershell
-# Terminal 1 — API Python
-npm run dev:api
-
-# Terminal 2 — Frontend Vite
-npm run dev
-```
-
-Acesse `http://localhost:3000`.
-
-## Deploy (Hostinger)
-
-### Build + zip
-
-```powershell
-npx vite build
-Compress-Archive -Path dist, api, public, src, workflows, package.json, package-lock.json, hostinger-server.mjs, vite.config.ts, tsconfig.json, .hostinger.json, index.html -DestinationPath deploy.zip -Force
-```
-
-### Enviar via MCP
-
-Use o tool `mcp__hostinger-mcp__hosting_deployJsApplication` com:
-- `archivePath`: caminho absoluto para `deploy.zip`
-- `domain`: `SEU-DOMINIO.hostingersite.com`
-
-### Variáveis de ambiente (hPanel)
-
-Configure em **Websites → Manage → Environment Variables**:
-
-```env
-NODE_ENV=production
-ODESSA_PUBLIC_URL=https://SEU-DOMINIO.hostingersite.com
-ODESSA_ADMIN_PASSWORD_HASH=<hash bcrypt da senha>
-ODESSA_SESSION_SECRET=<segredo longo e aleatório>
-ODESSA_COOKIE_SECURE=true
-ODESSA_COOKIE_SAMESITE=Lax
-```
-
-### Verificar
-
-```
-https://SEU-DOMINIO.hostingersite.com/api/health
-https://SEU-DOMINIO.hostingersite.com/api/v1/video/state
-https://SEU-DOMINIO.hostingersite.com/#overlay
-```
-
-## Configuração do OBS
-
-1. Adicione uma **Browser Source** na cena da live
-2. URL: `https://SEU-DOMINIO.hostingersite.com/#overlay`
-3. Resolução: `1920×1080` (ou a resolução da cena)
-4. Marque **"Refresh browser when scene becomes active"**
-
-## Autenticação (dev/testes)
-
-Use o email e a senha configurados em `ODESSA_ADMIN_PASSWORD` (ou `ODESSA_ADMIN_PASSWORD_HASH`) no `.env`.
-
-O token de sessão vem no campo `sessionToken` da resposta de login e vai no header:
 ```
 Authorization: Bearer <token>
 ```
@@ -188,15 +108,16 @@ Authorization: Bearer <token>
 ## Testes
 
 ```powershell
-# Frontend (Vitest)
-npm test
-
-# Backend (pytest)
-npm run test:backend
+npm test              # Frontend (Vitest)
+npm run test:backend  # Backend (pytest)
+npm run simulate:live # Simulação de live
 ```
 
 ## Observações
 
-- **Agendamentos rodam client-side** — a `PersonaOverlay.tsx` lê `public/odessa-schedules.json` e dispara os gatilhos via `POST /api/video/trigger` sem depender do processo Node.js do servidor.
-- **O processo Node.js na Hostinger não reinicia automaticamente** após deploy estático. Mudanças de API só entram em vigor após reinício manual via hPanel.
 - **Não suba `.env` nem arquivos com senhas** para o repositório.
+- **O processo Node.js na Hostinger não reinicia automaticamente** após deploy
+  estático. Mudanças de API só entram em vigor após reinício manual via hPanel.
+- **Agendamentos rodam client-side** — a `PersonaOverlay.tsx` lê
+  `public/odessa-schedules.json` e dispara os gatilhos sem depender do processo
+  Node.js do servidor.
