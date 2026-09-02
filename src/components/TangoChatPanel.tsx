@@ -66,6 +66,11 @@ import {
 import { getChatInsights } from '../core/chatLearning';
 import { getAiConfig, saveAiConfig } from '../core/aiConfig';
 import { routeChatToTriggers } from '../core/chatToTriggerBridge';
+import {
+  shouldReplyToMessage,
+  recordChatReplySent,
+  recordIncomingMessage,
+} from '../core/chatConversationGovernor';
 import { LiveVisionMonitor } from './LiveVisionMonitor';
 import { TangoChatFeed } from './TangoChatFeed';
 import { UnifiedLivePanel, type VideoStateLite } from './UnifiedLivePanel';
@@ -718,12 +723,16 @@ export function TangoChatPanel({
   };
 
   const handleAutoTriggerAi = async (msg: TangoChatMessage) => {
-    // Verifica cooldown
-    const now = Date.now();
-    if (now - lastSentAt < cooldownSec * 1000) return;
+    // Registra a mensagem recebida para detecção de repetição
+    recordIncomingMessage(msg.text);
 
-    // Filtra mensagens curtas/ruído se necessário
-    if (!msg.text || msg.text.length < 2) return;
+    // Governança: cooldown global + limite por minuto + cooldown por usuário + anti-flood
+    const config = getAiConfig();
+    const decision = shouldReplyToMessage(msg, {
+      cooldownMs: config.chatReplyCooldownMs || 15_000,
+      maxPerMinute: config.chatReplyMaxPerMinute || 4,
+    });
+    if (!decision.allowed) return;
 
     const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt);
     if (!result.ok || result.blocked || !result.reply) return;
@@ -742,6 +751,7 @@ export function TangoChatPanel({
     setReplyQueue((prev) => [newItem, ...prev].slice(0, 30));
 
     const sent = await executeSendMessage(result.reply);
+    if (sent) recordChatReplySent(msg.username);
     setReplyQueue((prev) =>
       prev.map((item) =>
         item.id === newItem.id
