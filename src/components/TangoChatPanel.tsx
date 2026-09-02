@@ -65,6 +65,7 @@ import {
 } from '../core/tangoAiChatService';
 import { getChatInsights } from '../core/chatLearning';
 import { getAiConfig, saveAiConfig } from '../core/aiConfig';
+import { routeChatToTriggers } from '../core/chatToTriggerBridge';
 import { LiveVisionMonitor } from './LiveVisionMonitor';
 import { TangoChatFeed } from './TangoChatFeed';
 import { UnifiedLivePanel, type VideoStateLite } from './UnifiedLivePanel';
@@ -343,6 +344,10 @@ export function TangoChatPanel({
       try {
         const msg: TangoChatMessage = JSON.parse(ev.data);
         setMessages((prev) => [...prev.slice(-399), msg]);
+
+        // Roteia a mensagem para o trigger engine do backend (palavra-chave/
+        // presente -> vídeo do fluxo publicado), com dedupe e cooldown.
+        void routeChatToTriggers(msg);
 
         // Se modo for Autônomo, dispara geração e envio automático
         if (autonomyMode === 'auto') {
