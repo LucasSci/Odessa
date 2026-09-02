@@ -5,8 +5,11 @@ from pathlib import Path
 from typing import Any, Dict
 import os
 
+from server.core.persona_manager import get_persona_config_path
+
 _cached_config = None
 _cached_mtime = 0
+_cached_path: Path | None = None
 
 logger = logging.getLogger("odessa.config")
 
@@ -253,22 +256,24 @@ def _normalize_config(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def load_persona_config() -> Dict[str, Any]:
-    """Loads the persona video configuration from JSON."""
-    global _cached_config, _cached_mtime
-    if not CONFIG_PATH.exists():
-        logger.warning("Config file not found at %s, returning empty config.", CONFIG_PATH)
+    """Loads the persona video configuration from JSON (da persona ativa)."""
+    global _cached_config, _cached_mtime, _cached_path
+    config_path = get_persona_config_path()
+    if not config_path.exists():
+        logger.warning("Config file not found at %s, returning empty config.", config_path)
         return _empty_config()
 
     try:
-        mtime = os.path.getmtime(CONFIG_PATH)
-        if _cached_config is not None and mtime == _cached_mtime:
+        mtime = os.path.getmtime(config_path)
+        if _cached_config is not None and mtime == _cached_mtime and _cached_path == config_path:
             return _cached_config
 
-        logger.info("Loading persona config from %s", CONFIG_PATH)
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+        logger.info("Loading persona config from %s", config_path)
+        with open(config_path, "r", encoding="utf-8") as f:
             data = _normalize_config(json.load(f))
             _cached_config = data
             _cached_mtime = mtime
+            _cached_path = config_path
             logger.info("Successfully loaded persona config with %s videos.", len(data.get("videos", [])))
             return data
     except Exception as exc:
@@ -277,15 +282,17 @@ def load_persona_config() -> Dict[str, Any]:
 
 
 def save_persona_config(config: Dict[str, Any]) -> bool:
-    """Saves the persona video configuration to JSON."""
-    global _cached_config, _cached_mtime
+    """Saves the persona video configuration to JSON (da persona ativa)."""
+    global _cached_config, _cached_mtime, _cached_path
     try:
-        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config_path = get_persona_config_path()
+        config_path.parent.mkdir(parents=True, exist_ok=True)
         normalized = _normalize_config(config)
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        with open(config_path, "w", encoding="utf-8") as f:
             json.dump(normalized, f, indent=2, ensure_ascii=False)
         _cached_config = normalized
-        _cached_mtime = os.path.getmtime(CONFIG_PATH)
+        _cached_mtime = os.path.getmtime(config_path)
+        _cached_path = config_path
         return True
     except Exception as exc:
         logger.error("Error saving persona config: %s", exc)

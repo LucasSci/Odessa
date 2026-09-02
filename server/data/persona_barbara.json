@@ -1,0 +1,22 @@
+{
+  "videos": [],
+  "action_map": {
+    "gift": [],
+    "message": [],
+    "idle": []
+  },
+  "gift_map": {},
+  "transitions": {},
+  "triggers": [],
+  "flowNodes": [],
+  "flowConnections": [],
+  "flowCanvasVideoIds": [],
+  "idleVideoId": "",
+  "stageSettings": {
+    "fit": "contain",
+    "zoom": 1.0,
+    "offsetX": 0,
+    "offsetY": 0
+  },
+  "mediaTracks": []
+}

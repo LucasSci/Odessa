@@ -89,6 +89,26 @@ async def startup_event():
     logger.info("Modular API mounted at /api/v1")
     logger.info("Odessa Backend is ready.")
 
+    # Auto-inicia a bridge do Tango (captura de chat + tela) quando o backend
+    # sobe, usando a config persistida. Evita que o usuário precise iniciar a
+    # bridge manualmente a cada execução. Desative com ODESSA_AUTOSTART_BRIDGE=0
+    # (ex.: deploy na nuvem, onde não há Chromium/desktop).
+    if os.getenv("ODESSA_AUTOSTART_BRIDGE", "1") == "1":
+        try:
+            from server.services.bridge_manager import bridge_manager, load_bridge_config
+            if not bridge_manager.is_running:
+                cfg = load_bridge_config()
+                result = await bridge_manager.start(
+                    autoconnect=cfg.get("autoconnect", True),
+                    config=cfg,
+                )
+                if result.get("ok"):
+                    logger.info("Bridge do Tango auto-iniciada (pid=%s)", result.get("pid"))
+                else:
+                    logger.warning("Falha ao auto-iniciar bridge: %s", result.get("error"))
+        except Exception as exc:
+            logger.warning("Erro ao auto-iniciar bridge: %s", exc)
+
 
 dist_dir = Path(__file__).resolve().parents[1] / "dist"
 if dist_dir.exists():

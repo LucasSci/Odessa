@@ -105,7 +105,7 @@ export async function generateTangoChatReply(
   }
 
   const historyContext = recentHistory
-    .slice(-6)
+    .slice(-12)
     .map((msg) => `${msg.username}: ${msg.text}`)
     .join('\n');
 
