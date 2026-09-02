@@ -10,6 +10,7 @@
 
 import { callGeminiText } from './aiDecisionContract';
 import { getAiConfig, hasActiveGeminiKey } from './aiConfig';
+import { apiUrl } from '../lib/api';
 import { PUBLIC_REPLY_BLOCKED_TERMS } from './liveAutonomyGovernor';
 import { buildChatInsightsContext } from './chatLearning';
 import { generateLocalReply } from './tangoReplyFallback';
@@ -71,6 +72,48 @@ export function checkSafetyRestrictions(text: string): { safe: boolean; blockedT
 }
 
 /**
+ * Chama a IA generativa do backend (POST /api/v1/ai/respond), que usa a
+ * RouteLLM/OpenAI/Gemini configurada no servidor. Retorna o texto ou null.
+ */
+async function callBackendAiRespond(
+  systemPrompt: string,
+  incoming: TangoChatMessage,
+  recentHistory: TangoChatMessage[],
+): Promise<string | null> {
+  const historyContext = recentHistory
+    .slice(-12)
+    .map((msg) => `${msg.username}: ${msg.text}`)
+    .join('\n');
+  const userPrompt = [
+    `[HISTÓRICO RECENTE DO CHAT]:`,
+    historyContext || '(Nenhuma mensagem recente)',
+    `\n[MENSAGEM PARA RESPONDER]:`,
+    `Usuário: ${incoming.username}`,
+    `Mensagem: "${incoming.text}"`,
+    `\nInstrução: Gere uma resposta rápida e cativante para @${incoming.username}:`,
+  ].join('\n');
+
+  try {
+    const res = await fetch(apiUrl('/ai/respond'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        persona_prompt: systemPrompt,
+        chat_context: historyContext,
+        user_prompt: userPrompt,
+        temperature: 0.7,
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { response?: string };
+    return data.response?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Gera uma resposta contextual da IA para uma mensagem recebida no chat do Tango.
  */
 export async function generateTangoChatReply(
@@ -82,9 +125,23 @@ export async function generateTangoChatReply(
   const basePrompt = customPrompt || config.systemPrompt || DEFAULT_TANGO_PROMPT;
   const insightsContext = buildChatInsightsContext();
 
-  // Sem chave Gemini configurada → usa o motor de respostas prontas locais.
-  // Funciona agora, sem custo. Quando a chave for configurada, a IA real assume.
+  // Sem chave Gemini no frontend → tenta a IA generativa do backend
+  // (RouteLLM/OpenAI/Gemini configurada no servidor). Se falhar, usa o motor
+  // de respostas prontas locais para não parar o chat.
   if (!hasActiveGeminiKey()) {
+    const backendReply = await callBackendAiRespond(basePrompt, incoming, recentHistory);
+    if (backendReply) {
+      const cleanReply = sanitizeTangoReply(backendReply);
+      const safety = checkSafetyRestrictions(cleanReply);
+      if (safety.safe) {
+        return {
+          ok: true,
+          reply: cleanReply,
+          confidence: 0.9,
+          reason: 'Resposta gerada pela IA do backend (RouteLLM)',
+        };
+      }
+    }
     const local = generateLocalReply(incoming, recentHistory);
     const safety = checkSafetyRestrictions(local.reply);
     if (!safety.safe) {

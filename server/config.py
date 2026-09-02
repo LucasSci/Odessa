@@ -18,6 +18,9 @@ MAX_OCR_IMAGE_PIXELS = int(os.getenv("OCR_MAX_IMAGE_PIXELS", "6000000"))
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+# Base URL do provedor OpenAI-compatível. Padrão: RouteLLM da Abacus.AI.
+# Para usar a OpenAI oficial, defina OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://routellm.abacus.ai/v1").strip().rstrip("/")
 OPENAI_TEXT_MODEL = (
     os.getenv("OPENAI_TEXT_MODEL")
     or os.getenv("OPENAI_MODEL")

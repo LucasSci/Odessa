@@ -8,13 +8,14 @@ from server.config import (
     OPENAI_API_KEY,
     GEMINI_API_KEY,
     OPENAI_TEXT_MODEL,
+    OPENAI_BASE_URL,
 )
 
 logger = logging.getLogger("odessa.ai")
 
 class AIService:
     def __init__(self):
-        self.openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+        self.openai_client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL) if OPENAI_API_KEY else None
         self.gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
         if not self.openai_client and not self.gemini_client:
