@@ -1,0 +1,282 @@
+{
+  "videos": [
+    {
+      "id": "01_FLUXO_idle_sorriso_leve",
+      "label": "01 Fluxo Idle Sorriso Leve",
+      "group": "uploaded",
+      "description": "Auto-detected: 01_FLUXO_idle_sorriso_leve.mp4",
+      "loop": false
+    },
+    {
+      "id": "02_FLUXO_sorriso_charmoso_lento",
+      "label": "02 Fluxo Sorriso Charmoso Lento",
+      "group": "uploaded",
+      "description": "Auto-detected: 02_FLUXO_sorriso_charmoso_lento.mp4",
+      "loop": false
+    },
+    {
+      "id": "03_FLUXO_olha_chat_direita_leve",
+      "label": "03 Fluxo Olha Chat Direita Leve",
+      "group": "uploaded",
+      "description": "Auto-detected: 03_FLUXO_olha_chat_direita_leve.mp4",
+      "loop": false
+    },
+    {
+      "id": "04_FLUXO_olha_chat_lateral_forte",
+      "label": "04 Fluxo Olha Chat Lateral Forte",
+      "group": "uploaded",
+      "description": "Auto-detected: 04_FLUXO_olha_chat_lateral_forte.mp4",
+      "loop": false
+    },
+    {
+      "id": "05_FLUXO_idle_neutro_suave",
+      "label": "05 Fluxo Idle Neutro Suave",
+      "group": "uploaded",
+      "description": "Auto-detected: 05_FLUXO_idle_neutro_suave.mp4",
+      "loop": false
+    },
+    {
+      "id": "06_ESPECIAL_alongamento_bracos",
+      "label": "06 Especial Alongamento Bracos",
+      "group": "uploaded",
+      "description": "Auto-detected: 06_ESPECIAL_alongamento_bracos.mp4",
+      "loop": false
+    },
+    {
+      "id": "06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos",
+      "label": "06 Revisar Audio Forte 06 Especial Alongamento Bracos",
+      "group": "uploaded",
+      "description": "Auto-detected: 06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos.mp4",
+      "loop": false
+    },
+    {
+      "id": "07_FLUXO_sorriso_timido_camera",
+      "label": "07 Fluxo Sorriso Timido Camera",
+      "group": "uploaded",
+      "description": "Auto-detected: 07_FLUXO_sorriso_timido_camera.mp4",
+      "loop": false
+    },
+    {
+      "id": "08_TRANSICAO_ajuste_ombro_roupa",
+      "label": "08 Transicao Ajuste Ombro Roupa",
+      "group": "uploaded",
+      "description": "Auto-detected: 08_TRANSICAO_ajuste_ombro_roupa.mp4",
+      "loop": false
+    },
+    {
+      "id": "09_GATILHO_beijo_discreto_1",
+      "label": "09 Gatilho Beijo Discreto 1",
+      "group": "uploaded",
+      "description": "Auto-detected: 09_GATILHO_beijo_discreto_1.mp4",
+      "loop": false
+    },
+    {
+      "id": "10_GATILHO_beijo_discreto_2",
+      "label": "10 Gatilho Beijo Discreto 2",
+      "group": "uploaded",
+      "description": "Auto-detected: 10_GATILHO_beijo_discreto_2.mp4",
+      "loop": false
+    },
+    {
+      "id": "11_FLUXO_idle_base_neutro",
+      "label": "11 Fluxo Idle Base Neutro",
+      "group": "uploaded",
+      "description": "Auto-detected: 11_FLUXO_idle_base_neutro.mp4",
+      "loop": false
+    },
+    {
+      "id": "12_FLUXO_sorriso_inclinacao_leve",
+      "label": "12 Fluxo Sorriso Inclinacao Leve",
+      "group": "uploaded",
+      "description": "Auto-detected: 12_FLUXO_sorriso_inclinacao_leve.mp4",
+      "loop": false
+    },
+    {
+      "id": "13_FLUXO_idle_sorriso_leve_var2",
+      "label": "13 Fluxo Idle Sorriso Leve Var2",
+      "group": "uploaded",
+      "description": "Auto-detected: 13_FLUXO_idle_sorriso_leve_var2.mp4",
+      "loop": false
+    },
+    {
+      "id": "14_FLUXO_olha_chat_lateral_var2",
+      "label": "14 Fluxo Olha Chat Lateral Var2",
+      "group": "uploaded",
+      "description": "Auto-detected: 14_FLUXO_olha_chat_lateral_var2.mp4",
+      "loop": false
+    },
+    {
+      "id": "15_FLUXO_olha_chat_direita_var2",
+      "label": "15 Fluxo Olha Chat Direita Var2",
+      "group": "uploaded",
+      "description": "Auto-detected: 15_FLUXO_olha_chat_direita_var2.mp4",
+      "loop": false
+    },
+    {
+      "id": "16_FLUXO_olha_chat_baixo_lateral",
+      "label": "16 Fluxo Olha Chat Baixo Lateral",
+      "group": "uploaded",
+      "description": "Auto-detected: 16_FLUXO_olha_chat_baixo_lateral.mp4",
+      "loop": false
+    },
+    {
+      "id": "17_GATILHO_reacao_chat_lateral_com_overlay",
+      "label": "17 Gatilho Reacao Chat Lateral Com Overlay",
+      "group": "uploaded",
+      "description": "Auto-detected: 17_GATILHO_reacao_chat_lateral_com_overlay.mp4",
+      "loop": false
+    },
+    {
+      "id": "18_ESPECIAL_alongamento_bracos_var2",
+      "label": "18 Especial Alongamento Bracos Var2",
+      "group": "uploaded",
+      "description": "Auto-detected: 18_ESPECIAL_alongamento_bracos_var2.mp4",
+      "loop": false
+    },
+    {
+      "id": "19_FLUXO_sorriso_charmoso_var2",
+      "label": "19 Fluxo Sorriso Charmoso Var2",
+      "group": "uploaded",
+      "description": "Auto-detected: 19_FLUXO_sorriso_charmoso_var2.mp4",
+      "loop": false
+    },
+    {
+      "id": "20_GATILHO_beijo_discreto_var3",
+      "label": "20 Gatilho Beijo Discreto Var3",
+      "group": "uploaded",
+      "description": "Auto-detected: 20_GATILHO_beijo_discreto_var3.mp4",
+      "loop": false
+    },
+    {
+      "id": "21_GATILHO_beijo_discreto_var4",
+      "label": "21 Gatilho Beijo Discreto Var4",
+      "group": "uploaded",
+      "description": "Auto-detected: 21_GATILHO_beijo_discreto_var4.mp4",
+      "loop": false
+    },
+    {
+      "id": "22_TRANSICAO_ajuste_ombros_roupa",
+      "label": "22 Transicao Ajuste Ombros Roupa",
+      "group": "uploaded",
+      "description": "Auto-detected: 22_TRANSICAO_ajuste_ombros_roupa.mp4",
+      "loop": false
+    },
+    {
+      "id": "23_FLUXO_reacao_chat_sorriso_lateral",
+      "label": "23 Fluxo Reacao Chat Sorriso Lateral",
+      "group": "uploaded",
+      "description": "Auto-detected: 23_FLUXO_reacao_chat_sorriso_lateral.mp4",
+      "loop": false
+    },
+    {
+      "id": "24_FLUXO_sorriso_olhar_para_cima",
+      "label": "24 Fluxo Sorriso Olhar Para Cima",
+      "group": "uploaded",
+      "description": "Auto-detected: 24_FLUXO_sorriso_olhar_para_cima.mp4",
+      "loop": false
+    },
+    {
+      "id": "25_GATILHO_revirando_olhos_sutil",
+      "label": "25 Gatilho Revirando Olhos Sutil",
+      "group": "uploaded",
+      "description": "Auto-detected: 25_GATILHO_revirando_olhos_sutil.mp4",
+      "loop": false
+    },
+    {
+      "id": "26_FLUXO_sorriso_timido_var2",
+      "label": "26 Fluxo Sorriso Timido Var2",
+      "group": "uploaded",
+      "description": "Auto-detected: 26_FLUXO_sorriso_timido_var2.mp4",
+      "loop": false
+    },
+    {
+      "id": "27_ESPECIAL_mexendo_cabelo",
+      "label": "27 Especial Mexendo Cabelo",
+      "group": "uploaded",
+      "description": "Auto-detected: 27_ESPECIAL_mexendo_cabelo.mp4",
+      "loop": false
+    },
+    {
+      "id": "28_TRANSICAO_ajuste_manga_roupa",
+      "label": "28 Transicao Ajuste Manga Roupa",
+      "group": "uploaded",
+      "description": "Auto-detected: 28_TRANSICAO_ajuste_manga_roupa.mp4",
+      "loop": false
+    },
+    {
+      "id": "29_TRANSICAO_ajuste_gola_roupa",
+      "label": "29 Transicao Ajuste Gola Roupa",
+      "group": "uploaded",
+      "description": "Auto-detected: 29_TRANSICAO_ajuste_gola_roupa.mp4",
+      "loop": false
+    },
+    {
+      "id": "30_GATILHO_beijo_aceno_discreto",
+      "label": "30 Gatilho Beijo Aceno Discreto",
+      "group": "uploaded",
+      "description": "Auto-detected: 30_GATILHO_beijo_aceno_discreto.mp4",
+      "loop": false
+    },
+    {
+      "id": "31_GATILHO_beijo_discreto_var5",
+      "label": "31 Gatilho Beijo Discreto Var5",
+      "group": "uploaded",
+      "description": "Auto-detected: 31_GATILHO_beijo_discreto_var5.mp4",
+      "loop": false
+    },
+    {
+      "id": "32_TRANSICAO_ajuste_ombro_braco",
+      "label": "32 Transicao Ajuste Ombro Braco",
+      "group": "uploaded",
+      "description": "Auto-detected: 32_TRANSICAO_ajuste_ombro_braco.mp4",
+      "loop": false
+    },
+    {
+      "id": "33_TRANSICAO_ajuste_alcas_ombros",
+      "label": "33 Transicao Ajuste Alcas Ombros",
+      "group": "uploaded",
+      "description": "Auto-detected: 33_TRANSICAO_ajuste_alcas_ombros.mp4",
+      "loop": false
+    },
+    {
+      "id": "idle1",
+      "label": "Idle1",
+      "group": "uploaded",
+      "description": "Auto-detected: video_idle1.mp4",
+      "loop": false
+    },
+    {
+      "id": "idle2",
+      "label": "Idle2",
+      "group": "uploaded",
+      "description": "Auto-detected: video_idle2.mp4",
+      "loop": false
+    },
+    {
+      "id": "idle3",
+      "label": "Idle3",
+      "group": "uploaded",
+      "description": "Auto-detected: video_idle3.mp4",
+      "loop": false
+    }
+  ],
+  "action_map": {
+    "gift": [],
+    "message": [],
+    "idle": []
+  },
+  "gift_map": {},
+  "transitions": {},
+  "triggers": [],
+  "flowNodes": [],
+  "flowConnections": [],
+  "flowCanvasVideoIds": [],
+  "idleVideoId": "",
+  "stageSettings": {
+    "fit": "contain",
+    "zoom": 1.0,
+    "offsetX": 0,
+    "offsetY": 0
+  },
+  "mediaTracks": []
+}

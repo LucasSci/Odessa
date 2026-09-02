@@ -11,7 +11,7 @@ The Vite proxy target is configurable via `VITE_API_PROXY_TARGET` (defaults to `
 
 The app boots in **simulation mode** (`SIMULATION_MODE` and `ENABLE_LOCAL_FALLBACK` default to `true` in `server/config.py`) with no external secrets. Auth is disabled (`auth-disabled-2026-05-16` — login always succeeds). AI keys (`GEMINI_API_KEY`, `OPENAI_API_KEY`) are optional. Compose intentionally relies on these code defaults rather than an ignored local env file.
 
-Verify: `curl -sf http://localhost:3000/` (frontend) and `curl -sf http://localhost:8000/health` (backend).
+Verify: `curl -sf http://localhost:3000/` (frontend) and `curl -sf http://localhost:3000/api/health` (backend through the Vite proxy).
 
 ## Tango chat/live bridge (headless Chromium)
 

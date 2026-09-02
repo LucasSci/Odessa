@@ -31,6 +31,7 @@ const API_V1_PREFIXES = [
   '/misc',
   '/conversations',
   '/chat-automation',
+  '/personas',
 ];
 
 export function apiUrl(path: string) {

@@ -52,6 +52,7 @@ import type { AuditTimelineEntry, AutopilotCycle, CapturedMessage } from './type
 import { Badge, Button, Card, ConfirmButton, Input, StatusDot, Tooltip } from './components/ui';
 import { AiDecisionPanel } from './components/AiDecisionPanel';
 import { AiConfigPanel } from './components/AiConfigPanel';
+import PersonaSelector from './components/PersonaSelector';
 import { TangoChatPanel } from './components/TangoChatPanel';
 import VideoEditor from './components/VideoEditor';
 import { DebugLogPanel, logEntry } from './components/DebugLogPanel';
@@ -1039,12 +1040,15 @@ export default function OdessaLiveCenter({
         )}
         {activeTab === 'ai' && (
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            <AiConfigPanel
-              videos={view.videos}
-              triggers={view.triggers}
-              runtime={runtime}
-              onOpenCapture={() => setActiveTab('sources')}
-            />
+            <PersonaSelector />
+            <div className="mt-4">
+              <AiConfigPanel
+                videos={view.videos}
+                triggers={view.triggers}
+                runtime={runtime}
+                onOpenCapture={() => setActiveTab('sources')}
+              />
+            </div>
           </div>
         )}
         {activeTab === 'chat' && (

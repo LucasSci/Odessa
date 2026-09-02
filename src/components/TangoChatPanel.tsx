@@ -65,6 +65,12 @@ import {
 } from '../core/tangoAiChatService';
 import { getChatInsights } from '../core/chatLearning';
 import { getAiConfig, saveAiConfig } from '../core/aiConfig';
+import { routeChatToTriggers } from '../core/chatToTriggerBridge';
+import {
+  shouldReplyToMessage,
+  recordChatReplySent,
+  recordIncomingMessage,
+} from '../core/chatConversationGovernor';
 import { LiveVisionMonitor } from './LiveVisionMonitor';
 import { TangoChatFeed } from './TangoChatFeed';
 import { UnifiedLivePanel, type VideoStateLite } from './UnifiedLivePanel';
@@ -343,6 +349,10 @@ export function TangoChatPanel({
       try {
         const msg: TangoChatMessage = JSON.parse(ev.data);
         setMessages((prev) => [...prev.slice(-399), msg]);
+
+        // Roteia a mensagem para o trigger engine do backend (palavra-chave/
+        // presente -> vídeo do fluxo publicado), com dedupe e cooldown.
+        void routeChatToTriggers(msg);
 
         // Se modo for Autônomo, dispara geração e envio automático
         if (autonomyMode === 'auto') {
@@ -713,12 +723,16 @@ export function TangoChatPanel({
   };
 
   const handleAutoTriggerAi = async (msg: TangoChatMessage) => {
-    // Verifica cooldown
-    const now = Date.now();
-    if (now - lastSentAt < cooldownSec * 1000) return;
+    // Registra a mensagem recebida para detecção de repetição
+    recordIncomingMessage(msg.text);
 
-    // Filtra mensagens curtas/ruído se necessário
-    if (!msg.text || msg.text.length < 2) return;
+    // Governança: cooldown global + limite por minuto + cooldown por usuário + anti-flood
+    const config = getAiConfig();
+    const decision = shouldReplyToMessage(msg, {
+      cooldownMs: config.chatReplyCooldownMs || 15_000,
+      maxPerMinute: config.chatReplyMaxPerMinute || 4,
+    });
+    if (!decision.allowed) return;
 
     const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt);
     if (!result.ok || result.blocked || !result.reply) return;
@@ -737,6 +751,7 @@ export function TangoChatPanel({
     setReplyQueue((prev) => [newItem, ...prev].slice(0, 30));
 
     const sent = await executeSendMessage(result.reply);
+    if (sent) recordChatReplySent(msg.username);
     setReplyQueue((prev) =>
       prev.map((item) =>
         item.id === newItem.id
