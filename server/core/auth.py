@@ -20,7 +20,9 @@ DEFAULT_PASSWORD_HASH = ""
 ADMIN_EMAIL = os.getenv("ODESSA_ADMIN_EMAIL", DEFAULT_ADMIN_EMAIL).strip().lower()
 ADMIN_PASSWORD = os.getenv("ODESSA_ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD)
 ADMIN_PASSWORD_HASH = os.getenv("ODESSA_ADMIN_PASSWORD_HASH", "").strip()
-SESSION_SECRET = os.getenv("ODESSA_SESSION_SECRET", "odessa-dev-session-secret-change-me")
+SESSION_SECRET = os.getenv("ODESSA_SESSION_SECRET")
+if not SESSION_SECRET:
+    raise ValueError("ODESSA_SESSION_SECRET environment variable is required")
 COOKIE_SECURE = os.getenv("ODESSA_COOKIE_SECURE", "false").strip().lower() in {"1", "true", "yes"}
 COOKIE_SAMESITE = os.getenv("ODESSA_COOKIE_SAMESITE", "lax").strip().lower()
 MIN_PASSWORD_LENGTH = 8
