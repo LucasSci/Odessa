@@ -21,7 +21,8 @@ const __dirname = nodePath.dirname(fileURLToPath(import.meta.url));
 
 // ── KV store ───────────────────────────────────────────────────────────────
 const SESSION_COOKIE_NAME   = 'odessa_admin_session';
-const SESSION_SECRET        = process.env.ODESSA_SESSION_SECRET || 'odessa-hostinger-session-secret-v1-change-in-env';
+const SESSION_SECRET = process.env.ODESSA_SESSION_SECRET;
+if (!SESSION_SECRET) throw new Error("ODESSA_SESSION_SECRET environment variable is required");
 const OCR_PRESETS_KEY       = 'ocr_presets';
 const DEFAULT_ADMIN_EMAIL   = 'lucasbatista.c.l@gmail.com';
 
