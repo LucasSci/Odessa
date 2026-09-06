@@ -26,7 +26,7 @@ jobs:
         
     - name: Run Backend Tests
       run: |
-        PYTHONPATH=. pytest --cov=server server/tests/
+        PYTHONPATH=. ODESSA_SESSION_SECRET="test" ODESSA_AGENT_TOKEN="test" pytest --cov=server server/tests/
 
   frontend-tests:
     runs-on: ubuntu-latest
@@ -43,4 +43,4 @@ jobs:
       run: npm install
       
     - name: Run Frontend Tests
-      run: npx vitest run
+      run: ODESSA_SESSION_SECRET="test" ODESSA_AGENT_TOKEN="test" npx vitest run
