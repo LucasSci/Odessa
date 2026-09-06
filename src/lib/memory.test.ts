@@ -1,3 +1,5 @@
+process.env.ODESSA_AGENT_TOKEN = 'test-token';
+process.env.ODESSA_SESSION_SECRET = 'test-secret';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildRoundUserMemorySummary,

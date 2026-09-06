@@ -1,3 +1,5 @@
+process.env.ODESSA_AGENT_TOKEN = 'test-token';
+process.env.ODESSA_SESSION_SECRET = 'test-secret';
 import { describe, expect, it } from 'vitest';
 import { prepareChatReplyQueue, updateChatReplyQueueFromAction } from './chatReplyQueue';
 import type { AutopilotAction, AutopilotCycle, PersonaDecision } from '../types';

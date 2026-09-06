@@ -1,3 +1,5 @@
+process.env.ODESSA_AGENT_TOKEN = 'test-token';
+process.env.ODESSA_SESSION_SECRET = 'test-secret';
 import { describe, expect, it } from 'vitest';
 import type { LiveEvent } from '../types';
 import { normalizeDirectorEvent, partitionDirectorEvents } from './useAutopilotRuntime';
