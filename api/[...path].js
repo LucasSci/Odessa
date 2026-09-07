@@ -22,8 +22,10 @@ const DEFAULT_PASSWORD_HASH = '';
 const ADMIN_EMAIL = (process.env.ODESSA_ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL).trim().toLowerCase();
 const _rawAdminHash = (process.env.ODESSA_ADMIN_PASSWORD_HASH || '').trim();
 const ADMIN_PASSWORD_HASH = _rawAdminHash && /^[0-9a-f]{64}$/i.test(_rawAdminHash) ? _rawAdminHash : _rawAdminHash ? crypto.createHash('sha256').update(_rawAdminHash).digest('hex') : '';
-const SESSION_SECRET = process.env.ODESSA_SESSION_SECRET || 'odessa-hostinger-session-secret-v1-change-in-env';
-const AGENT_TOKEN = process.env.ODESSA_AGENT_TOKEN || '+jj4LlhjinNG46KhmJxqgm0g4t4JYizSmiW12g1ZJy8=';
+const SESSION_SECRET = (process.env.ODESSA_SESSION_SECRET || '').trim();
+if (!SESSION_SECRET) throw new Error("ODESSA_SESSION_SECRET must be set");
+const AGENT_TOKEN = (process.env.ODESSA_AGENT_TOKEN || '').trim();
+if (!AGENT_TOKEN) throw new Error("ODESSA_AGENT_TOKEN must be set");
 // On Hostinger, each deploy replaces the nodejs/ directory.
 // Persist data OUTSIDE the app directory so it survives deploys.
 const HOME_DIR = process.env.HOME || process.env.USERPROFILE || '';

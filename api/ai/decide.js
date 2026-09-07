@@ -26,7 +26,8 @@ const TIMEOUT_MS    = Number(process.env.AI_DECISION_TIMEOUT || 8000);
 // ── Auth (same as other handlers) ────────────────────────────────────────────
 import crypto from 'node:crypto';
 const SESSION_COOKIE_NAME = 'odessa_admin_session';
-const SESSION_SECRET = process.env.ODESSA_SESSION_SECRET || 'odessa-hostinger-session-secret-v1-change-in-env';
+const SESSION_SECRET = (process.env.ODESSA_SESSION_SECRET || '').trim();
+if (!SESSION_SECRET) throw new Error("ODESSA_SESSION_SECRET must be set");
 function _sign(payload) {
   return crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
 }
