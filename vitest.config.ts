@@ -5,6 +5,10 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   plugins: [react()],
   test: {
+    env: {
+      ODESSA_SESSION_SECRET: 'test-secret',
+      ODESSA_AGENT_TOKEN: 'test-token',
+    },
     environment: 'jsdom',
     globals: true,
     setupFiles: [],

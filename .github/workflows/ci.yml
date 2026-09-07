@@ -25,6 +25,9 @@ jobs:
         pip install pytest pytest-asyncio pytest-cov
         
     - name: Run Backend Tests
+      env:
+        ODESSA_SESSION_SECRET: "test-secret"
+        ODESSA_AGENT_TOKEN: "test-token"
       run: |
         PYTHONPATH=. pytest --cov=server server/tests/
 
@@ -43,4 +46,7 @@ jobs:
       run: npm install
       
     - name: Run Frontend Tests
+      env:
+        ODESSA_SESSION_SECRET: "test-secret"
+        ODESSA_AGENT_TOKEN: "test-token"
       run: npx vitest run
