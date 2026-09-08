@@ -288,13 +288,19 @@ export function TangoChatPanel({
   // TangoChatMessage para que a IA tenha contexto ao gerar respostas.
   const unifiedMessages = useMemo<TangoChatMessage[]>(() => {
     if (messages.length > 0 || bridgeConnected) return messages;
-    return (odessaCapturedText || [])
-      .filter((m) => m.kind === 'chat' || m.kind === 'gift')
-      .map((m) => ({
-        username: (m.metadata?.username as string) || m.zoneName || 'Espectador',
-        text: m.text,
-        timestamp: m.createdAt,
-      }));
+    // ⚡ Bolt: Using a single pass loop instead of .filter().map() to avoid intermediate array allocations
+    const result: TangoChatMessage[] = [];
+    const events = odessaCapturedText || [];
+    for (const m of events) {
+      if (m.kind === 'chat' || m.kind === 'gift') {
+        result.push({
+          username: (m.metadata?.username as string) || m.zoneName || 'Espectador',
+          text: m.text,
+          timestamp: m.createdAt,
+        });
+      }
+    }
+    return result;
   }, [messages, bridgeConnected, odessaCapturedText]);
 
   const combinedStatus = bridgeConnected
