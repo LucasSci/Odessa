@@ -215,20 +215,68 @@ export function TangoChatPanel({
   const bridgeReachable = processStatus?.bridgeReachable ?? false;
   const bridgeConnected = processStatus?.bridgeStatus?.status === 'connected';
 
-  // ── Logs & Insights Polling ───────────────────────
+  // ── Logs & Insights Polling com backoff e pausa quando inativo ──
+  const inFlightLogsRef = useRef(false);
+  const logsBackoffMsRef = useRef(3000);
+
   useEffect(() => {
-    if (subTab === 'diagnostics' && processRunning) {
-      const pollLogs = async () => {
+    if (subTab !== 'diagnostics' || !processRunning) {
+      if (subTab === 'insights') {
+        setInsights(getChatInsights());
+      }
+      return;
+    }
+
+    let timeoutId: number | undefined;
+    let cancelled = false;
+
+    const pollLogs = async () => {
+      if (inFlightLogsRef.current || (typeof document !== 'undefined' && document.hidden)) {
+        return;
+      }
+      inFlightLogsRef.current = true;
+      try {
         const data = await fetchJson<{ lines: string[] }>(`${BRIDGE_API}/logs?limit=150`);
-        if (data?.lines) setLogs(data.lines);
-      };
-      void pollLogs();
-      const timer = window.setInterval(() => void pollLogs(), 3000);
-      return () => window.clearInterval(timer);
-    }
-    if (subTab === 'insights') {
-      setInsights(getChatInsights());
-    }
+        if (data?.lines) {
+          setLogs(data.lines);
+          logsBackoffMsRef.current = 3000;
+        } else {
+          logsBackoffMsRef.current = Math.min(logsBackoffMsRef.current * 1.5, 30000);
+        }
+      } catch {
+        logsBackoffMsRef.current = Math.min(logsBackoffMsRef.current * 1.5, 30000);
+      } finally {
+        inFlightLogsRef.current = false;
+      }
+    };
+
+    const schedulePoll = () => {
+      if (cancelled) return;
+      timeoutId = window.setTimeout(async () => {
+        await pollLogs();
+        schedulePoll();
+      }, logsBackoffMsRef.current);
+    };
+
+    void pollLogs();
+    schedulePoll();
+
+    const handleVisibility = () => {
+      if (typeof document !== 'undefined' && !document.hidden && !cancelled) {
+        logsBackoffMsRef.current = 3000;
+        window.clearTimeout(timeoutId);
+        void pollLogs();
+        schedulePoll();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [subTab, processRunning]);
 
   // ── Auto-scrolls ──────────────────────────────────
@@ -240,17 +288,61 @@ export function TangoChatPanel({
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
-  
-  // ── Polling de Abas do Chrome ─────────────────────
+  // ── Polling de Abas do Chrome com backoff e pausa quando inativo ──
+  const inFlightChromeRef = useRef(false);
+  const chromeBackoffMsRef = useRef(4000);
+
   const refreshChromeStatus = useCallback(async () => {
-    const data = await fetchJson<ChromeStatus>(`${BRIDGE_API}/chrome-tabs?port=9222`);
-    setChromeStatus(data);
+    if (inFlightChromeRef.current || (typeof document !== 'undefined' && document.hidden)) {
+      return;
+    }
+    inFlightChromeRef.current = true;
+    try {
+      const data = await fetchJson<ChromeStatus>(`${BRIDGE_API}/chrome-tabs?port=9222`);
+      setChromeStatus(data);
+      if (data) {
+        chromeBackoffMsRef.current = 4000;
+      } else {
+        chromeBackoffMsRef.current = Math.min(chromeBackoffMsRef.current * 1.5, 30000);
+      }
+    } catch {
+      chromeBackoffMsRef.current = Math.min(chromeBackoffMsRef.current * 1.5, 30000);
+    } finally {
+      inFlightChromeRef.current = false;
+    }
   }, []);
 
   useEffect(() => {
+    let timeoutId: number | undefined;
+    let cancelled = false;
+
+    const schedulePoll = () => {
+      if (cancelled) return;
+      timeoutId = window.setTimeout(async () => {
+        await refreshChromeStatus();
+        schedulePoll();
+      }, chromeBackoffMsRef.current);
+    };
+
     void refreshChromeStatus();
-    const timer = window.setInterval(() => void refreshChromeStatus(), 4000);
-    return () => window.clearInterval(timer);
+    schedulePoll();
+
+    const handleVisibility = () => {
+      if (typeof document !== 'undefined' && !document.hidden && !cancelled) {
+        chromeBackoffMsRef.current = 4000;
+        window.clearTimeout(timeoutId);
+        void refreshChromeStatus();
+        schedulePoll();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [refreshChromeStatus]);
 
   const handleLaunchChrome = async () => {

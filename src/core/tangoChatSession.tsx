@@ -254,16 +254,63 @@ export function TangoChatSessionProvider({
       }));
   }, [messages, bridgeConnected, capturedText]);
 
-  // ── Polling de Status ─────────────────────────────
+  // ── Polling de Status com backoff exponencial e pausa quando inativo ──
+  const inFlightStatusRef = useRef(false);
+  const statusBackoffMsRef = useRef(3500);
+
   const refreshStatus = useCallback(async () => {
-    const data = await fetchJson<BridgeProcessStatus>(`${BRIDGE_API}/status`);
-    setProcessStatus(data);
+    if (inFlightStatusRef.current || (typeof document !== 'undefined' && document.hidden)) {
+      return;
+    }
+    inFlightStatusRef.current = true;
+    try {
+      const data = await fetchJson<BridgeProcessStatus>(`${BRIDGE_API}/status`);
+      setProcessStatus(data);
+      if (data) {
+        statusBackoffMsRef.current = 3500; // Reset backoff no sucesso
+      } else {
+        statusBackoffMsRef.current = Math.min(statusBackoffMsRef.current * 1.5, 30000);
+      }
+    } catch {
+      statusBackoffMsRef.current = Math.min(statusBackoffMsRef.current * 1.5, 30000);
+    } finally {
+      inFlightStatusRef.current = false;
+    }
   }, []);
 
   useEffect(() => {
+    let timeoutId: number | undefined;
+    let cancelled = false;
+
+    const schedulePoll = () => {
+      if (cancelled) return;
+      timeoutId = window.setTimeout(async () => {
+        await refreshStatus();
+        schedulePoll();
+      }, statusBackoffMsRef.current);
+    };
+
+    // Dispara imediatamente e agenda ciclo recursivo
     void refreshStatus();
-    const timer = window.setInterval(() => void refreshStatus(), 3500);
-    return () => window.clearInterval(timer);
+    schedulePoll();
+
+    // Quando o usuário volta à aba do navegador, acorda imediatamente
+    const handleVisibility = () => {
+      if (typeof document !== 'undefined' && !document.hidden && !cancelled) {
+        statusBackoffMsRef.current = 3500;
+        window.clearTimeout(timeoutId);
+        void refreshStatus();
+        schedulePoll();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [refreshStatus]);
 
   // ── Carregar Configurações ────────────────────────

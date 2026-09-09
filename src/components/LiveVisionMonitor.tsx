@@ -73,6 +73,7 @@ export function LiveVisionMonitor({ connected }: Props) {
   const [connecting, setConnecting] = useState(false);
   const [wsAttempts, setWsAttempts] = useState(0);
   const [frameCount, setFrameCount] = useState(0);
+  const frameCountRef = useRef(0);
   const [fps, setFps] = useState(0);
   const [pageUrl, setPageUrl] = useState('');
   const [pageMeta, setPageMeta] = useState<{ w: number; h: number } | null>(null);
@@ -142,6 +143,7 @@ export function LiveVisionMonitor({ connected }: Props) {
     const fpsTimer = window.setInterval(() => {
       if (!cancelled) {
         setFps(fpsCounter);
+        setFrameCount(frameCountRef.current);
         fpsCounter = 0;
       }
     }, 1000);
@@ -184,7 +186,7 @@ export function LiveVisionMonitor({ connected }: Props) {
             if (ctx) ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
             bmp.close();
             fpsCounter++;
-            setFrameCount((n) => n + 1);
+            frameCountRef.current++;
           } catch {
             /* frame corrompido — ignora */
           }
@@ -484,7 +486,10 @@ export function LiveVisionMonitor({ connected }: Props) {
         tabIndex={0}
         onKeyDown={handleKeyDown}
         className="relative overflow-hidden rounded-2xl border border-white/10 bg-black/70 shadow-xl outline-none focus:ring-2 focus:ring-violet-500/40"
-        style={{ aspectRatio: pageMeta ? `${pageMeta.w} / ${pageMeta.h}` : '16 / 9' }}
+        style={{
+          aspectRatio: pageMeta ? `${pageMeta.w} / ${pageMeta.h}` : '16 / 9',
+          contain: 'layout paint',
+        }}
       >
         {connected ? (
           <canvas
@@ -499,6 +504,7 @@ export function LiveVisionMonitor({ connected }: Props) {
               'absolute inset-0 h-full w-full select-none object-contain',
               live ? 'cursor-crosshair' : 'cursor-default'
             )}
+            style={{ contain: 'strict' }}
           />
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6">
