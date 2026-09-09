@@ -13,12 +13,14 @@ class PersonaCreateRequest(BaseModel):
     name: str
     description: str = ""
     personality: str = ""
+    avatarUrl: str = ""
 
 
 class PersonaUpdateRequest(BaseModel):
     name: str | None = None
     description: str | None = None
     personality: str | None = None
+    avatarUrl: str | None = None
 
 
 class PersonaActiveRequest(BaseModel):
@@ -78,6 +80,8 @@ async def update_persona(persona_id: str, request: PersonaUpdateRequest):
         persona["description"] = request.description
     if request.personality is not None:
         persona["personality"] = request.personality
+    if request.avatarUrl is not None:
+        persona["avatarUrl"] = request.avatarUrl
     if not persona_manager._save_index(index):
         raise HTTPException(status_code=500, detail="Falha ao salvar índice de personas")
     return {"ok": True, "persona": persona}

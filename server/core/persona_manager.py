@@ -139,6 +139,7 @@ def create_persona(meta: Dict[str, Any]) -> Dict[str, Any]:
         "name": str(meta.get("name") or persona_id),
         "description": str(meta.get("description") or ""),
         "personality": str(meta.get("personality") or ""),
+        "avatarUrl": str(meta.get("avatarUrl") or ""),
         "configPath": config_path,
         "createdAt": _now(),
     }
