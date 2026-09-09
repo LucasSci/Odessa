@@ -1096,11 +1096,11 @@ export function TangoChatPanel({
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
-                <div className="xl:col-span-3">
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+                <div className="xl:col-span-5">
                   <LiveVisionMonitor connected={bridgeConnected} />
                 </div>
-                <div className="xl:col-span-2">
+                <div className="xl:col-span-4">
                   <TangoChatFeed
                     messages={messages}
                     bridgeConnected={bridgeConnected}
@@ -1122,6 +1122,141 @@ export function TangoChatPanel({
                     onClearChat={handleClearChat}
                     heightClass="h-full min-h-[520px]"
                   />
+                </div>
+                {/* Coluna Fila de Respostas IA unificada */}
+                <div className="xl:col-span-3">
+                  <div className="rounded-2xl border border-white/10 bg-[#0c0e12] overflow-hidden shadow-lg flex flex-col h-[520px]">
+                    <div className="flex items-center justify-between border-b border-white/8 px-4 py-3 bg-black/30">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-violet-400" />
+                        <span className="text-xs font-bold uppercase tracking-widest text-slate-300">Inbox Respostas IA</span>
+                      </div>
+                      <Badge variant={replyQueue.length > 0 ? 'lavender' : 'default'} className="text-[10px]">
+                        {replyQueue.length} na fila
+                      </Badge>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                      {replyQueue.length === 0 ? (
+                        <div className="flex h-full flex-col items-center justify-center text-center p-4 text-slate-500">
+                          <Bot className="h-8 w-8 mb-2 opacity-50 text-violet-400" />
+                          <p className="text-xs font-semibold text-slate-400">Nenhuma resposta pendente</p>
+                          <p className="text-[11px] text-slate-600 mt-1 max-w-xs">
+                            {autonomyMode === 'assistido'
+                              ? 'Clique em "Responder IA" no chat para gerar um rascunho de aprovação.'
+                              : autonomyMode === 'auto'
+                                ? 'Modo Autônomo ativo: respostas diretas no chat.'
+                                : 'Ligue o modo Assistido para receber sugestões da IA.'}
+                          </p>
+                        </div>
+                      ) : (
+                        replyQueue.map((item) => (
+                          <div
+                            key={item.id}
+                            className={cn(
+                              'rounded-xl border p-3 space-y-2 transition',
+                              item.status === 'sent' && 'border-emerald-500/30 bg-emerald-500/5',
+                              item.status === 'sending' && 'border-sky-500/30 bg-sky-500/5 animate-pulse',
+                              item.status === 'blocked' && 'border-red-500/30 bg-red-500/5',
+                              item.status === 'draft' && 'border-violet-500/30 bg-violet-500/5'
+                            )}
+                          >
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="font-bold text-violet-300 truncate">
+                                Para: @{item.sourceMessage.username}
+                              </span>
+                              <span className="text-[10px] text-slate-500 shrink-0">
+                                {Math.round(item.confidence * 100)}%
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 italic line-clamp-1 border-l-2 border-white/20 pl-2">
+                              "{item.sourceMessage.text}"
+                            </p>
+
+                            {editingItemId === item.id ? (
+                              <div className="space-y-1.5 pt-1">
+                                <textarea
+                                  className="w-full h-16 rounded-lg border border-white/20 bg-black/40 p-2 text-xs text-white outline-none focus:border-violet-500"
+                                  value={editingText}
+                                  onChange={(e) => setEditingText(e.target.value)}
+                                />
+                                <div className="flex justify-end gap-1.5">
+                                  <Button size="sm" variant="secondary" onClick={() => setEditingItemId(null)}>
+                                    Cancelar
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="primary"
+                                    onClick={() => {
+                                      setReplyQueue((prev) =>
+                                        prev.map((i) => (i.id === item.id ? { ...i, text: editingText } : i))
+                                      );
+                                      setEditingItemId(null);
+                                    }}
+                                  >
+                                    Salvar
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-xs font-medium text-slate-100 bg-black/30 p-2 rounded-lg border border-white/5">
+                                {item.text}
+                              </p>
+                            )}
+
+                            {item.blockedReason && (
+                              <p className="text-[10px] text-red-400 flex items-center gap-1">
+                                <ShieldAlert className="h-3 w-3 shrink-0" /> {item.blockedReason}
+                              </p>
+                            )}
+
+                            {item.status === 'draft' && editingItemId !== item.id && (
+                              <div className="flex items-center gap-1.5 pt-1">
+                                <Button
+                                  size="sm"
+                                  variant="primary"
+                                  className="flex-1 h-7 text-[11px] bg-emerald-600 hover:bg-emerald-500 text-white"
+                                  onClick={() => void handleApproveReply(item)}
+                                >
+                                  <Check className="h-3.5 w-3.5 mr-1" /> Aprovar
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  className="h-7 px-2"
+                                  title="Editar"
+                                  onClick={() => {
+                                    setEditingItemId(item.id);
+                                    setEditingText(item.text);
+                                  }}
+                                >
+                                  <Edit3 className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  className="h-7 px-2"
+                                  title="Regerar"
+                                  onClick={() => void handleRegenerateReply(item)}
+                                >
+                                  <RotateCcw className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="danger"
+                                  className="h-7 px-2"
+                                  title="Descartar"
+                                  onClick={() => handleDiscardReply(item.id)}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 

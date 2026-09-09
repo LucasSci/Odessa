@@ -35,14 +35,12 @@ class ApproveMessageRequest(BaseModel):
     messageId: str
 
 
-@router.get("")
 @router.get("/")
 async def list_conversations():
     conversations = get_conversation_service().list_conversations()
     return {"conversations": conversations, "total": len(conversations)}
 
 
-@router.post("")
 @router.post("/")
 async def create_conversation(request: ConversationCreateRequest):
     return get_conversation_service().create_conversation(

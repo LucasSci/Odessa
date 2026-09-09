@@ -137,8 +137,9 @@ async def update_obs_settings(request: ObsSettingsRequest):
         return {"ok": False, "settings": obs_service.get_settings(), "error": str(exc)}
 
 
-@router.get("/health")
+@router.get("/health", deprecated=True)
 async def obs_health(sourceName: Optional[str] = Query(default=None)):
+    """Health do OBS mantido para compatibilidade do frontend existente."""
     return await obs_service.health_check(sourceName or obs_service.chat_source_name or OBS_OCR_SOURCE_NAME)
 
 

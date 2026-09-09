@@ -9,11 +9,10 @@ import {
   Download,
   FastForward,
   Film,
-  Home,
+  History,
   Link2,
   ListVideo,
   Maximize2,
-  MessageCircle,
   Pause,
   Play,
   RadioTower,
@@ -24,10 +23,8 @@ import {
   Settings,
   ShieldAlert,
   Scissors,
-  StickyNote,
   Trash2,
   Upload,
-  Video,
   VolumeX,
 } from 'lucide-react';
 import { emitEvent } from './core/eventBus';
@@ -45,6 +42,7 @@ import { Badge, Button, Card, Input, StatusDot } from './components/ui';
 import { AiConfigPanel } from './components/AiConfigPanel';
 import PersonaSelector from './components/PersonaSelector';
 import { TangoChatPanel } from './components/TangoChatPanel';
+import { SessionHistoryPanel } from './components/SessionHistoryPanel';
 import VideoEditor from './components/VideoEditor';
 import { StatusBadge, deriveStageStatus } from './components/StatusBadge';
 
@@ -97,7 +95,19 @@ interface OdessaLiveCenterProps {
   onObsSettingsChanged?: (settings: Record<string, unknown>) => void;
 }
 
-type TabKey = 'home' | 'stage' | 'ai' | 'chat' | 'flow' | 'canvas' | 'library' | 'sources' | 'logs' | 'settings';
+type TabKey =
+  | 'live'
+  | 'library'
+  | 'flow'
+  | 'history'
+  | 'settings'
+  | 'home'
+  | 'stage'
+  | 'ai'
+  | 'chat'
+  | 'canvas'
+  | 'sources'
+  | 'logs';
 
 type VideoEntry = {
   id: string;
@@ -331,12 +341,13 @@ type ReactiveRunResult = {
 };
 
 function tabFromPanel(panel: AdvancedPanel): TabKey {
-  if (panel === 'capture') return 'sources';
+  if (panel === 'capture') return 'settings';
   if (panel === 'content') return 'library';
-  if (panel === 'runtime') return 'logs';
+  if (panel === 'runtime') return 'flow';
   if (panel === 'settings') return 'settings';
-  if (panel === 'canvas') return 'canvas';
-  return 'home';
+  if (panel === 'canvas') return 'settings';
+  if (panel === 'persona') return 'settings';
+  return 'live';
 }
 
 function videoLabel(video?: VideoEntry) {
@@ -372,6 +383,9 @@ export default function OdessaLiveCenter({
   onObsSettingsChanged,
 }: OdessaLiveCenterProps) {
   const [activeTab, setActiveTab] = useState<TabKey>(() => tabFromPanel(requestedPanel));
+  const [settingsSubTab, setSettingsSubTab] = useState<'general' | 'ai' | 'ocr' | 'canvas'>('general');
+  const [flowSubTab, setFlowSubTab] = useState<'board' | 'logs'>('board');
+  const [liveMode, setLiveMode] = useState<'central' | 'stage' | 'overview'>('central');
   const [config, setConfig] = useState<PersonaConfig | null>(null);
   const [videoState, setVideoState] = useState<VideoState | null>(null);
   const [, setConfigError] = useState<string | null>(null);
@@ -552,7 +566,11 @@ export default function OdessaLiveCenter({
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setActiveTab(tabFromPanel(requestedPanel));
+      const target = tabFromPanel(requestedPanel);
+      setActiveTab(target);
+      if (requestedPanel === 'canvas') setSettingsSubTab('canvas');
+      else if (requestedPanel === 'capture') setSettingsSubTab('ocr');
+      else if (requestedPanel === 'persona') setSettingsSubTab('ai');
     }, 0);
     return () => window.clearTimeout(timer);
   }, [requestedPanel]);
@@ -684,27 +702,41 @@ export default function OdessaLiveCenter({
 
         <nav className="odsa-side-nav">
           <div className="odsa-nav-group">
-            <span className="odsa-nav-label">Operação</span>
-            <SideNavButton icon={<Home />}       label="Início"       active={activeTab === 'home'}     onClick={() => setActiveTab('home')} />
-            <SideNavButton icon={<Video />}      label="Palco"        active={activeTab === 'stage'}    onClick={() => setActiveTab('stage')} />
-            <SideNavButton icon={<Brain />}      label="Diretora IA"  active={activeTab === 'ai'}       onClick={() => setActiveTab('ai')} />
-            <SideNavButton icon={<MessageCircle />} label="Tango Chat"   active={activeTab === 'chat'}     onClick={() => setActiveTab('chat')} />
-          </div>
-          <div className="odsa-nav-group">
-            <span className="odsa-nav-label">Conteúdo</span>
-            <SideNavButton icon={<Film />}       label="Biblioteca"   active={activeTab === 'library'}  onClick={() => setActiveTab('library')} />
-            <SideNavButton icon={<Link2 />}      label="Fluxo"        active={activeTab === 'flow'}     onClick={() => setActiveTab('flow')} />
-            <SideNavButton icon={<StickyNote />} label="Mural"        active={activeTab === 'canvas'}   onClick={() => setActiveTab('canvas')} />
-          </div>
-          <div className="odsa-nav-group">
-            <span className="odsa-nav-label">Sistema</span>
-            <SideNavButton icon={<Camera />}     label="Fontes / OCR" active={activeTab === 'sources'}  onClick={() => setActiveTab('sources')} />
-            <SideNavButton icon={<ListVideo />}  label="Logs"         active={activeTab === 'logs'}     onClick={() => setActiveTab('logs')} />
-            <SideNavButton icon={<Settings />}   label="Config"       active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+            <span className="odsa-nav-label">Estúdio</span>
+            <SideNavButton
+              icon={<RadioTower />}
+              label="Ao Vivo"
+              active={activeTab === 'live' || activeTab === 'chat' || activeTab === 'home' || activeTab === 'stage'}
+              onClick={() => setActiveTab('live')}
+            />
+            <SideNavButton
+              icon={<Film />}
+              label="Biblioteca"
+              active={activeTab === 'library'}
+              onClick={() => setActiveTab('library')}
+            />
+            <SideNavButton
+              icon={<Link2 />}
+              label="Automações"
+              active={activeTab === 'flow' || activeTab === 'logs'}
+              onClick={() => setActiveTab('flow')}
+            />
+            <SideNavButton
+              icon={<History />}
+              label="Histórico"
+              active={activeTab === 'history'}
+              onClick={() => setActiveTab('history')}
+            />
+            <SideNavButton
+              icon={<Settings />}
+              label="Configurações"
+              active={activeTab === 'settings' || activeTab === 'ai' || activeTab === 'canvas' || activeTab === 'sources'}
+              onClick={() => setActiveTab('settings')}
+            />
           </div>
         </nav>
 
-        <DirectorStatusCard runtime={runtime} onOpen={() => setActiveTab('ai')} />
+        <DirectorStatusCard runtime={runtime} onOpen={() => { setActiveTab('settings'); setSettingsSubTab('ai'); }} />
       </aside>
 
       {/* Coluna principal: topbar + conteúdo */}
@@ -757,80 +789,224 @@ export default function OdessaLiveCenter({
 
       <div className="flex gap-1 overflow-x-auto border-b border-[var(--border)] px-3 py-1.5 lg:hidden" style={{ background: 'rgba(6,7,10,0.86)', backdropFilter: 'blur(20px)' }}>
         {([
-          { id: 'home', label: 'Início' }, { id: 'stage', label: 'Palco' },
-          { id: 'ai', label: 'IA' }, { id: 'chat', label: 'Tango Chat' }, { id: 'flow', label: 'Fluxo' }, { id: 'canvas', label: 'Mural' },
-          { id: 'library', label: 'Biblioteca' }, { id: 'sources', label: 'Fontes' },
-          { id: 'logs', label: 'Logs' }, { id: 'settings', label: 'Config' },
-        ] as { id: TabKey; label: string }[]).map(({ id, label }) => (
-          <button
-            key={id}
-            onClick={() => setActiveTab(id)}
-            className={cn('od-tab od-tab-sm shrink-0', activeTab === id && 'is-active')}
-            style={{ height: 28, fontSize: 11.5, padding: '0 10px' }}
-          >
-            {label}
-          </button>
-        ))}
+          { id: 'live', label: 'Ao Vivo' },
+          { id: 'library', label: 'Biblioteca' },
+          { id: 'flow', label: 'Automações' },
+          { id: 'history', label: 'Histórico' },
+          { id: 'settings', label: 'Configurações' },
+        ] as { id: TabKey; label: string }[]).map(({ id, label }) => {
+          const isActive =
+            activeTab === id ||
+            (id === 'live' && (activeTab === 'chat' || activeTab === 'home' || activeTab === 'stage')) ||
+            (id === 'flow' && activeTab === 'logs') ||
+            (id === 'settings' && (activeTab === 'ai' || activeTab === 'canvas' || activeTab === 'sources'));
+          return (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className={cn('od-tab od-tab-sm shrink-0', isActive && 'is-active')}
+              style={{ height: 28, fontSize: 11.5, padding: '0 10px' }}
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {activeTab === 'home' && (
-          <HomeDashboard
-            capturedText={capturedText}
-            runtime={runtime}
-            videoState={videoState}
-            view={view}
-            go={setActiveTab}
-            onRefresh={refreshVideoState}
-          />
-        )}
-        {activeTab === 'stage' && (
-          <StagePanel
-            runtime={runtime}
-            capturedText={capturedText}
-            view={view}
-            videoState={videoState}
-            obsSettingsFromApp={obsSettingsFromApp}
-            onRefresh={refreshVideoState}
-            onPlayVideoById={playVideoById}
-          />
-        )}
-        {activeTab === 'ai' && (
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            <PersonaSelector />
-            <div className="mt-4">
-              <AiConfigPanel />
+        {/* 1. AO VIVO (Central da Live + Palco / Visão Geral) */}
+        {(activeTab === 'live' || activeTab === 'chat' || activeTab === 'home' || activeTab === 'stage') && (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex items-center justify-between border-b border-white/5 bg-black/40 px-4 py-1.5 text-xs">
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setLiveMode('central')}
+                  className={cn('rounded-lg px-2.5 py-1 font-semibold transition', liveMode === 'central' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
+                >
+                  Central da Live
+                </button>
+                <button
+                  onClick={() => setLiveMode('stage')}
+                  className={cn('rounded-lg px-2.5 py-1 font-semibold transition', liveMode === 'stage' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
+                >
+                  Palco OBS
+                </button>
+                <button
+                  onClick={() => setLiveMode('overview')}
+                  className={cn('rounded-lg px-2.5 py-1 font-semibold transition', liveMode === 'overview' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
+                >
+                  Visão Geral
+                </button>
+              </div>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
+              {liveMode === 'central' && (
+                <TangoChatPanel
+                  capturedText={capturedText}
+                  runtime={runtime}
+                  videoState={videoState}
+                  onStartLive={onStartLive}
+                />
+              )}
+              {liveMode === 'stage' && (
+                <StagePanel
+                  runtime={runtime}
+                  capturedText={capturedText}
+                  view={view}
+                  videoState={videoState}
+                  obsSettingsFromApp={obsSettingsFromApp}
+                  onRefresh={refreshVideoState}
+                  onPlayVideoById={playVideoById}
+                />
+              )}
+              {liveMode === 'overview' && (
+                <HomeDashboard
+                  capturedText={capturedText}
+                  runtime={runtime}
+                  videoState={videoState}
+                  view={view}
+                  go={(tab) => {
+                    if (tab === 'chat' || tab === 'stage' || tab === 'home' || tab === 'live') {
+                      setActiveTab('live');
+                      setLiveMode(tab === 'stage' ? 'stage' : 'central');
+                    } else {
+                      setActiveTab(tab);
+                    }
+                  }}
+                  onRefresh={refreshVideoState}
+                />
+              )}
             </div>
           </div>
         )}
-        {activeTab === 'chat' && (
-          <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
-            <TangoChatPanel
-              capturedText={capturedText}
-              runtime={runtime}
-              videoState={videoState}
-              onStartLive={onStartLive}
-            />
-          </div>
-        )}
-        {activeTab === 'flow' && (
-          <Suspense fallback={<PanelLoading label="Carregando fluxo reativo" />}>
-            <ReactiveFlowBoard
-              onSaved={() => {
-                loadConfig();
-                refreshVideoState();
-              }}
-            />
-          </Suspense>
-        )}
-        {activeTab === 'canvas' && (
-          <Suspense fallback={<PanelLoading label="Carregando canvas" />}>
-            <div className="flex-1 min-h-0 h-full overflow-hidden">
-              <PlanningCanvas />
-            </div>
-          </Suspense>
-        )}
+
+        {/* 2. BIBLIOTECA */}
         {activeTab === 'library' && <VideoLibraryPanel config={config} onChanged={loadConfig} />}
+
+        {/* 3. AUTOMAÇÕES (Fluxo Reativo + Logs) */}
+        {(activeTab === 'flow' || activeTab === 'logs') && (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex items-center gap-2 border-b border-white/5 bg-black/40 px-4 py-1.5 text-xs">
+              <button
+                onClick={() => setFlowSubTab('board')}
+                className={cn('rounded-lg px-2.5 py-1 font-semibold transition', flowSubTab === 'board' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
+              >
+                Fluxo Reativo
+              </button>
+              <button
+                onClick={() => setFlowSubTab('logs')}
+                className={cn('rounded-lg px-2.5 py-1 font-semibold transition', flowSubTab === 'logs' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
+              >
+                Logs de Automação
+              </button>
+            </div>
+            {flowSubTab === 'board' ? (
+              <Suspense fallback={<PanelLoading label="Carregando fluxo reativo" />}>
+                <ReactiveFlowBoard
+                  onSaved={() => {
+                    loadConfig();
+                    refreshVideoState();
+                  }}
+                />
+              </Suspense>
+            ) : (
+              <PageSurface
+                icon={<ListVideo className="h-4 w-4" />}
+                title="Logs da operacao"
+                description="Teste o caminho real: chat/OCR, gatilho salvo no fluxo, fila e video."
+              >
+                <ReactiveFlowLogLab
+                  capturedText={capturedText}
+                  logs={automationLogs}
+                  latestRun={latestReactiveRun}
+                  error={reactiveError}
+                  busy={reactiveBusy}
+                  videoState={videoState}
+                  runtime={runtime}
+                  onRefreshLogs={refreshAutomationLogs}
+                  onRun={runReactiveFlow}
+                />
+              </PageSurface>
+            )}
+          </div>
+        )}
+
+        {/* 4. HISTÓRICO */}
+        {activeTab === 'history' && (
+          <PageSurface
+            icon={<History className="h-4 w-4" />}
+            title="Histórico da Live"
+            description="Registro consolidado de eventos, mensagens recebidas, presentes e respostas de IA."
+          >
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
+              <SessionHistoryPanel active={activeTab === 'history'} />
+            </div>
+          </PageSurface>
+        )}
+
+        {/* 5. CONFIGURAÇÕES (OBS, IA, Mural, OCR) */}
+        {(activeTab === 'settings' || activeTab === 'ai' || activeTab === 'canvas' || activeTab === 'sources') && (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex items-center gap-2 border-b border-white/5 bg-black/40 px-4 py-1.5 text-xs">
+              <button
+                onClick={() => setSettingsSubTab('general')}
+                className={cn('rounded-lg px-2.5 py-1 font-semibold transition', settingsSubTab === 'general' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
+              >
+                OBS & Webhooks
+              </button>
+              <button
+                onClick={() => setSettingsSubTab('ai')}
+                className={cn('rounded-lg px-2.5 py-1 font-semibold transition', settingsSubTab === 'ai' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
+              >
+                Diretora IA & Persona
+              </button>
+              <button
+                onClick={() => setSettingsSubTab('canvas')}
+                className={cn('rounded-lg px-2.5 py-1 font-semibold transition', settingsSubTab === 'canvas' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
+              >
+                Mural de Planejamento
+              </button>
+              <button
+                onClick={() => setSettingsSubTab('ocr')}
+                className={cn('rounded-lg px-2.5 py-1 font-semibold transition', settingsSubTab === 'ocr' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
+              >
+                Fontes & OCR
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {settingsSubTab === 'general' && (
+                <SettingsPanel
+                  health={runtime.health}
+                  onRefreshHealth={runtime.refreshHealth}
+                  liveConfig={liveConfig}
+                  onLiveConfigChange={onLiveConfigChange}
+                  onObsSettingsChanged={onObsSettingsChanged}
+                  onSaved={() => {
+                    void runtime.refreshObsScenes();
+                  }}
+                />
+              )}
+              {settingsSubTab === 'ai' && (
+                <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                  <PersonaSelector />
+                  <div className="mt-4">
+                    <AiConfigPanel />
+                  </div>
+                </div>
+              )}
+              {settingsSubTab === 'canvas' && (
+                <Suspense fallback={<PanelLoading label="Carregando mural de planejamento" />}>
+                  <div className="flex-1 min-h-0 h-full overflow-hidden p-2">
+                    <PlanningCanvas />
+                  </div>
+                </Suspense>
+              )}
+            </div>
+          </div>
+        )}
+
         {/*
           CaptureStudio stays mounted on every tab so screen capture / OCR
           keeps running when the user navigates away from "Fontes / OCR".
@@ -840,11 +1016,11 @@ export default function OdessaLiveCenter({
         <div
           className={cn(
             'flex min-h-0 flex-col',
-            activeTab === 'sources'
+            (activeTab === 'sources' || (activeTab === 'settings' && settingsSubTab === 'ocr'))
               ? 'flex-1'
               : 'pointer-events-none fixed -left-[9999px] top-0 h-px w-px overflow-hidden opacity-0',
           )}
-          aria-hidden={activeTab !== 'sources'}
+          aria-hidden={!(activeTab === 'sources' || (activeTab === 'settings' && settingsSubTab === 'ocr'))}
         >
           <PageSurface
             icon={<Camera className="h-4 w-4" />}
@@ -863,37 +1039,6 @@ export default function OdessaLiveCenter({
             </Suspense>
           </PageSurface>
         </div>
-        {activeTab === 'logs' && (
-          <PageSurface
-            icon={<ListVideo className="h-4 w-4" />}
-            title="Logs da operacao"
-            description="Teste o caminho real: chat/OCR, gatilho salvo no fluxo, fila e video."
-          >
-            <ReactiveFlowLogLab
-              capturedText={capturedText}
-              logs={automationLogs}
-              latestRun={latestReactiveRun}
-              error={reactiveError}
-              busy={reactiveBusy}
-              videoState={videoState}
-              runtime={runtime}
-              onRefreshLogs={refreshAutomationLogs}
-              onRun={runReactiveFlow}
-            />
-          </PageSurface>
-        )}
-        {activeTab === 'settings' && (
-          <SettingsPanel
-            health={runtime.health}
-            onRefreshHealth={runtime.refreshHealth}
-            liveConfig={liveConfig}
-            onLiveConfigChange={onLiveConfigChange}
-            onObsSettingsChanged={onObsSettingsChanged}
-            onSaved={() => {
-              void runtime.refreshObsScenes();
-            }}
-          />
-        )}
       </section>
       </div>
     </main>
@@ -2731,16 +2876,18 @@ function FlowDatum({ label, value }: { label: string; value: string }) {
 
 // Metadados de cada aba para o cabeçalho/sidebar (redesign Studio 2.0).
 const TAB_META: Record<TabKey, { group: string; title: string }> = {
-  home:     { group: 'Operação', title: 'Início' },
-  stage:    { group: 'Operação', title: 'Palco' },
-  ai:       { group: 'Operação', title: 'Diretora IA' },
-  chat:     { group: 'Operação', title: 'Tango Chat' },
-  flow:     { group: 'Conteúdo', title: 'Fluxo Reativo' },
-  canvas:   { group: 'Conteúdo', title: 'Mural' },
+  live:     { group: 'Operação', title: 'Central da Live' },
   library:  { group: 'Conteúdo', title: 'Biblioteca' },
+  flow:     { group: 'Operação', title: 'Automações' },
+  history:  { group: 'Operação', title: 'Histórico da Live' },
+  settings: { group: 'Sistema',  title: 'Configurações' },
+  home:     { group: 'Operação', title: 'Central da Live' },
+  stage:    { group: 'Operação', title: 'Palco' },
+  ai:       { group: 'Configuração', title: 'Diretora IA' },
+  chat:     { group: 'Operação', title: 'Central da Live' },
+  canvas:   { group: 'Conteúdo', title: 'Mural de Planejamento' },
   sources:  { group: 'Sistema',  title: 'Fontes / OCR' },
   logs:     { group: 'Sistema',  title: 'Logs' },
-  settings: { group: 'Sistema',  title: 'Config' },
 };
 
 function SideNavButton({ icon, label, active, onClick }: { icon: ReactNode; label: string; active: boolean; onClick: () => void; }) {

@@ -202,7 +202,3 @@ async def refresh_config():
     from server.services.automation.engine import trigger_engine
     trigger_engine.refresh_config()
     return {"status": "refreshed"}
-
-@router.get("/health")
-async def health():
-    return {"status": "ok", "service": "Odessa Automation Engine"}

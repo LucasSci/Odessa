@@ -6,13 +6,6 @@ from server.config import GEMINI_IMAGE_MODEL, OPENAI_TEXT_MODEL, OPENAI_IMAGE_MO
 router = APIRouter(tags=["Misc"])
 logger = logging.getLogger("odessa.routes.misc")
 
-@router.get("/health")
-def health_check():
-    return {
-        "status": "ok",
-        "ocr": "ready",
-    }
-
 @router.get("/regions")
 def get_regions():
     # Logic to return stored regions

@@ -183,7 +183,6 @@ async def ingest_ocr(request: OcrIngestRequest):
     }
 
 
-@router.post("")
 @router.post("/")
 async def perform_ocr(request: RegionRequest):
     return get_ocr_service().process_ocr(request)
