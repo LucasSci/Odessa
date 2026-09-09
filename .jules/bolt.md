@@ -4,3 +4,6 @@
 ## 2026-07-10 - Avoid O(N) useRef initialization
 **Learning:** Initializing hooks with inline computations like `useRef(new Set(array.map(...)))` forces O(N) execution on every single render.
 **Action:** Conditionally initialize `useRef` inside an if-block (`if (ref.current === null)`) and use non-null assertions for subsequent access.
+## 2026-07-20 - Optimize Chained Array Methods in React Hooks
+**Learning:** Using chained array methods (like `.filter().map()`) or multiple independent `.filter()` calls on continuously growing arrays (e.g., event logs, captured text) inside React `useMemo` hooks creates significant performance bottlenecks. Each array method in the chain creates an intermediate array, forcing O(N) memory allocation and multiple O(N) traversals during every render cycle or dependency update.
+**Action:** Replace chained `.filter().map()` or multiple `.filter()` operations with a single-pass `for` loop that accumulates results directly into a final array or variables. This avoids intermediate garbage collection and ensures only a single O(N) traversal.

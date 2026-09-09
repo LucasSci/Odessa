@@ -114,9 +114,14 @@ export function UnifiedLivePanel({
 
   // Estatísticas rápidas do chat capturado
   const chatStats = useMemo(() => {
-    const chat = capturedText.filter((m) => m.kind === 'chat');
-    const gifts = capturedText.filter((m) => m.kind === 'gift');
-    return { chatCount: chat.length, giftCount: gifts.length, total: capturedText.length };
+    // ⚡ Bolt: Using a single for-loop instead of multiple .filter() calls to prevent O(N) memory allocation on every render
+    let chatCount = 0;
+    let giftCount = 0;
+    for (let i = 0; i < capturedText.length; i++) {
+      if (capturedText[i].kind === 'chat') chatCount++;
+      else if (capturedText[i].kind === 'gift') giftCount++;
+    }
+    return { chatCount, giftCount, total: capturedText.length };
   }, [capturedText]);
 
   // ── Mensagens unificadas: usa mensagens da bridge se houver, senão converte capturedText ──
@@ -125,13 +130,20 @@ export function UnifiedLivePanel({
   // no formato TangoChatMessage para o TangoChatFeed exibi-las.
   const unifiedMessages = useMemo<TangoChatMessage[]>(() => {
     if (messages.length > 0) return messages; // bridge messages têm prioridade
-    return (capturedText || [])
-      .filter((m) => m.kind === 'chat' || m.kind === 'gift')
-      .map((m) => ({
-        username: (m.metadata?.username as string) || m.zoneName || 'Espectador',
-        text: m.text,
-        timestamp: m.createdAt,
-      }));
+    // ⚡ Bolt: Using a single pass for-loop instead of chained .filter().map() to avoid intermediate array allocations
+    const result: TangoChatMessage[] = [];
+    const events = capturedText || [];
+    for (let i = 0; i < events.length; i++) {
+      const m = events[i];
+      if (m.kind === 'chat' || m.kind === 'gift') {
+        result.push({
+          username: (m.metadata?.username as string) || m.zoneName || 'Espectador',
+          text: m.text,
+          timestamp: m.createdAt,
+        });
+      }
+    }
+    return result;
   }, [messages, capturedText]);
 
   // Fila de respostas IA pendentes (draft + blocked)
