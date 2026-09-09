@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from server.config import VIDEO_FRAME_MAX_BYTES
 from server.services.video_gen import storage
 
 logger = logging.getLogger("odessa.routes.video_gen")
@@ -48,6 +49,11 @@ async def save_frame(request: FrameRequest):
     """Recebe o frame base capturado (data URL) e o persiste por persona."""
     if not request.dataUrl:
         raise HTTPException(status_code=400, detail="dataUrl é obrigatório")
+    if len(request.dataUrl) > VIDEO_FRAME_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Frame excede o limite de {VIDEO_FRAME_MAX_BYTES // (1024 * 1024)} MB",
+        )
     path = storage.save_frame_from_data_url(request.dataUrl, persona_id=request.personaId)
     return {"ok": True, "path": str(path)}
 

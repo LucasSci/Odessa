@@ -2,14 +2,15 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
+from server.core import auth as auth_core
 from server.api.v1.api import api_router
 from server.api.v1.endpoints import auth, obs, ocr, webhooks, proxy as proxy_router
-from server.config import GEMINI_API_KEY, OPENAI_API_KEY
+from server.config import GEMINI_API_KEY, OPENAI_API_KEY  # noqa: F401 (mantido p/ compat de import)
 
 # Logging configuration
 logging.basicConfig(
@@ -80,8 +81,36 @@ app.add_middleware(
 )
 
 
+# Rotas públicas (não exigem sessão): login/health/estáticos e mídia para
+# elementos <video> (que não enviam Authorization header; em same-origin o
+# cookie de sessão cobre quando há login).
+_PUBLIC_PATH_PREFIXES = (
+    "/auth/",
+    "/api/auth/",
+    "/api/v1/video/play/",
+    "/api/v1/video/available",
+    "/api/v1/video-gen/video/",
+    "/assets/",
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+)
+_PUBLIC_PATHS_EXACT = {"", "/", "/favicon.ico", "/index.html", "/health", "/api/health"}
+
+
 @app.middleware("http")
 async def require_admin_session(request: Request, call_next):
+    # Modo dev (opt-in): ODESSA_AUTH_DISABLED=1 libera tudo.
+    if auth_core.AUTH_DISABLED:
+        return await call_next(request)
+    path = request.url.path
+    if path in _PUBLIC_PATHS_EXACT or any(path.startswith(p) for p in _PUBLIC_PATH_PREFIXES):
+        return await call_next(request)
+    try:
+        auth_core.require_admin(request)
+    except HTTPException as exc:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
     return await call_next(request)
 
 # Include Modular API Routers
@@ -118,9 +147,6 @@ async def health_check():
             "assets_found": (root_dir / "assets").exists(),
             "videos_found": (root_dir / "assets" / "videos").exists(),
         },
-        "gemini_configured": bool(GEMINI_API_KEY),
-        "openai_ai_configured": bool(OPENAI_API_KEY),
-        "openai_tts_configured": bool(OPENAI_API_KEY),
     }
 
 

@@ -154,3 +154,19 @@ def get_current_admin(request: Request) -> dict[str, Any]:
     if not session:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     return {"authenticated": True, "role": "admin"}
+
+
+# ── Modo dev (opt-in explícito) ──────────────────────────────────────────────
+# Auth é SEMPRE exigida por default. Para rodar sem auth (dev local, sandbox),
+# defina ODESSA_AUTH_DISABLED=1 explicitamente no ambiente — nunca em produção.
+AUTH_DISABLED = os.getenv("ODESSA_AUTH_DISABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def require_admin(request: Request) -> dict[str, Any]:
+    """Dependência FastAPI: exige sessão admin válida (cookie ou Bearer).
+
+    No modo dev (ODESSA_AUTH_DISABLED=1) permite tudo — opt-in explícito.
+    """
+    if AUTH_DISABLED:
+        return {"authenticated": True, "role": "admin", "authDisabled": True}
+    return get_current_admin(request)

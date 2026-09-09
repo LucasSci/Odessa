@@ -116,6 +116,18 @@ VIDEO_GEN_AUTO = os.getenv("VIDEO_GEN_AUTO", "true").strip().lower() not in {"0"
 ODESSA_VIDEO_GEN_DIR = Path(os.getenv("ODESSA_VIDEO_GEN_DIR", RUNTIME_DIR / "video-gen"))
 # Tamanho máximo da fila de vídeos pendentes por persona.
 VIDEO_GEN_MAX_QUEUE = int(os.getenv("VIDEO_GEN_MAX_QUEUE", "8"))
+
+# Allowlist de hosts de webhook (sufixos; ex.: "hooks.n8n.cloud,hook.eu2.make.com").
+# Vazio = apenas o host de N8N_ACTION_WEBHOOK_URL (se houver) é permitido.
+WEBHOOK_ALLOWED_HOSTS = [
+    host.strip().lower()
+    for host in os.getenv("ODESSA_WEBHOOK_ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+]
+
+# Limites de payload: upload de vídeo e frame base64 (data URL)
+VIDEO_UPLOAD_MAX_BYTES = int(os.getenv("VIDEO_UPLOAD_MAX_BYTES", str(256 * 1024 * 1024)))
+VIDEO_FRAME_MAX_BYTES = int(os.getenv("VIDEO_FRAME_MAX_BYTES", str(8 * 1024 * 1024)))
 # Formato do frame base capturado (png|jpg).
 VIDEO_GEN_FRAME_FORMAT = os.getenv("VIDEO_GEN_FRAME_FORMAT", "png").strip().lower()
 # Duração (segundos) e resolução padrão do vídeo gerado.

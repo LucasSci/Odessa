@@ -63,7 +63,19 @@ class OBSService:
         settings = self._load_settings()
         self.enabled = bool(settings.get("enabled", OBS_ENABLED))
         self.ws_url = self._normalize_ws_url(settings.get("websocketUrl", OBS_WEBSOCKET_URL))
-        self.password = str(settings.get("websocketPassword", OBS_WEBSOCKET_PASSWORD))
+        # A senha NÃO vem mais do obs_settings.json (texto plano em disco).
+        # Fonte: variável de ambiente OBS_WEBSOCKET_PASSWORD. Se existir uma
+        # senha legada gravada no arquivo, usamos apenas nesta sessão e o
+        # _save_settings regrava o arquivo SEM ela (migração automática).
+        legacy_password = settings.get("websocketPassword")
+        if legacy_password:
+            logger.warning(
+                "[OBS_SECURITY] Senha legada em texto plano encontrada em obs_settings.json; "
+                "usando apenas nesta sessao e removendo do arquivo. Configure OBS_WEBSOCKET_PASSWORD."
+            )
+            self.password = str(legacy_password)
+        else:
+            self.password = OBS_WEBSOCKET_PASSWORD
         self.ocr_source_name = (
             str(settings.get("ocrSourceName", OBS_OCR_SOURCE_NAME)).strip() or OBS_OCR_SOURCE_NAME
         )
@@ -97,6 +109,10 @@ class OBSService:
         # OBS_RECONNECT_COOLDOWN_S segundos.
         self._last_connect_attempt: float = 0.0
         self._reconnect_cooldown_s = float(os.getenv("OBS_RECONNECT_COOLDOWN_S", "30"))
+        # Migração imediata: regrava o obs_settings.json SEM a senha legada,
+        # para que ela desapareça do disco já no boot (não só no próximo save).
+        if legacy_password:
+            self._save_settings()
 
     @staticmethod
     def _positive_int(value: Any, fallback: int) -> int:
@@ -137,7 +153,6 @@ class OBSService:
                 {
                     "enabled": self.enabled,
                     "websocketUrl": self.ws_url,
-                    "websocketPassword": self.password,
                     "ocrSourceName": self.ocr_source_name,
                     "chatSourceName": self.chat_source_name,
                     "stageSourceName": self.stage_source_name,
@@ -225,8 +240,14 @@ class OBSService:
         if "websocketPassword" in settings and settings["websocketPassword"] is not None:
             next_password = str(settings["websocketPassword"])
             if next_password != self.password:
+                # Aplica apenas em memoria (conecta com a nova senha nesta
+                # sessao); NAO e persistida em disco — use OBS_WEBSOCKET_PASSWORD.
                 self.password = next_password
                 should_disconnect = True
+                logger.info(
+                    "[OBS_SECURITY] Senha do WebSocket atualizada apenas em memoria; "
+                    "configure OBS_WEBSOCKET_PASSWORD para persistir entre reinicios."
+                )
         if settings.get("ocrSourceName"):
             self.ocr_source_name = str(settings["ocrSourceName"]).strip() or self.ocr_source_name
             if not settings.get("chatSourceName"):

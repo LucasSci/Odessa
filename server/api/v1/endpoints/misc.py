@@ -1,7 +1,7 @@
 import logging
 import os
 from fastapi import APIRouter
-from server.config import GEMINI_API_KEY, GEMINI_IMAGE_MODEL, OPENAI_API_KEY, OPENAI_TEXT_MODEL, OPENAI_IMAGE_MODEL
+from server.config import GEMINI_IMAGE_MODEL, OPENAI_TEXT_MODEL, OPENAI_IMAGE_MODEL  # noqa: F401
 
 router = APIRouter(tags=["Misc"])
 logger = logging.getLogger("odessa.routes.misc")
@@ -11,8 +11,6 @@ def health_check():
     return {
         "status": "ok",
         "ocr": "ready",
-        "gemini_configured": bool(GEMINI_API_KEY),
-        "openai_ai_configured": bool(OPENAI_API_KEY),
     }
 
 @router.get("/regions")

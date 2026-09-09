@@ -3,11 +3,13 @@ import logging
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 import httpx
 
-from server.config import N8N_ACTION_WEBHOOK_URL, RUNTIME_DIR
+from server.config import N8N_ACTION_WEBHOOK_URL, RUNTIME_DIR, WEBHOOK_ALLOWED_HOSTS
+from server.core.ssrf import SSRFTransport
 
 logger = logging.getLogger("odessa.webhooks")
 
@@ -29,6 +31,26 @@ def _mask_headers(headers: Dict[str, str]) -> Dict[str, str]:
     for key, value in headers.items():
         masked[key] = "***" if SECRET_HEADER_RE.search(key) and value else value
     return masked
+
+
+def _allowed_hosts() -> set:
+    """Hosts permitidos para disparo de webhook (sufixos de hostname)."""
+    hosts = {host.lower() for host in WEBHOOK_ALLOWED_HOSTS if host}
+    if N8N_ACTION_WEBHOOK_URL:
+        seed_host = (urlparse(N8N_ACTION_WEBHOOK_URL).hostname or "").lower()
+        if seed_host:
+            hosts.add(seed_host)
+    return hosts
+
+
+def check_webhook_url_allowed(url: str) -> Tuple[bool, str]:
+    """Política explícita de destinos permitidos (allowlist por sufixo de host)."""
+    hostname = (urlparse(url).hostname or "").lower()
+    if not hostname:
+        return False, "webhook_url_invalid"
+    if not any(hostname == h or hostname.endswith("." + h) for h in _allowed_hosts()):
+        return False, "webhook_host_not_allowed"
+    return True, ""
 
 
 class WebhookService:
@@ -120,6 +142,9 @@ class WebhookService:
 
     def upsert_config(self, data: Dict[str, Any]) -> Dict[str, Any]:
         normalized = self._normalize_config(data)
+        allowed, reason = check_webhook_url_allowed(normalized.get("url", ""))
+        if normalized.get("url") and not allowed:
+            raise ValueError(f"URL de webhook nao permitida ({reason})")
         existing = self.get_config(normalized["id"])
         if existing:
             normalized["createdAt"] = existing.get("createdAt", normalized["createdAt"])
@@ -187,6 +212,12 @@ class WebhookService:
         if not config.get("url"):
             return {"ok": False, "status": "blocked", "error": "webhook_url_missing"}
 
+        # Defesa em profundidade: allowlist re-validada no disparo.
+        allowed, reason = check_webhook_url_allowed(config["url"])
+        if not allowed:
+            logger.warning("[WEBHOOK_BLOCKED] %s -> %s", webhook_id, reason)
+            return {"ok": False, "status": "blocked", "error": reason}
+
         context = {
             "event": event or {},
             "action": action or {},
@@ -200,7 +231,9 @@ class WebhookService:
         logger.info("[ACTION] webhook.call -> %s", config.get("name") or webhook_id)
 
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            # SSRFTransport: resolve o DNS e bloqueia IPs privados/loopback/
+            # link-local antes de disparar qualquer requisição (item 2.2).
+            async with httpx.AsyncClient(timeout=timeout, transport=SSRFTransport()) as client:
                 response = await client.request(method, config["url"], headers=headers, json=body)
             ok = 200 <= response.status_code < 300
             result: Dict[str, Any] = {

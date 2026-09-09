@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from fastapi.responses import FileResponse, JSONResponse
 from server.core.video_files import list_available_videos, get_video_path, get_video_directory
+from server.config import VIDEO_UPLOAD_MAX_BYTES
 from server.core.config_manager import load_persona_config, save_persona_config
 
 logger = logging.getLogger("odessa.routes.video")
@@ -429,7 +430,12 @@ async def upload_video(file: UploadFile = File(...)):
 
         # Reset file pointer just in case
         await file.seek(0)
-        content = await file.read()
+        content = await file.read(VIDEO_UPLOAD_MAX_BYTES + 1)
+        if len(content) > VIDEO_UPLOAD_MAX_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Arquivo excede o limite de {VIDEO_UPLOAD_MAX_BYTES // (1024 * 1024)} MB",
+            )
 
         with open(file_path, "wb") as buffer:
             buffer.write(content)
