@@ -42,7 +42,7 @@ jobs:
     - name: Install dependencies
       run: |
         npm install
-        npm install undici@latest
+        npm install jsdom@25
       
     - name: Run Frontend Tests
       run: npx vitest run
