@@ -847,6 +847,7 @@ export default function OdessaLiveCenter({
                   runtime={runtime}
                   videoState={videoState}
                   onStartLive={onStartLive}
+                  obsSettings={obsSettingsFromApp}
                 />
               )}
               {liveMode === 'stage' && (

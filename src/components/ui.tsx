@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode } from 'react';
+import { useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -185,7 +185,7 @@ export function ConfirmButton({
   variant = 'default',
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   confirmLabel?: string;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   loading?: boolean;
   size?: 'sm' | 'md' | 'icon';
   variant?: 'default' | 'primary' | 'secondary' | 'ghost' | 'danger' | 'success';
@@ -197,7 +197,7 @@ export function ConfirmButton({
     if (confirming) {
       if (timerRef.current) clearTimeout(timerRef.current);
       setConfirming(false);
-      onConfirm();
+      void onConfirm();
     } else {
       setConfirming(true);
       timerRef.current = setTimeout(() => setConfirming(false), 3000);
@@ -231,5 +231,3 @@ export function ConfirmButton({
     </button>
   );
 }
-
-import { useRef, useState } from 'react';

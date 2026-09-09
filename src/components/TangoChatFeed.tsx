@@ -7,8 +7,9 @@
  * aqui recebemos tudo via props.
  */
 
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  ChevronDown,
   Clock,
   History,
   Loader2,
@@ -18,6 +19,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { Badge, Button } from './ui';
+import { EmptyState } from './common/OperationalState';
 import { cn } from '../lib/utils';
 import type { TangoChatMessage } from '../core/tangoAiChatService';
 
@@ -35,7 +37,7 @@ export type TangoChatFeedProps = {
   onDraftChange: (text: string) => void;
   onSend: () => void;
   sending: boolean;
-  messagesEndRef: React.RefObject<HTMLDivElement | null>;
+  messagesEndRef?: React.RefObject<HTMLDivElement | null>;
   /** Quantidade de respostas IA pendentes (p/ atalho "ver fila") */
   replyQueueCount?: number;
   onViewReplies?: () => void;
@@ -70,6 +72,43 @@ export function TangoChatFeed({
   heightClass = 'h-[520px]',
   className,
 }: TangoChatFeedProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const userScrolledUpRef = useRef(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Detecta quando o usuário rola manualmente para cima
+  const handleScroll = () => {
+    const el = containerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const atBottom = distanceFromBottom < 60;
+    if (atBottom) {
+      userScrolledUpRef.current = false;
+      setUnreadCount(0);
+    } else {
+      userScrolledUpRef.current = true;
+    }
+  };
+
+  // Smart Auto-scroll: se o usuário estiver no final, acompanha; se estiver lendo o histórico, pausa e conta não lidas
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    if (!userScrolledUpRef.current) {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    } else {
+      setUnreadCount((prev) => prev + 1);
+    }
+  }, [messages]);
+
+  const scrollToBottom = () => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    userScrolledUpRef.current = false;
+    setUnreadCount(0);
+  };
+
   return (
     <div className={cn('rounded-2xl border border-white/10 bg-[#0c0e12] overflow-hidden shadow-lg flex flex-col', heightClass, className)}>
       {/* Cabeçalho */}
@@ -121,54 +160,71 @@ export function TangoChatFeed({
         </div>
       </div>
 
-      {/* Mensagens com botão rápido de IA */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2">
-        {messages.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center text-center p-6">
-            <MessageCircle className="h-10 w-10 text-slate-600 mb-2" />
-            <p className="text-sm font-semibold text-slate-400">
-              {bridgeConnected ? 'Aguardando mensagens ao vivo' : 'Nenhuma mensagem capturada'}
-            </p>
-            <p className="text-xs text-slate-600 mt-1 max-w-sm">
-              {bridgeConnected
-                ? 'O feed começa limpo: só aparecem mensagens novas da sessão atual. Use "Histórico" para ver as anteriores.'
-                : 'Inicie a bridge para monitorar o chat da live. O feed fica limpo até haver mensagens reais.'}
-            </p>
-          </div>
-        ) : (
-          messages.map((msg, idx) => (
-            <div
-              key={`${msg.timestamp}-${idx}`}
-              className="group flex items-start justify-between gap-2 rounded-xl border border-white/5 bg-white/[0.02] p-2.5 transition hover:border-violet-500/30 hover:bg-violet-500/[0.04]"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-xs font-bold text-violet-300">@{msg.username}</span>
-                  <span className="text-[10px] font-mono text-slate-500">
-                    {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('pt-BR') : ''}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-200 break-words leading-relaxed">{msg.text}</p>
-              </div>
-
-              {/* Botão Responder com IA */}
-              <button
-                className="shrink-0 flex items-center gap-1 rounded-lg border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-[11px] font-medium text-violet-300 opacity-90 transition hover:bg-violet-500/20 hover:opacity-100 disabled:opacity-50"
-                disabled={generatingForId === (msg.timestamp || msg.text)}
-                onClick={() => onGenerateReply(msg)}
-                title="Gerar sugestão de resposta com IA"
+      {/* Mensagens com Smart Auto-scroll e botão flutuante */}
+      <div className="relative flex-1 min-h-0 flex flex-col">
+        <div
+          ref={containerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto p-3 space-y-2"
+        >
+          {messages.length === 0 ? (
+            <EmptyState
+              icon={MessageCircle}
+              title={bridgeConnected ? 'Aguardando mensagens ao vivo' : 'Nenhuma mensagem capturada'}
+              description={
+                bridgeConnected
+                  ? 'O feed começa limpo: só aparecem mensagens novas da sessão atual. Use "Histórico" para ver as anteriores.'
+                  : 'Inicie a bridge para monitorar o chat da live. O feed fica limpo até haver mensagens reais.'
+              }
+              className="h-full"
+            />
+          ) : (
+            messages.map((msg, idx) => (
+              <div
+                key={`${msg.timestamp}-${idx}`}
+                className="group flex items-start justify-between gap-2 rounded-xl border border-white/5 bg-white/[0.02] p-2.5 transition hover:border-violet-500/30 hover:bg-violet-500/[0.04]"
               >
-                {generatingForId === (msg.timestamp || msg.text) ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <Sparkles className="h-3 w-3" />
-                )}
-                Responder IA
-              </button>
-            </div>
-          ))
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="text-xs font-bold text-violet-300">@{msg.username}</span>
+                    <span className="text-[10px] font-mono text-slate-500">
+                      {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('pt-BR') : ''}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-200 break-words leading-relaxed">{msg.text}</p>
+                </div>
+
+                {/* Botão Responder com IA */}
+                <button
+                  className="shrink-0 flex items-center gap-1 rounded-lg border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-[11px] font-medium text-violet-300 opacity-90 transition hover:bg-violet-500/20 hover:opacity-100 disabled:opacity-50"
+                  disabled={generatingForId === (msg.timestamp || msg.text)}
+                  onClick={() => onGenerateReply(msg)}
+                  title="Gerar sugestão de resposta com IA"
+                >
+                  {generatingForId === (msg.timestamp || msg.text) ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3 w-3" />
+                  )}
+                  Responder IA
+                </button>
+              </div>
+            ))
+          )}
+          {messagesEndRef && <div ref={messagesEndRef} />}
+        </div>
+
+        {/* Botão flutuante de novas mensagens quando o operador rolou para cima */}
+        {unreadCount > 0 && (
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 rounded-full bg-violet-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-lg shadow-violet-600/40 hover:bg-violet-500 transition"
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+            Novas mensagens ({unreadCount}) ↓
+          </button>
         )}
-        <div ref={messagesEndRef} />
       </div>
 
       {/* Barra de Envio + Atalhos */}

@@ -35,18 +35,23 @@ import {
   Settings,
   ShieldAlert,
   ShieldCheck,
+  ChevronUp,
+  Pause,
   Sparkles,
   Square,
   Terminal,
   Trash2,
   Tv,
+  Unlink,
   Wifi,
   WifiOff,
   X,
   XCircle,
   Zap,
 } from 'lucide-react';
-import { Badge, Button } from './ui';
+import { Badge, Button, ConfirmButton } from './ui';
+import { EmptyState } from './common/OperationalState';
+import { routeStopTransmission } from '../lib/obsCommandRouter';
 import { cn } from '../lib/utils';
 import {
   generateTangoChatReply,
@@ -122,6 +127,10 @@ export type TangoChatPanelProps = {
   videoState?: VideoStateLite | null;
   /** Callback para iniciar a live (configura OBS + automação + captura). */
   onStartLive?: () => void | Promise<void>;
+  /** Callback para encerrar a live no OBS. */
+  onEndLive?: () => void | Promise<void>;
+  /** Configurações de conexão com o OBS WebSocket. */
+  obsSettings?: Record<string, unknown> | null;
 };
 
 export function TangoChatPanel({
@@ -129,6 +138,8 @@ export function TangoChatPanel({
   runtime: odessaRuntime,
   videoState: odessaVideoState,
   onStartLive: odessaStartLive,
+  onEndLive,
+  obsSettings,
 }: TangoChatPanelProps = {}) {
   // A sessao do Tango Chat (conexao SSE, mensagens, fila de respostas, modos e
   // disparo automatico de IA) vive no TangoChatSessionProvider montado no App —
@@ -188,6 +199,10 @@ export function TangoChatPanel({
   const [maxPerMinute, setMaxPerMinute] = useState(() => getAiConfig().chatReplyMaxPerMinute || 4);
   const [cannedResponses, setCannedResponses] = useState<string[]>(DEFAULT_CANNED_RESPONSES);
   const [newCannedText, setNewCannedText] = useState('');
+
+  // ── Drawer Secundário (Fase 5) ─────────────────────
+  const [secondaryDrawerOpen, setSecondaryDrawerOpen] = useState(false);
+  const [endingLive, setEndingLive] = useState(false);
 
   // ── Logs e Diagnósticos ───────────────────────────
   const [logs, setLogs] = useState<string[]>([]);
@@ -279,11 +294,7 @@ export function TangoChatPanel({
     };
   }, [subTab, processRunning]);
 
-  // ── Auto-scrolls ──────────────────────────────────
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
+  // ── Auto-scrolls (o feed do chat gerencia o Smart Auto-scroll internamente) ──
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
@@ -1179,14 +1190,116 @@ export function TangoChatPanel({
         <div className="space-y-4">
           {bridgeConnected ? (
             <>
-              {/* Modo bridge conectada: CDP screencast interativo + chat */}
-              <div className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] px-3 py-2">
-                <Tv className="h-4 w-4 shrink-0 text-emerald-400" />
-                <p className="text-[11px] text-slate-300 leading-relaxed">
-                  <strong className="text-emerald-300">Painel Unificado:</strong> a transmissão ao vivo (esquerda) e o chat (direita) compartilham a
-                  <strong> mesma aba/sessão da live</strong>. Clique e digite direto na tela; as mensagens capturadas aparecem no chat em tempo real.
-                </p>
+              {/* ── Cabeçalho Operacional da Sessão (Fase 5) ─────────────────── */}
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/10 bg-[#0d0f14] px-4 py-2.5 shadow-sm">
+                {/* Status da live + badge */}
+                <div className="flex items-center gap-3">
+                  <span className={cn(
+                    'flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full border',
+                    bridgeConnected
+                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                      : 'border-white/10 bg-black/40 text-slate-500'
+                  )}>
+                    <span className={cn('h-1.5 w-1.5 rounded-full', bridgeConnected ? 'bg-emerald-400 animate-ping' : 'bg-slate-600')} />
+                    {bridgeConnected ? 'Sessão Conectada' : 'Aguardando Bridge'}
+                  </span>
+                  {bridgeConnected && (
+                    <span className="text-[11px] text-slate-500 font-mono hidden md:inline">
+                      {messages.length} msgs · {replyQueue.length} na fila IA
+                    </span>
+                  )}
+                </div>
+
+                {/* Controles de ação — 3 ações distintas */}
+                <div className="flex items-center gap-2">
+                  {/* 1. Pausar / Retomar IA (não afeta chat nem live) */}
+                  <button
+                    onClick={() => setAutonomyMode(autonomyMode === 'off' ? 'assistido' : 'off')}
+                    title={autonomyMode === 'off' ? 'IA pausada — clique para retomar automação' : 'Pausar automação de IA (chat continua ativo)'}
+                    className={cn(
+                      'flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition',
+                      autonomyMode === 'off'
+                        ? 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20'
+                        : 'border-white/10 bg-white/[0.04] text-slate-300 hover:border-violet-500/30 hover:text-white'
+                    )}
+                  >
+                    {autonomyMode === 'off'
+                      ? <><Play className="h-3.5 w-3.5" /> Retomar IA</>
+                      : <><Pause className="h-3.5 w-3.5" /> Pausar IA</>}
+                  </button>
+
+                  {/* 2. Desconectar Bridge (não afeta live no OBS) */}
+                  {bridgeConnected && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      title="Desconectar a bridge do chat (não encerra a transmissão no OBS)"
+                      onClick={() => void handleStopProcess()}
+                    >
+                      <Unlink className="h-3.5 w-3.5" />
+                      Desconectar Chat
+                    </Button>
+                  )}
+
+                  {/* 3. Encerrar Transmissão no OBS (ação destrutiva com confirmação) */}
+                  <ConfirmButton
+                    size="sm"
+                    variant="danger"
+                    confirmLabel="⚠ Confirmar encerramento"
+                    loading={endingLive}
+                    title="Encerra a transmissão ao vivo no OBS Studio (irreversível)"
+                    onConfirm={async () => {
+                      setEndingLive(true);
+                      try {
+                        if (onEndLive) {
+                          await onEndLive();
+                        } else if (obsSettings) {
+                          await routeStopTransmission(obsSettings as never);
+                        }
+                        if (odessaRuntime?.autopilotEnabled) {
+                          odessaRuntime.pause();
+                        }
+                      } finally {
+                        setEndingLive(false);
+                      }
+                    }}
+                  >
+                    <Square className="h-3.5 w-3.5" />
+                    Encerrar Live
+                  </ConfirmButton>
+
+                  {/* Toggle do drawer secundário */}
+                  <button
+                    onClick={() => setSecondaryDrawerOpen((o) => !o)}
+                    title="Mostrar/ocultar área de atividade recente"
+                    className="flex items-center gap-1 rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-xs text-slate-400 hover:bg-white/[0.08] transition"
+                  >
+                    {secondaryDrawerOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    {secondaryDrawerOpen ? 'Ocultar' : 'Atividade'}
+                  </button>
+                </div>
               </div>
+
+              {/* ── Área Secundária Recolhível: Atividade recente ── */}
+              {secondaryDrawerOpen && (
+                <div className="rounded-2xl border border-white/8 bg-black/30 px-4 py-3 space-y-1">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">Atividade recente</p>
+                  {replyQueue.slice(0, 5).length === 0 ? (
+                    <p className="text-xs text-slate-600">Nenhuma resposta processada ainda nesta sessão.</p>
+                  ) : (
+                    replyQueue.slice(0, 5).map((item) => (
+                      <div key={item.id} className="flex items-center gap-2 text-[11px] text-slate-400">
+                        <span className={cn('h-1.5 w-1.5 rounded-full shrink-0',
+                          item.status === 'sent' ? 'bg-emerald-400' : item.status === 'blocked' ? 'bg-red-400' : 'bg-violet-400'
+                        )} />
+                        <span className="font-medium text-violet-300">@{item.sourceMessage.username}</span>
+                        <span className="truncate opacity-70">{item.text}</span>
+                        <span className="shrink-0 ml-auto opacity-50">{item.status}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
                 <div className="xl:col-span-5">
@@ -1230,17 +1343,18 @@ export function TangoChatPanel({
 
                     <div className="flex-1 overflow-y-auto p-3 space-y-3">
                       {replyQueue.length === 0 ? (
-                        <div className="flex h-full flex-col items-center justify-center text-center p-4 text-slate-500">
-                          <Bot className="h-8 w-8 mb-2 opacity-50 text-violet-400" />
-                          <p className="text-xs font-semibold text-slate-400">Nenhuma resposta pendente</p>
-                          <p className="text-[11px] text-slate-600 mt-1 max-w-xs">
-                            {autonomyMode === 'assistido'
+                        <EmptyState
+                          icon={Bot}
+                          title="Nenhuma resposta pendente"
+                          description={
+                            autonomyMode === 'assistido'
                               ? 'Clique em "Responder IA" no chat para gerar um rascunho de aprovação.'
                               : autonomyMode === 'auto'
                                 ? 'Modo Autônomo ativo: respostas diretas no chat.'
-                                : 'Ligue o modo Assistido para receber sugestões da IA.'}
-                          </p>
-                        </div>
+                                : 'Ligue o modo Assistido para receber sugestões da IA.'
+                          }
+                          className="h-full"
+                        />
                       ) : (
                         replyQueue.map((item) => (
                           <div
@@ -1597,17 +1711,18 @@ export function TangoChatPanel({
               {/* Lista de Rascunhos */}
               <div className="flex-1 overflow-y-auto p-3 space-y-3">
                 {replyQueue.length === 0 ? (
-                  <div className="flex h-full flex-col items-center justify-center text-center p-4 text-slate-500">
-                    <Bot className="h-8 w-8 mb-2 opacity-50 text-violet-400" />
-                    <p className="text-xs font-semibold text-slate-400">Nenhuma resposta pendente</p>
-                    <p className="text-[11px] text-slate-600 mt-1 max-w-xs">
-                      {autonomyMode === 'assistido'
+                  <EmptyState
+                    icon={Bot}
+                    title="Nenhuma resposta pendente"
+                    description={
+                      autonomyMode === 'assistido'
                         ? 'Clique em "Responder IA" em qualquer mensagem para gerar um rascunho de aprovação.'
                         : autonomyMode === 'auto'
                           ? 'Modo Autônomo ativo: a IA responde diretamente no chat.'
-                          : 'Ligue o modo Assistido para receber sugestões da IA.'}
-                    </p>
-                  </div>
+                          : 'Ligue o modo Assistido para receber sugestões da IA.'
+                    }
+                    className="h-full"
+                  />
                 ) : (
                   replyQueue.map((item) => (
                     <div
