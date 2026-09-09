@@ -539,10 +539,10 @@ export function TangoChatSessionProvider({
 
   useEffect(() => {
     if (!bridgeConnected) {
+      // Nota: o cleanup do effect anterior ja fecha o ES; o estado 'stopped'
+      // e resetado no cleanup (abaixo) para evitar setState sincrono no corpo.
       sseRef.current?.close();
       sseRef.current = null;
-      setSseState('stopped');
-      setSseAttempts(0);
       return;
     }
 
@@ -605,6 +605,8 @@ export function TangoChatSessionProvider({
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       sseRef.current?.close();
       sseRef.current = null;
+      setSseState('stopped');
+      setSseAttempts(0);
     };
   }, [bridgeConnected]);
 

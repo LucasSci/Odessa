@@ -40,6 +40,11 @@ function liveWsUrl() {
   return `${proto}//${window.location.host}/tango-bridge/live`;
 }
 
+// Backoff de reconexão do stream ao vivo (mesmo perfil do SSE do chat).
+const WS_MAX_ATTEMPTS = 6;
+const WS_BACKOFF_BASE_MS = 1_000;
+const WS_BACKOFF_MAX_MS = 30_000;
+
 type Props = {
   /** Bridge conectada à aba da live? (controla se o stream fica ativo) */
   connected: boolean;
@@ -66,6 +71,7 @@ export function LiveVisionMonitor({ connected }: Props) {
   const [streaming, setStreaming] = useState(true);
   const [live, setLive] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [wsAttempts, setWsAttempts] = useState(0);
   const [frameCount, setFrameCount] = useState(0);
   const [fps, setFps] = useState(0);
   const [pageUrl, setPageUrl] = useState('');
@@ -114,104 +120,132 @@ export function LiveVisionMonitor({ connected }: Props) {
   }, []);
 
   // ── Conexão WebSocket + render dos frames ──────────────
+  // ── Conexão WebSocket + render dos frames ──────────────
+  // Reconexão com backoff exponencial (1s→30s, até 6 tentativas): antes o
+  // onclose apenas marcava "Desconectado" e o stream morria até o usuário
+  // pausar e retomar manualmente.
   useEffect(() => {
     if (!connected || !streaming) {
+      // Nota: o cleanup do effect anterior já fecha o ws e faz setLive(false);
+      // resetar estado aqui de novo seria setState sincrono redundante no corpo.
       wsRef.current?.close();
       wsRef.current = null;
-      setLive(false);
       return;
     }
 
     let cancelled = false;
-    let fpsTimer: number | undefined;
+    let retryTimer: number | undefined;
     let fpsCounter = 0;
-    setConnecting(true);
-
-    const ws = new WebSocket(liveWsUrl());
-    ws.binaryType = 'arraybuffer';
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      if (cancelled) return;
-      setConnecting(false);
-      setLive(true);
-      logAction('Stream ao vivo conectado');
-    };
-
-    ws.onmessage = async (ev) => {
-      if (cancelled) return;
-
-      // Frames binários: [width uint16 BE][height uint16 BE][JPEG bytes...]
-      // Elimina overhead de base64 (+33%) e parse JSON — menos latência.
-      if (ev.data instanceof ArrayBuffer) {
-        const dv = new DataView(ev.data);
-        const fw = dv.getUint16(0, false); // big-endian
-        const fh = dv.getUint16(2, false);
-        const jpeg = new Uint8Array(ev.data, 4);
-        const canvas = canvasRef.current;
-        if (!canvas || jpeg.length === 0) return;
-        if (canvas.width !== fw) canvas.width = fw;
-        if (canvas.height !== fh) canvas.height = fh;
-        try {
-          const blob = new Blob([jpeg], { type: 'image/jpeg' });
-          const bmp = await createImageBitmap(blob);
-          const ctx = canvas.getContext('2d');
-          if (ctx) ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-          bmp.close();
-          fpsCounter++;
-          setFrameCount((n) => n + 1);
-        } catch {
-          /* frame corrompido — ignora */
-        }
-        return;
-      }
-
-      // Mensagens de controle (viewport, error) continuam em JSON texto.
-      let data: Record<string, unknown>;
-      try {
-        data = JSON.parse(typeof ev.data === 'string' ? ev.data : '');
-      } catch {
-        return;
-      }
-      const type = data.type as string;
-
-      if (type === 'viewport') {
-        const w = (data.w as number) || 1280;
-        const h = (data.h as number) || 720;
-        viewportRef.current = { w, h };
-        setPageMeta({ w, h });
-        if (data.url) {
-          setPageUrl(data.url as string);
-          setGotoUrl(data.url as string);
-        }
-      } else if (type === 'error') {
-        logAction(`Erro: ${(data.error as string) || 'desconhecido'}`);
-      }
-    };
-
-    ws.onerror = () => {
-      if (cancelled) return;
-      setConnecting(false);
-    };
-
-    ws.onclose = () => {
-      if (cancelled) return;
-      setLive(false);
-      setConnecting(false);
-    };
+    let attempt = 0;
 
     // Medidor de FPS
-    fpsTimer = window.setInterval(() => {
+    const fpsTimer = window.setInterval(() => {
       if (!cancelled) {
         setFps(fpsCounter);
         fpsCounter = 0;
       }
     }, 1000);
 
+    const openWs = () => {
+      if (cancelled) return;
+      setConnecting(true);
+
+      const ws = new WebSocket(liveWsUrl());
+      ws.binaryType = 'arraybuffer';
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        if (cancelled) return;
+        attempt = 0;
+        setWsAttempts(0);
+        setConnecting(false);
+        setLive(true);
+        logAction('Stream ao vivo conectado');
+      };
+
+      ws.onmessage = async (ev) => {
+        if (cancelled) return;
+
+        // Frames binários: [width uint16 BE][height uint16 BE][JPEG bytes...]
+        // Elimina overhead de base64 (+33%) e parse JSON — menos latência.
+        if (ev.data instanceof ArrayBuffer) {
+          const dv = new DataView(ev.data);
+          const fw = dv.getUint16(0, false); // big-endian
+          const fh = dv.getUint16(2, false);
+          const jpeg = new Uint8Array(ev.data, 4);
+          const canvas = canvasRef.current;
+          if (!canvas || jpeg.length === 0) return;
+          if (canvas.width !== fw) canvas.width = fw;
+          if (canvas.height !== fh) canvas.height = fh;
+          try {
+            const blob = new Blob([jpeg], { type: 'image/jpeg' });
+            const bmp = await createImageBitmap(blob);
+            const ctx = canvas.getContext('2d');
+            if (ctx) ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+            bmp.close();
+            fpsCounter++;
+            setFrameCount((n) => n + 1);
+          } catch {
+            /* frame corrompido — ignora */
+          }
+          return;
+        }
+
+        // Mensagens de controle (viewport, error) continuam em JSON texto.
+        let data: Record<string, unknown>;
+        try {
+          data = JSON.parse(typeof ev.data === 'string' ? ev.data : '');
+        } catch {
+          return;
+        }
+        const type = data.type as string;
+
+        if (type === 'viewport') {
+          const w = (data.w as number) || 1280;
+          const h = (data.h as number) || 720;
+          viewportRef.current = { w, h };
+          setPageMeta({ w, h });
+          if (data.url) {
+            setPageUrl(data.url as string);
+            setGotoUrl(data.url as string);
+          }
+        } else if (type === 'error') {
+          logAction(`Erro: ${(data.error as string) || 'desconhecido'}`);
+        }
+      };
+
+      ws.onerror = () => {
+        if (cancelled) return;
+        setConnecting(false);
+      };
+
+      // Backoff de reconexão: tenta de novo automaticamente em vez de
+      // fechar silenciosamente a conexão sem retry.
+      ws.onclose = () => {
+        if (cancelled) return;
+        setLive(false);
+        setConnecting(false);
+        if (wsRef.current === ws) wsRef.current = null;
+
+        attempt += 1;
+        setWsAttempts(attempt);
+        if (attempt > WS_MAX_ATTEMPTS) {
+          logAction(`Stream parou após ${WS_MAX_ATTEMPTS} tentativas de reconexão`);
+          return;
+        }
+        setConnecting(true);
+        const delay = Math.min(WS_BACKOFF_MAX_MS, WS_BACKOFF_BASE_MS * 2 ** (attempt - 1));
+        retryTimer = window.setTimeout(openWs, delay);
+      };
+    };
+
+    openWs();
+
     return () => {
       cancelled = true;
-      if (fpsTimer) window.clearInterval(fpsTimer);
-      ws.close();
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      window.clearInterval(fpsTimer);
+      wsRef.current?.close();
       wsRef.current = null;
       setLive(false);
     };
@@ -389,8 +423,24 @@ export function LiveVisionMonitor({ connected }: Props) {
                 )}
               >
                 <span className={cn('h-1.5 w-1.5 rounded-full', live ? 'bg-emerald-400 animate-ping' : 'bg-slate-500')} />
-                {live ? 'Ao Vivo' : connecting ? 'Conectando…' : 'Desconectado'}
+                {live
+                  ? 'Ao Vivo'
+                  : connecting
+                    ? wsAttempts > 0
+                      ? 'Reconectando…'
+                      : 'Conectando…'
+                    : 'Desconectado'}
               </span>
+              {connecting && wsAttempts > 0 && (
+                <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-400">
+                  {Math.min(wsAttempts, WS_MAX_ATTEMPTS)}/{WS_MAX_ATTEMPTS}
+                </span>
+              )}
+              {streaming && !connecting && !live && wsAttempts > WS_MAX_ATTEMPTS && (
+                <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border border-red-500/30 bg-red-500/10 text-red-400">
+                  Stream pausado — pause e retome
+                </span>
+              )}
               {live && (
                 <Badge variant="default" className="text-[10px] font-mono">
                   {fps} fps · {frameCount} frames
