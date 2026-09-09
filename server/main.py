@@ -1,5 +1,6 @@
 import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
@@ -17,10 +18,50 @@ logging.basicConfig(
 )
 logger = logging.getLogger("odessa")
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Auto-inicia a bridge do Tango (captura de chat + tela) quando o backend
+    # sobe, usando a config persistida. Evita que o usuário precise iniciar a
+    # bridge manualmente a cada execução. Desative com ODESSA_AUTOSTART_BRIDGE=0
+    # (ex.: deploy na nuvem, onde não há Chromium/desktop).
+    logger.info("Odessa Backend v1.1.0 starting up...")
+    logger.info("Modular API mounted at /api/v1")
+    logger.info("Odessa Backend is ready.")
+
+    if os.getenv("ODESSA_AUTOSTART_BRIDGE", "1") == "1":
+        try:
+            from server.services.bridge_manager import bridge_manager, load_bridge_config
+            if not bridge_manager.is_running:
+                cfg = load_bridge_config()
+                result = await bridge_manager.start(
+                    autoconnect=cfg.get("autoconnect", True),
+                    config=cfg,
+                )
+                if result.get("ok"):
+                    logger.info("Bridge do Tango auto-iniciada (pid=%s)", result.get("pid"))
+                else:
+                    logger.warning("Falha ao auto-iniciar bridge: %s", result.get("error"))
+        except Exception as exc:
+            logger.warning("Erro ao auto-iniciar bridge: %s", exc)
+
+    yield
+
+    # Shutdown: encerra a bridge do Tango para não deixar processo órfão.
+    try:
+        from server.services.bridge_manager import bridge_manager
+        if bridge_manager.is_running:
+            await bridge_manager.stop()
+            logger.info("Bridge do Tango encerrada no shutdown.")
+    except Exception as exc:
+        logger.warning("Erro ao encerrar bridge no shutdown: %s", exc)
+
+
 app = FastAPI(
     title="Odessa API",
     description="Professional backend for the Odessa AI Streamer Persona",
-    version="1.1.0"
+    version="1.1.0",
+    lifespan=lifespan,
 )
 
 # CORS Configuration
@@ -81,33 +122,6 @@ async def health_check():
         "openai_ai_configured": bool(OPENAI_API_KEY),
         "openai_tts_configured": bool(OPENAI_API_KEY),
     }
-
-
-@app.on_event("startup")
-async def startup_event():
-    logger.info("Odessa Backend v1.1.0 starting up...")
-    logger.info("Modular API mounted at /api/v1")
-    logger.info("Odessa Backend is ready.")
-
-    # Auto-inicia a bridge do Tango (captura de chat + tela) quando o backend
-    # sobe, usando a config persistida. Evita que o usuário precise iniciar a
-    # bridge manualmente a cada execução. Desative com ODESSA_AUTOSTART_BRIDGE=0
-    # (ex.: deploy na nuvem, onde não há Chromium/desktop).
-    if os.getenv("ODESSA_AUTOSTART_BRIDGE", "1") == "1":
-        try:
-            from server.services.bridge_manager import bridge_manager, load_bridge_config
-            if not bridge_manager.is_running:
-                cfg = load_bridge_config()
-                result = await bridge_manager.start(
-                    autoconnect=cfg.get("autoconnect", True),
-                    config=cfg,
-                )
-                if result.get("ok"):
-                    logger.info("Bridge do Tango auto-iniciada (pid=%s)", result.get("pid"))
-                else:
-                    logger.warning("Falha ao auto-iniciar bridge: %s", result.get("error"))
-        except Exception as exc:
-            logger.warning("Erro ao auto-iniciar bridge: %s", exc)
 
 
 dist_dir = Path(__file__).resolve().parents[1] / "dist"
