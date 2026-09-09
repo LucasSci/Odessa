@@ -1,0 +1,73 @@
+﻿
+> odessa-mvp@0.0.0 test
+> vitest --run
+
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.10 [39m[90mC:/Users/Lucas/OneDrive/Documentos/Odessa[39m
+
+ [32m✓[39m src/core/ocrPipeline.test.ts [2m([22m[2m22 tests[22m[2m | [22m[33m11 skipped[39m[2m)[22m[32m 34[2mms[22m[39m
+ [32m✓[39m src/core/automationRules.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+ [32m✓[39m src/core/liveReadinessSupervisor.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 59[2mms[22m[39m
+ [32m✓[39m src/core/chatReplyQueue.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 64[2mms[22m[39m
+ [32m✓[39m src/core/aiDecisionContract.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 37[2mms[22m[39m
+ [32m✓[39m src/core/chatCapturePipeline.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 128[2mms[22m[39m
+ [32m✓[39m src/core/actionExecutor.test.ts [2m([22m[2m11 tests[22m[2m | [22m[33m7 skipped[39m[2m)[22m[32m 107[2mms[22m[39m
+ [32m✓[39m src/core/liveSimulation.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 268[2mms[22m[39m
+ [32m✓[39m src/core/chatAutomationApi.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 3969[2mms[22m[39m
+     [33m[2m✓[22m[39m validates and logs dry-run visual chat without Tango [33m 312[2mms[22m[39m
+ [32m✓[39m src/OdessaLiveCenter.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 490[2mms[22m[39m
+ [32m✓[39m src/core/liveActionPolicy.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 30[2mms[22m[39m
+ [32m✓[39m src/core/tangoAiChatService.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+ [32m✓[39m src/core/platformParsers/tangoChatParser.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 37[2mms[22m[39m
+[90mstdout[2m | src/CaptureStudio.test.tsx[2m > [22m[2mCaptureStudio screen capture[2m > [22m[2mstarts live display capture and routes OCR through OCR ingest
+[22m[39m[visual-gift] no match | scores: 
+
+ [32m✓[39m src/core/useAutopilotRuntime.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 27[2mms[22m[39m
+ [32m✓[39m src/core/liveAutonomyGovernor.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 269[2mms[22m[39m
+ [32m✓[39m src/core/chatDedupe.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 32[2mms[22m[39m
+ [32m✓[39m src/lib/memory.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 31[2mms[22m[39m
+ [32m✓[39m src/core/autonomyMatrix.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 33[2mms[22m[39m
+ [2m[90m↓[39m[22m src/core/contentLibrary.test.ts [2m([22m[2m3 tests[22m[2m | [22m[33m3 skipped[39m[2m)[22m
+[90mstdout[2m | src/CaptureStudio.test.tsx[2m > [22m[2mCaptureStudio screen capture[2m > [22m[2mstops capture when the shared display track ends
+[22m[39m[visual-gift] no match | scores: 
+
+ [2m[90m↓[39m[22m src/core/giftEventBus.test.ts [2m([22m[2m10 tests[22m[2m | [22m[33m10 skipped[39m[2m)[22m
+ [2m[90m↓[39m[22m src/core/moodEngine.test.ts [2m([22m[2m7 tests[22m[2m | [22m[33m7 skipped[39m[2m)[22m
+ [2m[90m↓[39m[22m src/core/eventClassifier.test.ts [2m([22m[2m17 tests[22m[2m | [22m[33m17 skipped[39m[2m)[22m
+ [2m[90m↓[39m[22m src/core/longTermMemory.test.ts [2m([22m[2m6 tests[22m[2m | [22m[33m6 skipped[39m[2m)[22m
+node.exe : [90mstderr[2m | src/CaptureStudio.test.tsx[2m > [22m[2mCaptureStudio Link Direto[2m > [22m[2mshows 
+legacy Electron indicator when odessaDesktop is set
+No linha:1 caractere:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Users\Lucas\AppData\Roaming\ ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([90mstderr[2m...aDesktop is set:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[22m[39mReceived `true` for a non-boolean attribute `allowpopups`.
+
+If you want to write it to the DOM, pass a string instead: allowpopups="true" or allowpopups={value.toString()}.
+
+ [2m[90m↓[39m[22m src/core/toolRegistry.test.ts [2m([22m[2m6 tests[22m[2m | [22m[33m6 skipped[39m[2m)[22m
+ [2m[90m↓[39m[22m src/core/personaRuntime.test.ts [2m([22m[2m7 tests[22m[2m | [22m[33m7 skipped[39m[2m)[22m
+ [32m✓[39m src/CaptureStudio.test.tsx [2m([22m[2m16 tests[22m[2m)[22m[33m 20897[2mms[22m[39m
+     [33m[2m✓[22m[39m starts live display capture and routes OCR through OCR ingest [33m 4862[2mms[22m[39m
+     [33m[2m✓[22m[39m ignores an old stored OBS mode and opens on live screen capture [33m 767[2mms[22m[39m
+     [33m[2m✓[22m[39m opens a pasted live link in the embedded capture page without OBS [33m 3058[2mms[22m[39m
+     [33m[2m✓[22m[39m stops capture when the shared display track ends [33m 970[2mms[22m[39m
+     [33m[2m✓[22m[39m shows legacy Electron indicator when odessaDesktop is set [33m 1134[2mms[22m[39m
+     [33m[2m✓[22m[39m shows web mode indicator when NOT in Electron [33m 806[2mms[22m[39m
+     [33m[2m✓[22m[39m renders iframe (not webview) in browser mode [33m 751[2mms[22m[39m
+     [33m[2m✓[22m[39m shows backend-offline warning when backend is down in browser mode [33m 709[2mms[22m[39m
+     [33m[2m✓[22m[39m shows "Abrir no navegador externo" button in iframe mode [33m 850[2mms[22m[39m
+     [33m[2m✓[22m[39m renders webview (not iframe) in Electron mode [33m 747[2mms[22m[39m
+     [33m[2m✓[22m[39m does not call /ocr/process from iframe mode during direct link capture [33m 1346[2mms[22m[39m
+     [33m[2m✓[22m[39m shows Interagir/Editar recorte toggle in direct mode [33m 1033[2mms[22m[39m
+     [33m[2m✓[22m[39m uses Electron webview capturePage before OCR in desktop direct mode [33m 1596[2mms[22m[39m
+     [33m[2m✓[22m[39m blocks OCR when capturePage returns an empty image [33m 1244[2mms[22m[39m
+     [33m[2m✓[22m[39m switches overlay pointer-events between interact and crop modes [33m 1005[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m19 passed[39m[22m[2m | [22m[33m7 skipped[39m[90m (26)[39m
+[2m      Tests [22m [1m[32m95 passed[39m[22m[2m | [22m[33m74 skipped[39m[90m (169)[39m
+[2m   Start at [22m 11:38:15
+[2m   Duration [22m 35.19s[2m (transform 16.58s, setup 0ms, import 26.51s, tests 26.56s, environment 181.41s)[22m
+

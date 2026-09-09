@@ -11,7 +11,7 @@
  * 7. Bridge Standalone/CDP, Monitor de Visão e Diagnóstico com logs em tempo real.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   Bot,
@@ -55,12 +55,15 @@ import {
 } from '../core/tangoAiChatService';
 import { getChatInsights } from '../core/chatLearning';
 import { getAiConfig, saveAiConfig } from '../core/aiConfig';
-import { routeChatToTriggers } from '../core/chatToTriggerBridge';
 import {
-  shouldReplyToMessage,
-  recordChatReplySent,
-  recordIncomingMessage,
-} from '../core/chatConversationGovernor';
+  useTangoChatSession,
+  fetchJson,
+  defaultConfig,
+  BRIDGE_API,
+  SSE_MAX_ATTEMPTS,
+  type AutonomyMode,
+  type BridgeConfig,
+} from '../core/tangoChatSession';
 import { LiveVisionMonitor } from './LiveVisionMonitor';
 import { SessionHistoryPanel } from './SessionHistoryPanel';
 import { recordSessionEvent } from '../core/sessionHistory';
@@ -71,68 +74,17 @@ import { BridgeConnectionGuide } from './BridgeConnectionGuide';
 import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
 import type { CapturedMessage } from '../types';
 
-// ─── Config & Endpoints ──────────────────────────────────────────────
-const BRIDGE_URL = '/tango-bridge';
-const BRIDGE_API = '/api/v1/chat-automation/bridge';
-
-// ─── Types ───────────────────────────────────────────────────────────
-
-export type AutonomyMode = 'off' | 'assistido' | 'auto';
-export type ExecutionMode = 'dry_run' | 'real';
-
-export type ReplyQueueStatus = 'draft' | 'sending' | 'sent' | 'blocked' | 'discarded';
-
-export type TangoReplyItem = {
-  id: string;
-  sourceMessage: TangoChatMessage;
-  text: string;
-  originalText: string;
-  status: ReplyQueueStatus;
-  confidence: number;
-  reason?: string;
-  blockedReason?: string;
-  createdAt: string;
-  sentAt?: string;
-};
-
-type BridgeProcessStatus = {
-  processRunning: boolean;
-  pid: number | null;
-  startedAt: string | null;
-  bridgeUrl: string;
-  bridgeReachable: boolean;
-  bridgeStatus: BridgeConnectionStatus | null;
-};
-
-type BridgeConnectionStatus = {
-  status: 'disconnected' | 'connecting' | 'connected' | 'error' | 'not_initialized';
-  mode?: string;
-  pageUrl?: string;
-  startedAt?: string | null;
-  messageCount?: number;
-  historySize?: number;
-  observerInjected?: boolean;
-  error?: string | null;
-  cdpUrl?: string;
-  profileDir?: string;
-};
-
-type BridgeConfig = {
-  mode: string;
-  cdpUrl: string;
-  roomUrl: string;
-  port: number;
-  autoconnect: boolean;
-  selectors: {
-    containerChat: string;
-    mensagem: string;
-    username: string;
-    textoMsg: string;
-    inputTexto: string;
-    botaoEnviar: string;
-  };
-};
-
+// Reexporta os tipos de sessao para compatibilidade — UnifiedLivePanel e outros
+// consumidores continuam importando deste painel.
+export type {
+  AutonomyMode,
+  ExecutionMode,
+  ReplyQueueStatus,
+  TangoReplyItem,
+  BridgeProcessStatus,
+  BridgeConnectionStatus,
+  BridgeConfig,
+} from '../core/tangoChatSession';
 
 type ChromeTab = {
   id: string;
@@ -159,39 +111,6 @@ const DEFAULT_CANNED_RESPONSES = [
   'Live todo dia! Já segue o canal pra não perder! 🌟',
 ];
 
-// ─── Helpers ─────────────────────────────────────────────────────────
-
-async function fetchJson<T = unknown>(url: string, opts?: RequestInit): Promise<T | null> {
-  try {
-    const res = await fetch(url, {
-      ...opts,
-      headers: { 'Content-Type': 'application/json', ...opts?.headers },
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
-  } catch {
-    return null;
-  }
-}
-
-function defaultConfig(): BridgeConfig {
-  return {
-    mode: '',
-    cdpUrl: 'http://127.0.0.1:9222',
-    roomUrl: 'https://tango.me/stream/broadcast',
-    port: 7555,
-    autoconnect: true,
-    selectors: {
-      containerChat: '[data-testid="virtuoso-item-list"]',
-      mensagem: '[data-testid^="chat-event-"]',
-      username: ".Hhi6n",
-      textoMsg: ".KR99L",
-      inputTexto: '[data-testid="textarea"]',
-      botaoEnviar: '',
-    },
-  };
-}
-
 // ─── Main Component ──────────────────────────────────────────────────
 
 export type TangoChatPanelProps = {
@@ -211,35 +130,62 @@ export function TangoChatPanel({
   videoState: odessaVideoState,
   onStartLive: odessaStartLive,
 }: TangoChatPanelProps = {}) {
+  // A sessao do Tango Chat (conexao SSE, mensagens, fila de respostas, modos e
+  // disparo automatico de IA) vive no TangoChatSessionProvider montado no App —
+  // ela sobrevive a troca de abas. Este painel e apenas a UI que a consome.
+  const {
+    processStatus,
+    refreshStatus,
+    starting,
+    connecting,
+    bridgeConfig,
+    setBridgeConfig,
+    configDirty,
+    setConfigDirty,
+    configSaving,
+    handleSaveBridgeConfig,
+    handleStartProcess,
+    handleStopProcess,
+    handleConnectBridge,
+    handleDisconnectBridge,
+    messages,
+    unifiedMessages,
+    handleLoadHistory,
+    handleClearChat,
+    replyQueue,
+    setReplyQueue,
+    generatingForId,
+    handleGenerateReplyForMessage,
+    handleApproveReply,
+    handleDiscardReply,
+    handleRegenerateReply,
+    executeSendMessage,
+    autonomyMode,
+    setAutonomyMode,
+    executionMode,
+    setExecutionMode,
+    aiPrompt,
+    setAiPrompt,
+    lastSentAt,
+    sseState,
+    sseAttempts,
+  } = useTangoChatSession();
+
   // ── Navegação & Modos ─────────────────────────────
   const [subTab, setSubTab] = useState<SubTab>('unified');
-  const [autonomyMode, setAutonomyMode] = useState<AutonomyMode>('assistido');
-  const [executionMode, setExecutionMode] = useState<ExecutionMode>('real');
 
-  // ── Bridge Status & Processo ──────────────────────
-  const [processStatus, setProcessStatus] = useState<BridgeProcessStatus | null>(null);
-  const [bridgeConfig, setBridgeConfig] = useState<BridgeConfig>(defaultConfig());
-  const [configDirty, setConfigDirty] = useState(false);
-  const [configSaving, setConfigSaving] = useState(false);
-  const [starting, setStarting] = useState(false);
-  const [connecting, setConnecting] = useState(false);
   const [showAdvancedSelectors, setShowAdvancedSelectors] = useState(false);
 
   // ── Chat & Mensagens ──────────────────────────────
-  const [messages, setMessages] = useState<TangoChatMessage[]>([]);
-  const [replyQueue, setReplyQueue] = useState<TangoReplyItem[]>([]);
   const [draftText, setDraftText] = useState('');
   const [sending, setSending] = useState(false);
   const [generatingProactive, setGeneratingProactive] = useState(false);
-  const [generatingForId, setGeneratingForId] = useState<string | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
 
   // ── IA & Configurações da Odessa ──────────────────
-  const [aiPrompt, setAiPrompt] = useState(() => getAiConfig().systemPrompt || '');
   const [cooldownSec, setCooldownSec] = useState(() => Math.round((getAiConfig().chatReplyCooldownMs || 15000) / 1000));
   const [maxPerMinute, setMaxPerMinute] = useState(() => getAiConfig().chatReplyMaxPerMinute || 4);
-  const [lastSentAt, setLastSentAt] = useState<number>(0);
   const [cannedResponses, setCannedResponses] = useState<string[]>(DEFAULT_CANNED_RESPONSES);
   const [newCannedText, setNewCannedText] = useState('');
 
@@ -262,102 +208,12 @@ export function TangoChatPanel({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
-  const sseRef = useRef<EventSource | null>(null);
 
   // ── Derived State ─────────────────────────────────
   const backendOnline = processStatus !== null;
   const processRunning = processStatus?.processRunning ?? false;
   const bridgeReachable = processStatus?.bridgeReachable ?? false;
   const bridgeConnected = processStatus?.bridgeStatus?.status === 'connected';
-
-  // ── Mensagens unificadas: bridge + capturedText do Odessa ──
-  // Quando a bridge está offline, messages (bridge) está vazia. Convertemos
-  // capturedText (eventos do runtime: OCR, manual, etc.) para o formato
-  // TangoChatMessage para que a IA tenha contexto ao gerar respostas.
-  const unifiedMessages = useMemo<TangoChatMessage[]>(() => {
-    if (messages.length > 0 || bridgeConnected) return messages;
-    return (odessaCapturedText || [])
-      .filter((m) => m.kind === 'chat' || m.kind === 'gift')
-      .map((m) => ({
-        username: (m.metadata?.username as string) || m.zoneName || 'Espectador',
-        text: m.text,
-        timestamp: m.createdAt,
-      }));
-  }, [messages, bridgeConnected, odessaCapturedText]);
-
-  // ── Polling de Status ─────────────────────────────
-  const refreshStatus = useCallback(async () => {
-    const data = await fetchJson<BridgeProcessStatus>(`${BRIDGE_API}/status`);
-    setProcessStatus(data);
-  }, []);
-
-  useEffect(() => {
-    void refreshStatus();
-    const timer = window.setInterval(() => void refreshStatus(), 3500);
-    return () => window.clearInterval(timer);
-  }, [refreshStatus]);
-
-  // ── Carregar Configurações ────────────────────────
-  useEffect(() => {
-    (async () => {
-      const data = await fetchJson<BridgeConfig>(`${BRIDGE_API}/config`);
-      if (data) setBridgeConfig({ ...defaultConfig(), ...data });
-    })();
-  }, []);
-
-  // ── Histórico ao Conectar ─────────────────────────
-  // Não carrega mais o histórico antigo da bridge ao conectar: a bridge mantém
-  // mensagens de sessões anteriores em memória, o que poluía o feed com um
-  // "histórico aleatório". O feed começa limpo e só mostra mensagens ao vivo
-  // da sessão atual (via SSE). O usuário pode carregar o histórico manualmente
-  // com o botão "Carregar histórico".
-  const handleLoadHistory = async () => {
-    const data = await fetchJson<{ messages: TangoChatMessage[] }>(`${BRIDGE_URL}/history?limit=150`);
-    if (data?.messages) setMessages(data.messages);
-  };
-
-  const handleClearChat = () => {
-    setMessages([]);
-  };
-
-  // ── SSE Stream de Mensagens ───────────────────────
-  useEffect(() => {
-    if (!bridgeConnected) {
-      sseRef.current?.close();
-      sseRef.current = null;
-      return;
-    }
-    if (sseRef.current) return;
-
-    const es = new EventSource(`${BRIDGE_URL}/messages`);
-    sseRef.current = es;
-
-    es.onmessage = (ev) => {
-      try {
-        const msg: TangoChatMessage = JSON.parse(ev.data);
-        setMessages((prev) => [...prev.slice(-399), msg]);
-
-        // Roteia a mensagem para o trigger engine do backend (palavra-chave/
-        // presente -> vídeo do fluxo publicado), com dedupe e cooldown.
-        void routeChatToTriggers(msg);
-
-        // Se modo for Autônomo, dispara geração e envio automático
-        if (autonomyMode === 'auto') {
-          void handleAutoTriggerAi(msg);
-        }
-      } catch { /* ignore */ }
-    };
-
-    es.onerror = () => {
-      es.close();
-      sseRef.current = null;
-    };
-
-    return () => {
-      es.close();
-      sseRef.current = null;
-    };
-  }, [bridgeConnected, autonomyMode]);
 
   // ── Logs & Insights Polling ───────────────────────
   useEffect(() => {
@@ -614,211 +470,6 @@ export function TangoChatPanel({
     }
   };
 
-  // ── Ações do Processo e Conexão ───────────────────
-  const handleStartProcess = async () => {
-    setStarting(true);
-    try {
-      await fetchJson(`${BRIDGE_API}/start`, {
-        method: 'POST',
-        body: JSON.stringify({
-          mode: bridgeConfig.mode,
-          autoconnect: bridgeConfig.autoconnect,
-          config: bridgeConfig,
-        }),
-      });
-      await new Promise((r) => setTimeout(r, 1500));
-      await refreshStatus();
-    } finally {
-      setStarting(false);
-    }
-  };
-
-  const handleStopProcess = async () => {
-    await fetchJson(`${BRIDGE_API}/stop`, { method: 'POST' });
-    setMessages([]);
-    setReplyQueue([]);
-    await refreshStatus();
-  };
-
-  const handleConnectBridge = async () => {
-    setConnecting(true);
-    try {
-      await fetchJson(`${BRIDGE_URL}/connect`, {
-        method: 'POST',
-        body: JSON.stringify({ mode: bridgeConfig.mode }),
-      });
-      await new Promise((r) => setTimeout(r, 2000));
-      await refreshStatus();
-    } finally {
-      setConnecting(false);
-    }
-  };
-
-  const handleDisconnectBridge = async () => {
-    await fetchJson(`${BRIDGE_URL}/disconnect`, { method: 'POST' });
-    setMessages([]);
-    await refreshStatus();
-  };
-
-  // ── Envio no Tango ────────────────────────────────
-  const executeSendMessage = async (text: string): Promise<boolean> => {
-    const clean = text.trim();
-    if (!clean) return false;
-
-    if (executionMode === 'dry_run') {
-      console.log('[DRY-RUN] Simulação de envio no Tango:', clean);
-      setLastSentAt(Date.now());
-      return true;
-    }
-
-    try {
-      const res = await fetchJson<{ ok: boolean; error?: string }>(`${BRIDGE_URL}/send`, {
-        method: 'POST',
-        body: JSON.stringify({ text: clean }),
-      });
-      if (res?.ok) {
-        setLastSentAt(Date.now());
-        return true;
-      }
-      return false;
-    } catch {
-      return false;
-    }
-  };
-
-  // ── Geração de Resposta por IA ─────────────────────
-  const handleGenerateReplyForMessage = async (msg: TangoChatMessage) => {
-    setGeneratingForId(msg.timestamp || msg.text);
-    try {
-      const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt);
-      recordSessionEvent('ai.reply', {
-        username: msg.username,
-        sourceText: msg.text,
-        reply: result.reply,
-        confidence: result.confidence,
-        blocked: result.blocked,
-        reason: result.reason,
-      });
-      const newItem: TangoReplyItem = {
-        id: `reply-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        sourceMessage: msg,
-        text: result.reply,
-        originalText: result.reply,
-        status: result.blocked ? 'blocked' : 'draft',
-        confidence: result.confidence,
-        reason: result.reason,
-        blockedReason: result.blockedReason,
-        createdAt: new Date().toISOString(),
-      };
-
-      setReplyQueue((prev) => [newItem, ...prev].slice(0, 30));
-    } finally {
-      setGeneratingForId(null);
-    }
-  };
-
-  const handleAutoTriggerAi = async (msg: TangoChatMessage) => {
-    // Registra a mensagem recebida para detecção de repetição
-    recordIncomingMessage(msg.text);
-
-    // Governança: cooldown global + limite por minuto + cooldown por usuário + anti-flood
-    const config = getAiConfig();
-    const decision = shouldReplyToMessage(msg, {
-      cooldownMs: config.chatReplyCooldownMs || 15_000,
-      maxPerMinute: config.chatReplyMaxPerMinute || 4,
-    });
-    if (!decision.allowed) return;
-
-    const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt);
-    if (!result.ok || result.blocked || !result.reply) return;
-
-    recordSessionEvent('ai.reply', {
-      username: msg.username,
-      sourceText: msg.text,
-      reply: result.reply,
-      confidence: result.confidence,
-      autonomous: true,
-    });
-
-    const newItem: TangoReplyItem = {
-      id: `reply-auto-${Date.now()}`,
-      sourceMessage: msg,
-      text: result.reply,
-      originalText: result.reply,
-      status: 'sending',
-      confidence: result.confidence,
-      reason: 'Resposta autônoma enviada pela IA',
-      createdAt: new Date().toISOString(),
-    };
-
-    setReplyQueue((prev) => [newItem, ...prev].slice(0, 30));
-
-    const sent = await executeSendMessage(result.reply);
-    if (sent) {
-      recordChatReplySent(msg.username);
-      recordSessionEvent('ai.reply.sent', {
-        username: msg.username,
-        sourceText: msg.text,
-        reply: result.reply,
-      });
-    }
-    setReplyQueue((prev) =>
-      prev.map((item) =>
-        item.id === newItem.id
-          ? { ...item, status: sent ? 'sent' : 'blocked', sentAt: new Date().toISOString() }
-          : item
-      )
-    );
-  };
-
-  const handleApproveReply = async (item: TangoReplyItem) => {
-    setReplyQueue((prev) =>
-      prev.map((i) => (i.id === item.id ? { ...i, status: 'sending' } : i))
-    );
-
-    const ok = await executeSendMessage(item.text);
-    if (ok) {
-      recordSessionEvent('message.sent', {
-        text: item.text,
-        source: 'approved_reply',
-        username: item.sourceMessage.username,
-      });
-    }
-
-    setReplyQueue((prev) =>
-      prev.map((i) =>
-        i.id === item.id
-          ? { ...i, status: ok ? 'sent' : 'blocked', sentAt: new Date().toISOString() }
-          : i
-      )
-    );
-  };
-
-  const handleDiscardReply = (id: string) => {
-    setReplyQueue((prev) => prev.filter((i) => i.id !== id));
-  };
-
-  const handleRegenerateReply = async (item: TangoReplyItem) => {
-    setReplyQueue((prev) =>
-      prev.map((i) => (i.id === item.id ? { ...i, status: 'draft', text: 'Regenerando com IA...' } : i))
-    );
-    const result = await generateTangoChatReply(item.sourceMessage, unifiedMessages, aiPrompt);
-    setReplyQueue((prev) =>
-      prev.map((i) =>
-        i.id === item.id
-          ? {
-              ...i,
-              text: result.reply,
-              originalText: result.reply,
-              status: result.blocked ? 'blocked' : 'draft',
-              confidence: result.confidence,
-              blockedReason: result.blockedReason,
-            }
-          : i
-      )
-    );
-  };
-
   const handleGenerateProactive = async () => {
     setGeneratingProactive(true);
     try {
@@ -852,20 +503,6 @@ export function TangoChatPanel({
     });
   };
 
-  const handleSaveBridgeConfig = async () => {
-    setConfigSaving(true);
-    try {
-      const res = await fetchJson<BridgeConfig>(`${BRIDGE_API}/config`, {
-        method: 'POST',
-        body: JSON.stringify(bridgeConfig),
-      });
-      if (res) setBridgeConfig(res);
-      setConfigDirty(false);
-    } finally {
-      setConfigSaving(false);
-    }
-  };
-
   const handleAddCannedResponse = () => {
     const text = newCannedText.trim();
     if (!text) return;
@@ -877,11 +514,21 @@ export function TangoChatPanel({
     setCannedResponses((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Cooldown timer calculation
-  const cooldownRemaining = Math.max(
-    0,
-    Math.ceil(cooldownSec - (Date.now() - lastSentAt) / 1000)
-  );
+  // Cooldown timer calculation — tick de 1s apenas enquanto o valor muda
+  // (evita chamar Date.now() no meio do render, que e impuro).
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setNowTick((prev) => {
+        const next = Date.now();
+        const remainingNext = Math.ceil(cooldownSec - (next - lastSentAt) / 1000);
+        const remainingPrev = Math.ceil(cooldownSec - (prev - lastSentAt) / 1000);
+        return remainingNext !== remainingPrev ? next : prev;
+      });
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [cooldownSec, lastSentAt]);
+  const cooldownRemaining = Math.max(0, Math.ceil(cooldownSec - (nowTick - lastSentAt) / 1000));
 
   // ── Render ─────────────────────────────────────────────────────────
   return (
@@ -908,6 +555,25 @@ export function TangoChatPanel({
                 <span className={cn('h-1.5 w-1.5 rounded-full', bridgeConnected ? 'bg-emerald-400 animate-ping' : 'bg-slate-500')} />
                 {bridgeConnected ? 'Conectado · Ao Vivo' : processRunning ? 'Bridge Pronta' : 'Desconectado'}
               </span>
+              {bridgeConnected && sseState !== 'connected' && (
+                <span
+                  className={cn(
+                    'flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border',
+                    sseState === 'failed'
+                      ? 'border-red-500/30 bg-red-500/10 text-red-400'
+                      : 'border-amber-500/30 bg-amber-500/10 text-amber-400',
+                  )}
+                  title={
+                    sseState === 'failed'
+                      ? 'Stream de mensagens parou apos varias tentativas — desconecte e reconecte a bridge'
+                      : 'Reconectando automaticamente ao stream de mensagens'
+                  }
+                >
+                  {sseState === 'failed'
+                    ? 'Chat pausado — reconecte'
+                    : `Reconectando (${sseAttempts}/${SSE_MAX_ATTEMPTS})`}
+                </span>
+              )}
             </div>
             <p className="text-[11px] text-slate-400 mt-0.5">
               {bridgeConnected

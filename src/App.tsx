@@ -5,6 +5,7 @@ import OdessaLiveCenter, { type AdvancedPanel } from './OdessaLiveCenter';
 import PersonaOverlay from './PersonaOverlay';
 import { getRecentEvents, replaceEvents } from './core/eventBus';
 import { useAutopilotRuntime } from './core/useAutopilotRuntime';
+import { TangoChatSessionProvider } from './core/tangoChatSession';
 import { apiUrl } from './lib/api';
 import { installCredentialedFetch } from './lib/fetchCredentials';
 import { startAutoLogin, ensureFreshSession } from './lib/autoLogin';
@@ -243,29 +244,34 @@ export default function App() {
     return <LoginScreen onLogin={() => setAuthenticated(true)} />;
   }
 
+  // O TangoChatSessionProvider envolve a app inteira: a sessao do Tango Chat
+  // (conexao SSE, mensagens, fila de respostas, disparo automatico de IA)
+  // precisa sobreviver a qualquer troca de aba/painel dentro do Odessa.
   return (
-    <OdessaLiveCenter
-      capturedText={capturedText}
-      setCapturedText={setCapturedText}
-      runtime={runtime}
-      requestedPanel={requestedPanel}
-      liveConfig={liveConfig}
-      liveConfigOpen={liveConfigOpen}
-      liveStartError={liveStartError}
-      obsSettingsFromApp={obsSettings}
-      onLiveConfigOpenChange={setLiveConfigOpen}
-      onLiveConfigChange={setLiveConfig}
-      onStartLive={startLiveWithConfig}
-      onObsSettingsChanged={(newSettings) => {
-        setObsSettings(newSettings);
-        let port = '4455';
-        try {
-          const parsed = new URL((newSettings.websocketUrl as string | undefined) || 'ws://localhost:4455');
-          port = parsed.port || '4455';
-        } catch { /* URL do OBS invalida: usa porta padrao 4455 */ }
-        disconnectObs();
-        connectObs(`ws://localhost:${port}`, (newSettings.websocketPassword as string | undefined) || '');
-      }}
-    />
+    <TangoChatSessionProvider capturedText={capturedText}>
+      <OdessaLiveCenter
+        capturedText={capturedText}
+        setCapturedText={setCapturedText}
+        runtime={runtime}
+        requestedPanel={requestedPanel}
+        liveConfig={liveConfig}
+        liveConfigOpen={liveConfigOpen}
+        liveStartError={liveStartError}
+        obsSettingsFromApp={obsSettings}
+        onLiveConfigOpenChange={setLiveConfigOpen}
+        onLiveConfigChange={setLiveConfig}
+        onStartLive={startLiveWithConfig}
+        onObsSettingsChanged={(newSettings) => {
+          setObsSettings(newSettings);
+          let port = '4455';
+          try {
+            const parsed = new URL((newSettings.websocketUrl as string | undefined) || 'ws://localhost:4455');
+            port = parsed.port || '4455';
+          } catch { /* URL do OBS invalida: usa porta padrao 4455 */ }
+          disconnectObs();
+          connectObs(`ws://localhost:${port}`, (newSettings.websocketPassword as string | undefined) || '');
+        }}
+      />
+    </TangoChatSessionProvider>
   );
 }
