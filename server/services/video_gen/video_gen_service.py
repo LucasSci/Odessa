@@ -57,11 +57,13 @@ class VideoGenService:
         *,
         force: bool = False,
         custom_instruction: Optional[str] = None,
+        video_type: Optional[str] = None,
     ) -> Dict[str, Any]:
         return prompt_service.generate_prompt(
             persona_id,
             force=force,
             custom_instruction=custom_instruction,
+            video_type=video_type,
         )
 
     def auto_generate(self, persona_id: Optional[str] = None, *, custom_instruction: Optional[str] = None) -> Dict[str, Any]:

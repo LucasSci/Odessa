@@ -1,5 +1,5 @@
 {
-  "activePersonaId": "odessa",
+  "activePersonaId": "barbara",
   "personas": [
     {
       "id": "odessa",
@@ -23,7 +23,12 @@
       "description": "Persona extrovertida, animada e muito proxima do publico.",
       "personality": "Você é a Barbara, uma streamer extrovertida, animada e super próxima do público. Fala com energia, entusiasmo e muito carinho, como se fosse amiga de todos. Responde de forma curta, divertida e calorosa, chamando a pessoa pelo nome e usando emojis com frequência.",
       "configPath": "persona_barbara.json",
-      "createdAt": "2026-09-02T01:55:51.792189+00:00"
+      "createdAt": "2026-09-02T01:55:51.792189+00:00",
+      "assets": {
+        "environments": [],
+        "wardrobe": [],
+        "faces": []
+      }
     }
   ]
 }

@@ -49,6 +49,25 @@ function odessaSchedulePlugin(): Plugin {
   };
 }
 
+// Suppress transient proxy errors so the dev server doesn't log scary
+// ECONNREFUSED/ENOTFOUND messages when the API is mid-reload (uvicorn --reload)
+// or the tango bridge (port 7555) hasn't started yet — it's an on-demand
+// subprocess, not always running.
+function suppressProxyErrors(proxy: { on: (event: string, handler: (...args: unknown[]) => void) => void }) {
+  proxy.on('error', (err: Error, _req: unknown, res: unknown) => {
+    // HTTP proxy: respond with 502 instead of crashing
+    if (res && typeof (res as { writeHead?: Function }).writeHead === 'function' && !(res as { headersSent?: boolean }).headersSent) {
+      (res as { writeHead: Function }).writeHead(502, { 'Content-Type': 'application/json' });
+      (res as { end: Function }).end(JSON.stringify({ detail: 'Backend temporarily unavailable' }));
+      return;
+    }
+    // WebSocket proxy (tango-bridge): destroy the socket silently
+    if (res && typeof (res as { destroy?: Function }).destroy === 'function') {
+      (res as { destroy: Function }).destroy();
+    }
+  });
+}
+
 export default defineConfig(() => {
   const apiTarget = process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8000';
   // Tango bridge (tango_chat.py) — runs as a subprocess of the API. In local dev
@@ -85,16 +104,32 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       allowedHosts: true as const,
       proxy: {
-        '/api': apiTarget,
-        '/auth': apiTarget,
-        '/obs': apiTarget,
-        '/agent': apiTarget,
-        '/webhooks': apiTarget,
+        '/api': {
+          target: apiTarget,
+          configure: suppressProxyErrors,
+        },
+        '/auth': {
+          target: apiTarget,
+          configure: suppressProxyErrors,
+        },
+        '/obs': {
+          target: apiTarget,
+          configure: suppressProxyErrors,
+        },
+        '/agent': {
+          target: apiTarget,
+          configure: suppressProxyErrors,
+        },
+        '/webhooks': {
+          target: apiTarget,
+          configure: suppressProxyErrors,
+        },
         '/tango-bridge': {
           target: bridgeTarget,
           rewrite: (path: string) => path.replace(/^\/tango-bridge/, ''),
           changeOrigin: true,
           ws: true,
+          configure: suppressProxyErrors,
         },
       },
     },

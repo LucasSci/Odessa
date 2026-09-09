@@ -214,7 +214,7 @@ export function TangoChatPanel({
   const [shortcutFeedback, setShortcutFeedback] = useState<string | null>(null);
   // ── Wizard State ──────────────────────────────────
   const [wizardStep, setWizardStep] = useState<number>(1);
-  const [wizardTargetKind, setWizardTargetKind] = useState<'anotepad' | 'tango'>('anotepad');
+  const [wizardTargetKind] = useState<'tango'>('tango');
   const [wizardTestSending, setWizardTestSending] = useState(false);
   const [wizardTestResult, setWizardTestResult] = useState<string | null>(null);
   const [wizardAiSimulating, setWizardAiSimulating] = useState(false);
@@ -390,36 +390,19 @@ export function TangoChatPanel({
   };
 
   
-  const handleSelectWizardPreset = async (kind: 'anotepad' | 'tango') => {
-    setWizardTargetKind(kind);
-    let newConf: BridgeConfig;
-    if (kind === 'anotepad') {
-      newConf = {
-        ...bridgeConfig,
-        roomUrl: 'https://pt.anotepad.com/',
-        selectors: {
-          containerChat: '#edit_textarea',
-          mensagem: '#edit_textarea',
-          username: '',
-          textoMsg: '',
-          inputTexto: '#edit_textarea',
-          botaoEnviar: '#btnSaveNote',
-        },
-      };
-    } else {
-      newConf = {
-        ...bridgeConfig,
-        roomUrl: 'https://tango.me/stream/broadcast',
-        selectors: {
-          containerChat: '[data-testid="virtuoso-item-list"]',
-          mensagem: '[data-testid^="chat-event-"]',
-          username: '.Hhi6n',
-          textoMsg: '.KR99L',
-          inputTexto: '[data-testid="textarea"]',
-          botaoEnviar: '',
-        },
-      };
-    }
+  const handleSelectWizardPreset = async () => {
+    const newConf: BridgeConfig = {
+      ...bridgeConfig,
+      roomUrl: 'https://tango.me/stream/broadcast',
+      selectors: {
+        containerChat: '[data-testid="virtuoso-item-list"]',
+        mensagem: '[data-testid^="chat-event-"]',
+        username: '.Hhi6n',
+        textoMsg: '.KR99L',
+        inputTexto: '[data-testid="textarea"]',
+        botaoEnviar: '',
+      },
+    };
     setBridgeConfig(newConf);
     // Salva imediatamente no backend para que a bridge use as configurações certas
     await fetchJson(`${BRIDGE_API}/config`, {
@@ -438,7 +421,7 @@ export function TangoChatPanel({
     try {
       // 1. Salva Config
       setAutoConfigStepName('1/4: Salvando configuração do alvo...');
-      await handleSelectWizardPreset(wizardTargetKind);
+      await handleSelectWizardPreset();
       await new Promise((r) => setTimeout(r, 600));
 
       // 2. Abre Chrome se necessário
@@ -856,67 +839,30 @@ export function TangoChatPanel({
             </Button>
           </div>
 
-          {/* ── ETAPA 1: ESCOLHA DO AMBIENTE ── */}
+          {/* ── ETAPA 1: AMBIENTE TANGO ── */}
           {wizardStep === 1 && (
             <div className="space-y-4 py-2">
               <div>
-                <h4 className="text-sm font-bold text-white mb-1">Passo 1: Onde você deseja monitorar o chat?</h4>
+                <h4 className="text-sm font-bold text-white mb-1">Passo 1: Transmissão do Tango</h4>
                 <p className="text-xs text-slate-400">
-                  Você pode usar o Bloco de Notas Online para testar imediatamente com zero risco, ou conectar direto na sua transmissão do Tango.
+                  A Odessa se conecta à sua aba de transmissão ao vivo no <strong>Tango.me</strong>. A IA lê os comentários de espectadores reais e responde no chat da stream automaticamente.
                 </p>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                {/* Opção A: Anotepad */}
-                <div
-                  className={cn(
-                    'cursor-pointer rounded-2xl border p-4 transition',
-                    wizardTargetKind === 'anotepad'
-                      ? 'border-violet-500/60 bg-violet-500/10 ring-1 ring-violet-500/30'
-                      : 'border-white/8 bg-black/30 hover:border-white/20'
-                  )}
-                  onClick={() => void handleSelectWizardPreset('anotepad')}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                      📝 Modo Bloco de Notas (Teste Rápido)
-                    </span>
-                    <Badge variant={wizardTargetKind === 'anotepad' ? 'lavender' : 'default'} className="text-[10px]">
-                      Recomendado para Teste
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    Abre o <strong>pt.anotepad.com</strong>. Permite ver o robô digitando e testar as respostas da IA imediatamente, sem precisar abrir live ou fazer login.
-                  </p>
-                  <div className="mt-3 text-[11px] font-mono text-slate-500 truncate">
-                    URL: https://pt.anotepad.com/
-                  </div>
+              <div className="rounded-2xl border border-violet-500/60 bg-violet-500/10 ring-1 ring-violet-500/30 p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                    🎙️ Tango Live
+                  </span>
+                  <Badge variant="success" className="text-[10px]">
+                    Produção
+                  </Badge>
                 </div>
-
-                {/* Opção B: Tango Live Real */}
-                <div
-                  className={cn(
-                    'cursor-pointer rounded-2xl border p-4 transition',
-                    wizardTargetKind === 'tango'
-                      ? 'border-violet-500/60 bg-violet-500/10 ring-1 ring-violet-500/30'
-                      : 'border-white/8 bg-black/30 hover:border-white/20'
-                  )}
-                  onClick={() => void handleSelectWizardPreset('tango')}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                      🎙️ Modo Tango Live Real
-                    </span>
-                    <Badge variant={wizardTargetKind === 'tango' ? 'success' : 'default'} className="text-[10px]">
-                      Produção
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    Conecta à sua aba de transmissão ao vivo no <strong>Tango.me</strong>. A IA lê os comentários de espectadores reais e responde no chat da stream.
-                  </p>
-                  <div className="mt-3 text-[11px] font-mono text-slate-500 truncate">
-                    URL: https://tango.me/stream/broadcast
-                  </div>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Conecta à sua aba de transmissão ao vivo no <strong>Tango.me</strong>. A IA lê os comentários de espectadores reais e responde no chat da stream.
+                </p>
+                <div className="mt-3 text-[11px] font-mono text-slate-500 truncate">
+                  URL: https://tango.me/stream/broadcast
                 </div>
               </div>
 

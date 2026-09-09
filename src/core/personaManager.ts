@@ -11,6 +11,7 @@ export type PersonaMeta = {
   name: string;
   description?: string;
   personality?: string;
+  avatarUrl?: string;
   configPath?: string;
   createdAt?: string;
 };
@@ -57,6 +58,7 @@ export async function createPersona(meta: {
   name: string;
   description?: string;
   personality?: string;
+  avatarUrl?: string;
 }): Promise<{ ok: boolean; persona: PersonaMeta }> {
   return request<{ ok: boolean; persona: PersonaMeta }>('/personas', {
     method: 'POST',
@@ -82,6 +84,22 @@ export async function setPersonality(
       body: JSON.stringify({ personality }),
     },
   );
+}
+
+export async function updatePersona(
+  id: string,
+  patch: { name?: string; description?: string; personality?: string; avatarUrl?: string },
+): Promise<{ ok: boolean; persona: PersonaMeta }> {
+  return request<{ ok: boolean; persona: PersonaMeta }>(`/personas/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function getPersonaConfig(
+  id: string,
+): Promise<{ persona: PersonaMeta; config: Record<string, unknown> }> {
+  return request<{ persona: PersonaMeta; config: Record<string, unknown> }>(`/personas/${id}/config`);
 }
 
 export async function deletePersona(id: string): Promise<{ ok: boolean; activePersonaId: string }> {

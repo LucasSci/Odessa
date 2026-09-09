@@ -35,6 +35,7 @@ class PromptRequest(BaseModel):
     personaId: Optional[str] = None
     force: bool = False
     customInstruction: Optional[str] = None
+    videoType: Optional[str] = None
 
 
 class GenerateRequest(BaseModel):
@@ -76,6 +77,7 @@ async def generate_prompt(request: PromptRequest):
         request.personaId,
         force=request.force,
         custom_instruction=request.customInstruction,
+        video_type=request.videoType,
     )
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error", "Falha ao gerar prompt"))

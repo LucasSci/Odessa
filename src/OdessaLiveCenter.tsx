@@ -25,6 +25,7 @@ import {
   Scissors,
   Trash2,
   Upload,
+  Users,
   VolumeX,
 } from 'lucide-react';
 import { emitEvent } from './core/eventBus';
@@ -41,6 +42,7 @@ import type { AuditTimelineEntry, AutopilotCycle, CapturedMessage } from './type
 import { Badge, Button, Card, Input, StatusDot } from './components/ui';
 import { AiConfigPanel } from './components/AiConfigPanel';
 import PersonaSelector from './components/PersonaSelector';
+import { PersonasPanel } from './components/PersonasPanel';
 import { TangoChatPanel } from './components/TangoChatPanel';
 import { SessionHistoryPanel } from './components/SessionHistoryPanel';
 import VideoEditor from './components/VideoEditor';
@@ -100,6 +102,7 @@ type TabKey =
   | 'library'
   | 'flow'
   | 'history'
+  | 'personas'
   | 'settings'
   | 'home'
   | 'stage'
@@ -722,6 +725,12 @@ export default function OdessaLiveCenter({
               onClick={() => setActiveTab('flow')}
             />
             <SideNavButton
+              icon={<Users />}
+              label="Personas"
+              active={activeTab === 'personas'}
+              onClick={() => setActiveTab('personas')}
+            />
+            <SideNavButton
               icon={<History />}
               label="Histórico"
               active={activeTab === 'history'}
@@ -736,7 +745,7 @@ export default function OdessaLiveCenter({
           </div>
         </nav>
 
-        <DirectorStatusCard runtime={runtime} onOpen={() => { setActiveTab('settings'); setSettingsSubTab('ai'); }} />
+        <DirectorStatusCard runtime={runtime} onOpen={() => { setActiveTab('personas'); }} />
       </aside>
 
       {/* Coluna principal: topbar + conteúdo */}
@@ -792,6 +801,7 @@ export default function OdessaLiveCenter({
           { id: 'live', label: 'Ao Vivo' },
           { id: 'library', label: 'Biblioteca' },
           { id: 'flow', label: 'Automações' },
+          { id: 'personas', label: 'Personas' },
           { id: 'history', label: 'Histórico' },
           { id: 'settings', label: 'Configurações' },
         ] as { id: TabKey; label: string }[]).map(({ id, label }) => {
@@ -933,7 +943,10 @@ export default function OdessaLiveCenter({
           </div>
         )}
 
-        {/* 4. HISTÓRICO */}
+        {/* 4. PERSONAS */}
+        {activeTab === 'personas' && <PersonasPanel />}
+
+        {/* 5. HISTÓRICO */}
         {activeTab === 'history' && (
           <PageSurface
             icon={<History className="h-4 w-4" />}
@@ -2801,6 +2814,7 @@ const TAB_META: Record<TabKey, { group: string; title: string }> = {
   live:     { group: 'Operação', title: 'Central da Live' },
   library:  { group: 'Conteúdo', title: 'Biblioteca' },
   flow:     { group: 'Operação', title: 'Automações' },
+  personas: { group: 'Conteúdo', title: 'Personas de IA' },
   history:  { group: 'Operação', title: 'Histórico da Live' },
   settings: { group: 'Sistema',  title: 'Configurações' },
   home:     { group: 'Operação', title: 'Central da Live' },
