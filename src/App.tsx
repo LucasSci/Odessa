@@ -68,7 +68,7 @@ function loadLiveConfig(): LiveConfig {
     prepareObs: true,
     showStage: true,
     startAutomation: true,
-    startCapture: false,
+    startCapture: true,
     startTransmission: true,
     voiceEnabled: false,
     enableChat: false,
