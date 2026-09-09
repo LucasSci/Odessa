@@ -1,9 +1,33 @@
-from fastapi import APIRouter, HTTPException
+import json
+import logging
+
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from typing import Dict
 
 from server.core import persona_manager
 from server.core.config_manager import load_persona_config, save_persona_config
+from server.core.persona_assets import (
+    list_assets,
+    save_asset,
+    delete_asset,
+    get_asset_path,
+    update_asset_label,
+    get_all_asset_urls,
+    VALID_CATEGORIES,
+    MAX_IMAGE_BYTES,
+)
+from server.core.persona_templates import (
+    get_templates,
+    save_templates,
+    render_template,
+    detect_video_type,
+    VIDEO_TYPES,
+    get_default_templates,
+)
 
+logger = logging.getLogger("odessa.routes.personas")
 
 router = APIRouter(tags=["personas"])
 
@@ -25,6 +49,19 @@ class PersonaUpdateRequest(BaseModel):
 
 class PersonaActiveRequest(BaseModel):
     id: str
+
+
+class AssetLabelRequest(BaseModel):
+    label: str
+
+
+class TemplateUpdateRequest(BaseModel):
+    templates: Dict[str, Dict[str, str]]
+
+
+class TemplateRenderRequest(BaseModel):
+    videoType: str
+    action: str = ""
 
 
 @router.get("")
@@ -131,8 +168,133 @@ async def get_persona_config(persona_id: str):
     config_path = persona_manager.get_persona_config_path(persona_id)
     if not config_path.exists():
         return {"persona": persona, "config": {}}
-    import json
-
     with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
     return {"persona": persona, "config": config}
+
+
+# ── Assets (rostos, ambientes, roupas) ─────────────────────────────────────
+
+@router.get("/{persona_id}/assets")
+async def get_all_assets(persona_id: str):
+    """Retorna todas as imagens de todas as categorias da persona."""
+    if persona_manager.get_persona(persona_id) is None:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' não encontrada")
+    return {"assets": get_all_asset_urls(persona_id)}
+
+
+@router.get("/{persona_id}/assets/{category}")
+async def list_category_assets(persona_id: str, category: str):
+    """Lista as imagens de uma categoria específica."""
+    if persona_manager.get_persona(persona_id) is None:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' não encontrada")
+    if category not in VALID_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Categoria inválida: '{category}'")
+    items = list_assets(persona_id, category)
+    for item in items:
+        item["url"] = f"/api/v1/personas/{persona_id}/assets/{category}/{item['id']}"
+    return {"assets": items}
+
+
+@router.post("/{persona_id}/assets/{category}")
+async def upload_asset(
+    persona_id: str,
+    category: str,
+    file: UploadFile = File(...),
+    label: str = Form(""),
+):
+    """Faz upload de uma imagem para uma categoria da persona."""
+    if persona_manager.get_persona(persona_id) is None:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' não encontrada")
+    if category not in VALID_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Categoria inválida: '{category}'")
+    data = await file.read()
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail=f"Imagem excede o limite de {MAX_IMAGE_BYTES // (1024 * 1024)} MB")
+    try:
+        record = save_asset(persona_id, category, data, file.filename or "upload.png", label)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    record["url"] = f"/api/v1/personas/{persona_id}/assets/{category}/{record['id']}"
+    return {"ok": True, "asset": record}
+
+
+@router.get("/{persona_id}/assets/{category}/{image_id}")
+async def serve_asset(persona_id: str, category: str, image_id: str):
+    """Serve o arquivo de imagem de uma persona."""
+    if category not in VALID_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Categoria inválida: '{category}'")
+    path = get_asset_path(persona_id, category, image_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Imagem não encontrada")
+    ext = path.suffix.lower()
+    media_type = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+    }.get(ext, "application/octet-stream")
+    return FileResponse(path, media_type=media_type)
+
+
+@router.patch("/{persona_id}/assets/{category}/{image_id}")
+async def rename_asset(persona_id: str, category: str, image_id: str, request: AssetLabelRequest):
+    """Atualiza o label de uma imagem."""
+    if category not in VALID_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Categoria inválida: '{category}'")
+    record = update_asset_label(persona_id, category, image_id, request.label)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Imagem não encontrada")
+    return {"ok": True, "asset": record}
+
+
+@router.delete("/{persona_id}/assets/{category}/{image_id}")
+async def remove_asset(persona_id: str, category: str, image_id: str):
+    """Remove uma imagem da persona."""
+    if category not in VALID_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Categoria inválida: '{category}'")
+    if not delete_asset(persona_id, category, image_id):
+        raise HTTPException(status_code=404, detail="Imagem não encontrada")
+    return {"ok": True}
+
+
+# ── Templates de prompt por tipo de vídeo ──────────────────────────────────
+
+@router.get("/{persona_id}/templates")
+async def get_persona_templates(persona_id: str):
+    """Retorna os templates de prompt por tipo de vídeo da persona."""
+    if persona_manager.get_persona(persona_id) is None:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' não encontrada")
+    return {"templates": get_templates(persona_id), "videoTypes": VIDEO_TYPES}
+
+
+@router.put("/{persona_id}/templates")
+async def update_persona_templates(persona_id: str, request: TemplateUpdateRequest):
+    """Atualiza os templates de prompt da persona."""
+    if persona_manager.get_persona(persona_id) is None:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' não encontrada")
+    try:
+        saved = save_templates(persona_id, request.templates)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return {"ok": True, "templates": saved}
+
+
+@router.post("/{persona_id}/templates/render")
+async def render_persona_template(persona_id: str, request: TemplateRenderRequest):
+    """Renderiza um template preenchendo os placeholders com os assets da persona."""
+    if persona_manager.get_persona(persona_id) is None:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' não encontrada")
+    if request.videoType not in VIDEO_TYPES:
+        raise HTTPException(status_code=400, detail=f"Tipo de vídeo inválido: '{request.videoType}'")
+    prompt = render_template(persona_id, request.videoType, request.action)
+    return {"ok": True, "prompt": prompt, "videoType": request.videoType}
+
+
+@router.get("/meta/video-types")
+async def get_video_types():
+    """Retorna os tipos de vídeo suportados e os templates padrão."""
+    return {"videoTypes": VIDEO_TYPES, "defaults": get_default_templates()}

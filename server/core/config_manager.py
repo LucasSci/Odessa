@@ -29,6 +29,7 @@ def _empty_config() -> Dict[str, Any]:
         "idleVideoId": "",
         "stageSettings": {"fit": "contain", "zoom": 1.0, "offsetX": 0, "offsetY": 0},
         "mediaTracks": [],
+        "videoTemplates": {},
     }
 
 def _playback_settings(value: Any = None) -> Dict[str, Any]:

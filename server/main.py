@@ -106,6 +106,14 @@ async def require_admin_session(request: Request, call_next):
     path = request.url.path
     if path in _PUBLIC_PATHS_EXACT or any(path.startswith(p) for p in _PUBLIC_PATH_PREFIXES):
         return await call_next(request)
+    # Persona asset images (GET) — served to <img> tags without auth headers.
+    # Pattern: /api/v1/personas/{id}/assets/{category}/{image_id}
+    if (
+        request.method == "GET"
+        and "/assets/" in path
+        and path.startswith("/api/v1/personas/")
+    ):
+        return await call_next(request)
     try:
         auth_core.require_admin(request)
     except HTTPException as exc:

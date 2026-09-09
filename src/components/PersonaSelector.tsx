@@ -9,6 +9,7 @@ import {
   type PersonaMeta,
 } from '../core/personaManager';
 import { saveAiConfig } from '../core/aiConfig';
+import PersonaAssetManager from './PersonaAssetManager';
 
 type PersonaSelectorProps = {
   onPersonaChange?: (personaId: string) => void;
@@ -25,6 +26,7 @@ export default function PersonaSelector({ onPersonaChange }: PersonaSelectorProp
   const [personality, setPersonalityState] = useState('');
   const [savingPersonality, setSavingPersonality] = useState(false);
   const [personalitySaved, setPersonalitySaved] = useState(false);
+  const [showAssets, setShowAssets] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -191,6 +193,23 @@ export default function PersonaSelector({ onPersonaChange }: PersonaSelectorProp
             )}
           </div>
         </div>
+      )}
+
+      {activeId && (
+        <button
+          type="button"
+          onClick={() => setShowAssets((v) => !v)}
+          className="h-9 rounded-xl border border-violet-500/30 bg-violet-500/10 text-sm font-medium text-violet-300 transition-colors hover:bg-violet-500/20"
+        >
+          {showAssets ? '▾ Fechar assets visuais' : '▸ Assets visuais (rostos, ambiente, roupas)'}
+        </button>
+      )}
+
+      {showAssets && activeId && (
+        <PersonaAssetManager
+          personaId={activeId}
+          personaName={personas.find((p) => p.id === activeId)?.name || activeId}
+        />
       )}
 
       <div className="flex flex-col gap-2 border-t border-white/10 pt-3">

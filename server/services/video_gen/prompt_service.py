@@ -80,39 +80,65 @@ class PromptService:
                 lines.append(it.get("text") or "")
         return "\n".join(lines) if lines else ""
 
+    def _detect_video_type(self, interactions: List[Dict[str, Any]]) -> str:
+        """Infere o tipo de vídeo a partir das interações do chat."""
+        has_gift = any(it.get("kind") == "gift" for it in interactions)
+        if has_gift:
+            return "GATILHO"
+        return "FLUXO"
+
     def generate_prompt(
         self,
         persona_id: Optional[str] = None,
         *,
         force: bool = False,
         custom_instruction: Optional[str] = None,
+        video_type: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Gera um prompt de vídeo a partir do buffer de interações via RouteLLM."""
+        """Gera um prompt de vídeo a partir do buffer de interações via RouteLLM.
+
+        Usa o template da persona ativa para o tipo de vídeo detectado,
+        preenchendo os placeholders com os assets (rostos, ambiente, roupas).
+        O LLM gera apenas a descrição da ação, que é inserida no template.
+        """
         pid = persona_id or storage.get_active_persona_id()
         interactions = self.get_buffer(pid)
         if not interactions and not force:
             return {"ok": False, "error": "Buffer de interações vazio"}
 
         chat_text = self._build_prompt_text(interactions)
+        detected_type = video_type or self._detect_video_type(interactions)
+
+        # Gera a descrição da ação via LLM
         system_prompt = (
-            "Você é a diretora de cena da streamer Odessa. A partir das interações "
-            "recentes do chat, escreva UM prompt curto (máx. 60 palavras, em português) "
-            "para gerar um vídeo de reação/performance ao vivo. O vídeo parte do último "
-            "frame da live. Descreva a emoção, o movimento e o clima. Responda apenas "
-            "com o prompt, sem aspas nem explicações."
+            "Você é a diretora de cena de uma streamer ao vivo. A partir das "
+            "interações recentes do chat, escreva UMA descrição curta de ação "
+            "(máx. 40 palavras, em português) para o vídeo. Descreva apenas a "
+            "emoção, o movimento e o clima — NÃO descreva a pessoa, o ambiente "
+            "ou a roupa (esses vêm do template). Responda apenas com a descrição, "
+            "sem aspas nem explicações."
         )
         user_prompt = f"Interações recentes do chat:\n{chat_text}"
         if custom_instruction:
             user_prompt += f"\n\nInstrução extra: {custom_instruction}"
 
-        prompt_text = self._call_llm(system_prompt, user_prompt)
-        if not prompt_text:
-            prompt_text = self._fallback_prompt(interactions)
+        action_text = self._call_llm(system_prompt, user_prompt)
+        if not action_text:
+            action_text = self._fallback_prompt(interactions)
+
+        # Renderiza o template da persona com os assets preenchidos
+        try:
+            from server.core.persona_templates import render_template
+            prompt_text = render_template(pid, detected_type, action_text)
+        except Exception as exc:
+            logger.warning("Falha ao renderizar template, usando ação direta: %s", exc)
+            prompt_text = action_text
 
         record = {
             "personaId": pid,
             "prompt": prompt_text.strip(),
-            "source": "routellm" if prompt_text else "fallback",
+            "videoType": detected_type,
+            "source": "routellm" if action_text else "fallback",
             "interactions": interactions,
             "customInstruction": custom_instruction,
         }
