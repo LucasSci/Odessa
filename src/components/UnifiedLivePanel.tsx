@@ -17,17 +17,12 @@
 
 import { useMemo } from 'react';
 import {
-  Bot,
   Brain,
   Check,
   Loader2,
-  Pause,
-  Play,
   Radio,
   Sparkles,
   Trash2,
-  X,
-  Zap,
 } from 'lucide-react';
 import { Badge, Button } from './ui';
 import { cn } from '../lib/utils';
@@ -142,100 +137,23 @@ export function UnifiedLivePanel({
 
   return (
     <div className="space-y-4">
-      {/* ── Barra de Controles da Live ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#090a0d] p-4 shadow-xl">
-        <div className="flex items-center gap-3">
-          <div
-            className={cn(
-              'flex h-11 w-11 items-center justify-center rounded-xl border',
-              isLive
-                ? 'bg-red-500/10 text-red-400 border-red-500/20'
-                : 'bg-sky-500/10 text-sky-400 border-sky-500/20',
-            )}
-          >
-            <Radio className={cn('h-5 w-5', isLive && 'animate-pulse')} />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-white tracking-wide">Painel da Live</h2>
-              <span
-                className={cn(
-                  'flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border',
-                  isLive
-                    ? 'border-red-500/30 bg-red-500/10 text-red-400'
-                    : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400',
-                )}
-              >
-                <span className={cn('h-1.5 w-1.5 rounded-full', isLive ? 'bg-red-400 animate-ping' : 'bg-emerald-400')} />
-                {isLive ? 'AO VIVO' : 'PRONTA'}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              {isLive
-                ? `Automação ativa · ${chatStats.total} eventos capturados · ${runtime.completedCycles} ciclos`
-                : 'Clique em "Iniciar Live" para ativar a automação e a IA'}
-            </p>
-          </div>
+      {/* ── Status da Live (controles estão no topbar e na toolbar acima) ── */}
+      <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#090a0d] px-4 py-3">
+        <div
+          className={cn(
+            'flex h-9 w-9 items-center justify-center rounded-lg border',
+            isLive
+              ? 'bg-red-500/10 text-red-400 border-red-500/20'
+              : 'bg-sky-500/10 text-sky-400 border-sky-500/20',
+          )}
+        >
+          <Radio className={cn('h-4 w-4', isLive && 'animate-pulse')} />
         </div>
-
-        {/* Controles de ação */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Autonomia da IA */}
-          <div className="flex items-center rounded-xl border border-white/10 bg-black/40 p-1">
-            {[
-              { id: 'off' as AutonomyMode, label: 'IA Off', icon: <X className="h-3 w-3" /> },
-              { id: 'assistido' as AutonomyMode, label: 'Assistido', icon: <Sparkles className="h-3 w-3 text-violet-400" /> },
-              { id: 'auto' as AutonomyMode, label: 'Autônomo', icon: <Bot className="h-3 w-3 text-emerald-400" /> },
-            ].map((m) => (
-              <button
-                key={m.id}
-                className={cn(
-                  'flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition',
-                  autonomyMode === m.id ? 'bg-white/15 text-white shadow' : 'text-slate-500 hover:text-slate-300',
-                )}
-                onClick={() => onSetAutonomy(m.id)}
-              >
-                {m.icon}
-                {m.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Modo de execução */}
-          <button
-            className={cn(
-              'flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition',
-              executionMode === 'real'
-                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-                : 'border-amber-500/40 bg-amber-500/10 text-amber-300',
-            )}
-            onClick={() => onSetExecution(executionMode === 'real' ? 'dry_run' : 'real')}
-            title={executionMode === 'real' ? 'Envio real ativo' : 'Modo simulação (não envia)'}
-          >
-            <Zap className="h-3.5 w-3.5" />
-            {executionMode === 'real' ? 'Envio Real' : 'Simulação'}
-          </button>
-
-          {/* Iniciar / Pausar Live */}
-          <button
-            className={cn(
-              'odsa-btn odsa-btn-md flex items-center gap-1.5',
-              isLive ? 'odsa-btn-secondary' : 'odsa-btn-primary',
-            )}
-            onClick={() => {
-              if (isLive) {
-                runtime.pause();
-              } else if (onStartLive) {
-                void onStartLive();
-              } else {
-                runtime.start();
-              }
-            }}
-          >
-            {isLive ? <Pause style={{ width: 15, height: 15 }} /> : <Play style={{ width: 15, height: 15 }} />}
-            {isLive ? 'Pausar Live' : 'Iniciar Live'}
-          </button>
-        </div>
+        <p className="text-[11px] text-slate-400">
+          {isLive
+            ? `Automação ativa · ${chatStats.total} eventos · ${runtime.completedCycles} ciclos`
+            : 'Clique em "Iniciar live" no topo para ativar tudo'}
+        </p>
       </div>
 
       {/* ── Grid: Palco (esquerda) + Chat (direita) ── */}

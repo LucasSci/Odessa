@@ -2059,123 +2059,44 @@ function SettingsPanel({
             </div>
 
             <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
-              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <SectionTitle icon={<ClipboardCheck />} title="Configuracao do Iniciar Live" />
-                  <p className="mt-2 text-sm text-slate-400">
-                    O botao do topo executa este plano. Use a simulacao para conferir tudo sem afetar a live.
-                  </p>
-                </div>
-                <Badge variant={liveConfig.actionMode === 'real' ? 'danger' : 'success'}>
-                  {liveConfig.actionMode === 'real' ? 'acoes reais' : 'seguro por padrao'}
-                </Badge>
+              <div className="mb-4">
+                <SectionTitle icon={<ClipboardCheck />} title="Iniciar Live" />
+                <p className="mt-2 text-sm text-slate-400">
+                  O botão <strong className="text-white">"Iniciar live"</strong> no topo ativa tudo automaticamente:
+                  prepara o OBS, inicia a automação, a captura do chat e a transmissão.
+                </p>
               </div>
 
-              <div className="grid gap-2 md:grid-cols-2">
-                {[
-                  ['prepareObs', 'Verificar/preparar OBS'],
-                  ['showStage', 'Colocar palco na cena live'],
-                  ['startAutomation', 'Iniciar automacao do fluxo'],
-                  ['startCapture', 'Disparar captura do chat'],
-                  ['voiceEnabled', 'Habilitar Voz IA / TTS'],
-                  ['enableChat', 'Habilitar resposta no chat'],
-                  ['startTransmission', 'Iniciar transmissao/camera'],
-                ].map(([key, label]) => (
-                  <label
-                    key={key}
-                    className="flex h-10 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-3 text-sm text-slate-200"
-                  >
-                    <span>{label}</span>
-                    <input
-                      type="checkbox"
-                      checked={
-                        key === 'prepareObs' || key === 'showStage' || key === 'startAutomation'
-                          ? liveConfig[key as keyof LiveConfig] !== false
-                          : !!liveConfig[key as keyof LiveConfig]
-                      }
-                      onChange={(event) =>
-                        onLiveConfigChange?.((current) => ({
-                          ...current,
-                          [key]: event.target.checked,
-                        }))
-                      }
-                    />
-                  </label>
-                ))}
-                <label className="block">
-                  <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-                    Modo das acoes
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="flex h-12 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-4 text-sm text-slate-200">
+                  <span className="flex items-center gap-2">
+                    <VolumeX className="h-4 w-4 text-slate-400" />
+                    Voz IA (TTS)
                   </span>
-                  <select
-                    value={liveConfig.actionMode || 'simulated'}
+                  <input
+                    type="checkbox"
+                    checked={!!liveConfig.voiceEnabled}
                     onChange={(event) =>
-                      onLiveConfigChange?.((current) => ({
-                        ...current,
-                        actionMode: event.target.value as LiveConfig['actionMode'],
-                      }))
+                      onLiveConfigChange?.((current) => ({ ...current, voiceEnabled: event.target.checked }))
                     }
-                    className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
-                  >
-                    <option value="simulated">Simulado por padrao</option>
-                    <option value="approval_required">Exigir aprovacao</option>
-                    <option value="real">Real ao clicar</option>
-                  </select>
+                    className="h-4 w-4 accent-[var(--gold)]"
+                  />
+                </label>
+                <label className="flex h-12 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-4 text-sm text-slate-200">
+                  <span className="flex items-center gap-2">
+                    <RadioTower className="h-4 w-4 text-slate-400" />
+                    Resposta automática no chat
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={!!liveConfig.enableChat}
+                    onChange={(event) =>
+                      onLiveConfigChange?.((current) => ({ ...current, enableChat: event.target.checked }))
+                    }
+                    className="h-4 w-4 accent-[var(--gold)]"
+                  />
                 </label>
               </div>
-
-              <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
-                <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                    Plano ativo
-                  </div>
-                  <div className="grid gap-2 md:grid-cols-2">
-                    {(livePlan?.steps || []).map((step) => (
-                      <div
-                        key={step.id}
-                        className={cn(
-                          'rounded-xl border px-3 py-2 text-xs',
-                          step.enabled
-                            ? step.status === 'blocked'
-                              ? 'border-rose-400/25 bg-rose-500/10 text-rose-200'
-                              : 'border-emerald-400/20 bg-emerald-500/10 text-emerald-200'
-                            : 'border-white/10 bg-white/[0.035] text-slate-500',
-                        )}
-                      >
-                        <div className="font-semibold">{step.label}</div>
-                        <div className="mt-0.5 text-[10px] uppercase tracking-widest opacity-70">
-                          {step.enabled ? step.mode : 'desativado'}
-                        </div>
-                      </div>
-                    ))}
-                    {!livePlan?.steps?.length && (
-                      <div className="rounded-xl border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500 md:col-span-2">
-                        Carregue o plano para ver a ordem exata das acoes.
-                      </div>
-                    )}
-                  </div>
-                  {!!livePlan?.risks?.length && (
-                    <div className="mt-3 rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                      {livePlan.risks.join(' | ')}
-                    </div>
-                  )}
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Button variant="secondary" loading={livePlanLoading} onClick={() => void loadLivePlan()}>
-                    <RefreshCw className="h-4 w-4" />
-                    Atualizar plano
-                  </Button>
-                  <Button variant="success" loading={livePlanLoading} onClick={() => void simulateLiveStart()}>
-                    <ShieldAlert className="h-4 w-4" />
-                    Simular Iniciar Live
-                  </Button>
-                </div>
-              </div>
-
-              {livePlanMessage && (
-                <div className="mt-3 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
-                  {livePlanMessage}
-                </div>
-              )}
             </div>
 
             <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
