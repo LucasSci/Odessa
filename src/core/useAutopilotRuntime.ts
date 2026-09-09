@@ -579,8 +579,8 @@ export function useAutopilotRuntime({
 
   const enqueueEvent = useCallback((event: LiveEvent) => {
     const normalizedEvent = normalizeDirectorEvent(event);
-    if (normalizedEvent.processedAt || queuedOrProcessedIdsRef.current.has(normalizedEvent.id)) return;
-    queuedOrProcessedIdsRef.current.add(normalizedEvent.id);
+    if (normalizedEvent.processedAt || queuedOrProcessedIdsRef.current!.has(normalizedEvent.id)) return;
+    queuedOrProcessedIdsRef.current!.add(normalizedEvent.id);
     lastEventAtRef.current = Date.now();
     setPendingEvents((current) => {
       const next = [...current, normalizedEvent].slice(-60);
@@ -956,7 +956,7 @@ export function useAutopilotRuntime({
     clearEvents();
     clearAuditSession();
     setCapturedText([]);
-    queuedOrProcessedIdsRef.current.clear();
+    queuedOrProcessedIdsRef.current!.clear();
     setMemoryCount(loadMemory().length);
   }, [setCapturedText]);
 

@@ -5,7 +5,6 @@ import {
   Camera,
   CheckCircle2,
   ClipboardCheck,
-  Copy,
   Database,
   Download,
   FastForward,
@@ -15,60 +14,43 @@ import {
   ListVideo,
   Maximize2,
   MessageCircle,
-  Minimize2,
   Pause,
   Play,
   RadioTower,
   RefreshCw,
   RotateCcw,
   Rewind,
-  Route,
   Save,
   Settings,
   ShieldAlert,
   Scissors,
-  SlidersHorizontal,
   StickyNote,
   Trash2,
   Upload,
   Video,
   VolumeX,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react';
 import { emitEvent } from './core/eventBus';
 import { registerFrameCapture, unregisterFrameCapture, captureVideoFrame } from './core/frameCapture';
 import { apiUrl } from './lib/api';
 import {
   routeSetupLiveScene,
-  routeShowStart,
-  routeShowStage,
   routeStartTransmission,
-  routeStopTransmission,
   type CommandResult,
 } from './lib/obsCommandRouter';
 import { cn } from './lib/utils';
 import type { AutopilotRuntimeState } from './core/useAutopilotRuntime';
 import type { AuditTimelineEntry, AutopilotCycle, CapturedMessage } from './types';
-import { Badge, Button, Card, ConfirmButton, Input, StatusDot, Tooltip } from './components/ui';
-import { AiDecisionPanel } from './components/AiDecisionPanel';
+import { Badge, Button, Card, Input, StatusDot } from './components/ui';
 import { AiConfigPanel } from './components/AiConfigPanel';
 import PersonaSelector from './components/PersonaSelector';
 import { TangoChatPanel } from './components/TangoChatPanel';
 import VideoEditor from './components/VideoEditor';
-import { DebugLogPanel, logEntry } from './components/DebugLogPanel';
 import { StatusBadge, deriveStageStatus } from './components/StatusBadge';
-import { ValidationChecklist, buildFlowValidationChecks } from './components/ValidationChecklist';
 
-import type { AiDecision, AiIntentType } from './core/aiDecisionContract';
-import { EMPTY_AI_DECISION, callAiDecision, checkingAiDecision } from './core/aiDecisionContract';
-import type { PersonaDecision } from './types';
 import { applyVideoEdit, getVideoEdit, saveVideoEdit, defaultVideoEdit, type VideoSegment } from './core/videoEdits';
 import { getAiConfig, hasActiveGeminiKey, type AiAutonomyLevel } from './core/aiConfig';
 import { globalMoodEngine } from './core/moodEngine';
-import type { LogEntry } from './components/DebugLogPanel';
-import { buildOcrEvent } from './core/ocrEventContract';
-import type { OcrEvent, OcrEventType } from './core/ocrEventContract';
 
 const CaptureStudio = lazy(() => import('./CaptureStudio'));
 const ReactiveFlowBoard = lazy(() => import('./ReactiveFlowBoard'));
@@ -100,24 +82,6 @@ type LiveConfig = {
   actionMode?: 'simulated' | 'approval_required' | 'real';
 };
 
-type AgentStatus = {
-  ok?: boolean;
-  agentConnected?: boolean;
-  queueSize?: number;
-  message?: string;
-  agent?: {
-    agentId?: string;
-    host?: string;
-    version?: string;
-    lastSeenAt?: string;
-    capabilities?: string[];
-    health?: {
-      obsConnected?: boolean;
-      obs?: { ok?: boolean; connected?: boolean; error?: string | null };
-    };
-  } | null;
-};
-
 interface OdessaLiveCenterProps {
   capturedText: CapturedMessage[];
   setCapturedText: Dispatch<SetStateAction<CapturedMessage[]>>;
@@ -126,12 +90,9 @@ interface OdessaLiveCenterProps {
   liveConfig?: LiveConfig;
   liveConfigOpen?: boolean;
   liveStartError?: string | null;
-  agentStatus?: AgentStatus | null;
   onLiveConfigOpenChange?: Dispatch<SetStateAction<boolean>>;
   onLiveConfigChange?: Dispatch<SetStateAction<LiveConfig>>;
   onStartLive?: () => void | Promise<void>;
-  onRefreshAgentStatus?: () => void | Promise<void>;
-  obsDirectStatus?: import('./lib/obsWebSocket').ObsDirectStatus | null;
   obsSettingsFromApp?: Record<string, unknown> | null;
   onObsSettingsChanged?: (settings: Record<string, unknown>) => void;
 }
@@ -369,36 +330,6 @@ type ReactiveRunResult = {
   executions: AutomationExecutionResponse[];
 };
 
-/**
- * Converte a decisão da Diretora (PersonaDecision, do runtime) para o formato
- * AiDecision que o painel do Palco exibe. Só para exibição — a execução real das
- * ações acontece no executor do runtime.
- */
-function personaDecisionToAiDecision(decision: PersonaDecision): AiDecision {
-  const actions = Array.isArray(decision.actions) ? decision.actions : [];
-  const playAction = actions.find((a) => a.type === 'play_video');
-  const videoId = playAction?.payload?.videoId as string | undefined;
-  const videoLabelRaw = playAction?.payload?.label as string | undefined;
-  const recommendedAction: AiDecision['recommendedAction'] = playAction
-    ? 'play_video'
-    : actions.some((a) => a.type !== 'speak' && a.type !== 'log_event')
-      ? 'queue_video'
-      : 'wait';
-  return {
-    sourceEvent: null,
-    intent: decision.intent as AiIntentType,
-    emotion: 'neutral',
-    recommendedAction,
-    selectedTriggerId: (playAction?.ruleId as string) ?? null,
-    selectedVideoId: videoId ?? null,
-    selectedVideoLabel: videoLabelRaw ?? videoId ?? null,
-    confidence: typeof decision.confidence === 'number' ? decision.confidence : 0.7,
-    reasoning: decision.reason || decision.speech || 'Decisão da Diretora.',
-    status: 'online',
-    timestamp: new Date().toISOString(),
-  };
-}
-
 function tabFromPanel(panel: AdvancedPanel): TabKey {
   if (panel === 'capture') return 'sources';
   if (panel === 'content') return 'library';
@@ -419,12 +350,6 @@ function videoLabel(video?: VideoEntry) {
   );
 }
 
-function eventLabel(trigger: TriggerEntry) {
-  if (trigger.eventType === 'gift') return trigger.conditions?.giftKey || 'gift.*';
-  if (trigger.eventType === 'comment') return trigger.conditions?.keyword || 'comentario';
-  return trigger.eventType;
-}
-
 function textValue(value: unknown, fallback = '-') {
   if (value === null || value === undefined || value === '') return fallback;
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
@@ -440,28 +365,20 @@ export default function OdessaLiveCenter({
   requestedPanel,
   liveConfig = { voiceEnabled: false, enableChat: false },
   liveStartError = null,
-  agentStatus = null,
   onLiveConfigOpenChange,
   onLiveConfigChange,
   onStartLive,
-  onRefreshAgentStatus,
-  obsDirectStatus = null,
   obsSettingsFromApp = null,
   onObsSettingsChanged,
 }: OdessaLiveCenterProps) {
   const [activeTab, setActiveTab] = useState<TabKey>(() => tabFromPanel(requestedPanel));
   const [config, setConfig] = useState<PersonaConfig | null>(null);
   const [videoState, setVideoState] = useState<VideoState | null>(null);
-  const [configError, setConfigError] = useState<string | null>(null);
+  const [, setConfigError] = useState<string | null>(null);
   const [automationLogs, setAutomationLogs] = useState<AutomationLogEntry[]>([]);
   const [latestReactiveRun, setLatestReactiveRun] = useState<ReactiveRunResult | null>(null);
   const [reactiveError, setReactiveError] = useState<string | null>(null);
   const [reactiveBusy, setReactiveBusy] = useState(false);
-
-  // ── Decisão da IA — estado exibido no Palco ─────────────────────────────────
-  // Fora do ar: prévia (callAiDecision, sem executar). Ao vivo: espelha a decisão
-  // real da Diretora (runtime.latestDecision).
-  const [aiDecision, setAiDecision] = useState<AiDecision>(EMPTY_AI_DECISION);
 
   const loadConfig = useCallback(async () => {
     try {
@@ -690,101 +607,6 @@ export default function OdessaLiveCenter({
     }
   };
 
-  const patchFlowNodePlayback = useCallback(
-    async (nodeId: string, patch: Partial<PlaybackSettings>) => {
-      if (!config?.flowNodes?.length) return;
-      const nextConfig: PersonaConfig = {
-        ...config,
-        flowNodes: config.flowNodes.map((node) =>
-          node.nodeId === nodeId
-            ? {
-                ...node,
-                playback: {
-                  ...node.playback,
-                  ...patch,
-                  startSec: Math.max(0, Number(patch.startSec ?? node.playback.startSec ?? 0)),
-                  endSec:
-                    patch.endSec === null
-                      ? null
-                      : patch.endSec === undefined
-                        ? node.playback.endSec
-                        : Math.max(0, Number(patch.endSec)),
-                  transitionMs: Math.max(0, Number(patch.transitionMs ?? node.playback.transitionMs ?? 220)),
-                },
-              }
-            : node,
-        ),
-      };
-      const response = await fetch(apiUrl('/api/video/config'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(nextConfig),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setConfig(nextConfig);
-      await fetch(apiUrl('/api/automation/refresh'), { method: 'POST' }).catch(() => undefined);
-      await refreshVideoState();
-    },
-    [config, refreshVideoState],
-  );
-
-  const patchFlowConnectionSettings = useCallback(
-    async (connectionId: string, patch: Partial<ConnectionSettings>) => {
-      if (!config?.flowConnections?.length) return;
-      const nextConfig: PersonaConfig = {
-        ...config,
-        flowConnections: config.flowConnections.map((connection) =>
-          connection.id === connectionId
-            ? {
-                ...connection,
-                connectionSettings: {
-                  ...(connection.connectionSettings || {}),
-                  ...patch,
-                  transitionMs: Math.max(
-                    0,
-                    Math.min(
-                      2000,
-                      Number(patch.transitionMs ?? connection.connectionSettings?.transitionMs ?? 220),
-                    ),
-                  ),
-                  fadeMode:
-                    patch.fadeMode === 'cut' || patch.fadeMode === 'fade' || patch.fadeMode === 'crossfade'
-                      ? patch.fadeMode
-                      : connection.connectionSettings?.fadeMode || 'crossfade',
-                  previewTailSec: Math.max(
-                    0.5,
-                    Math.min(
-                      8,
-                      Number(patch.previewTailSec ?? connection.connectionSettings?.previewTailSec ?? 2),
-                    ),
-                  ),
-                  previewHeadSec: Math.max(
-                    0.5,
-                    Math.min(
-                      8,
-                      Number(patch.previewHeadSec ?? connection.connectionSettings?.previewHeadSec ?? 2),
-                    ),
-                  ),
-                },
-              }
-            : connection,
-        ),
-      };
-      const response = await fetch(apiUrl('/api/video/config'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(nextConfig),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setConfig(nextConfig);
-      await fetch(apiUrl('/api/automation/refresh'), { method: 'POST' }).catch(() => undefined);
-      await refreshVideoState();
-    },
-    [config, refreshVideoState],
-  );
-
-  // view precisa ser declarado antes do pipeline principal porque o useEffect
-  // referencia view.videos e view.triggers nas dependências.
   const view = useMemo(() => {
     const videos = config?.videos || [];
     const triggers = config?.triggers || [];
@@ -830,64 +652,6 @@ export default function OdessaLiveCenter({
     runtime.health?.status,
     videoState?.current_video_id,
   ]);
-
-  // ── Prévia da IA (apenas fora do ar) ────────────────────────────────────────
-  // Quando a live está NO AR, quem conduz é a Diretora única (useAutopilotRuntime →
-  // runPersonaRound), que decide fala + vídeo + cena numa rodada só e executa pelo
-  // executor. Para NÃO duplicar o processamento (double-ingest), este efeito só roda
-  // FORA do ar: mostra no Palco o que a IA decidiria, SEM executar nada.
-  // O disparo real de vídeo fora do ar continua nos botões manuais (runReactiveFlow).
-  useEffect(() => {
-    if (runtime.autopilotEnabled) return; // ao vivo → a Diretora cuida (sem prévia paralela)
-
-    const previewEvent = async (event: CapturedMessage) => {
-      if (!event.text?.trim()) return;
-      if (event.metadata?.backendIngested) return;
-
-      const prebuilt = event.metadata?.ocrEvent as OcrEvent | undefined;
-      const srcMap: Record<string, OcrEvent['source']> = { ocr: 'ocr', test: 'test', manual: 'manual' };
-      const kindMap: Record<string, OcrEventType> = { gift: 'gift', chat: 'comment', alert: 'system', system: 'system' };
-      const ocrEvent: OcrEvent = prebuilt ?? buildOcrEvent(event.text, {
-        source: srcMap[event.source] ?? 'manual',
-        eventType: kindMap[event.kind] ?? 'unknown',
-        zoneName: event.zoneName || 'chat',
-        confidence: (event.metadata?.confidence as number | undefined) ?? 0.85,
-        metadata: {
-          giftName: (event.metadata?.giftName as string | null) ?? null,
-          giftKey:  (event.metadata?.giftKey  as string | null) ?? null,
-          giftValue: null,
-        },
-      });
-
-      setAiDecision(checkingAiDecision(ocrEvent));
-      const decision = await callAiDecision(ocrEvent, {
-        videos:   view.videos,
-        triggers: view.triggers,
-      });
-      setAiDecision(decision); // somente exibição — sem runReactiveFlow aqui
-    };
-
-    for (const event of capturedText) {
-      if (processedGiftIdsRef.current!.has(event.id)) continue;
-      if (!event.text?.trim()) continue;
-      if (event.metadata?.backendIngested) {
-        processedGiftIdsRef.current!.add(event.id);
-        continue;
-      }
-      processedGiftIdsRef.current!.add(event.id);
-      void previewEvent(event);
-    }
-
-  }, [capturedText, runtime.autopilotEnabled, view.videos, view.triggers]);
-
-  // ── Espelho da decisão da Diretora no Palco (ao vivo) ───────────────────────
-  // Ao vivo, o painel "Decisão da IA" do Palco reflete a última decisão real da
-  // Diretora (vinda do runtime), convertida para o formato do painel.
-  useEffect(() => {
-    if (!runtime.autopilotEnabled) return;
-    if (!runtime.latestDecision) return;
-    setAiDecision(personaDecisionToAiDecision(runtime.latestDecision));
-  }, [runtime.autopilotEnabled, runtime.latestDecision]);
 
   return (
     <main className="odessa-shell odsa-v2 flex h-screen w-screen min-h-0 overflow-hidden text-[var(--t1)]">
@@ -1012,14 +776,12 @@ export default function OdessaLiveCenter({
       <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {activeTab === 'home' && (
           <HomeDashboard
-            configError={configError}
             capturedText={capturedText}
             runtime={runtime}
             videoState={videoState}
             view={view}
             go={setActiveTab}
             onRefresh={refreshVideoState}
-            onSimulateGift={() => void runReactiveFlow('Lucas enviou Rosa', 'test')}
           />
         )}
         {activeTab === 'stage' && (
@@ -1028,27 +790,16 @@ export default function OdessaLiveCenter({
             capturedText={capturedText}
             view={view}
             videoState={videoState}
-            obsDirectStatus={obsDirectStatus}
             obsSettingsFromApp={obsSettingsFromApp}
             onRefresh={refreshVideoState}
             onPlayVideoById={playVideoById}
-            onPatchFlowNodePlayback={patchFlowNodePlayback}
-            onPatchFlowConnectionSettings={patchFlowConnectionSettings}
-            onStartLive={onStartLive}
-            onRunReactiveFlow={runReactiveFlow}
-            aiDecision={aiDecision}
           />
         )}
         {activeTab === 'ai' && (
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             <PersonaSelector />
             <div className="mt-4">
-              <AiConfigPanel
-                videos={view.videos}
-                triggers={view.triggers}
-                runtime={runtime}
-                onOpenCapture={() => setActiveTab('sources')}
-              />
+              <AiConfigPanel />
             </div>
           </div>
         )}
@@ -1137,7 +888,6 @@ export default function OdessaLiveCenter({
             onRefreshHealth={runtime.refreshHealth}
             liveConfig={liveConfig}
             onLiveConfigChange={onLiveConfigChange}
-            agentStatus={agentStatus}
             onObsSettingsChanged={onObsSettingsChanged}
             onSaved={() => {
               void runtime.refreshObsScenes();
@@ -1310,7 +1060,6 @@ function SettingsPanel({
   liveConfig,
   onLiveConfigChange,
   onSaved,
-  agentStatus,
   onObsSettingsChanged,
 }: {
   health: AutopilotRuntimeState['health'];
@@ -1318,7 +1067,6 @@ function SettingsPanel({
   liveConfig: LiveConfig;
   onLiveConfigChange?: Dispatch<SetStateAction<LiveConfig>>;
   onSaved: () => void;
-  agentStatus?: AgentStatus | null;
   onObsSettingsChanged?: (settings: Record<string, unknown>) => void;
 }) {
   const [obsSettings, setObsSettings] = useState<ObsSettings>(DEFAULT_OBS_SETTINGS);
@@ -2981,30 +2729,6 @@ function FlowDatum({ label, value }: { label: string; value: string }) {
   );
 }
 
-function NavButton({
-  icon,
-  label,
-  active,
-  onClick,
-}: {
-  icon: ReactNode;
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn('odsa-tab', active && 'is-active')}
-    >
-      <span className="odsa-tab-ico [&_svg]:h-[14px] [&_svg]:w-[14px] [&_svg]:stroke-[1.75]">
-        {icon}
-      </span>
-      {label}
-    </button>
-  );
-}
-
 // Metadados de cada aba para o cabeçalho/sidebar (redesign Studio 2.0).
 const TAB_META: Record<TabKey, { group: string; title: string }> = {
   home:     { group: 'Operação', title: 'Início' },
@@ -3064,57 +2788,25 @@ function DirectorStatusCard({ runtime, onOpen }: { runtime: AutopilotRuntimeStat
 }
 
 function HomeDashboard({
-  configError,
   capturedText,
   runtime,
   videoState,
   view,
   go,
   onRefresh,
-  onSimulateGift,
 }: {
-  configError: string | null;
   capturedText: CapturedMessage[];
   runtime: AutopilotRuntimeState;
   videoState: VideoState | null;
   view: HomeViewData;
   go: (tab: TabKey) => void;
   onRefresh: () => void;
-  onSimulateGift: () => void;
 }) {
   // ⚡ Bolt: Using backward loop instead of slice(-6).reverse()
   const latestEvents = [];
   for (let i = capturedText.length - 1; i >= Math.max(0, capturedText.length - 6); i--) {
     latestEvents.push(capturedText[i]);
   }
-  const activeConnections = view.connections
-    .map((connection) => ({
-      connection,
-      trigger: view.triggers.find((item) => item.id === connection.triggerId),
-      video: view.videos.find((item) => item.id === connection.toVideoId),
-    }))
-    .slice(0, 5);
-  const currentLabel = view.currentVideo
-    ? videoLabel(view.currentVideo)
-    : videoLabel(view.idleVideo);
-  const pipeline = [
-    { label: 'Captura OCR', value: view.lastOcr?.text || 'aguardando texto bruto', tone: 'sky' },
-    {
-      label: 'Agente',
-      value: runtime.pendingEvents.length
-        ? `${runtime.pendingEvents.length} evento(s)`
-        : 'normalizador pronto',
-      tone: 'lime',
-    },
-    { label: 'Gatilho', value: `${view.activeTriggers.length} regras ativas`, tone: 'rose' },
-    { label: 'Video', value: currentLabel, tone: videoState?.state === 'ACTION' ? 'rose' : 'sky' },
-    {
-      label: 'Retorno',
-      value: videoState?.state === 'ACTION' ? 'volta ao Idle' : videoLabel(view.idleVideo),
-      tone: 'slate',
-    },
-  ];
-
   // Derive the active clip exactly like StagePanel so both players stay in sync.
   // applyVideoEdit sobrepõe a edição por vídeo (cortes/volume/áudio) também nos
   // clipes vindos do servidor (fluxo), não só nos forçados pela Diretora.
@@ -3572,468 +3264,28 @@ export function ContinuityPlayer({
   );
 }
 
-function TimelineThumbnail({ clip }: { clip: VideoClip }) {
-  return (
-    <video
-      src={apiUrl(`/api/video/play/${clip.videoId}`)}
-      muted
-      playsInline
-      preload="metadata"
-      className="h-full w-full object-cover opacity-75"
-    />
-  );
-}
-
-function FilmstripFrames({ clip, zoom }: { clip: VideoClip; zoom: number }) {
-  const frameCount = Math.max(8, Math.min(28, Math.round(zoom / 8)));
-  return (
-    <div className="absolute inset-0 flex overflow-hidden">
-      {Array.from({ length: frameCount }).map((_, index) => (
-        <div key={index} className="h-full min-w-[54px] flex-1 border-r border-black/30">
-          <TimelineThumbnail clip={clip} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function workflowClipFromNode(node: FlowNode): VideoClip {
-  return {
-    nodeId: node.nodeId,
-    videoId: node.videoId,
-    label: node.label,
-    startSec: node.playback?.startSec ?? 0,
-    endSec: node.playback?.endSec ?? null,
-    transitionMs: node.playback?.transitionMs ?? 220,
-    playback: node.playback,
-    audio: node.audio,
-    returnToIdle: true,
-  };
-}
-
-function ClipTimeline({
-  current,
-  upcoming,
-  view,
-  mode,
-  zoom,
-  selectedClipId,
-  selectedConnectionId,
-  activeNodeId,
-  activeConnectionId,
-  nextConnectionIds,
-  blockedConnectionIds,
-  onModeChange,
-  onZoomChange,
-  onSelectClip,
-  onSelectConnection,
-  onPatchClip,
-  onPatchConnection,
-  onPreviewConnection,
-}: {
-  current: VideoClip | null;
-  upcoming: VideoClip[];
-  view: HomeViewData;
-  mode: 'sequence' | 'workflow';
-  zoom: number;
-  selectedClipId: string;
-  selectedConnectionId: string;
-  activeNodeId?: string | null;
-  activeConnectionId?: string | null;
-  nextConnectionIds?: string[];
-  blockedConnectionIds?: string[];
-  onModeChange: (mode: 'sequence' | 'workflow') => void;
-  onZoomChange: (zoom: number) => void;
-  onSelectClip: (nodeId: string) => void;
-  onSelectConnection: (connectionId: string) => void;
-  onPatchClip: (nodeId: string, patch: Partial<PlaybackSettings>) => Promise<void>;
-  onPatchConnection: (connectionId: string, patch: Partial<ConnectionSettings>) => Promise<void>;
-  onPreviewConnection: () => void;
-}) {
-  const sequenceClips = ([current, ...upcoming].filter(Boolean) as VideoClip[]).slice(0, 12);
-  const workflowClips = view.flowNodes.map(workflowClipFromNode);
-  const clips = mode === 'sequence' ? sequenceClips : workflowClips;
-  const selectedClip = clips.find((clip) => clip.nodeId === selectedClipId) || clips[0] || null;
-  const selectedConnection =
-    view.connections.find((connection) => connection.id === selectedConnectionId) ||
-    view.connections.find((connection) => connection.fromNodeId === selectedClip?.nodeId) ||
-    null;
-  const nextIds = new Set(nextConnectionIds || []);
-  const blockedIds = new Set(blockedConnectionIds || []);
-
-  if (!clips.length) {
-    return (
-      <div className="border-t border-white/10 bg-[#101114] px-4 py-4 text-sm text-slate-500">
-        Nenhum clipe carregado para a timeline.
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid shrink-0 border-t border-white/10 bg-[#101114] lg:grid-cols-[minmax(0,1fr)_340px]">
-      <div className="min-w-0 px-4 pb-4 pt-3">
-        <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="inline-flex w-fit rounded-xl border border-white/10 bg-black/25 p-1">
-            <button
-              type="button"
-              onClick={() => onModeChange('sequence')}
-              className={cn(
-                'rounded-lg px-3 py-1.5 text-xs font-semibold',
-                mode === 'sequence' ? 'bg-[var(--gold)] text-black' : 'text-slate-400 hover:text-white',
-              )}
-            >
-              Sequencia atual
-            </button>
-            <button
-              type="button"
-              onClick={() => onModeChange('workflow')}
-              className={cn(
-                'rounded-lg px-3 py-1.5 text-xs font-semibold',
-                mode === 'workflow' ? 'bg-[var(--gold)] text-black' : 'text-slate-400 hover:text-white',
-              )}
-            >
-              Workflow completo
-            </button>
-          </div>
-          <div className="flex items-center gap-3 text-[10px] uppercase tracking-[0.2em] text-slate-500">
-            <span>{clips.length} clipes</span>
-            <span>{view.connections.length} conexoes</span>
-            <input
-              type="range"
-              min="80"
-              max="260"
-              value={zoom}
-              onChange={(event) => onZoomChange(Number(event.target.value))}
-              className="h-1 w-28 accent-[var(--gold)]"
-              aria-label="Zoom da timeline"
-            />
-          </div>
-        </div>
-
-        <div className="mb-2 grid h-7 grid-cols-8 border-b border-white/10 text-[10px] text-slate-500">
-          {Array.from({ length: 8 }).map((_, index) => (
-            <div key={index} className="relative border-l border-white/10 pl-1">
-              0:{String(index).padStart(2, '0')}
-            </div>
-          ))}
-        </div>
-
-        <div className="relative overflow-x-auto pb-2">
-          <div className="absolute bottom-0 top-0 z-20 w-0.5 bg-orange-500 shadow-[0_0_12px_rgba(249,115,22,0.7)]" />
-          <div className="flex min-h-[104px] gap-2">
-            {clips.map((clip, index) => {
-              const nodeId = clip.nodeId || '';
-              const isActive = nodeId && nodeId === activeNodeId;
-              const isSelected = nodeId && nodeId === selectedClip?.nodeId;
-              const connection = view.connections.find((item) => item.fromNodeId === nodeId);
-              const connectionState = connection?.id
-                ? connection.id === activeConnectionId
-                  ? 'ativa'
-                  : nextIds.has(connection.id)
-                    ? 'proxima'
-                    : blockedIds.has(connection.id)
-                      ? 'bloqueada'
-                      : 'configurada'
-                : '';
-              return (
-                <div key={`${clipKey(clip)}-${index}`} className="flex shrink-0 items-stretch gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSelectClip(nodeId);
-                      if (connection?.id) onSelectConnection(connection.id);
-                    }}
-                    className={cn(
-                      'relative h-24 overflow-hidden rounded-md border bg-black text-left',
-                      isSelected ? 'border-[var(--gold)] ring-2 ring-[var(--gold)]/55' : 'border-white/10',
-                      isActive && 'shadow-[0_0_0_2px_rgba(56,189,248,0.55)]',
-                    )}
-                    style={{ width: `${zoom}px` }}
-                  >
-                    <FilmstripFrames clip={clip} zoom={zoom} />
-                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/75 to-transparent px-2 pb-2 pt-5">
-                      <div className="truncate text-[11px] font-semibold text-white">
-                        {index === 0 && mode === 'sequence' ? 'Agora: ' : ''}
-                        {clipDisplayName(clip, view.videos)}
-                      </div>
-                      <div className="mt-0.5 truncate font-mono text-[10px] text-slate-300">
-                        {formatClipTime(clip.startSec)} {'->'} {formatClipTime(clip.endSec)} | {clip.audio?.mode || 'muted'}
-                      </div>
-                    </div>
-                    <span className="absolute left-0 top-0 h-full w-2 cursor-ew-resize border-r border-[var(--gold)]/70 bg-[var(--gold)]/20" />
-                    <span className="absolute right-0 top-0 h-full w-2 cursor-ew-resize border-l border-[var(--gold)]/70 bg-[var(--gold)]/20" />
-                  </button>
-                  {connection && (
-                    <button
-                      type="button"
-                      onClick={() => onSelectConnection(connection.id)}
-                      className={cn(
-                        'group flex w-14 shrink-0 flex-col items-center justify-center gap-1 text-[9px] uppercase tracking-widest text-slate-500',
-                        connection.id === selectedConnectionId && 'text-[var(--gold)]',
-                      )}
-                      title={`Conexao ${connectionState || connection.id}`}
-                    >
-                      <span
-                        className={cn(
-                          'h-0.5 w-10 rounded-full bg-slate-700 transition group-hover:bg-[var(--gold)]',
-                          connection.id === activeConnectionId && 'animate-pulse bg-sky-300',
-                          nextIds.has(connection.id) && 'bg-emerald-300',
-                          blockedIds.has(connection.id) && 'bg-rose-400',
-                        )}
-                      />
-                      <Route className="h-3.5 w-3.5" />
-                      <span>{connectionState || 'link'}</span>
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      <aside className="border-t border-white/10 p-4 lg:border-l lg:border-t-0">
-        <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-          <SlidersHorizontal className="h-4 w-4 text-[var(--gold)]" />
-          Propriedades
-        </div>
-        {selectedClip?.nodeId ? (
-          <div className="space-y-3">
-            <div>
-              <div className="truncate text-sm font-semibold text-white">
-                {clipDisplayName(selectedClip, view.videos)}
-              </div>
-              <div className="mt-1 text-xs text-slate-500">
-                {selectedClip.nodeId === activeNodeId ? 'Clipe ativo no palco' : 'Clipe selecionado'}
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <Input
-                label="Inicio"
-                type="number"
-                step="0.1"
-                value={selectedClip.startSec}
-                onChange={(event) =>
-                  void onPatchClip(selectedClip.nodeId || '', { startSec: Number(event.target.value) || 0 })
-                }
-              />
-              <Input
-                label="Fim"
-                type="number"
-                step="0.1"
-                value={selectedClip.endSec ?? ''}
-                onChange={(event) =>
-                  void onPatchClip(selectedClip.nodeId || '', {
-                    endSec: event.target.value === '' ? null : Number(event.target.value) || null,
-                  })
-                }
-              />
-            </div>
-            <Input
-              label="Fade do clipe (ms)"
-              type="number"
-              min="0"
-              max="2000"
-              value={selectedClip.transitionMs}
-              onChange={(event) =>
-                void onPatchClip(selectedClip.nodeId || '', { transitionMs: Number(event.target.value) || 0 })
-              }
-            />
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-dashed border-white/10 p-4 text-sm text-slate-500">
-            Selecione um clipe com no no workflow para editar cortes.
-          </div>
-        )}
-
-        <div className="mt-4 border-t border-white/10 pt-4">
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-            Conexao
-          </div>
-          {selectedConnection ? (
-            <div className="space-y-3">
-              <div className="rounded-2xl border border-white/10 bg-black/25 p-3 text-xs text-slate-300">
-                {selectedConnection.fromVideoId} {'->'} {selectedConnection.toVideoId}
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Input
-                  label="Saida A"
-                  type="number"
-                  step="0.5"
-                  value={selectedConnection.connectionSettings?.previewTailSec ?? 2}
-                  onChange={(event) =>
-                    void onPatchConnection(selectedConnection.id, {
-                      previewTailSec: Number(event.target.value) || 2,
-                    })
-                  }
-                />
-                <Input
-                  label="Entrada B"
-                  type="number"
-                  step="0.5"
-                  value={selectedConnection.connectionSettings?.previewHeadSec ?? 2}
-                  onChange={(event) =>
-                    void onPatchConnection(selectedConnection.id, {
-                      previewHeadSec: Number(event.target.value) || 2,
-                    })
-                  }
-                />
-              </div>
-              <label className="block">
-                <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-                  Transicao
-                </span>
-                <select
-                  value={selectedConnection.connectionSettings?.fadeMode || 'crossfade'}
-                  onChange={(event) =>
-                    void onPatchConnection(selectedConnection.id, {
-                      fadeMode: event.target.value as ConnectionSettings['fadeMode'],
-                    })
-                  }
-                  className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
-                >
-                  <option value="cut">Corte seco</option>
-                  <option value="fade">Fade</option>
-                  <option value="crossfade">Crossfade</option>
-                </select>
-              </label>
-              <Input
-                label="Duracao transicao (ms)"
-                type="number"
-                min="0"
-                max="2000"
-                value={selectedConnection.connectionSettings?.transitionMs ?? 220}
-                onChange={(event) =>
-                  void onPatchConnection(selectedConnection.id, {
-                    transitionMs: Number(event.target.value) || 0,
-                  })
-                }
-              />
-              <Button size="sm" variant="secondary" onClick={onPreviewConnection}>
-                <Play className="h-4 w-4" />
-                Previa da conexao
-              </Button>
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-dashed border-white/10 p-4 text-sm text-slate-500">
-              Selecione uma conexao entre clipes.
-            </div>
-          )}
-        </div>
-      </aside>
-    </div>
-  );
-}
-
-function SelectionHandle({ className }: { className: string }) {
-  return (
-    <span
-      className={cn(
-        'pointer-events-none absolute h-2.5 w-2.5 border-2 border-[var(--gold)] bg-[#101114]',
-        className,
-      )}
-    />
-  );
-}
-
-function EditorIconButton({
-  children,
-  title,
-  onClick,
-  disabled,
-}: {
-  children: ReactNode;
-  title: string;
-  onClick?: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      disabled={disabled}
-      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-slate-300 transition hover:border-white/10 hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
-    >
-      {children}
-    </button>
-  );
-}
-
-function formatEditorTimestamp(seconds: number | null | undefined) {
-  const safeSeconds = Math.max(0, seconds || 0);
-  const minutes = Math.floor(safeSeconds / 60);
-  const wholeSeconds = Math.floor(safeSeconds % 60);
-  const centiseconds = Math.floor((safeSeconds % 1) * 100);
-  return `${String(minutes).padStart(2, '0')}:${String(wholeSeconds).padStart(2, '0')}.${String(centiseconds).padStart(2, '0')}`;
-}
-
 function StagePanel({
   runtime,
   capturedText,
   view,
   videoState,
-  obsDirectStatus,
   obsSettingsFromApp,
   onRefresh,
   onPlayVideoById,
-  onPatchFlowNodePlayback,
-  onPatchFlowConnectionSettings,
-  onStartLive,
-  // onRunReactiveFlow mantido na interface pública por compatibilidade futura
-  // (Fase 3 — conversa: a Odessa pode precisar enfileirar respostas via este canal)
-  onRunReactiveFlow: _onRunReactiveFlow,
-  aiDecision: aiDecisionProp,
 }: {
   runtime: AutopilotRuntimeState;
   capturedText: CapturedMessage[];
   view: HomeViewData;
   videoState: VideoState | null;
-  obsDirectStatus?: import('./lib/obsWebSocket').ObsDirectStatus | null;
   obsSettingsFromApp?: Record<string, unknown> | null;
   onRefresh: () => void;
   onPlayVideoById: (videoId: string, reason?: string) => Promise<unknown>;
-  onPatchFlowNodePlayback: (nodeId: string, patch: Partial<PlaybackSettings>) => Promise<void>;
-  onPatchFlowConnectionSettings: (
-    connectionId: string,
-    patch: Partial<ConnectionSettings>,
-  ) => Promise<void>;
-  onStartLive?: () => void | Promise<void>;
-  onRunReactiveFlow?: (text: string, source?: string) => Promise<unknown>;
-  /** Decisão da IA vinda do pipeline principal (OdessaLiveCenter).
-   *  O StagePanel mantém um estado local apenas para as simulações manuais —
-   *  o estado externo tem prioridade enquanto houver um evento ao vivo. */
-  aiDecision?: AiDecision;
 }) {
   const stageRef = useRef<HTMLDivElement>(null);
-  const [manualVideoId, setManualVideoId] = useState('');
   const [triggering, setTriggering] = useState(false);
   const [obsBusy, setObsBusy] = useState('');
-  const [obsMessage, setObsMessage] = useState<string | null>(null);
+  const [, setObsMessage] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [timelineMode, setTimelineMode] = useState<'sequence' | 'workflow'>('sequence');
-  const [timelineZoom, setTimelineZoom] = useState(140);
-  // ── AI Decision Panel state ──────────────────────────────────────────────────
-  // Estado local usado exclusivamente pelas simulações manuais (botão "Simular
-  // presente"). Para eventos ao vivo, o estado vem do pipeline principal via prop.
-  const [aiDecisionLocal, setAiDecisionLocal] = useState<AiDecision>(EMPTY_AI_DECISION);
-  // A prop tem prioridade; fallback para local quando estiver offline/vazio.
-  const aiDecision = aiDecisionProp ?? aiDecisionLocal;
-  const [showAiPanel, setShowAiPanel] = useState(false);
-  // ── Simulation / event log ───────────────────────────────────────────────────
-  const [simLogs, setSimLogs] = useState<LogEntry[]>([]);
-  const [showSimLog, setShowSimLog] = useState(false);
-  const addSimLog = useCallback((entry: LogEntry) => {
-    setSimLogs((prev) => [...prev.slice(-99), entry]);
-  }, []);
-  // ── Validation panel ────────────────────────────────────────────────────────
-  const [showValidation, setShowValidation] = useState(false);
-  const [selectedClipId, setSelectedClipId] = useState('');
-  const [selectedConnectionId, setSelectedConnectionId] = useState('');
-  const [previewMessage, setPreviewMessage] = useState<string | null>(null);
-  const [connectionPreviewClip, setConnectionPreviewClip] = useState<VideoClip | null>(null);
-  const previewTimersRef = useRef<number[]>([]);
 
   const runRoutedCommand = async (label: string, fn: () => Promise<CommandResult>) => {
     setObsBusy(label);
@@ -4067,31 +3319,6 @@ function StagePanel({
     }
   };
 
-  const runObsCommand = async (label: string, path: string) => {
-    setObsBusy(label);
-    setObsMessage(null);
-    try {
-      const response = await fetch(apiUrl(path), { method: 'POST' });
-      const data = (await response.json().catch(() => ({}))) as {
-        ok?: boolean;
-        status?: string;
-        sceneName?: string;
-        currentScene?: string;
-        mode?: string;
-        error?: string | null;
-      };
-      if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      setObsMessage(
-        `${label}: ${data.currentScene || data.sceneName || data.status || data.mode || 'ok'}`,
-      );
-      onRefresh();
-    } catch (err) {
-      setObsMessage(`${label}: ${err instanceof Error ? err.message : 'falha'}`);
-    } finally {
-      setObsBusy('');
-    }
-  };
-
   const toggleFullscreen = async () => {
     try {
       if (document.fullscreenElement) {
@@ -4104,99 +3331,6 @@ function StagePanel({
     }
   };
 
-  // ── Core event → AI pipeline (shared by real OCR events + simulation) ────────
-  const runCapturedEventThroughAi = useCallback(async (msg: CapturedMessage) => {
-    if (!msg.text?.trim()) return;
-
-    // If CaptureStudio already built a canonical OcrEvent, reuse it directly.
-    // This preserves gift keys, author, zone, and confidence from the ingest result
-    // without any reconstruction. Falls back to building from scratch for events
-    // that don't carry the canonical event (simulations, external sources, etc.).
-    const prebuilt = msg.metadata?.ocrEvent as OcrEvent | undefined;
-
-    // Map LiveEventKind → OcrEventType (fallback path)
-    const kindMap: Record<string, OcrEventType> = {
-      gift: 'gift', chat: 'comment', alert: 'system', system: 'system',
-    };
-    const eventType: OcrEventType = prebuilt?.eventType ?? kindMap[msg.kind] ?? 'unknown';
-
-    // Map LiveEventSource → OcrEvent source (fallback path)
-    const sourceMap: Record<string, OcrEvent['source']> = {
-      ocr: 'ocr', test: 'test', manual: 'manual',
-    };
-    const ocrSource = sourceMap[msg.source] ?? 'manual';
-
-    const sourceLabel =
-      msg.source === 'ocr' ? 'OCR ao vivo'
-      : msg.source === 'test' ? 'simulação'
-      : msg.source;
-
-    addSimLog(logEntry('captura', `Texto capturado (${sourceLabel})`, { detail: msg.text, status: 'info' }));
-    const zoneDetail = prebuilt
-      ? `${prebuilt.zoneName} · confiança ${Math.round(prebuilt.confidence * 100)}%`
-      : (msg.zoneName || '');
-    addSimLog(logEntry('parser', `Parseado como ${eventType}`, { detail: zoneDetail, status: 'ok' }));
-
-    const ocrEvent: OcrEvent = prebuilt ?? buildOcrEvent(msg.text, {
-      source: ocrSource,
-      eventType,
-      zoneName: msg.zoneName || 'chat',
-      confidence: (msg.metadata?.confidence as number | undefined) ?? (msg.source === 'ocr' ? 0.85 : 0.95),
-      metadata: {
-        giftName: (msg.metadata?.giftName as string | null) ?? null,
-        giftKey: (msg.metadata?.giftKey as string | null) ?? null,
-        giftValue: (msg.metadata?.giftValue as number | null) ?? null,
-      },
-    });
-
-    // Mostra estado de loading no painel de simulação enquanto a chamada está em voo.
-    // Para eventos ao vivo o estado "checking" é controlado pelo pipeline principal
-    // (OdessaLiveCenter) via prop — aqui só atualizamos o estado local de simulação.
-    setAiDecisionLocal(checkingAiDecision(ocrEvent));
-    addSimLog(logEntry('ia', 'Consultando motor de decisão…', { status: 'info' }));
-
-    const decision = await callAiDecision(ocrEvent, {
-      videos: view.videos,
-      triggers: view.triggers,
-    });
-    setAiDecisionLocal(decision);
-    const iaLabel = decision.status === 'online' ? '🟢 IA real' : '🟡 IA simulada';
-    addSimLog(logEntry('ia', `${iaLabel}: ${decision.reasoning}`, {
-      detail: `confiança ${Math.round(decision.confidence * 100)}%`,
-      status: 'ok',
-    }));
-
-    // Simulação: mostra o que a IA decidiu, mas não dispara gatilho real.
-    // O disparo real acontece apenas pelo pipeline principal em OdessaLiveCenter,
-    // que aplica o filtro de confiança e chama runReactiveFlow de forma controlada.
-    if (decision.selectedVideoId) {
-      addSimLog(logEntry('gatilho', `Simulação: IA escolheria → ${decision.selectedVideoId}`, { status: 'info' }));
-    }
-    const actionLabel: Record<AiDecision['recommendedAction'], string> = {
-      play_video: 'tocar vídeo', queue_video: 'enfileirar', wait: 'aguardar', no_action: 'sem ação',
-    };
-    addSimLog(logEntry('palco', `Simulação concluída (${actionLabel[decision.recommendedAction]}, confiança ${Math.round(decision.confidence * 100)}%)`, { status: 'ok' }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addSimLog, runtime, view.videos, view.triggers]);
-
-  // Nota: o useEffect que processava capturedText aqui foi removido.
-  // O pipeline de eventos ao vivo agora vive inteiramente em OdessaLiveCenter,
-  // garantindo que rode em todas as abas e sem double-ingest.
-
-  // ── Simulation shortcut ────────────────────────────────────────────────────
-  const simulateGift = () => {
-    const text = 'Lucas enviou Rosa';
-    void runCapturedEventThroughAi({
-      id: `sim-${Date.now()}`,
-      source: 'test',
-      zoneName: 'Simulação',
-      text,
-      kind: 'gift',
-      createdAt: new Date().toISOString(),
-      time: new Date().toISOString(),
-      metadata: { giftName: 'Rosa', simulated: true },
-    });
-  };
   const activeClip =
     (videoState?.currentClip ? applyVideoEdit(videoState.currentClip) : null) ||
     (videoState?.current_video_id
@@ -4204,7 +3338,6 @@ function StagePanel({
       : view.idleVideoId
         ? clipFromVideoId(view.idleVideoId, view.videos)
         : null);
-  const displayClip = connectionPreviewClip || activeClip;
   const upcomingClips = Array.isArray(videoState?.upcoming) ? videoState.upcoming : [];
 
   // ⚡ Bolt: Using backward loop instead of slice(-3).reverse()
@@ -4214,74 +3347,11 @@ function StagePanel({
   }
 
   const activeClipLabel = activeClip ? clipDisplayName(activeClip, view.videos) : 'Sem video selecionado';
-  const activeNodeId = videoState?.activeNodeId || activeClip?.nodeId || null;
-  const activeConnectionId = videoState?.activeConnectionId || null;
-  const selectedClip =
-    [activeClip, ...upcomingClips].find((clip) => clip?.nodeId && clip.nodeId === selectedClipId) ||
-    activeClip ||
-    null;
-  const selectedConnection =
-    view.connections.find((connection) => connection.id === selectedConnectionId) ||
-    view.connections.find((connection) => connection.id === activeConnectionId) ||
-    view.connections.find((connection) => connection.fromNodeId === selectedClip?.nodeId) ||
-    null;
-  const clipDuration =
-    activeClip?.endSec && activeClip.endSec > activeClip.startSec
-      ? activeClip.endSec - activeClip.startSec
-      : 6.04;
 
   const advanceVideo = async () => {
     await advanceReactiveFlow(videoState ?? null);
     onRefresh();
   };
-
-  const previewConnection = async () => {
-    if (!selectedConnection) {
-      setPreviewMessage('Selecione uma conexao para testar.');
-      return;
-    }
-    previewTimersRef.current.forEach((timer) => window.clearTimeout(timer));
-    previewTimersRef.current = [];
-    const fromNode = view.flowNodes.find((node) => node.nodeId === selectedConnection.fromNodeId);
-    const toNode = view.flowNodes.find((node) => node.nodeId === selectedConnection.toNodeId);
-    if (fromNode && toNode) {
-      const settings = selectedConnection.connectionSettings || {};
-      const tailSec = Math.max(0.5, Number(settings.previewTailSec || 2));
-      const headSec = Math.max(0.5, Number(settings.previewHeadSec || 2));
-      const fromClip = workflowClipFromNode(fromNode);
-      const toClip = workflowClipFromNode(toNode);
-      const fromEnd = fromClip.endSec ?? fromClip.startSec + tailSec;
-      const safeFromClip = {
-        ...fromClip,
-        startSec: Math.max(0, fromEnd - tailSec),
-        endSec: fromEnd,
-        transitionMs: settings.transitionMs ?? fromClip.transitionMs,
-      };
-      const safeToClip = {
-        ...toClip,
-        endSec: toClip.startSec + headSec,
-        transitionMs: settings.transitionMs ?? toClip.transitionMs,
-      };
-      setConnectionPreviewClip(safeFromClip);
-      previewTimersRef.current = [
-        window.setTimeout(() => setConnectionPreviewClip(safeToClip), tailSec * 1000),
-        window.setTimeout(() => setConnectionPreviewClip(null), (tailSec + headSec) * 1000),
-      ];
-    }
-    setPreviewMessage('Previa local tocando no palco; OBS/live/chat/TTS continuam intocados.');
-    await fetch(apiUrl('/api/video/workflow/preview-connection'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ connectionId: selectedConnection.id }),
-    }).catch(() => undefined);
-  };
-
-  useEffect(
-    () => () => {
-      previewTimersRef.current.forEach((timer) => window.clearTimeout(timer));
-    },
-    [],
-  );
 
   if (isFullscreen) {
     return (
@@ -4326,7 +3396,7 @@ function StagePanel({
       {/* Topo: preview + No ar agora + fila */}
       <div className="grid gap-4 lg:grid-cols-[minmax(260px,320px)_1fr]" style={{ alignItems: 'start' }}>
         <div className="relative overflow-hidden rounded-2xl border border-white/12 bg-black" style={{ aspectRatio: '9 / 16', maxHeight: 460 }}>
-          <ContinuityPlayer clip={displayClip} nextClip={videoState?.nextClip ? applyVideoEdit(videoState.nextClip) : null} videos={view.videos} onEnded={advanceVideo} fit="contain" className="h-full w-full" />
+          <ContinuityPlayer clip={activeClip} nextClip={videoState?.nextClip ? applyVideoEdit(videoState.nextClip) : null} videos={view.videos} onEnded={advanceVideo} fit="contain" className="h-full w-full" />
           <div className="pointer-events-none absolute right-2 top-2 rounded-full border border-white/15 bg-black/60 px-2.5 py-1 text-[9px] font-bold uppercase tracking-widest text-[var(--sky)]">No ar</div>
         </div>
 

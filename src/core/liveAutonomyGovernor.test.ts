@@ -57,6 +57,9 @@ const config = {
   chatReplyCooldownMs: 15_000,
   chatReplyMaxPerMinute: 4,
   chatReplyMinConfidence: 0.65,
+  localModelUrl: '',
+  localModelName: '',
+  localModelTemperature: 0.7,
 };
 
 describe('liveAutonomyGovernor', () => {

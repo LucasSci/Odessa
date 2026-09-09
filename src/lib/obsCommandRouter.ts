@@ -154,7 +154,7 @@ export async function routeLiveHealth(settings: ObsSettings | null): Promise<Com
   if (isObsDirectAvailable()) {
     try {
       const result = await obsLiveHealth(settings || undefined);
-      return { ...result, route: 'direct' };
+      return { ...result, route: 'direct', error: result.error ?? undefined };
     } catch (err) {
       return { ok: false, route: 'direct', error: err instanceof Error ? err.message : String(err) };
     }

@@ -63,6 +63,9 @@ const governorConfig = {
   chatReplyCooldownMs: 15_000,
   chatReplyMaxPerMinute: 2,
   chatReplyMinConfidence: 0.65,
+  localModelUrl: '',
+  localModelName: '',
+  localModelTemperature: 0.7,
 };
 
 function compactCycleSnapshot(cycle: AutopilotCycle) {

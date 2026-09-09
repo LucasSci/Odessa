@@ -41,7 +41,7 @@ let connectedPassword = '';
 
 function notify() {
   for (const fn of listeners) {
-    try { fn({ ...state }); } catch {}
+    try { fn({ ...state }); } catch { /* listener lancou excecao: ignora */ }
   }
 }
 
@@ -81,7 +81,7 @@ export async function connectObs(url: string, password?: string): Promise<boolea
 
 export function disconnectObs() {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-  try { obs.disconnect(); } catch {}
+  try { obs.disconnect(); } catch { /* socket ja fechado */ }
   connectedUrl = '';
   connectedPassword = '';
   setState({ state: 'disconnected', error: null, scenes: [], currentScene: null, streaming: false, recording: false });
@@ -120,7 +120,7 @@ async function refreshScenes() {
       scenes: (scenes as Array<{ sceneName: string }>).map((s) => s.sceneName).reverse(),
       currentScene: currentProgramSceneName,
     });
-  } catch {}
+  } catch { /* OBS nao respondeu ao GetSceneList */ }
 }
 
 async function refreshFullState() {
@@ -128,11 +128,11 @@ async function refreshFullState() {
   try {
     const streamStatus = await obs.call('GetStreamStatus');
     setState({ streaming: streamStatus.outputActive });
-  } catch {}
+  } catch { /* GetStreamStatus indisponivel */ }
   try {
     const recStatus = await obs.call('GetRecordStatus');
     setState({ recording: recStatus.outputActive });
-  } catch {}
+  } catch { /* GetRecordStatus indisponivel */ }
 }
 
 // --- Public commands ---

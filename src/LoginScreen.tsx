@@ -37,7 +37,7 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
         try {
           // localStorage (não sessionStorage) pra a sessão sobreviver a fechar a aba.
           window.localStorage.setItem('odessa:admin-session-token:v1', data.sessionToken);
-        } catch {}
+        } catch { /* storage indisponivel: sessao nao persiste ao fechar */ }
       }
       // Login automático: guarda as credenciais neste aparelho pra re-logar
       // sozinho em segundo plano (nunca mais pedir login). Ou limpa se desmarcado.

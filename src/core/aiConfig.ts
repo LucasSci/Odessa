@@ -34,7 +34,7 @@ Regras:
 - Para eventos de baixa relevância use intent: "idle_maintenance" e wait
 `;
 
-export type AiProvider = 'auto' | 'gemini' | 'mock';
+export type AiProvider = 'auto' | 'gemini' | 'local' | 'mock';
 
 /**
  * Nível de autonomia da Diretora de IA.
@@ -72,6 +72,12 @@ export type AiLocalConfig = {
   chatReplyMaxPerMinute: number;
   /** Confiança minima do OCR para permitir resposta publica. */
   chatReplyMinConfidence: number;
+  /** URL do servidor de modelo local (Ollama, LM Studio, llama.cpp). '' = nao configurado. */
+  localModelUrl: string;
+  /** Nome do modelo local (ex.: llama3, mistral, phi3). */
+  localModelName: string;
+  /** Temperatura do modelo local (0-2). */
+  localModelTemperature: number;
 };
 
 const DEFAULTS: AiLocalConfig = {
@@ -86,6 +92,9 @@ const DEFAULTS: AiLocalConfig = {
   chatReplyCooldownMs: 15_000,
   chatReplyMaxPerMinute: 4,
   chatReplyMinConfidence: 0.65,
+  localModelUrl: '',
+  localModelName: '',
+  localModelTemperature: 0.7,
 };
 
 function readRaw(): Partial<AiLocalConfig> {
@@ -104,7 +113,7 @@ export function getAiConfig(): AiLocalConfig {
   return {
     geminiKey: typeof stored.geminiKey === 'string' ? stored.geminiKey : DEFAULTS.geminiKey,
     systemPrompt: typeof stored.systemPrompt === 'string' ? stored.systemPrompt : DEFAULTS.systemPrompt,
-    provider: (['auto','gemini','mock'] as AiProvider[]).includes(stored.provider as AiProvider)
+    provider: (['auto','gemini','local','mock'] as AiProvider[]).includes(stored.provider as AiProvider)
       ? (stored.provider as AiProvider)
       : DEFAULTS.provider,
     confidenceThreshold: typeof stored.confidenceThreshold === 'number'

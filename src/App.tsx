@@ -7,8 +7,8 @@ import { getRecentEvents, replaceEvents } from './core/eventBus';
 import { useAutopilotRuntime } from './core/useAutopilotRuntime';
 import { apiUrl } from './lib/api';
 import { installCredentialedFetch } from './lib/fetchCredentials';
-import { startAutoLogin, ensureFreshSession, hasValidSession } from './lib/autoLogin';
-import { connectObs, disconnectObs, onObsStatus, type ObsDirectStatus } from './lib/obsWebSocket';
+import { startAutoLogin, ensureFreshSession } from './lib/autoLogin';
+import { connectObs, disconnectObs } from './lib/obsWebSocket';
 import {
   routeSetupLiveScene,
   routeShowStage,
@@ -46,33 +46,6 @@ type LiveConfig = {
   startCapture?: boolean;
   startTransmission?: boolean;
   actionMode?: 'simulated' | 'approval_required' | 'real';
-};
-
-type ObsHealth = {
-  ok?: boolean;
-  connected?: boolean;
-  sourceReady?: boolean;
-  screenshotReady?: boolean;
-  sourceName?: string;
-  error?: string | null;
-};
-
-type AgentStatus = {
-  ok?: boolean;
-  agentConnected?: boolean;
-  queueSize?: number;
-  message?: string;
-  agent?: {
-    agentId?: string;
-    host?: string;
-    version?: string;
-    lastSeenAt?: string;
-    capabilities?: string[];
-    health?: {
-      obsConnected?: boolean;
-      obs?: { error?: string | null; ok?: boolean; connected?: boolean };
-    };
-  } | null;
 };
 
 const LIVE_CONFIG_KEY = 'odessa:live-config:v1';
@@ -124,10 +97,7 @@ export default function App() {
   const [liveConfigOpen, setLiveConfigOpen] = useState(false);
   const [liveConfig, setLiveConfig] = useState<LiveConfig>(() => loadLiveConfig());
   const [liveStartError, setLiveStartError] = useState<string | null>(null);
-  // Agent removed — status always null (direct OBS connection replaces agent)
-  const agentStatus = null as AgentStatus | null;
 
-  const [obsDirectStatus, setObsDirectStatus] = useState<ObsDirectStatus | null>(null);
   const [obsSettings, setObsSettings] = useState<ObsSettingsState | null>(null);
 
   useEffect(() => {
@@ -152,8 +122,6 @@ export default function App() {
   // Fetches OBS settings from API, then connects to ws://localhost:<port>.
   useEffect(() => {
     if (!authenticated) return;
-    const unsub = onObsStatus(setObsDirectStatus);
-
     // Fetch settings from API and connect to OBS directly
     fetch(apiUrl('/obs/settings'))
       .then((res) => (res.ok ? res.json() : null))
@@ -176,7 +144,6 @@ export default function App() {
         connectObs('ws://localhost:4455');
       });
 
-    return unsub;
   }, [authenticated]);
 
   const setCapturedText = useCallback<Dispatch<SetStateAction<CapturedMessage[]>>>((value) => {
@@ -187,11 +154,6 @@ export default function App() {
   }, []);
 
   const runtime = useAutopilotRuntime({ capturedText, setCapturedText });
-
-
-  // Agent polling removed — no longer needed with direct OBS connection
-  const refreshAgentStatus = useCallback(async () => {}, []);
-
 
   useEffect(() => {
     try {
@@ -290,10 +252,7 @@ export default function App() {
       liveConfig={liveConfig}
       liveConfigOpen={liveConfigOpen}
       liveStartError={liveStartError}
-      agentStatus={agentStatus}
-      obsDirectStatus={obsDirectStatus}
       obsSettingsFromApp={obsSettings}
-      onRefreshAgentStatus={refreshAgentStatus}
       onLiveConfigOpenChange={setLiveConfigOpen}
       onLiveConfigChange={setLiveConfig}
       onStartLive={startLiveWithConfig}
@@ -301,11 +260,11 @@ export default function App() {
         setObsSettings(newSettings);
         let port = '4455';
         try {
-          const parsed = new URL(newSettings.websocketUrl || 'ws://localhost:4455');
+          const parsed = new URL((newSettings.websocketUrl as string | undefined) || 'ws://localhost:4455');
           port = parsed.port || '4455';
-        } catch {}
+        } catch { /* URL do OBS invalida: usa porta padrao 4455 */ }
         disconnectObs();
-        connectObs(`ws://localhost:${port}`, newSettings.websocketPassword || '');
+        connectObs(`ws://localhost:${port}`, (newSettings.websocketPassword as string | undefined) || '');
       }}
     />
   );

@@ -14,6 +14,8 @@ export interface OcrEventMetadata {
   giftValue?: number | null;
   giftQuantity?: number | null;
   originalFrameId?: string | null;
+  /** true quando o evento ja foi ingerido pelo backend (evita reprocessamento no cliente). */
+  backendIngested?: boolean;
   zoneImage?: string | null;          // base64 da zona capturada (para debug)
   visualMatchScore?: number | null;   // score do reconhecimento visual de presente
   matchMethod?: string | null;        // 'ahash' | 'ncc' | 'histogram' | 'color' | 'text'

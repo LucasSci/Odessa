@@ -123,7 +123,7 @@ export function loadChatAutomationTarget(): ChatAutomationTarget {
 }
 
 export function saveChatAutomationTarget(target: ChatAutomationTarget): ChatAutomationTarget {
-  const normalized = {
+  const normalized: ChatAutomationTarget = {
     mode: target.mode === 'visual' ? 'visual' : 'selector',
     url: target.url.trim(),
     inputSelector: target.inputSelector.trim(),

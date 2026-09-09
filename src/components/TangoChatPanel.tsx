@@ -13,7 +13,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity,
   AlertCircle,
   Bot,
   Check,
@@ -25,31 +24,21 @@ import {
   Edit3,
   ExternalLink,
   Eye,
-  Gift,
-  HelpCircle,
   History,
-  Key,
-  Layers,
-  ListFilter,
   Loader2,
-  Lock,
   MessageSquare,
-  Pause,
   Play,
   Radio,
   RefreshCw,
   RotateCcw,
   Send,
   Settings,
-  Shield,
   ShieldAlert,
   ShieldCheck,
-  Sliders,
   Sparkles,
   Square,
   Terminal,
   Trash2,
-  User,
   Tv,
   Wifi,
   WifiOff,
@@ -57,7 +46,7 @@ import {
   XCircle,
   Zap,
 } from 'lucide-react';
-import { Badge, Button, Input } from './ui';
+import { Badge, Button } from './ui';
 import { cn } from '../lib/utils';
 import {
   generateTangoChatReply,
@@ -280,7 +269,6 @@ export function TangoChatPanel({
   const processRunning = processStatus?.processRunning ?? false;
   const bridgeReachable = processStatus?.bridgeReachable ?? false;
   const bridgeConnected = processStatus?.bridgeStatus?.status === 'connected';
-  const bridgeError = processStatus?.bridgeStatus?.error;
 
   // ── Mensagens unificadas: bridge + capturedText do Odessa ──
   // Quando a bridge está offline, messages (bridge) está vazia. Convertemos
@@ -296,16 +284,6 @@ export function TangoChatPanel({
         timestamp: m.createdAt,
       }));
   }, [messages, bridgeConnected, odessaCapturedText]);
-
-  const combinedStatus = bridgeConnected
-    ? 'connected'
-    : connecting
-      ? 'connecting'
-      : bridgeReachable
-        ? 'reachable'
-        : processRunning
-          ? 'starting'
-          : 'stopped';
 
   // ── Polling de Status ─────────────────────────────
   const refreshStatus = useCallback(async () => {

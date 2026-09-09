@@ -30,13 +30,7 @@ import '@xyflow/react/dist/style.css';
 import {
   Download,
   FileText,
-  Image,
   Link2,
-  MessageSquare,
-  MoreHorizontal,
-  MousePointer2,
-  Move,
-  Plus,
   Save,
   StickyNote,
   Trash2,
@@ -49,7 +43,7 @@ import {
   Check,
   RefreshCw,
 } from 'lucide-react';
-import { Badge, Button } from './components/ui';
+import { Button } from './components/ui';
 import { apiUrl } from './lib/api';
 import { cn } from './lib/utils';
 
@@ -189,7 +183,9 @@ function StickyNoteNode({ id, data, selected }: NodeProps<Node<CanvasItemData>>)
           <GripVertical size={14} style={{ color: colors.text, opacity: 0.4 }} className="cursor-grab" />
           <div className="flex gap-1">
             {data.linkedTriggerId && (
-              <Zap size={12} style={{ color: colors.text }} title="Conectado ao Fluxo Reativo" />
+              <span title="Conectado ao Fluxo Reativo">
+                <Zap size={12} style={{ color: colors.text }} />
+              </span>
             )}
             <button onClick={cycleColor} title="Mudar cor">
               <Palette size={13} style={{ color: colors.text, opacity: 0.6 }} />
@@ -553,7 +549,7 @@ function nextId() {
 }
 
 function PlanningCanvasInner() {
-  const { screenToFlowPosition, getViewport } = useReactFlow();
+  const { getViewport } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<CanvasItemData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [dirty, setDirty] = useState(false);
@@ -854,12 +850,6 @@ function PlanningCanvasInner() {
     },
     [linkPanelNode],
   );
-
-  // ── Content change marks dirty ──
-  const onNodeDoubleClick = useCallback(() => {
-    // After editing completes, the node data changes → mark dirty
-    // This is handled by the individual node components calling setNodes
-  }, []);
 
   const selectedNodeData = useMemo(() => {
     if (!linkPanelNode) return null;

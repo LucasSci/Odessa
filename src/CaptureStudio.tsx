@@ -1314,29 +1314,6 @@ function zoneImgFingerprint(dataUrl: string): string {
  *   "user: Follow"        → "Follow"
  *   "user enviou Follow"  → "Follow"
  */
-function extractGiftKey(line: string): string | null {
-  // Strip trailing count: "x2", "× 3", "x 10"
-  let text = line.replace(/\s*[x×]\s*\d+\s*$/i, '').trim();
-
-  // Full format with Portuguese/English verb: "sender enviou/sent giftName"
-  const fullGiftRe = /^.{1,40}?\s+(?:enviou|mandou|presenteou\s+com|sent)\s+(.+)$/i;
-  const fullMatch = fullGiftRe.exec(text);
-  if (fullMatch) {
-    text = fullMatch[1].trim();
-  } else {
-    // Strip "user: " prefix
-    text = text.replace(/^@?[^\s:]{1,40}:\s*/, '').trim();
-    // Strip "@user " prefix
-    text = text.replace(/^@[^\s]+\s+/, '').trim();
-  }
-
-  if (text.length < 2 || text.length > 50) return null;
-  if (text.startsWith('@')) return null;
-  // Reject if it looks like a regular chat sentence (too many words)
-  if (text.trim().split(/\s+/).length > 5) return null;
-  return text;
-}
-
 // ─── Client-side OCR→trigger fallback ────────────────────────────────────────
 //
 // Used when the server returns the old format (simulated: true) — i.e. the
@@ -1403,7 +1380,6 @@ function normaliseGiftKeyClient(raw: string, fromVerbPattern = false): string {
  */
 function parseOcrLineForTrigger(
   line: string,
-  zoneRole: string,
 ): { eventType: 'gift' | 'comment'; giftKey?: string; text?: string; sender?: string; ocrRaw?: string } | null {
   const verbMatch = GIFT_VERB_RE_CLIENT.exec(line);
   if (verbMatch) {
@@ -1440,14 +1416,13 @@ function parseOcrLineForTrigger(
  */
 async function clientSideIngestFallback(
   freshLines: string[],
-  zoneRole: string,
   apiUrlFn: (path: string) => string,
 ): Promise<OcrIngestResult> {
   const triggered: OcrIngestResult['triggered'] = [];
   const noMatch: OcrIngestResult['noMatch'] = [];
 
   for (const line of freshLines) {
-    const parsed = parseOcrLineForTrigger(line, zoneRole);
+    const parsed = parseOcrLineForTrigger(line);
     if (!parsed) continue;
 
     try {
@@ -2678,7 +2653,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
     }
 
     addDirectLog(`[LinkDireto] capturePage disponivel: true`);
-    let dataUrl = '';
+    let dataUrl: string;
     try {
       const captured = await webview.capturePage();
       dataUrl = captured.toDataURL();
@@ -3170,7 +3145,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
               // In that case parse the already-resolved lines here in the browser
               // and call /video/trigger (which exists in the old server).
               if ((ingestResult as Record<string, unknown> | null)?.['simulated'] === true) {
-                ingestResult = await clientSideIngestFallback(resolvedLines, zone.role, apiUrl);
+                ingestResult = await clientSideIngestFallback(resolvedLines, apiUrl);
               }
             } catch (err) {
               const message = err instanceof Error ? err.message : 'Falha ao rotear evento';
@@ -4123,11 +4098,6 @@ const CaptureStudio = React.memo(function CaptureStudio({
                   <>
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     MODO LEGADO: ELECTRON WEBVIEW
-                  </>
-                ) : false ? (
-                  <>
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    Preview proxy experimental indisponivel para OCR
                   </>
                 ) : (
                   <>

@@ -13,6 +13,7 @@ import { useState } from 'react';
 import {
   Brain,
   ChevronDown,
+  Cpu,
   Key,
   RotateCcw,
   Sliders,

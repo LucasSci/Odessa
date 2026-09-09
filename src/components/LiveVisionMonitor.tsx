@@ -99,19 +99,11 @@ export function LiveVisionMonitor({ connected }: Props) {
     const vp = viewportRef.current;
     const canvasAR = rect.width / rect.height;
     const imgAR = vp.w / vp.h;
-    let dispW = rect.width;
-    let dispH = rect.height;
-    let offX = 0;
-    let offY = 0;
-    if (imgAR > canvasAR) {
-      dispW = rect.width;
-      dispH = rect.width / imgAR;
-      offY = (rect.height - dispH) / 2;
-    } else {
-      dispH = rect.height;
-      dispW = rect.height * imgAR;
-      offX = (rect.width - dispW) / 2;
-    }
+    const imgWiderThanCanvas = imgAR > canvasAR;
+    const dispW = imgWiderThanCanvas ? rect.width : rect.height * imgAR;
+    const dispH = imgWiderThanCanvas ? rect.width / imgAR : rect.height;
+    const offX = imgWiderThanCanvas ? 0 : (rect.width - dispW) / 2;
+    const offY = imgWiderThanCanvas ? (rect.height - dispH) / 2 : 0;
     const relX = clientX - rect.left - offX;
     const relY = clientY - rect.top - offY;
     if (relX < 0 || relY < 0 || relX > dispW || relY > dispH) return null;
