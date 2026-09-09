@@ -3,6 +3,8 @@ import hashlib
 import io
 import json
 import logging
+import os
+import time
 import urllib.parse
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -89,6 +91,12 @@ class OBSService:
         self.whitelist = [str(scene).strip() for scene in raw_whitelist if str(scene).strip()]
         self.connected = False
         self._client: Any = None
+        # Cooldown de reconexão: quando o OBS está offline, evita tentar
+        # reconectar a cada health check (que gerava logs ruidosos e conexões
+        # desnecessárias a cada ~15s). Após uma falha, só tenta de novo após
+        # OBS_RECONNECT_COOLDOWN_S segundos.
+        self._last_connect_attempt: float = 0.0
+        self._reconnect_cooldown_s = float(os.getenv("OBS_RECONNECT_COOLDOWN_S", "30"))
 
     @staticmethod
     def _positive_int(value: Any, fallback: int) -> int:
@@ -258,6 +266,16 @@ class OBSService:
             raise RuntimeError("simpleobsws is not installed. Run pip install -r server/requirements.txt.")
         if self.connected and self._client is not None:
             return
+
+        # Cooldown de reconexão: se a última tentativa falhou há pouco, não
+        # tenta de novo (evita logs ruidosos e conexões a cada health check).
+        now = time.monotonic()
+        if not self.connected and (now - self._last_connect_attempt) < self._reconnect_cooldown_s:
+            raise RuntimeError(
+                f"OBS WebSocket offline (reconexão em cooldown, tenta de novo em "
+                f"{int(self._reconnect_cooldown_s - (now - self._last_connect_attempt))}s)"
+            )
+        self._last_connect_attempt = now
 
         logger.info("[OBS] Connecting to %s", self.ws_url)
         self._client = simpleobsws.WebSocketClient(url=self.ws_url, password=self.password)

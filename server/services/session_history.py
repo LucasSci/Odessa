@@ -77,6 +77,12 @@ class SessionHistoryService:
         self.started_at: Optional[str] = None
         self.recent_events: List[Dict[str, Any]] = []
         self.max_buffer_size = 200
+        # Contador de eventos por sessão mantido em memória (evita recontar o
+        # arquivo JSONL inteiro a cada write — hot path da live).
+        self._event_counts: Dict[str, int] = {}
+        # Grava o índice de sessões a cada N eventos (em vez de a cada evento).
+        self._index_flush_interval = 50
+        self._events_since_index_flush = 0
 
     # ── Ciclo de vida da sessão ────────────────────────────────────────────
 
@@ -121,6 +127,9 @@ class SessionHistoryService:
         with self._lock:
             self.session_id = None
             self.started_at = None
+            self._events_since_index_flush = self._index_flush_interval
+        # Flush final do índice com o contador correto da sessão encerrada.
+        self._update_sessions_index(session_id=sid)
         return {"sessionId": sid, "endedAt": ended_at}
 
     # ── Registro ───────────────────────────────────────────────────────────
@@ -160,21 +169,28 @@ class SessionHistoryService:
             self.recent_events.insert(0, event)
             if len(self.recent_events) > self.max_buffer_size:
                 self.recent_events.pop()
-            self._update_sessions_index()
+            # Contador em memória — sem releitura do arquivo.
+            sid = event["sessionId"]
+            self._event_counts[sid] = self._event_counts.get(sid, 0) + 1
+            # Índice de sessões é gravado periodicamente, não a cada evento.
+            self._events_since_index_flush += 1
+            if self._events_since_index_flush >= self._index_flush_interval:
+                self._events_since_index_flush = 0
+                self._update_sessions_index()
 
     def _session_file(self, session_id: str) -> Path:
         return self.dir / f"{session_id}.jsonl"
 
-    def _update_sessions_index(self) -> None:
+    def _update_sessions_index(self, session_id: Optional[str] = None) -> None:
         try:
             sessions = self._load_sessions()
-            sid = self.session_id
+            sid = session_id or self.session_id
             if sid:
                 sessions[sid] = {
                     "sessionId": sid,
                     "startedAt": self.started_at or _now(),
                     "endedAt": None,
-                    "eventCount": self._count_events(sid),
+                    "eventCount": self._event_counts.get(sid, 0),
                 }
             self.sessions_file.write_text(
                 json.dumps(sessions, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -192,11 +208,18 @@ class SessionHistoryService:
             return {}
 
     def _count_events(self, session_id: str) -> int:
+        # Usa o contador em memória quando disponível (hot path); só lê o
+        # arquivo para sessões de execuções anteriores.
+        cached = self._event_counts.get(session_id)
+        if cached is not None:
+            return cached
         path = self._session_file(session_id)
         if not path.exists():
             return 0
         try:
-            return sum(1 for _ in path.open(encoding="utf-8"))
+            count = sum(1 for _ in path.open(encoding="utf-8"))
+            self._event_counts[session_id] = count
+            return count
         except Exception:
             return 0
 
