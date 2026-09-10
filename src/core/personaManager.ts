@@ -107,3 +107,37 @@ export async function deletePersona(id: string): Promise<{ ok: boolean; activePe
     method: 'DELETE',
   });
 }
+
+// ── Configuração de transmissão por persona ─────────────────────────────────
+
+export type TransmissionConfig = {
+  startupSceneName: string;
+  liveSceneName: string;
+  stageSourceName: string;
+  stageUrl: string;
+  chatSourceName: string;
+  transmissionMode: string;
+  canvasWidth: number;
+  canvasHeight: number;
+};
+
+export async function getPersonaTransmission(
+  id: string,
+): Promise<{ ok: boolean; transmissionConfig: TransmissionConfig }> {
+  return request<{ ok: boolean; transmissionConfig: TransmissionConfig }>(
+    `/personas/${id}/transmission`,
+  );
+}
+
+export async function setPersonaTransmission(
+  id: string,
+  config: TransmissionConfig,
+): Promise<{ ok: boolean; transmissionConfig: TransmissionConfig }> {
+  return request<{ ok: boolean; transmissionConfig: TransmissionConfig }>(
+    `/personas/${id}/transmission`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    },
+  );
+}

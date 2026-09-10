@@ -83,6 +83,34 @@ class ActiveScenarioRequest(BaseModel):
     scenarioId: str
 
 
+class TransmissionConfigRequest(BaseModel):
+    startupSceneName: str = ""
+    liveSceneName: str = ""
+    stageSourceName: str = ""
+    stageUrl: str = ""
+    chatSourceName: str = ""
+    transmissionMode: str = "stream"
+    canvasWidth: int = 1080
+    canvasHeight: int = 1920
+
+
+def _read_persona_config_raw(persona_id: str) -> dict:
+    """Lê o config JSON bruto de uma persona específica (sem normalizar)."""
+    config_path = persona_manager.get_persona_config_path(persona_id)
+    if not config_path.exists():
+        return {}
+    with open(config_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _write_persona_config_raw(persona_id: str, config: dict) -> None:
+    """Escreve o config JSON bruto de uma persona específica."""
+    config_path = persona_manager.get_persona_config_path(persona_id)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+
+
 @router.get("")
 async def list_personas():
     """Lista todas as personas e qual é a ativa."""
@@ -412,3 +440,40 @@ async def set_persona_active_scenario(persona_id: str, request: ActiveScenarioRe
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     return {"ok": True, "activeScenarioId": request.scenarioId}
+
+
+# ── Configuração de transmissão por persona ─────────────────────────────────
+
+DEFAULT_TRANSMISSION_CONFIG = {
+    "startupSceneName": "",
+    "liveSceneName": "",
+    "stageSourceName": "",
+    "stageUrl": "",
+    "chatSourceName": "",
+    "transmissionMode": "stream",
+    "canvasWidth": 1080,
+    "canvasHeight": 1920,
+}
+
+
+@router.get("/{persona_id}/transmission")
+async def get_persona_transmission(persona_id: str):
+    """Retorna a configuração de transmissão única da persona."""
+    if persona_manager.get_persona(persona_id) is None:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' não encontrada")
+    config = _read_persona_config_raw(persona_id)
+    tx = config.get("transmissionConfig", {})
+    # Mescla com defaults para garantir que todos os campos existam
+    merged = {**DEFAULT_TRANSMISSION_CONFIG, **tx}
+    return {"ok": True, "transmissionConfig": merged}
+
+
+@router.put("/{persona_id}/transmission")
+async def set_persona_transmission(persona_id: str, request: TransmissionConfigRequest):
+    """Salva a configuração de transmissão única da persona."""
+    if persona_manager.get_persona(persona_id) is None:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' não encontrada")
+    config = _read_persona_config_raw(persona_id)
+    config["transmissionConfig"] = request.model_dump()
+    _write_persona_config_raw(persona_id, config)
+    return {"ok": True, "transmissionConfig": config["transmissionConfig"]}

@@ -324,5 +324,15 @@
     "publishedAt": null,
     "publishedFromDraftId": null,
     "lastValidation": null
+  },
+  "transmissionConfig": {
+    "startupSceneName": "",
+    "liveSceneName": "Barbara LIVE",
+    "stageSourceName": "",
+    "stageUrl": "",
+    "chatSourceName": "",
+    "transmissionMode": "stream",
+    "canvasWidth": 1080,
+    "canvasHeight": 1920
   }
 }

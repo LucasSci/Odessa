@@ -48,6 +48,7 @@ import {
 } from '../core/personaManager';
 import { saveAiConfig } from '../core/aiConfig';
 import PersonaVisualBoard from './PersonaVisualBoard';
+import TransmissionConfigPanel from './TransmissionConfigPanel';
 
 // ─── Roteiro de Vídeos (template copiável) ───────────────────────────
 // Cada persona deve ter estes categorias de vídeo. O nome do arquivo segue
@@ -291,6 +292,12 @@ export function PersonasPanel() {
                 onActivate={() => handleActivate(selectedPersona.id)}
                 onChanged={refresh}
                 onError={setError}
+              />
+
+              {/* Configuração de transmissão única por persona */}
+              <TransmissionConfigPanel
+                personaId={selectedPersona.id}
+                personaName={selectedPersona.name}
               />
 
               {/* Roteiro de Vídeos */}
