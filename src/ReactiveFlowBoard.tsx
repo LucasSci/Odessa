@@ -705,6 +705,14 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   const flowNodes = useMemo(() => config?.flowNodes || [], [config?.flowNodes]);
   const idleVideoId = config?.idleVideoId || '';
   const nodeById = useMemo(() => new Map(flowNodes.map((node) => [node.nodeId, node])), [flowNodes]);
+  // ⚡ Bolt: Precompute node copies to replace O(N*M) calculation in render loop with O(1) map lookup
+  const nodeCountByVideoId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const node of flowNodes) {
+      counts.set(node.videoId, (counts.get(node.videoId) || 0) + 1);
+    }
+    return counts;
+  }, [flowNodes]);
   const selectedFlowNode = nodeById.get(selectedNodeId);
   const selectedVideo = findVideo(videos, selectedFlowNode?.videoId);
   const selectedConnection = connections.find((connection) => connection.id === selectedEdgeId);
@@ -1649,7 +1657,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
         <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar videos..." />
         <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
           {filteredVideos.map((video) => {
-            const copies = flowNodes.filter((node) => node.videoId === video.id).length;
+            const copies = nodeCountByVideoId.get(video.id) || 0;
             return (
               <button
                 key={video.id}
