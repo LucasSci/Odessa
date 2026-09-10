@@ -102,10 +102,21 @@ async def get_active_persona():
 
 @router.post("/active")
 async def set_active_persona(request: PersonaActiveRequest):
-    """Define a persona ativa."""
+    """Define a persona ativa e recarrega a automação/vídeo da nova persona."""
     persona_id = request.id
     if not persona_manager.set_active_persona(persona_id):
         raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' não encontrada")
+
+    # Recarrega a config dos singletons para a persona ativa — sem isso o
+    # VideoService e o TriggerEngine continuam usando vídeos/gatilhos da
+    # persona anterior, e o OBS exibe vídeo da persona errada.
+    from server.services.video_service import video_service
+    from server.services.automation.engine import trigger_engine
+
+    video_service.refresh_config()
+    trigger_engine.refresh_config()
+    video_service.return_to_idle()
+
     return {
         "ok": True,
         "activePersonaId": persona_manager.get_active_persona_id(),
