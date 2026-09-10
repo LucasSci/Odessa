@@ -188,6 +188,7 @@ export function TangoChatPanel({
 
   // ── Chat & Mensagens ──────────────────────────────
   const [draftText, setDraftText] = useState('');
+  const [chatCompact, setChatCompact] = useState(false);
   const [sending, setSending] = useState(false);
   const [generatingProactive, setGeneratingProactive] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -1180,6 +1181,8 @@ export function TangoChatPanel({
                     onLoadHistory={() => void handleLoadHistory()}
                     onClearChat={handleClearChat}
                     heightClass="h-full min-h-[520px]"
+                    compact={chatCompact}
+                    onToggleCompact={() => setChatCompact((c) => !c)}
                   />
                 </div>
                 {/* Coluna Fila de Respostas IA unificada */}
@@ -1351,6 +1354,8 @@ export function TangoChatPanel({
                   onDiscardReply={handleDiscardReply}
                   onViewReplies={() => setSubTab('live')}
                   messagesEndRef={messagesEndRef}
+                  chatCompact={chatCompact}
+                  onToggleChatCompact={() => setChatCompact((c) => !c)}
                 />
               ) : (
                 <div className="flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-[#0c0e12] p-12 text-center">

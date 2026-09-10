@@ -72,6 +72,8 @@ export interface UnifiedLivePanelProps {
   onDiscardReply: (id: string) => void;
   onViewReplies: () => void;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
+  chatCompact?: boolean;
+  onToggleChatCompact?: () => void;
 }
 
 // ── Component ──
@@ -103,6 +105,8 @@ export function UnifiedLivePanel({
   onDiscardReply,
   onViewReplies,
   messagesEndRef,
+  chatCompact = false,
+  onToggleChatCompact,
 }: UnifiedLivePanelProps) {
   const isLive = runtime.autopilotEnabled;
 
@@ -220,6 +224,8 @@ export function UnifiedLivePanel({
             replyQueueCount={pendingReplies.length}
             onViewReplies={onViewReplies}
             heightClass="h-full min-h-[400px]"
+            compact={chatCompact}
+            onToggleCompact={onToggleChatCompact}
           />
 
           {/* Fila de Respostas IA (compacta) */}
