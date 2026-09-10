@@ -79,6 +79,10 @@ class ScenarioRequest(BaseModel):
     wardrobeKitId: Optional[str] = None
 
 
+class ActiveScenarioRequest(BaseModel):
+    scenarioId: str
+
+
 @router.get("")
 async def list_personas():
     """Lista todas as personas e qual é a ativa."""
@@ -383,3 +387,17 @@ async def remove_persona_scenario(persona_id: str, scenario_id: str):
     if not persona_visual.delete_scenario(persona_id, scenario_id):
         raise HTTPException(status_code=404, detail="Cenário não encontrado")
     return {"ok": True}
+
+
+@router.put("/{persona_id}/visual/active-scenario")
+async def set_persona_active_scenario(persona_id: str, request: ActiveScenarioRequest):
+    """Define o cenário atual da persona (persistido no banco)."""
+    if persona_manager.get_persona(persona_id) is None:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' não encontrada")
+    try:
+        persona_visual.set_active_scenario(persona_id, request.scenarioId)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return {"ok": True, "activeScenarioId": request.scenarioId}

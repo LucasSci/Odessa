@@ -76,7 +76,13 @@ def get_visual(persona_id: str) -> Dict[str, Any]:
                 "wardrobeKitId": s.get("wardrobeKitId") if s.get("wardrobeKitId") in kit_ids else None,
             }
         )
-    return {"wardrobeKits": kits, "scenarios": scenarios}
+    scenario_ids = {s.get("id") for s in visual["scenarios"]}
+    active = visual.get("activeScenarioId")
+    return {
+        "activeScenarioId": active if active in scenario_ids else None,
+        "wardrobeKits": kits,
+        "scenarios": scenarios,
+    }
 
 
 def create_wardrobe_kit(
@@ -172,12 +178,27 @@ def create_scenario(
 
 
 def delete_scenario(persona_id: str, scenario_id: str) -> bool:
-    """Remove um cenário."""
+    """Remove um cenário (limpa o cenário atual se for o removido)."""
     index = _ensure_default_persona(_load_index())
     visual = _get_visual(index, persona_id)
     before = len(visual["scenarios"])
     visual["scenarios"] = [s for s in visual["scenarios"] if s.get("id") != scenario_id]
     if len(visual["scenarios"]) == before:
         return False
+    if visual.get("activeScenarioId") == scenario_id:
+        visual["activeScenarioId"] = None
     _save_index(index)
     return True
+
+
+def set_active_scenario(persona_id: str, scenario_id: str) -> str:
+    """Define o cenário atual da persona."""
+    index = _ensure_default_persona(_load_index())
+    visual = _get_visual(index, persona_id)
+    if scenario_id not in {s.get("id") for s in visual["scenarios"]}:
+        raise ValueError(f"Cenário '{scenario_id}' não encontrado")
+    visual["activeScenarioId"] = scenario_id
+    if not _save_index(index):
+        raise RuntimeError("Falha ao salvar cenário atual")
+    logger.info("Cenário atual de '%s' definido como '%s'", persona_id, scenario_id)
+    return scenario_id

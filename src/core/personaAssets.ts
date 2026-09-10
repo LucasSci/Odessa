@@ -160,6 +160,7 @@ export type Scenario = {
 };
 
 export type PersonaVisual = {
+  activeScenarioId?: string | null;
   wardrobeKits: WardrobeKit[];
   scenarios: Scenario[];
 };
@@ -217,4 +218,17 @@ export async function deleteScenario(
   return request<{ ok: boolean }>(`/personas/${personaId}/visual/scenarios/${scenarioId}`, {
     method: 'DELETE',
   });
+}
+
+export async function setActiveScenario(
+  personaId: string,
+  scenarioId: string,
+): Promise<{ ok: boolean; activeScenarioId: string }> {
+  return request<{ ok: boolean; activeScenarioId: string }>(
+    `/personas/${personaId}/visual/active-scenario`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ scenarioId }),
+    },
+  );
 }

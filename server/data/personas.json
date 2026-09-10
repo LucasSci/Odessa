@@ -19,7 +19,8 @@
       "createdAt": "2026-09-02T01:55:49.695004+00:00",
       "visual": {
         "wardrobeKits": [],
-        "scenarios": []
+        "scenarios": [],
+        "activeScenarioId": null
       },
       "assets": {
         "faces": [],

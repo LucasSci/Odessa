@@ -47,6 +47,7 @@ import {
   type PersonaMeta,
 } from '../core/personaManager';
 import { saveAiConfig } from '../core/aiConfig';
+import PersonaVisualBoard from './PersonaVisualBoard';
 
 // ─── Roteiro de Vídeos (template copiável) ───────────────────────────
 // Cada persona deve ter estes categorias de vídeo. O nome do arquivo segue
@@ -261,6 +262,9 @@ export function PersonasPanel() {
           {error}
         </div>
       )}
+
+      {/* Painel Visual: rosto, cenário atual e peças do kit de cada persona */}
+      <PersonaVisualBoard />
 
       <div className="grid gap-4 lg:grid-cols-12">
         {/* ─── Lista de Personas ─── */}
