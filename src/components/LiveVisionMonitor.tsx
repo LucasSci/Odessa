@@ -21,16 +21,14 @@ import {
   ExternalLink,
   Keyboard,
   Loader2,
-  Maximize2,
   MousePointerClick,
   Navigation,
   Radio,
   RefreshCw,
   Send,
   Square,
-  Tv,
 } from 'lucide-react';
-import { Badge, Button, Input } from './ui';
+import { Button, Input } from './ui';
 import { cn } from '../lib/utils';
 
 const BRIDGE_URL = '/tango-bridge';
@@ -405,64 +403,34 @@ export function LiveVisionMonitor({ connected }: Props) {
 
   return (
     <div className="space-y-3">
-      {/* ── Cabeçalho / Status ─────────────────────────────── */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#0c0e12] p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
-            <Tv className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold text-white">Compartilhamento de Tela ao Vivo</h3>
-              <span
-                className={cn(
-                  'flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border',
-                  live
-                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
-                    : connecting
-                      ? 'border-amber-500/30 bg-amber-500/10 text-amber-400'
-                      : 'border-white/10 bg-black/40 text-slate-500'
-                )}
-              >
-                <span className={cn('h-1.5 w-1.5 rounded-full', live ? 'bg-emerald-400 animate-ping' : 'bg-slate-500')} />
-                {live
-                  ? 'Ao Vivo'
-                  : connecting
-                    ? wsAttempts > 0
-                      ? 'Reconectando…'
-                      : 'Conectando…'
-                    : 'Desconectado'}
-              </span>
-              {connecting && wsAttempts > 0 && (
-                <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-400">
-                  {Math.min(wsAttempts, WS_MAX_ATTEMPTS)}/{WS_MAX_ATTEMPTS}
-                </span>
-              )}
-              {streaming && !connecting && !live && wsAttempts > WS_MAX_ATTEMPTS && (
-                <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border border-red-500/30 bg-red-500/10 text-red-400">
-                  Stream pausado — pause e retome
-                </span>
-              )}
-              {live && (
-                <Badge variant="default" className="text-[10px] font-mono">
-                  {fps} fps · {frameCount} frames
-                </Badge>
-              )}
-            </div>
-            <p className="text-[11px] text-slate-400 mt-0.5 max-w-xl leading-relaxed">
-              {pageUrl ? (
-                <span className="truncate inline-block max-w-full align-bottom">
-                  {pageUrl}
-                </span>
-              ) : (
-                'Stream de vídeo em tempo real via CDP Screencast — clique e digite direto na tela.'
-              )}
-            </p>
-          </div>
+      {/* ── Cabeçalho compacto ─────────────────────────────── */}
+      <div className="flex items-center justify-between gap-2 px-1">
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              'flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border',
+              live
+                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                : connecting
+                  ? 'border-amber-500/30 bg-amber-500/10 text-amber-400'
+                  : 'border-white/10 bg-black/40 text-slate-500'
+            )}
+          >
+            <span className={cn('h-1.5 w-1.5 rounded-full', live ? 'bg-emerald-400 animate-ping' : 'bg-slate-500')} />
+            {live ? 'Ao Vivo' : connecting ? (wsAttempts > 0 ? 'Reconectando…' : 'Conectando…') : 'Desconectado'}
+          </span>
+          {connecting && wsAttempts > 0 && (
+            <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-400">
+              {Math.min(wsAttempts, WS_MAX_ATTEMPTS)}/{WS_MAX_ATTEMPTS}
+            </span>
+          )}
+          {streaming && !connecting && !live && wsAttempts > WS_MAX_ATTEMPTS && (
+            <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border border-red-500/30 bg-red-500/10 text-red-400">
+              Stream pausado
+            </span>
+          )}
         </div>
-
-        {/* Controles de fluxo */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2">
           {connected && (
             <Button
               size="sm"
@@ -525,13 +493,7 @@ export function LiveVisionMonitor({ connected }: Props) {
           </div>
         )}
 
-        {/* Dica de interação */}
-        {live && (
-          <div className="pointer-events-none absolute top-3 right-3 flex items-center gap-1.5 rounded-lg bg-black/60 px-2.5 py-1 backdrop-blur">
-            <Maximize2 className="h-3 w-3 text-slate-300" />
-            <span className="text-[10px] text-slate-300">Clique na tela · digite com o teclado</span>
-          </div>
-        )}
+
 
         {/* Conectando */}
         {connecting && (
@@ -551,102 +513,62 @@ export function LiveVisionMonitor({ connected }: Props) {
         )}
       </div>
 
-      {/* ── Barra de interação ─────────────────────────────── */}
+      {/* ── Barra de interação compacta ────────────────────── */}
       {connected && (
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-          {/* Digitar na página */}
-          <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-3 space-y-2">
-            <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-slate-400">
-              <MousePointerClick className="h-3.5 w-3.5 text-sky-400" /> Digitar na Página
-            </div>
-            <div className="flex gap-2">
-              <Input
-                value={typeText}
-                onChange={(e) => setTypeText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void handleSendType();
-                }}
-                placeholder="Texto para o campo focado da live…"
-                className="h-9 flex-1 text-xs"
-              />
-              <Button size="sm" variant="primary" disabled={busy || !typeText.trim()} onClick={() => void handleSendType()}>
-                <Send className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            <p className="text-[10px] text-slate-600">
-              Clique no campo desejado na tela ao lado para focá-lo, depois digite. Ou use o teclado direto (clique na tela p/ focar o quadro).
-            </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex items-center gap-2">
+            <Input
+              value={typeText}
+              onChange={(e) => setTypeText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void handleSendType();
+              }}
+              placeholder="Digitar na página…"
+              className="h-9 w-56 text-xs"
+            />
+            <Button size="sm" variant="primary" disabled={busy || !typeText.trim()} onClick={() => void handleSendType()}>
+              <Send className="h-3.5 w-3.5" />
+            </Button>
           </div>
-
-          {/* Teclas rápidas + scroll */}
-          <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-3 space-y-2">
-            <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-slate-400">
-              <Keyboard className="h-3.5 w-3.5 text-violet-400" /> Teclas &amp; Scroll
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {QUICK_KEYS.map((k) => (
-                <Button
-                  key={k.key}
-                  size="sm"
-                  variant="secondary"
-                  disabled={!live}
-                  onClick={() => sendWs({ type: 'key', key: k.key })}
-                  title={k.label}
-                >
-                  {k.icon}
-                  {k.label}
-                </Button>
-              ))}
-              <Button size="sm" variant="secondary" disabled={!live} onClick={() => handleScrollBtn('up')}>
-                <ArrowUp className="h-3.5 w-3.5" />
+          <div className="flex flex-wrap gap-1.5">
+            {QUICK_KEYS.map((k) => (
+              <Button
+                key={k.key}
+                size="sm"
+                variant="secondary"
+                disabled={!live}
+                onClick={() => sendWs({ type: 'key', key: k.key })}
+                title={k.label}
+              >
+                {k.icon}
+                {k.label}
               </Button>
-              <Button size="sm" variant="secondary" disabled={!live} onClick={() => handleScrollBtn('down')}>
-                <ArrowDown className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
-
-          {/* Navegar para URL */}
-          <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-3 space-y-2">
-            <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-slate-400">
-              <Navigation className="h-3.5 w-3.5 text-emerald-400" /> Navegar
-            </div>
-            <div className="flex gap-2">
-              <Input
-                value={gotoUrl}
-                onChange={(e) => setGotoUrl(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void handleGoto();
-                }}
-                placeholder="https://tango.me/stream/broadcast"
-                className="h-9 flex-1 text-xs"
-              />
-              <Button size="sm" variant="primary" disabled={busy || !gotoUrl.trim()} onClick={() => void handleGoto()}>
-                <ExternalLink className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            {pageMeta ? (
-              <Badge variant="default" className="text-[10px]">
-                Viewport {pageMeta.w}×{pageMeta.h}
-              </Badge>
-            ) : null}
-          </div>
-        </div>
-      )}
-
-      {/* ── Log de ações ───────────────────────────────────── */}
-      {connected && actionLog.length > 0 && (
-        <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-3">
-          <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-2">
-            <Eye className="h-3.5 w-3.5" /> Interações recentes
-          </div>
-          <div className="space-y-1 max-h-28 overflow-y-auto">
-            {actionLog.map((line, i) => (
-              <p key={i} className="text-[11px] font-mono text-slate-500">{line}</p>
             ))}
+            <Button size="sm" variant="secondary" disabled={!live} onClick={() => handleScrollBtn('up')}>
+              <ArrowUp className="h-3.5 w-3.5" />
+            </Button>
+            <Button size="sm" variant="secondary" disabled={!live} onClick={() => handleScrollBtn('down')}>
+              <ArrowDown className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <Input
+              value={gotoUrl}
+              onChange={(e) => setGotoUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void handleGoto();
+              }}
+              placeholder="Navegar para URL…"
+              className="h-9 w-48 text-xs"
+            />
+            <Button size="sm" variant="primary" disabled={busy || !gotoUrl.trim()} onClick={() => void handleGoto()}>
+              <ExternalLink className="h-3.5 w-3.5" />
+            </Button>
           </div>
         </div>
       )}
+
+
     </div>
   );
 }
