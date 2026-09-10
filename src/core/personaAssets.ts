@@ -138,3 +138,83 @@ export async function getVideoTypes(): Promise<{
     '/personas/meta/video-types',
   );
 }
+
+// ── Kits de roupas e cenários ───────────────────────────────────────────────
+
+export type WardrobeKit = {
+  id: string;
+  name: string;
+  description?: string;
+  pieceIds: string[];
+  createdAt?: string;
+};
+
+export type Scenario = {
+  id: string;
+  name: string;
+  description?: string;
+  faceId?: string | null;
+  environmentId?: string | null;
+  wardrobeKitId?: string | null;
+  createdAt?: string;
+};
+
+export type PersonaVisual = {
+  wardrobeKits: WardrobeKit[];
+  scenarios: Scenario[];
+};
+
+export async function getPersonaVisual(personaId: string): Promise<PersonaVisual> {
+  return request<PersonaVisual>(`/personas/${personaId}/visual`);
+}
+
+export async function createWardrobeKit(
+  personaId: string,
+  data: { name: string; description?: string; pieceIds: string[] },
+): Promise<{ ok: boolean; kit: WardrobeKit }> {
+  return request<{ ok: boolean; kit: WardrobeKit }>(
+    `/personas/${personaId}/visual/wardrobe-kits`,
+    {
+      method: 'POST',
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+export async function deleteWardrobeKit(
+  personaId: string,
+  kitId: string,
+): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(
+    `/personas/${personaId}/visual/wardrobe-kits/${kitId}`,
+    { method: 'DELETE' },
+  );
+}
+
+export async function createScenario(
+  personaId: string,
+  data: {
+    name: string;
+    description?: string;
+    faceId?: string;
+    environmentId?: string;
+    wardrobeKitId?: string;
+  },
+): Promise<{ ok: boolean; scenario: Scenario }> {
+  return request<{ ok: boolean; scenario: Scenario }>(
+    `/personas/${personaId}/visual/scenarios`,
+    {
+      method: 'POST',
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+export async function deleteScenario(
+  personaId: string,
+  scenarioId: string,
+): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/personas/${personaId}/visual/scenarios/${scenarioId}`, {
+    method: 'DELETE',
+  });
+}

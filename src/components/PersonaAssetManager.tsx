@@ -25,6 +25,7 @@ import {
   type VideoTemplates,
 } from '../core/personaAssets';
 import { generateFromTemplate } from '../core/videoGenApi';
+import PersonaVisualManager from './PersonaVisualManager';
 
 type Props = {
   personaId: string;
@@ -75,7 +76,7 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState<AssetCategory | null>(null);
-  const [activeTab, setActiveTab] = useState<'assets' | 'templates'>('assets');
+  const [activeTab, setActiveTab] = useState<'assets' | 'visual' | 'templates'>('assets');
   const [activeCategory, setActiveCategory] = useState<AssetCategory>('faces');
   const [editingLabel, setEditingLabel] = useState<string | null>(null);
   const [labelDraft, setLabelDraft] = useState('');
@@ -202,7 +203,7 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
             Assets Visuais — {personaName}
           </h3>
           <p className="mt-0.5 text-xs text-slate-400">
-            Rostos, ambiente e roupas para produção automatizada de vídeos
+            Rostos, kits de roupas e cenários para produção automatizada de vídeos
           </p>
         </div>
         <div className="flex gap-1 rounded-xl border border-white/10 bg-black/20 p-1">
@@ -216,6 +217,17 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
             }`}
           >
             Imagens
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('visual')}
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              activeTab === 'visual'
+                ? 'bg-violet-600 text-white'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Kits &amp; Cenários
           </button>
           <button
             type="button"
@@ -371,6 +383,11 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
             )}
           </div>
         </>
+      )}
+
+      {/* ── Tab: Kits & Cenários ── */}
+      {activeTab === 'visual' && (
+        <PersonaVisualManager personaId={personaId} assets={assets} />
       )}
 
       {/* ── Tab: Templates ── */}

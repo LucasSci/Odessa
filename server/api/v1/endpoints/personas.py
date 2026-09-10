@@ -4,9 +4,10 @@ import logging
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Dict
+from typing import Dict, List, Optional
 
 from server.core import persona_manager
+from server.core import persona_visual
 from server.core.config_manager import load_persona_config, save_persona_config
 from server.core.persona_assets import (
     list_assets,
@@ -62,6 +63,20 @@ class TemplateUpdateRequest(BaseModel):
 class TemplateRenderRequest(BaseModel):
     videoType: str
     action: str = ""
+
+
+class WardrobeKitRequest(BaseModel):
+    name: str
+    description: str = ""
+    pieceIds: List[str] = []
+
+
+class ScenarioRequest(BaseModel):
+    name: str
+    description: str = ""
+    faceId: Optional[str] = None
+    environmentId: Optional[str] = None
+    wardrobeKitId: Optional[str] = None
 
 
 @router.get("")
@@ -298,3 +313,73 @@ async def render_persona_template(persona_id: str, request: TemplateRenderReques
 async def get_video_types():
     """Retorna os tipos de vídeo suportados e os templates padrão."""
     return {"videoTypes": VIDEO_TYPES, "defaults": get_default_templates()}
+
+
+# ── Estrutura visual: kits de roupas e cenários ─────────────────────────────
+
+@router.get("/{persona_id}/visual")
+async def get_persona_visual(persona_id: str):
+    """Retorna os kits de roupas e cenários da persona."""
+    if persona_manager.get_persona(persona_id) is None:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' não encontrada")
+    try:
+        return persona_visual.get_visual(persona_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/{persona_id}/visual/wardrobe-kits")
+async def create_persona_wardrobe_kit(persona_id: str, request: WardrobeKitRequest):
+    """Cria um kit de roupas: conjunto nomeado de peças do guarda-roupa."""
+    if persona_manager.get_persona(persona_id) is None:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' não encontrada")
+    try:
+        kit = persona_visual.create_wardrobe_kit(
+            persona_id, request.name, request.description, request.pieceIds
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return {"ok": True, "kit": kit}
+
+
+@router.delete("/{persona_id}/visual/wardrobe-kits/{kit_id}")
+async def remove_persona_wardrobe_kit(persona_id: str, kit_id: str):
+    """Remove um kit de roupas e limpa referências a ele nos cenários."""
+    if persona_manager.get_persona(persona_id) is None:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' não encontrada")
+    if not persona_visual.delete_wardrobe_kit(persona_id, kit_id):
+        raise HTTPException(status_code=404, detail="Kit de roupas não encontrado")
+    return {"ok": True}
+
+
+@router.post("/{persona_id}/visual/scenarios")
+async def create_persona_scenario(persona_id: str, request: ScenarioRequest):
+    """Cria um cenário completo: rosto + ambiente + kit de roupas."""
+    if persona_manager.get_persona(persona_id) is None:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' não encontrada")
+    try:
+        scenario = persona_visual.create_scenario(
+            persona_id,
+            request.name,
+            request.description,
+            request.faceId,
+            request.environmentId,
+            request.wardrobeKitId,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return {"ok": True, "scenario": scenario}
+
+
+@router.delete("/{persona_id}/visual/scenarios/{scenario_id}")
+async def remove_persona_scenario(persona_id: str, scenario_id: str):
+    """Remove um cenário."""
+    if persona_manager.get_persona(persona_id) is None:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' não encontrada")
+    if not persona_visual.delete_scenario(persona_id, scenario_id):
+        raise HTTPException(status_code=404, detail="Cenário não encontrado")
+    return {"ok": True}

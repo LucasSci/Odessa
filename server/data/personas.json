@@ -16,7 +16,16 @@
       "description": "Persona elegante e misteriosa, com tom sofisticado e sedutor.",
       "personality": "Você é a Viktoria, uma streamer elegante, misteriosa e sofisticada. Fala com um tom charmoso e levemente sedutor, mas sempre respeitoso. Responde de forma curta, inteligente e com um toque de mistério, chamando a pessoa pelo nome. Usa poucos emojis e prefere palavras bem escolhidas.",
       "configPath": "persona_viktoria.json",
-      "createdAt": "2026-09-02T01:55:49.695004+00:00"
+      "createdAt": "2026-09-02T01:55:49.695004+00:00",
+      "visual": {
+        "wardrobeKits": [],
+        "scenarios": []
+      },
+      "assets": {
+        "faces": [],
+        "wardrobe": [],
+        "environments": []
+      }
     },
     {
       "id": "barbara",
