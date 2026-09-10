@@ -85,6 +85,16 @@ breaks: `POST /api/auth/login` would otherwise hit the GET-only SPA catch-all
 the login screen. `server/main.py` mounts `auth.router` at both `/auth` and
 `/api/auth`, and registers `health_check` at both `/health` and `/api/health`.
 
+## Agent relay endpoint (/api/agent)
+
+In cloud/same-origin mode the frontend (`src/lib/api.ts`) rewrites `/obs/*` calls
+to `/api/agent?obsAction=...` and `/agent/status` to `/api/agent/status`. The
+Hostinger catch-all `api/[...path].js` handles this by rewriting back to
+`/obs/{obsAction}`. The FastAPI dev backend mirrors this in
+`server/api/v1/endpoints/agent.py` (mounted at `/api` in `main.py`), which
+delegates to the OBS router and returns a local-agent status. Without it, the
+preview gets **404** on every OBS-related call.
+
 ## API routing gotcha
 
 Hostinger only invokes API handlers that exist as physical files in `api/`.
