@@ -10,10 +10,11 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
-  Clock,
   History,
   Loader2,
+  Maximize2,
   MessageCircle,
+  Minimize2,
   Send,
   Sparkles,
   Trash2,
@@ -48,6 +49,9 @@ export type TangoChatFeedProps = {
   /** Classe de altura do painel (default h-[520px]) */
   heightClass?: string;
   className?: string;
+  /** Modo compacto: oculta botões redundantes, foca na leitura das mensagens */
+  compact?: boolean;
+  onToggleCompact?: () => void;
 };
 
 export function TangoChatFeed({
@@ -71,6 +75,8 @@ export function TangoChatFeed({
   onClearChat,
   heightClass = 'h-[520px]',
   className,
+  compact = false,
+  onToggleCompact,
 }: TangoChatFeedProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
@@ -112,51 +118,55 @@ export function TangoChatFeed({
   return (
     <div className={cn('rounded-2xl border border-white/10 bg-[#0c0e12] overflow-hidden shadow-lg flex flex-col', heightClass, className)}>
       {/* Cabeçalho */}
-      <div className="flex items-center justify-between border-b border-white/8 px-4 py-3 bg-black/30">
+      <div className={cn('flex items-center justify-between border-b border-white/8 px-4 bg-black/30', compact ? 'py-2' : 'py-3')}>
         <div className="flex items-center gap-2">
-          <MessageCircle className="h-4 w-4 text-violet-400" />
-          <span className="text-xs font-bold uppercase tracking-widest text-slate-300">Chat da Live</span>
+          {!compact && <MessageCircle className="h-4 w-4 text-violet-400" />}
+          <span className="text-xs font-bold uppercase tracking-widest text-slate-300">Chat</span>
           <Badge variant="default" className="text-[10px]">
-            {messages.length} mensagens
+            {messages.length}
           </Badge>
         </div>
         <div className="flex items-center gap-2">
-          {onLoadHistory && (
+          {!compact && (
+            <>
+              {onLoadHistory && (
+                <button
+                  className="flex items-center gap-1 text-[11px] font-semibold text-slate-400 bg-white/5 px-2 py-0.5 rounded border border-white/10 hover:bg-white/10 transition"
+                  onClick={onLoadHistory}
+                  title="Carregar o histórico antigo da bridge"
+                >
+                  <History className="h-3 w-3" /> Histórico
+                </button>
+              )}
+              {onClearChat && messages.length > 0 && (
+                <button
+                  className="flex items-center gap-1 text-[11px] font-semibold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20 hover:bg-rose-500/20 transition"
+                  onClick={onClearChat}
+                  title="Limpar o feed de mensagens"
+                >
+                  <Trash2 className="h-3 w-3" /> Limpar
+                </button>
+              )}
+              {replyQueueCount > 0 && onViewReplies && (
+                <button
+                  className="flex items-center gap-1 text-[11px] font-semibold text-violet-300 bg-violet-500/10 px-2 py-0.5 rounded border border-violet-500/20 hover:bg-violet-500/20 transition"
+                  onClick={onViewReplies}
+                  title="Ver fila de respostas da IA"
+                >
+                  <Sparkles className="h-3 w-3" /> {replyQueueCount} resposta{replyQueueCount > 1 ? 's' : ''} IA →
+                </button>
+              )}
+            </>
+          )}
+          {onToggleCompact && (
             <button
-              className="flex items-center gap-1 text-[11px] font-semibold text-slate-400 bg-white/5 px-2 py-0.5 rounded border border-white/10 hover:bg-white/10 transition"
-              onClick={onLoadHistory}
-              title="Carregar o histórico antigo da bridge"
+              className="flex items-center gap-1 text-[11px] font-semibold text-slate-400 hover:text-slate-200 transition"
+              onClick={onToggleCompact}
+              title={compact ? 'Modo completo' : 'Modo compacto'}
             >
-              <History className="h-3 w-3" /> Histórico
+              {compact ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
             </button>
           )}
-          {onClearChat && messages.length > 0 && (
-            <button
-              className="flex items-center gap-1 text-[11px] font-semibold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20 hover:bg-rose-500/20 transition"
-              onClick={onClearChat}
-              title="Limpar o feed de mensagens"
-            >
-              <Trash2 className="h-3 w-3" /> Limpar
-            </button>
-          )}
-          {replyQueueCount > 0 && onViewReplies && (
-            <button
-              className="flex items-center gap-1 text-[11px] font-semibold text-violet-300 bg-violet-500/10 px-2 py-0.5 rounded border border-violet-500/20 hover:bg-violet-500/20 transition"
-              onClick={onViewReplies}
-              title="Ver fila de respostas da IA"
-            >
-              <Sparkles className="h-3 w-3" /> {replyQueueCount} resposta{replyQueueCount > 1 ? 's' : ''} IA →
-            </button>
-          )}
-          {cooldownRemaining > 0 && (
-            <span className="flex items-center gap-1 text-[11px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-              <Clock className="h-3 w-3" /> Cooldown: {cooldownRemaining}s
-            </span>
-          )}
-          <span className="flex items-center gap-1 text-[11px] text-emerald-400">
-            <span className="inline-block h-2 w-2 animate-ping rounded-full bg-emerald-400" />
-            ao vivo
-          </span>
         </div>
       </div>
 
@@ -182,21 +192,33 @@ export function TangoChatFeed({
             messages.map((msg, idx) => (
               <div
                 key={`${msg.timestamp}-${idx}`}
-                className="group flex items-start justify-between gap-2 rounded-xl border border-white/5 bg-white/[0.02] p-2.5 transition hover:border-violet-500/30 hover:bg-violet-500/[0.04]"
+                className={cn(
+                  'group flex items-start justify-between gap-2 transition',
+                  compact
+                    ? 'py-1'
+                    : 'rounded-xl border border-white/5 bg-white/[0.02] p-2.5 hover:border-violet-500/30 hover:bg-violet-500/[0.04]'
+                )}
               >
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 mb-1">
+                  <div className="flex items-center gap-1.5 mb-0.5">
                     <span className="text-xs font-bold text-violet-300">@{msg.username}</span>
-                    <span className="text-[10px] font-mono text-slate-500">
-                      {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('pt-BR') : ''}
-                    </span>
+                    {!compact && (
+                      <span className="text-[10px] font-mono text-slate-500">
+                        {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('pt-BR') : ''}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-slate-200 break-words leading-relaxed">{msg.text}</p>
                 </div>
 
                 {/* Botão Responder com IA */}
                 <button
-                  className="shrink-0 flex items-center gap-1 rounded-lg border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-[11px] font-medium text-violet-300 opacity-90 transition hover:bg-violet-500/20 hover:opacity-100 disabled:opacity-50"
+                  className={cn(
+                    'shrink-0 flex items-center gap-1 rounded-lg border border-violet-500/30 bg-violet-500/10 text-violet-300 transition hover:bg-violet-500/20 disabled:opacity-50',
+                    compact
+                      ? 'opacity-0 group-hover:opacity-100 p-1'
+                      : 'px-2 py-1 text-[11px] font-medium opacity-90 hover:opacity-100'
+                  )}
                   disabled={generatingForId === (msg.timestamp || msg.text)}
                   onClick={() => onGenerateReply(msg)}
                   title="Gerar sugestão de resposta com IA"
@@ -206,7 +228,7 @@ export function TangoChatFeed({
                   ) : (
                     <Sparkles className="h-3 w-3" />
                   )}
-                  Responder IA
+                  {!compact && 'Responder IA'}
                 </button>
               </div>
             ))
@@ -228,10 +250,10 @@ export function TangoChatFeed({
       </div>
 
       {/* Barra de Envio + Atalhos */}
-      <div className="border-t border-white/8 bg-black/40 p-3 space-y-2">
+      <div className={cn('border-t border-white/8 bg-black/40', compact ? 'p-2' : 'p-3 space-y-2')}>
         {/* Pílulas de Respostas Rápidas */}
+        {!compact && (
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 shrink-0">Rápidas:</span>
           {cannedResponses.slice(0, 4).map((canned, i) => (
             <button
               key={i}
@@ -251,13 +273,17 @@ export function TangoChatFeed({
             Puxar Assunto IA
           </button>
         </div>
+        )}
 
         {/* Input Manual de Envio */}
         <div className="flex items-center gap-2">
           <input
             type="text"
-            className="h-10 flex-1 rounded-xl border border-white/10 bg-white/[0.05] px-3.5 text-sm text-white placeholder-slate-500 outline-none focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30"
-            placeholder={bridgeConnected ? 'Digite uma mensagem para o chat do Tango…' : 'Conecte a bridge para enviar mensagens'}
+            className={cn(
+              'flex-1 rounded-xl border border-white/10 bg-white/[0.05] text-white placeholder-slate-500 outline-none focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30',
+              compact ? 'h-8 px-3 text-xs' : 'h-10 px-3.5 text-sm'
+            )}
+            placeholder={bridgeConnected ? 'Mensagem…' : 'Conecte a bridge para enviar'}
             value={draftText}
             onChange={(e) => onDraftChange(e.target.value)}
             onKeyDown={(e) => {
@@ -270,12 +296,12 @@ export function TangoChatFeed({
           <Button
             size="sm"
             variant="primary"
-            className="h-10 px-4"
+            className={compact ? 'h-8 px-2.5' : 'h-10 px-4'}
             disabled={!draftText.trim() || sending}
             onClick={() => onSend()}
           >
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            Enviar
+            {!compact && 'Enviar'}
           </Button>
         </div>
       </div>

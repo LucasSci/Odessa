@@ -26,7 +26,6 @@ import {
   Eye,
   History,
   Loader2,
-  MessageSquare,
   Play,
   Radio,
   RefreshCw,
@@ -35,14 +34,12 @@ import {
   Settings,
   ShieldAlert,
   ShieldCheck,
-  ChevronUp,
   Pause,
   Sparkles,
   Square,
   Terminal,
   Trash2,
   Tv,
-  Unlink,
   Wifi,
   WifiOff,
   X,
@@ -106,7 +103,7 @@ type ChromeStatus = {
   tangoTabFound: boolean;
 };
 
-type SubTab = 'wizard' | 'unified' | 'cockpit' | 'ai_config' | 'bridge_config' | 'vision' | 'diagnostics' | 'insights' | 'history';
+type SubTab = 'live' | 'setup' | 'config' | 'diagnostics' | 'history';
 
 const DEFAULT_CANNED_RESPONSES = [
   'Obrigada pelo carinho, amores! 💕',
@@ -183,12 +180,15 @@ export function TangoChatPanel({
   } = useTangoChatSession();
 
   // ── Navegação & Modos ─────────────────────────────
-  const [subTab, setSubTab] = useState<SubTab>('unified');
+  const [subTab, setSubTab] = useState<SubTab>('live');
 
   const [showAdvancedSelectors, setShowAdvancedSelectors] = useState(false);
+  const [configSection, setConfigSection] = useState<'ai' | 'bridge'>('ai');
+  const [diagSection, setDiagSection] = useState<'logs' | 'vision' | 'insights'>('logs');
 
   // ── Chat & Mensagens ──────────────────────────────
   const [draftText, setDraftText] = useState('');
+  const [chatCompact, setChatCompact] = useState(false);
   const [sending, setSending] = useState(false);
   const [generatingProactive, setGeneratingProactive] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -200,8 +200,6 @@ export function TangoChatPanel({
   const [cannedResponses, setCannedResponses] = useState<string[]>(DEFAULT_CANNED_RESPONSES);
   const [newCannedText, setNewCannedText] = useState('');
 
-  // ── Drawer Secundário (Fase 5) ─────────────────────
-  const [secondaryDrawerOpen, setSecondaryDrawerOpen] = useState(false);
   const [endingLive, setEndingLive] = useState(false);
 
   // ── Logs e Diagnósticos ───────────────────────────
@@ -235,10 +233,10 @@ export function TangoChatPanel({
   const logsBackoffMsRef = useRef(3000);
 
   useEffect(() => {
+    if (subTab === 'diagnostics' && diagSection === 'insights') {
+      setInsights(getChatInsights());
+    }
     if (subTab !== 'diagnostics' || !processRunning) {
-      if (subTab === 'insights') {
-        setInsights(getChatInsights());
-      }
       return;
     }
 
@@ -292,7 +290,7 @@ export function TangoChatPanel({
       window.clearTimeout(timeoutId);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [subTab, processRunning]);
+  }, [subTab, processRunning, diagSection]);
 
   // ── Auto-scrolls (o feed do chat gerencia o Smart Auto-scroll internamente) ──
   useEffect(() => {
@@ -324,6 +322,10 @@ export function TangoChatPanel({
   }, []);
 
   useEffect(() => {
+    // Only poll Chrome tabs when the user is on the setup tab — avoids
+    // continuous background fetches when the live view is active.
+    if (subTab !== 'setup') return;
+
     let timeoutId: number | undefined;
     let cancelled = false;
 
@@ -354,7 +356,7 @@ export function TangoChatPanel({
       window.clearTimeout(timeoutId);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [refreshChromeStatus]);
+  }, [refreshChromeStatus, subTab]);
 
   const handleLaunchChrome = async () => {
     setLaunchingChrome(true);
@@ -504,7 +506,7 @@ export function TangoChatPanel({
       // ── Navega para o Painel Unificado ao concluir ──
       // O usuário pediu: ao final da configuração automática, cair direto
       // no painel interativo (live + chat lado a lado).
-      setSubTab('unified');
+      setSubTab('live');
     } catch (err) {
       setWizardTestResult('❌ Erro durante configuração automática: ' + String(err));
     } finally {
@@ -621,9 +623,9 @@ export function TangoChatPanel({
     <div className="space-y-4">
       {/* ── 1. Barra de Controle Superior (Cockpit Bar) ─────────────── */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#090a0d] p-4 shadow-xl">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/20 via-fuchsia-500/20 to-sky-500/20 text-violet-300 border border-violet-500/20">
-            <Radio className="h-5 w-5 animate-pulse" />
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/10 text-violet-300 border border-violet-500/20">
+            <Radio className="h-4 w-4" />
           </div>
           <div>
             <div className="flex items-center gap-2">
@@ -661,11 +663,6 @@ export function TangoChatPanel({
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              {bridgeConnected
-                ? `${processStatus?.bridgeStatus?.messageCount ?? 0} msgs capturadas · Modo ${processStatus?.bridgeStatus?.mode || 'Standalone'}`
-                : 'Inicie a bridge para monitorar o chat e responder com IA'}
-            </p>
           </div>
         </div>
 
@@ -738,21 +735,44 @@ export function TangoChatPanel({
           <Button size="sm" variant="secondary" onClick={() => void refreshStatus()} title="Atualizar status">
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
+
+          {/* Encerrar Live no OBS (ação destrutiva com confirmação) */}
+          <ConfirmButton
+            size="sm"
+            variant="danger"
+            confirmLabel="⚠ Confirmar encerramento"
+            loading={endingLive}
+            title="Encerra a transmissão ao vivo no OBS Studio (irreversível)"
+            onConfirm={async () => {
+              setEndingLive(true);
+              try {
+                if (onEndLive) {
+                  await onEndLive();
+                } else if (obsSettings) {
+                  await routeStopTransmission(obsSettings as never);
+                }
+                if (odessaRuntime?.autopilotEnabled) {
+                  odessaRuntime.pause();
+                }
+              } finally {
+                setEndingLive(false);
+              }
+            }}
+          >
+            <Square className="h-3.5 w-3.5" />
+            Encerrar Live
+          </ConfirmButton>
         </div>
       </div>
 
-      {/* ── Sub-navegação em Abas ───────────────────────────────────── */}
+      {/* ── Sub-navegação em Abas (consolidada) ─────────────────────── */}
       <div className="flex gap-1 overflow-x-auto rounded-xl border border-white/8 bg-black/40 p-1">
         {[
-          { id: 'wizard' as SubTab, label: '🧙‍♂️ Assistente Passo a Passo', icon: <Sparkles className="h-3.5 w-3.5 text-amber-400" /> },
-          { id: 'unified' as SubTab, label: 'Painel Unificado', icon: <Tv className="h-3.5 w-3.5 text-emerald-400" /> },
-          { id: 'cockpit' as SubTab, label: 'Live Chat & Respostas IA', icon: <MessageSquare className="h-3.5 w-3.5" /> },
-          { id: 'ai_config' as SubTab, label: 'Personalidade da IA', icon: <Bot className="h-3.5 w-3.5" /> },
-          { id: 'bridge_config' as SubTab, label: 'Configuração Bridge', icon: <Settings className="h-3.5 w-3.5" /> },
-          { id: 'vision' as SubTab, label: 'Monitor de Visão', icon: <Eye className="h-3.5 w-3.5" /> },
-          { id: 'insights' as SubTab, label: 'Aprendizado do Chat', icon: <Sparkles className="h-3.5 w-3.5" /> },
-          { id: 'history' as SubTab, label: 'Histórico da Live', icon: <History className="h-3.5 w-3.5" /> },
-          { id: 'diagnostics' as SubTab, label: 'Diagnóstico & Logs', icon: <Terminal className="h-3.5 w-3.5" /> },
+          { id: 'live' as SubTab, label: 'Ao Vivo', icon: <Tv className="h-3.5 w-3.5 text-emerald-400" /> },
+          { id: 'setup' as SubTab, label: 'Configuração Automática', icon: <Sparkles className="h-3.5 w-3.5 text-amber-400" /> },
+          { id: 'config' as SubTab, label: 'Configurações', icon: <Settings className="h-3.5 w-3.5" /> },
+          { id: 'diagnostics' as SubTab, label: 'Diagnóstico', icon: <Terminal className="h-3.5 w-3.5" /> },
+          { id: 'history' as SubTab, label: 'Histórico', icon: <History className="h-3.5 w-3.5" /> },
         ].map((t) => (
           <button
             key={t.id}
@@ -767,8 +787,8 @@ export function TangoChatPanel({
           </button>
         ))}
       </div>
-      {/* ── ABA WIZARD: ASSISTENTE PASSO A PASSO ────────────────────── */}
-      {subTab === 'wizard' && (
+      {/* ── ABA SETUP: ASSISTENTE PASSO A PASSO ─────────────────────── */}
+      {subTab === 'setup' && (
         <div className="space-y-4 rounded-2xl border border-white/10 bg-[#0c0e12] p-5 shadow-xl">
           {/* Header do Assistente */}
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/8 pb-4">
@@ -1033,7 +1053,7 @@ export function TangoChatPanel({
                   processRunning={processRunning}
                   bridgeConnected={bridgeConnected}
                   bridgeReachable={bridgeReachable}
-                  onGoUnified={() => setSubTab('unified')}
+                  onGoUnified={() => setSubTab('live')}
                   onStartBridge={() => void (processRunning ? handleConnectBridge() : handleStartProcess())}
                   onLaunchChrome={() => void handleLaunchChrome()}
                   starting={starting}
@@ -1121,7 +1141,7 @@ export function TangoChatPanel({
                   size="sm"
                   variant="primary"
                   className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
-                  onClick={() => setSubTab('unified')}
+                  onClick={() => setSubTab('live')}
                 >
                   🎉 Concluir e Ir para o Painel Unificado
                 </Button>
@@ -1131,122 +1151,11 @@ export function TangoChatPanel({
         </div>
       )}
 
-      {/* ── ABA: PAINEL UNIFICADO (Live + Chat lado a lado) ─────────── */}
-      {subTab === 'unified' && (
+      {/* ── ABA: AO VIVO (Live + Chat lado a lado) ──────────────────── */}
+      {subTab === 'live' && (
         <div className="space-y-4">
           {bridgeConnected ? (
             <>
-              {/* ── Cabeçalho Operacional da Sessão (Fase 5) ─────────────────── */}
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/10 bg-[#0d0f14] px-4 py-2.5 shadow-sm">
-                {/* Status da live + badge */}
-                <div className="flex items-center gap-3">
-                  <span className={cn(
-                    'flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full border',
-                    bridgeConnected
-                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
-                      : 'border-white/10 bg-black/40 text-slate-500'
-                  )}>
-                    <span className={cn('h-1.5 w-1.5 rounded-full', bridgeConnected ? 'bg-emerald-400 animate-ping' : 'bg-slate-600')} />
-                    {bridgeConnected ? 'Sessão Conectada' : 'Aguardando Bridge'}
-                  </span>
-                  {bridgeConnected && (
-                    <span className="text-[11px] text-slate-500 font-mono hidden md:inline">
-                      {messages.length} msgs · {replyQueue.length} na fila IA
-                    </span>
-                  )}
-                </div>
-
-                {/* Controles de ação — 3 ações distintas */}
-                <div className="flex items-center gap-2">
-                  {/* 1. Pausar / Retomar IA (não afeta chat nem live) */}
-                  <button
-                    onClick={() => setAutonomyMode(autonomyMode === 'off' ? 'assistido' : 'off')}
-                    title={autonomyMode === 'off' ? 'IA pausada — clique para retomar automação' : 'Pausar automação de IA (chat continua ativo)'}
-                    className={cn(
-                      'flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition',
-                      autonomyMode === 'off'
-                        ? 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20'
-                        : 'border-white/10 bg-white/[0.04] text-slate-300 hover:border-violet-500/30 hover:text-white'
-                    )}
-                  >
-                    {autonomyMode === 'off'
-                      ? <><Play className="h-3.5 w-3.5" /> Retomar IA</>
-                      : <><Pause className="h-3.5 w-3.5" /> Pausar IA</>}
-                  </button>
-
-                  {/* 2. Desconectar Bridge (não afeta live no OBS) */}
-                  {bridgeConnected && (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      title="Desconectar a bridge do chat (não encerra a transmissão no OBS)"
-                      onClick={() => void handleStopProcess()}
-                    >
-                      <Unlink className="h-3.5 w-3.5" />
-                      Desconectar Chat
-                    </Button>
-                  )}
-
-                  {/* 3. Encerrar Transmissão no OBS (ação destrutiva com confirmação) */}
-                  <ConfirmButton
-                    size="sm"
-                    variant="danger"
-                    confirmLabel="⚠ Confirmar encerramento"
-                    loading={endingLive}
-                    title="Encerra a transmissão ao vivo no OBS Studio (irreversível)"
-                    onConfirm={async () => {
-                      setEndingLive(true);
-                      try {
-                        if (onEndLive) {
-                          await onEndLive();
-                        } else if (obsSettings) {
-                          await routeStopTransmission(obsSettings as never);
-                        }
-                        if (odessaRuntime?.autopilotEnabled) {
-                          odessaRuntime.pause();
-                        }
-                      } finally {
-                        setEndingLive(false);
-                      }
-                    }}
-                  >
-                    <Square className="h-3.5 w-3.5" />
-                    Encerrar Live
-                  </ConfirmButton>
-
-                  {/* Toggle do drawer secundário */}
-                  <button
-                    onClick={() => setSecondaryDrawerOpen((o) => !o)}
-                    title="Mostrar/ocultar área de atividade recente"
-                    className="flex items-center gap-1 rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-xs text-slate-400 hover:bg-white/[0.08] transition"
-                  >
-                    {secondaryDrawerOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                    {secondaryDrawerOpen ? 'Ocultar' : 'Atividade'}
-                  </button>
-                </div>
-              </div>
-
-              {/* ── Área Secundária Recolhível: Atividade recente ── */}
-              {secondaryDrawerOpen && (
-                <div className="rounded-2xl border border-white/8 bg-black/30 px-4 py-3 space-y-1">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">Atividade recente</p>
-                  {replyQueue.slice(0, 5).length === 0 ? (
-                    <p className="text-xs text-slate-600">Nenhuma resposta processada ainda nesta sessão.</p>
-                  ) : (
-                    replyQueue.slice(0, 5).map((item) => (
-                      <div key={item.id} className="flex items-center gap-2 text-[11px] text-slate-400">
-                        <span className={cn('h-1.5 w-1.5 rounded-full shrink-0',
-                          item.status === 'sent' ? 'bg-emerald-400' : item.status === 'blocked' ? 'bg-red-400' : 'bg-violet-400'
-                        )} />
-                        <span className="font-medium text-violet-300">@{item.sourceMessage.username}</span>
-                        <span className="truncate opacity-70">{item.text}</span>
-                        <span className="shrink-0 ml-auto opacity-50">{item.status}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
                 <div className="xl:col-span-5">
                   <LiveVisionMonitor connected={bridgeConnected} />
@@ -1268,10 +1177,12 @@ export function TangoChatPanel({
                     sending={sending}
                     messagesEndRef={messagesEndRef}
                     replyQueueCount={replyQueue.length}
-                    onViewReplies={() => setSubTab('cockpit')}
+                    onViewReplies={() => setSubTab('live')}
                     onLoadHistory={() => void handleLoadHistory()}
                     onClearChat={handleClearChat}
                     heightClass="h-full min-h-[520px]"
+                    compact={chatCompact}
+                    onToggleCompact={() => setChatCompact((c) => !c)}
                   />
                 </div>
                 {/* Coluna Fila de Respostas IA unificada */}
@@ -1411,9 +1322,6 @@ export function TangoChatPanel({
                   </div>
                 </div>
               </div>
-
-              {/* ── Configuração da IA ── */}
-              <AiConfigPanel />
             </>
           ) : (
             <>
@@ -1444,8 +1352,10 @@ export function TangoChatPanel({
                   onSend={() => void handleSendManual()}
                   onApproveReply={(item) => void handleApproveReply(item)}
                   onDiscardReply={handleDiscardReply}
-                  onViewReplies={() => setSubTab('cockpit')}
+                  onViewReplies={() => setSubTab('live')}
                   messagesEndRef={messagesEndRef}
+                  chatCompact={chatCompact}
+                  onToggleChatCompact={() => setChatCompact((c) => !c)}
                 />
               ) : (
                 <div className="flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-[#0c0e12] p-12 text-center">
@@ -1462,338 +1372,34 @@ export function TangoChatPanel({
         </div>
       )}
 
-      {/* ── ABA 1: COCKPIT DE CHAT & IA ─────────────────────────────── */}
-      {subTab === 'cockpit' && (
+      {/* ── ABA: CONFIGURAÇÕES (IA + Bridge) ────────────────────────── */}
+      {subTab === 'config' && (
         <div className="space-y-4">
-          {/* ── Card Inteligente de Conexão com a Transmissão do Tango ── */}
-          <div className="rounded-2xl border border-violet-500/20 bg-gradient-to-r from-violet-950/20 via-[#0d0f14] to-fuchsia-950/20 p-4 shadow-lg">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-300 border border-violet-500/30">
-                  <Radio className="h-5 w-5 text-violet-400" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-xs font-bold uppercase tracking-widest text-white">
-                      Conexão Direta com a Aba de Transmissão
-                    </h3>
-                    {bridgeConnected ? (
-                      <Badge variant="success" className="text-[10px]">
-                        <CheckCircle2 className="mr-1 h-3 w-3" /> Acoplado à Live
-                      </Badge>
-                    ) : chromeStatus?.runningWithDebug ? (
-                      <Badge variant="lavender" className="text-[10px]">
-                        <Check className="mr-1 h-3 w-3" /> Chrome com Debug Detectado
-                      </Badge>
-                    ) : (
-                      <Badge variant="warning" className="text-[10px]">
-                        <AlertCircle className="mr-1 h-3 w-3" /> Chrome Normal (Sem Debug)
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
-                    Como a live já utiliza a câmera e o login no Tango, a Odessa se acopla <strong>diretamente à sua mesma aba de transmissão</strong> aberta, sem abrir janelas extras nem derrubar a live.
-                  </p>
-                </div>
-              </div>
-
-              {/* Botões de Ação Rápida */}
-              <div className="flex flex-wrap items-center gap-2">
-                {!bridgeConnected && (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      className="bg-violet-600 hover:bg-violet-500 text-white font-semibold shadow-md"
-                      disabled={launchingChrome}
-                      onClick={() => void handleLaunchChrome()}
-                      title="Abre o Chrome oficial da transmissão com depuração ativa"
-                    >
-                      {launchingChrome ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <ExternalLink className="h-3.5 w-3.5 mr-1" />}
-                      1. Abrir Chrome da Live
-                    </Button>
-
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="border-white/15 bg-white/5 hover:bg-white/10 text-slate-200"
-                      disabled={creatingShortcut}
-                      onClick={() => void handleCreateShortcut()}
-                      title="Cria um atalho no seu Desktop para abrir o Chrome da Live sempre que quiser"
-                    >
-                      {creatingShortcut ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Copy className="h-3.5 w-3.5 mr-1" />}
-                      Criar Atalho no Desktop
-                    </Button>
-
-                    {!processRunning ? (
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
-                        disabled={starting}
-                        onClick={() => void handleStartProcess()}
-                      >
-                        {starting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Play className="h-3.5 w-3.5 mr-1" />}
-                        2. Iniciar Bridge
-                      </Button>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
-                        disabled={connecting}
-                        onClick={() => void handleConnectBridge()}
-                      >
-                        {connecting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <CheckCircle2 className="h-3.5 w-3.5 mr-1" />}
-                        2. Acoplar à Transmissão
-                      </Button>
-                    )}
-                  </>
-                )}
-
-                {bridgeConnected && (
-                  <Button size="sm" variant="danger" onClick={() => void handleDisconnectBridge()}>
-                    <WifiOff className="h-3.5 w-3.5 mr-1" />
-                    Desconectar da Aba
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {/* Feedback de Atalho criado */}
-            {shortcutFeedback && (
-              <div className="mt-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-300 flex items-center gap-1.5">
-                <CheckCircle2 className="h-4 w-4" />
-                {shortcutFeedback}
-              </div>
-            )}
-
-            {/* Abas detectadas do Chrome */}
-            {chromeStatus?.runningWithDebug && chromeStatus.tabs.length > 0 && !bridgeConnected && (
-              <div className="mt-3 pt-3 border-t border-white/10">
-                <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400 block mb-2">
-                  Abas Abertas Detectadas no Chrome ({chromeStatus.tabs.length}):
-                </span>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {chromeStatus.tabs.map((tab) => (
-                    <div
-                      key={tab.id}
-                      className={cn(
-                        'flex items-center justify-between gap-2 p-2 rounded-xl border text-xs transition',
-                        tab.isTango
-                          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
-                          : 'border-white/5 bg-black/30 text-slate-400'
-                      )}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="font-semibold truncate">{tab.title || '(Sem título)'}</p>
-                        <p className="text-[10px] text-slate-500 truncate">{tab.url}</p>
-                      </div>
-                      {tab.isTango && (
-                        <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded">
-                          Live Tango
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+          {/* Toggle interno: IA | Bridge */}
+          <div className="flex gap-1 rounded-xl border border-white/8 bg-black/40 p-1 w-fit">
+            <button
+              className={cn(
+                'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition',
+                configSection === 'ai' ? 'bg-white/15 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'
+              )}
+              onClick={() => setConfigSection('ai')}
+            >
+              <Bot className="h-3.5 w-3.5" />
+              Personalidade da IA
+            </button>
+            <button
+              className={cn(
+                'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition',
+                configSection === 'bridge' ? 'bg-white/15 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'
+              )}
+              onClick={() => setConfigSection('bridge')}
+            >
+              <Settings className="h-3.5 w-3.5" />
+              Bridge
+            </button>
           </div>
 
-          {/* ── Guia de diagnóstico e resolução da bridge ── */}
-          {!bridgeConnected && (
-            <BridgeConnectionGuide
-              chromeRunning={!!chromeStatus?.runningWithDebug}
-              processRunning={processRunning}
-              bridgeConnected={bridgeConnected}
-              bridgeReachable={bridgeReachable}
-              onGoUnified={() => setSubTab('unified')}
-              onStartBridge={() => void (processRunning ? handleConnectBridge() : handleStartProcess())}
-              onLaunchChrome={() => void handleLaunchChrome()}
-              starting={starting}
-              launching={launchingChrome}
-            />
-          )}
-
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          {/* Coluna Esquerda/Centro: Feed do Chat e Envio (2/3 da largura) */}
-          <div className="space-y-3 lg:col-span-2">
-            <TangoChatFeed
-              messages={messages}
-              bridgeConnected={bridgeConnected}
-              cooldownRemaining={cooldownRemaining}
-              generatingForId={generatingForId}
-              onGenerateReply={(msg) => void handleGenerateReplyForMessage(msg)}
-              cannedResponses={cannedResponses}
-              onPickCanned={setDraftText}
-              generatingProactive={generatingProactive}
-              onGenerateProactive={() => void handleGenerateProactive()}
-              draftText={draftText}
-              onDraftChange={setDraftText}
-              onSend={() => void handleSendManual()}
-              sending={sending}
-              messagesEndRef={messagesEndRef}
-              replyQueueCount={replyQueue.length}
-              onViewReplies={() => setSubTab('cockpit')}
-              onLoadHistory={() => void handleLoadHistory()}
-              onClearChat={handleClearChat}
-            />
-          </div>
-
-          {/* Coluna Direita: Fila de Rascunhos / Respostas da IA (1/3 da largura) */}
-          <div className="space-y-3">
-            <div className="rounded-2xl border border-white/10 bg-[#0c0e12] overflow-hidden shadow-lg flex flex-col h-[520px]">
-              <div className="flex items-center justify-between border-b border-white/8 px-4 py-3 bg-black/30">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-violet-400" />
-                  <span className="text-xs font-bold uppercase tracking-widest text-slate-300">Inbox de Respostas IA</span>
-                </div>
-                <Badge variant={replyQueue.length > 0 ? 'lavender' : 'default'} className="text-[10px]">
-                  {replyQueue.length} na fila
-                </Badge>
-              </div>
-
-              {/* Lista de Rascunhos */}
-              <div className="flex-1 overflow-y-auto p-3 space-y-3">
-                {replyQueue.length === 0 ? (
-                  <EmptyState
-                    icon={Bot}
-                    title="Nenhuma resposta pendente"
-                    description={
-                      autonomyMode === 'assistido'
-                        ? 'Clique em "Responder IA" em qualquer mensagem para gerar um rascunho de aprovação.'
-                        : autonomyMode === 'auto'
-                          ? 'Modo Autônomo ativo: a IA responde diretamente no chat.'
-                          : 'Ligue o modo Assistido para receber sugestões da IA.'
-                    }
-                    className="h-full"
-                  />
-                ) : (
-                  replyQueue.map((item) => (
-                    <div
-                      key={item.id}
-                      className={cn(
-                        'rounded-xl border p-3 space-y-2 transition',
-                        item.status === 'sent' && 'border-emerald-500/30 bg-emerald-500/5',
-                        item.status === 'sending' && 'border-sky-500/30 bg-sky-500/5 animate-pulse',
-                        item.status === 'blocked' && 'border-red-500/30 bg-red-500/5',
-                        item.status === 'draft' && 'border-violet-500/30 bg-violet-500/5'
-                      )}
-                    >
-                      {/* Contexto da Pergunta */}
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="font-bold text-violet-300">
-                          Para: @{item.sourceMessage.username}
-                        </span>
-                        <span className="text-[10px] text-slate-500">
-                          {Math.round(item.confidence * 100)}% confiança
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400 italic line-clamp-1 border-l-2 border-white/20 pl-2">
-                        "{item.sourceMessage.text}"
-                      </p>
-
-                      {/* Texto da Resposta ou Edição */}
-                      {editingItemId === item.id ? (
-                        <div className="space-y-1.5 pt-1">
-                          <textarea
-                            className="w-full h-16 rounded-lg border border-white/20 bg-black/40 p-2 text-xs text-white outline-none focus:border-violet-500"
-                            value={editingText}
-                            onChange={(e) => setEditingText(e.target.value)}
-                          />
-                          <div className="flex justify-end gap-1.5">
-                            <Button size="sm" variant="secondary" onClick={() => setEditingItemId(null)}>
-                              Cancelar
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="primary"
-                              onClick={() => {
-                                setReplyQueue((prev) =>
-                                  prev.map((i) => (i.id === item.id ? { ...i, text: editingText } : i))
-                                );
-                                setEditingItemId(null);
-                              }}
-                            >
-                              Salvar
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-xs font-medium text-slate-100 bg-black/30 p-2 rounded-lg border border-white/5">
-                          {item.text}
-                        </p>
-                      )}
-
-                      {/* Motivo de bloqueio se houver */}
-                      {item.blockedReason && (
-                        <p className="text-[10px] text-red-400 flex items-center gap-1">
-                          <ShieldAlert className="h-3 w-3 shrink-0" /> {item.blockedReason}
-                        </p>
-                      )}
-
-                      {/* Ações de Aprovação */}
-                      {item.status === 'draft' && editingItemId !== item.id && (
-                        <div className="flex items-center gap-1.5 pt-1">
-                          <Button
-                            size="sm"
-                            variant="primary"
-                            className="flex-1 h-7 text-xs bg-emerald-600 hover:bg-emerald-500 text-white"
-                            onClick={() => void handleApproveReply(item)}
-                          >
-                            <Check className="h-3.5 w-3.5 mr-1" /> Aprovar & Enviar
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="h-7 px-2"
-                            title="Editar texto"
-                            onClick={() => {
-                              setEditingItemId(item.id);
-                              setEditingText(item.text);
-                            }}
-                          >
-                            <Edit3 className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="h-7 px-2"
-                            title="Regerar com IA"
-                            onClick={() => void handleRegenerateReply(item)}
-                          >
-                            <RotateCcw className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="danger"
-                            className="h-7 px-2"
-                            title="Descartar"
-                            onClick={() => handleDiscardReply(item.id)}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      )}
-
-                      {item.status === 'sent' && (
-                        <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400">
-                          <CheckCircle2 className="h-3 w-3" /> Enviada com sucesso
-                        </span>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-        </div>
-      )}
-
-      {/* ── ABA 2: PERSONALIDADE DA IA & REGRAS ──────────────────────── */}
-      {subTab === 'ai_config' && (
+          {configSection === 'ai' && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {/* Personalidade da Odessa */}
           <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-5 space-y-4">
@@ -1885,8 +1491,7 @@ export function TangoChatPanel({
         </div>
       )}
 
-      {/* ── ABA 3: CONFIGURAÇÃO DA BRIDGE ───────────────────────────── */}
-      {subTab === 'bridge_config' && (
+          {configSection === 'bridge' && (
         <div className="space-y-4 rounded-2xl border border-white/10 bg-[#0c0e12] p-5">
           <div>
             <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-400">
@@ -2005,14 +1610,51 @@ export function TangoChatPanel({
           </div>
         </div>
       )}
-
-      {/* ── ABA 4: MONITOR DE VISÃO (AO VIVO + INTERAÇÃO) ─────────────── */}
-      {subTab === 'vision' && (
-        <LiveVisionMonitor connected={bridgeConnected} />
+        </div>
       )}
 
-      {/* ── ABA 5: APRENDIZADO DO CHAT ──────────────────────────────── */}
-      {subTab === 'insights' && (
+      {/* ── ABA: DIAGNÓSTICO (Logs + Visão + Insights) ──────────────── */}
+      {subTab === 'diagnostics' && (
+        <div className="space-y-4">
+          {/* Toggle interno: Logs | Visão | Insights */}
+          <div className="flex gap-1 rounded-xl border border-white/8 bg-black/40 p-1 w-fit">
+            <button
+              className={cn(
+                'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition',
+                diagSection === 'logs' ? 'bg-white/15 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'
+              )}
+              onClick={() => setDiagSection('logs')}
+            >
+              <Terminal className="h-3.5 w-3.5" />
+              Logs
+            </button>
+            <button
+              className={cn(
+                'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition',
+                diagSection === 'vision' ? 'bg-white/15 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'
+              )}
+              onClick={() => setDiagSection('vision')}
+            >
+              <Eye className="h-3.5 w-3.5" />
+              Visão
+            </button>
+            <button
+              className={cn(
+                'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition',
+                diagSection === 'insights' ? 'bg-white/15 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'
+              )}
+              onClick={() => setDiagSection('insights')}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Insights
+            </button>
+          </div>
+
+          {diagSection === 'vision' && (
+            <LiveVisionMonitor connected={bridgeConnected} />
+          )}
+
+          {diagSection === 'insights' && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-4 space-y-3">
             <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400">Tópicos Mais Falados</h4>
@@ -2064,10 +1706,7 @@ export function TangoChatPanel({
         </div>
       )}
 
-      {/* ── ABA 6: DIAGNÓSTICO & LOGS ────────────────────────────────── */}
-      {subTab === 'history' && <SessionHistoryPanel active={subTab === 'history'} />}
-
-      {subTab === 'diagnostics' && (
+          {diagSection === 'logs' && (
         <div className="space-y-4">
           {/* Checks de Conectividade */}
           <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-5">
@@ -2137,7 +1776,12 @@ export function TangoChatPanel({
             </div>
           </div>
         </div>
+          )}
+        </div>
       )}
+
+      {/* ── ABA: HISTÓRICO ──────────────────────────────────────────── */}
+      {subTab === 'history' && <SessionHistoryPanel active={subTab === 'history'} />}
     </div>
   );
 }

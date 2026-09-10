@@ -20,7 +20,6 @@ import {
   Brain,
   Check,
   Loader2,
-  Radio,
   Sparkles,
   Trash2,
 } from 'lucide-react';
@@ -73,6 +72,8 @@ export interface UnifiedLivePanelProps {
   onDiscardReply: (id: string) => void;
   onViewReplies: () => void;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
+  chatCompact?: boolean;
+  onToggleChatCompact?: () => void;
 }
 
 // ── Component ──
@@ -104,15 +105,10 @@ export function UnifiedLivePanel({
   onDiscardReply,
   onViewReplies,
   messagesEndRef,
+  chatCompact = false,
+  onToggleChatCompact,
 }: UnifiedLivePanelProps) {
   const isLive = runtime.autopilotEnabled;
-
-  // Estatísticas rápidas do chat capturado
-  const chatStats = useMemo(() => {
-    const chat = capturedText.filter((m) => m.kind === 'chat');
-    const gifts = capturedText.filter((m) => m.kind === 'gift');
-    return { chatCount: chat.length, giftCount: gifts.length, total: capturedText.length };
-  }, [capturedText]);
 
   // ── Mensagens unificadas: usa mensagens da bridge se houver, senão converte capturedText ──
   // Quando a bridge NÃO está conectada, as mensagens da bridge estão vazias.
@@ -137,25 +133,6 @@ export function UnifiedLivePanel({
 
   return (
     <div className="space-y-4">
-      {/* ── Status da Live (controles estão no topbar e na toolbar acima) ── */}
-      <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#090a0d] px-4 py-3">
-        <div
-          className={cn(
-            'flex h-9 w-9 items-center justify-center rounded-lg border',
-            isLive
-              ? 'bg-red-500/10 text-red-400 border-red-500/20'
-              : 'bg-sky-500/10 text-sky-400 border-sky-500/20',
-          )}
-        >
-          <Radio className={cn('h-4 w-4', isLive && 'animate-pulse')} />
-        </div>
-        <p className="text-[11px] text-slate-400">
-          {isLive
-            ? `Automação ativa · ${chatStats.total} eventos · ${runtime.completedCycles} ciclos`
-            : 'Clique em "Iniciar live" no topo para ativar tudo'}
-        </p>
-      </div>
-
       {/* ── Grid: Palco (esquerda) + Chat (direita) ── */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
         {/* ── Palco: Tela da Live + Decisão da IA ── */}
@@ -164,25 +141,10 @@ export function UnifiedLivePanel({
           <LiveVisionMonitor connected={bridgeConnected} />
 
           {/* Barra compacta de estado do vídeo */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Vídeo Atual</p>
-              <p className="text-xs font-semibold text-slate-200 mt-1 truncate">
-                {videoState?.currentClip?.label || videoState?.current_video_id || '—'}
-              </p>
-            </div>
-            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Fila</p>
-              <p className="text-xs font-semibold text-slate-200 mt-1">
-                {videoState?.queue_len ?? 0} clip(s)
-              </p>
-            </div>
-            <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Ciclos IA</p>
-              <p className="text-xs font-semibold text-slate-200 mt-1">
-                {runtime.completedCycles} completos
-              </p>
-            </div>
+          <div className="flex items-center gap-4 px-1 text-xs">
+            <span className="text-slate-500">Vídeo: <span className="text-slate-200 font-semibold">{videoState?.currentClip?.label || videoState?.current_video_id || '—'}</span></span>
+            <span className="text-slate-500">Fila: <span className="text-slate-200 font-semibold">{videoState?.queue_len ?? 0}</span></span>
+            <span className="text-slate-500">Ciclos: <span className="text-slate-200 font-semibold">{runtime.completedCycles}</span></span>
           </div>
 
           {/* Card da Decisão da IA (Diretora) */}
@@ -262,6 +224,8 @@ export function UnifiedLivePanel({
             replyQueueCount={pendingReplies.length}
             onViewReplies={onViewReplies}
             heightClass="h-full min-h-[400px]"
+            compact={chatCompact}
+            onToggleCompact={onToggleChatCompact}
           />
 
           {/* Fila de Respostas IA (compacta) */}
