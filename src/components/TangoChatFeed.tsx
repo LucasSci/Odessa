@@ -10,7 +10,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
-  Clock,
   History,
   Loader2,
   MessageCircle,
@@ -148,15 +147,7 @@ export function TangoChatFeed({
               <Sparkles className="h-3 w-3" /> {replyQueueCount} resposta{replyQueueCount > 1 ? 's' : ''} IA →
             </button>
           )}
-          {cooldownRemaining > 0 && (
-            <span className="flex items-center gap-1 text-[11px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-              <Clock className="h-3 w-3" /> Cooldown: {cooldownRemaining}s
-            </span>
-          )}
-          <span className="flex items-center gap-1 text-[11px] text-emerald-400">
-            <span className="inline-block h-2 w-2 animate-ping rounded-full bg-emerald-400" />
-            ao vivo
-          </span>
+
         </div>
       </div>
 
@@ -231,7 +222,6 @@ export function TangoChatFeed({
       <div className="border-t border-white/8 bg-black/40 p-3 space-y-2">
         {/* Pílulas de Respostas Rápidas */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 shrink-0">Rápidas:</span>
           {cannedResponses.slice(0, 4).map((canned, i) => (
             <button
               key={i}

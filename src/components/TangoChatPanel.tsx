@@ -622,9 +622,9 @@ export function TangoChatPanel({
     <div className="space-y-4">
       {/* ── 1. Barra de Controle Superior (Cockpit Bar) ─────────────── */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#090a0d] p-4 shadow-xl">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/20 via-fuchsia-500/20 to-sky-500/20 text-violet-300 border border-violet-500/20">
-            <Radio className="h-5 w-5 animate-pulse" />
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/10 text-violet-300 border border-violet-500/20">
+            <Radio className="h-4 w-4" />
           </div>
           <div>
             <div className="flex items-center gap-2">
@@ -662,11 +662,6 @@ export function TangoChatPanel({
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              {bridgeConnected
-                ? `${processStatus?.bridgeStatus?.messageCount ?? 0} msgs capturadas · Modo ${processStatus?.bridgeStatus?.mode || 'Standalone'}`
-                : 'Inicie a bridge para monitorar o chat e responder com IA'}
-            </p>
           </div>
         </div>
 
