@@ -42,6 +42,7 @@ import type { AuditTimelineEntry, AutopilotCycle, CapturedMessage } from './type
 import { Badge, Button, Card, Input, StatusDot } from './components/ui';
 import { AiConfigPanel } from './components/AiConfigPanel';
 import PersonaSelector from './components/PersonaSelector';
+import TopPersonaSelector from './components/TopPersonaSelector';
 import { PersonasPanel } from './components/PersonasPanel';
 import { TangoChatPanel } from './components/TangoChatPanel';
 import { SessionHistoryPanel } from './components/SessionHistoryPanel';
@@ -756,8 +757,16 @@ export default function OdessaLiveCenter({
             <h1>{TAB_META[activeTab].title}</h1>
           </div>
 
-        {/* Right side: status + CTA */}
+        {/* Right side: persona selector + status + CTA */}
         <div className="odsa-header-end">
+          {/* Seletor de persona ativa — cada persona carrega sua própria config de transmissão */}
+          <TopPersonaSelector
+            onPersonaChanged={() => {
+              void loadConfig();
+              void refreshVideoState();
+            }}
+          />
+
           {/* Live / Pronta pill */}
           <span className={cn('odsa-live-pill hidden sm:inline-flex', runtime.autopilotEnabled && 'is-on')}>
             <span className="d" />
