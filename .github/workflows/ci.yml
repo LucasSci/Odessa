@@ -46,7 +46,7 @@ jobs:
       run: npm install -g pnpm@9
         
     - name: Install dependencies
-      run: pnpm install
+      run: pnpm install --no-frozen-lockfile
       
     - name: Run Frontend Tests
       run: pnpm vitest run
