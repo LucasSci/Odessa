@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from server.core import auth as auth_core
 from server.api.v1.api import api_router
-from server.api.v1.endpoints import auth, obs, ocr, webhooks, proxy as proxy_router
+from server.api.v1.endpoints import auth, obs, ocr, webhooks, proxy as proxy_router, agent as agent_router
 from server.config import GEMINI_API_KEY, OPENAI_API_KEY  # noqa: F401 (mantido p/ compat de import)
 
 # Logging configuration
@@ -131,6 +131,7 @@ app.include_router(auth.router, prefix="/api/auth")
 app.include_router(api_router, prefix="/api/v1")
 app.include_router(api_router, prefix="/api")
 app.include_router(obs.router, prefix="/obs")
+app.include_router(agent_router.router, prefix="/api")
 app.include_router(ocr.router, prefix="/ocr")
 app.include_router(webhooks.router, prefix="/webhooks")
 # Proxy mounted at /proxy — strips X-Frame-Options/CSP for iframe embedding

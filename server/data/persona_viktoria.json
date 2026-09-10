@@ -324,5 +324,15 @@
     "publishedAt": null,
     "publishedFromDraftId": null,
     "lastValidation": null
+  },
+  "transmissionConfig": {
+    "startupSceneName": "Viktoria START",
+    "liveSceneName": "Viktoria LIVE",
+    "stageSourceName": "Viktoria Stage",
+    "stageUrl": "http://localhost:3000/#overlay",
+    "chatSourceName": "Viktoria Chat",
+    "transmissionMode": "stream",
+    "canvasWidth": 1080,
+    "canvasHeight": 1920
   }
 }
