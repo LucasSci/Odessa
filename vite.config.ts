@@ -54,6 +54,9 @@ function odessaSchedulePlugin(): Plugin {
 // or the tango bridge (port 7555) hasn't started yet — it's an on-demand
 // subprocess, not always running.
 function suppressProxyErrors(proxy: { on: (event: string, handler: (...args: unknown[]) => void) => void }) {
+  // Remove Vite's default 'error' listener so it doesn't log scary
+  // ECONNREFUSED/ENOTFOUND messages during API reloads — we handle it ourselves.
+  (proxy as unknown as { removeAllListeners: (e: string) => void }).removeAllListeners('error');
   proxy.on('error', (err: Error, _req: unknown, res: unknown) => {
     // HTTP proxy: respond with 502 instead of crashing
     if (res && typeof (res as { writeHead?: Function }).writeHead === 'function' && !(res as { headersSent?: boolean }).headersSent) {
