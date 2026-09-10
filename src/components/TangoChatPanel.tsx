@@ -1491,8 +1491,6 @@ export function TangoChatPanel({
         </div>
       )}
 
-          )}
-
           {configSection === 'bridge' && (
         <div className="space-y-4 rounded-2xl border border-white/10 bg-[#0c0e12] p-5">
           <div>
@@ -1612,8 +1610,6 @@ export function TangoChatPanel({
           </div>
         </div>
       )}
-
-          )}
         </div>
       )}
 
@@ -1709,8 +1705,6 @@ export function TangoChatPanel({
           </div>
         </div>
       )}
-
-          )}
 
           {diagSection === 'logs' && (
         <div className="space-y-4">
