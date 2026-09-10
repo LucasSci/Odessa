@@ -278,5 +278,51 @@
     "offsetX": 0,
     "offsetY": 0
   },
-  "mediaTracks": []
+  "mediaTracks": [],
+  "publishedWorkflow": {
+    "workflowName": "Odessa Workflow",
+    "idleVideoId": "",
+    "flowNodes": [],
+    "flowConnections": [],
+    "triggers": [],
+    "stageSettings": {
+      "fit": "contain",
+      "zoom": 1.0,
+      "offsetX": 0,
+      "offsetY": 0
+    },
+    "mediaTracks": [],
+    "transitions": {},
+    "schemaVersion": "odessa.workflow.v1",
+    "workflowId": "a5226d89-3b2b-4c38-9b83-591386c70b57",
+    "version": 0,
+    "status": "published",
+    "updatedAt": "2026-09-10T00:06:23.034181+00:00",
+    "publishedAt": "2026-09-10T00:06:23.034197+00:00",
+    "publishedFromDraftId": null,
+    "lastValidation": null
+  },
+  "draftWorkflow": {
+    "workflowName": "Odessa Workflow",
+    "idleVideoId": "",
+    "flowNodes": [],
+    "flowConnections": [],
+    "triggers": [],
+    "stageSettings": {
+      "fit": "contain",
+      "zoom": 1.0,
+      "offsetX": 0,
+      "offsetY": 0
+    },
+    "mediaTracks": [],
+    "transitions": {},
+    "schemaVersion": "odessa.workflow.v1",
+    "workflowId": "a5226d89-3b2b-4c38-9b83-591386c70b57",
+    "version": 0,
+    "status": "draft",
+    "updatedAt": "2026-09-10T00:06:23.034227+00:00",
+    "publishedAt": null,
+    "publishedFromDraftId": null,
+    "lastValidation": null
+  }
 }

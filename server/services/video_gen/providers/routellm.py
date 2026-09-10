@@ -18,7 +18,7 @@ import mimetypes
 import time
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from server.config import OPENAI_BASE_URL, VIDEO_GEN_API_KEY, VIDEO_GEN_MODEL
 from server.services.video_gen.base import VideoGenProvider, VideoGenResult
@@ -50,6 +50,7 @@ class RouteLLMVideoProvider(VideoGenProvider):
         duration_sec: float = 4.0,
         width: int = 720,
         height: int = 1280,
+        reference_images: Optional[List[Path]] = None,
     ) -> VideoGenResult:
         if not self.api_key:
             return VideoGenResult(
@@ -73,6 +74,14 @@ class RouteLLMVideoProvider(VideoGenProvider):
             "duration": float(duration_sec or 4.0),
             "size": f"{width}x{height}",
         }
+        # Imagens de referência (ambiente, roupas) enviadas como referências visuais adicionais
+        if reference_images:
+            ref_urls = []
+            for ref_path in reference_images:
+                if ref_path.exists():
+                    ref_urls.append(self._data_url(ref_path))
+            if ref_urls:
+                payload["reference_images"] = ref_urls
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",

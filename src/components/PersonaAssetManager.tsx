@@ -24,6 +24,7 @@ import {
   type PersonaAssets,
   type VideoTemplates,
 } from '../core/personaAssets';
+import { generateFromTemplate } from '../core/videoGenApi';
 
 type Props = {
   personaId: string;
@@ -82,6 +83,8 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
   const [templatesSaved, setTemplatesSaved] = useState(false);
   const [renderedPrompts, setRenderedPrompts] = useState<Record<string, string>>({});
   const [rendering, setRendering] = useState<string | null>(null);
+  const [generating, setGenerating] = useState<string | null>(null);
+  const [generatedMsg, setGeneratedMsg] = useState<string | null>(null);
   const fileInputRefs = useRef<Record<AssetCategory, HTMLInputElement | null>>({
     faces: null,
     environments: null,
@@ -166,6 +169,19 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
       setError(e instanceof Error ? e.message : 'Falha ao renderizar template');
     } finally {
       setRendering(null);
+    }
+  };
+
+  const handleGenerate = async (videoType: string) => {
+    setGenerating(videoType);
+    setGeneratedMsg(null);
+    try {
+      await generateFromTemplate({ personaId, videoType });
+      setGeneratedMsg(`Vídeo ${videoType} enfileirado para geração ✓`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Falha ao gerar vídeo');
+    } finally {
+      setGenerating(null);
     }
   };
 
@@ -426,18 +442,33 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
                   className="resize-y rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-xs text-slate-200"
                 />
                 <div className="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void handleRender(vtype)}
-                    disabled={rendering !== null}
-                    className="self-start rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:bg-white/20 disabled:opacity-40"
-                  >
-                    {rendering === vtype ? 'Renderizando...' : '👁️ Pré-visualizar prompt'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleRender(vtype)}
+                      disabled={rendering !== null}
+                      className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:bg-white/20 disabled:opacity-40"
+                    >
+                      {rendering === vtype ? 'Renderizando...' : '👁️ Pré-visualizar prompt'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleGenerate(vtype)}
+                      disabled={generating !== null}
+                      className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-violet-500 disabled:opacity-40"
+                    >
+                      {generating === vtype ? 'Gerando...' : '🎬 Gerar vídeo'}
+                    </button>
+                  </div>
                   {renderedPrompts[vtype] && (
                     <div className="rounded-lg bg-black/30 p-2 text-xs text-slate-400">
                       <span className="text-slate-500">Prompt renderizado: </span>
                       {renderedPrompts[vtype]}
+                    </div>
+                  )}
+                  {generatedMsg && generating === null && (
+                    <div className="rounded-lg bg-emerald-500/10 p-2 text-xs text-emerald-400">
+                      {generatedMsg}
                     </div>
                   )}
                 </div>

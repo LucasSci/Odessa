@@ -44,6 +44,12 @@ class GenerateRequest(BaseModel):
     prompt: Optional[str] = None
 
 
+class GenerateFromTemplateRequest(BaseModel):
+    personaId: Optional[str] = None
+    videoType: str
+    action: str = ""
+
+
 # ── Frame ──────────────────────────────────────────────────────────────────
 @router.post("/frame")
 async def save_frame(request: FrameRequest):
@@ -112,6 +118,38 @@ async def generate_video(request: GenerateRequest):
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error", "Falha ao enfileirar"))
     return result
+
+
+@router.post("/generate-from-template")
+async def generate_from_template(request: GenerateFromTemplateRequest):
+    """Renderiza o template de uma persona para um tipo de vídeo e enfileira a geração.
+
+    Permite produzir o mesmo vídeo com personas diferentes: basta trocar o
+    personaId — o template é preenchido com os assets (rosto, ambiente, roupas)
+    da persona especificada.
+    """
+    from server.core.persona_templates import render_template
+    from server.core.persona_manager import get_active_persona_id
+
+    pid = request.personaId or get_active_persona_id()
+    try:
+        prompt_text = render_template(pid, request.videoType, request.action)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Falha ao renderizar template: {exc}")
+
+    record = storage.append_prompt(
+        {
+            "personaId": pid,
+            "prompt": prompt_text,
+            "videoType": request.videoType,
+            "source": "template",
+        },
+        persona_id=pid,
+    )
+    result = get_video_gen_service().enqueue(record, persona_id=pid)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Falha ao enfileirar"))
+    return {"ok": True, "prompt": prompt_text, "item": result.get("item")}
 
 
 @router.get("/queue")

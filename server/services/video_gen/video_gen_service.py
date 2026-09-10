@@ -24,6 +24,7 @@ from server.config import (
     VIDEO_GEN_HEIGHT,
     VIDEO_GEN_COOLDOWN_MS,
 )
+from server.core.persona_assets import get_primary_asset, get_asset_path, get_all_asset_paths
 from server.services.video_gen import storage
 from server.services.video_gen.prompt_service import prompt_service
 from server.services.video_gen.registry import get_provider
@@ -80,18 +81,36 @@ class VideoGenService:
         return {"ok": True, "auto": True, "prompt": result["prompt"], "enqueued": enqueued}
 
     # ── Fila ────────────────────────────────────────────────────────────────
+    def _resolve_base_image(self, persona_id: str) -> Optional[Path]:
+        """Resolve a imagem base para geração: rosto da persona (primária) ou último frame."""
+        primary_face = get_primary_asset(persona_id, "faces")
+        if primary_face:
+            face_path = get_asset_path(persona_id, "faces", primary_face["id"])
+            if face_path and face_path.exists():
+                return face_path
+        return storage.get_latest_frame(persona_id)
+
+    def _resolve_reference_images(self, persona_id: str) -> List[Path]:
+        """Coleta imagens de referência (ambiente + roupas) da persona."""
+        refs: List[Path] = []
+        refs.extend(get_all_asset_paths(persona_id, "environments"))
+        refs.extend(get_all_asset_paths(persona_id, "wardrobe"))
+        return refs
+
     def enqueue(self, prompt_record: Dict[str, Any], persona_id: Optional[str] = None) -> Dict[str, Any]:
         pid = persona_id or storage.get_active_persona_id()
         queue = storage.get_queue(pid)
         if len(queue) >= VIDEO_GEN_MAX_QUEUE:
             return {"ok": False, "error": f"Fila cheia (máx {VIDEO_GEN_MAX_QUEUE})"}
-        frame = storage.get_latest_frame(pid)
+        base_image = self._resolve_base_image(pid)
+        ref_images = self._resolve_reference_images(pid)
         item = {
             "id": str(uuid.uuid4()),
             "promptId": prompt_record.get("id"),
             "prompt": prompt_record.get("prompt", ""),
             "status": "queued",
-            "framePath": str(frame) if frame else None,
+            "framePath": str(base_image) if base_image else None,
+            "referenceImagePaths": [str(p) for p in ref_images],
             "videoId": None,
             "videoPath": None,
             "error": None,
@@ -164,6 +183,9 @@ class VideoGenService:
         # Grava em arquivo temporário e depois copia para o destino final.
         output_path = storage.videos_dir(pid) / f".tmp-{video_id}.mp4"
         provider = get_provider()
+        # Coleta imagens de referência (ambiente + roupas) da persona
+        ref_paths_raw = item.get("referenceImagePaths") or []
+        ref_images = [Path(p) for p in ref_paths_raw if Path(p).exists()]
         result = provider.generate(
             prompt=item.get("prompt", ""),
             base_image_path=Path(frame_path),
@@ -171,6 +193,7 @@ class VideoGenService:
             duration_sec=VIDEO_GEN_DURATION_SEC,
             width=VIDEO_GEN_WIDTH,
             height=VIDEO_GEN_HEIGHT,
+            reference_images=ref_images or None,
         )
 
         if not result.ok:

@@ -166,6 +166,17 @@ def get_primary_asset(persona_id: str, category: str) -> Optional[Dict[str, Any]
     return items[0] if items else None
 
 
+def get_all_asset_paths(persona_id: str, category: str) -> List[Path]:
+    """Retorna os caminhos de arquivo de todas as imagens de uma categoria."""
+    items = list_assets(persona_id, category)
+    paths: List[Path] = []
+    for item in items:
+        path = get_asset_path(persona_id, category, item["id"])
+        if path:
+            paths.append(path)
+    return paths
+
+
 def get_asset_url(persona_id: str, category: str, image_id: str) -> str:
     """Constrói a URL pública para servir uma imagem."""
     return f"/api/v1/personas/{persona_id}/assets/{category}/{image_id}"
