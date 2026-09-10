@@ -24,6 +24,8 @@ import {
   type PersonaAssets,
   type VideoTemplates,
 } from '../core/personaAssets';
+import { generateFromTemplate } from '../core/videoGenApi';
+import PersonaVisualManager from './PersonaVisualManager';
 
 type Props = {
   personaId: string;
@@ -74,7 +76,7 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState<AssetCategory | null>(null);
-  const [activeTab, setActiveTab] = useState<'assets' | 'templates'>('assets');
+  const [activeTab, setActiveTab] = useState<'assets' | 'visual' | 'templates'>('assets');
   const [activeCategory, setActiveCategory] = useState<AssetCategory>('faces');
   const [editingLabel, setEditingLabel] = useState<string | null>(null);
   const [labelDraft, setLabelDraft] = useState('');
@@ -82,6 +84,8 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
   const [templatesSaved, setTemplatesSaved] = useState(false);
   const [renderedPrompts, setRenderedPrompts] = useState<Record<string, string>>({});
   const [rendering, setRendering] = useState<string | null>(null);
+  const [generating, setGenerating] = useState<string | null>(null);
+  const [generatedMsg, setGeneratedMsg] = useState<string | null>(null);
   const fileInputRefs = useRef<Record<AssetCategory, HTMLInputElement | null>>({
     faces: null,
     environments: null,
@@ -169,6 +173,19 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
     }
   };
 
+  const handleGenerate = async (videoType: string) => {
+    setGenerating(videoType);
+    setGeneratedMsg(null);
+    try {
+      await generateFromTemplate({ personaId, videoType });
+      setGeneratedMsg(`Vídeo ${videoType} enfileirado para geração ✓`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Falha ao gerar vídeo');
+    } finally {
+      setGenerating(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8 text-sm text-slate-400">
@@ -186,7 +203,7 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
             Assets Visuais — {personaName}
           </h3>
           <p className="mt-0.5 text-xs text-slate-400">
-            Rostos, ambiente e roupas para produção automatizada de vídeos
+            Rostos, kits de roupas e cenários para produção automatizada de vídeos
           </p>
         </div>
         <div className="flex gap-1 rounded-xl border border-white/10 bg-black/20 p-1">
@@ -200,6 +217,17 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
             }`}
           >
             Imagens
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('visual')}
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              activeTab === 'visual'
+                ? 'bg-violet-600 text-white'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Kits &amp; Cenários
           </button>
           <button
             type="button"
@@ -357,6 +385,11 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
         </>
       )}
 
+      {/* ── Tab: Kits & Cenários ── */}
+      {activeTab === 'visual' && (
+        <PersonaVisualManager personaId={personaId} assets={assets} />
+      )}
+
       {/* ── Tab: Templates ── */}
       {activeTab === 'templates' && (
         <div className="flex flex-col gap-4">
@@ -426,18 +459,33 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
                   className="resize-y rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-xs text-slate-200"
                 />
                 <div className="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void handleRender(vtype)}
-                    disabled={rendering !== null}
-                    className="self-start rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:bg-white/20 disabled:opacity-40"
-                  >
-                    {rendering === vtype ? 'Renderizando...' : '👁️ Pré-visualizar prompt'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleRender(vtype)}
+                      disabled={rendering !== null}
+                      className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:bg-white/20 disabled:opacity-40"
+                    >
+                      {rendering === vtype ? 'Renderizando...' : '👁️ Pré-visualizar prompt'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleGenerate(vtype)}
+                      disabled={generating !== null}
+                      className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-violet-500 disabled:opacity-40"
+                    >
+                      {generating === vtype ? 'Gerando...' : '🎬 Gerar vídeo'}
+                    </button>
+                  </div>
                   {renderedPrompts[vtype] && (
                     <div className="rounded-lg bg-black/30 p-2 text-xs text-slate-400">
                       <span className="text-slate-500">Prompt renderizado: </span>
                       {renderedPrompts[vtype]}
+                    </div>
+                  )}
+                  {generatedMsg && generating === null && (
+                    <div className="rounded-lg bg-emerald-500/10 p-2 text-xs text-emerald-400">
+                      {generatedMsg}
                     </div>
                   )}
                 </div>

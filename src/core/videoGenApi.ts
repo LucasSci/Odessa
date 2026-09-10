@@ -120,6 +120,24 @@ export async function enqueueGeneration(
   });
 }
 
+export async function generateFromTemplate(opts: {
+  personaId?: string;
+  videoType: string;
+  action?: string;
+}): Promise<{ ok: boolean; prompt: string; item: VideoGenQueueItem }> {
+  return request<{ ok: boolean; prompt: string; item: VideoGenQueueItem }>(
+    '/api/video-gen/generate-from-template',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        personaId: opts.personaId,
+        videoType: opts.videoType,
+        action: opts.action || '',
+      }),
+    },
+  );
+}
+
 export async function fetchQueue(personaId?: string): Promise<VideoGenQueueItem[]> {
   const qs = personaId ? `?personaId=${encodeURIComponent(personaId)}` : '';
   const data = await request<{ queue: VideoGenQueueItem[] }>(`/api/video-gen/queue${qs}`);

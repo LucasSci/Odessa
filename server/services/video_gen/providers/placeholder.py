@@ -12,7 +12,7 @@ import logging
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from server.services.video_gen.base import VideoGenProvider, VideoGenResult
 
@@ -31,6 +31,7 @@ class PlaceholderProvider(VideoGenProvider):
         duration_sec: float = 4.0,
         width: int = 720,
         height: int = 1280,
+        reference_images: Optional[List[Path]] = None,
     ) -> VideoGenResult:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         ffmpeg = shutil.which("ffmpeg")
