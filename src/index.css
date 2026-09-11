@@ -140,13 +140,18 @@
   border: 1px solid var(--border2);
   background: var(--bg3);
   color: var(--t1);
-  transition: all 0.15s;
+  transition: all 0.18s var(--ease-out);
   white-space: nowrap;
 }
 
 .btn:hover {
   background: var(--bg4);
   border-color: var(--border3);
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: translateY(0) scale(0.97);
 }
 
 .btn-accent {
@@ -157,8 +162,13 @@
 }
 
 .btn-accent:hover {
-  filter: brightness(1.06);
-  box-shadow: 0 0 28px rgba(159, 122, 234, 0.28);
+  filter: brightness(1.08);
+  box-shadow: 0 0 32px rgba(159, 122, 234, 0.32);
+  transform: translateY(-1px);
+}
+
+.btn-accent:active {
+  transform: translateY(0) scale(0.97);
 }
 
 .btn-sm {
@@ -324,6 +334,11 @@
   background: var(--bg3);
   color: var(--t1);
   border-color: var(--border);
+  transform: translateY(-1px);
+}
+
+.btn-ghost:active {
+  transform: translateY(0) scale(0.97);
 }
 
 .btn-full {
@@ -552,7 +567,8 @@
   transition: all var(--dur-fast) var(--ease-out);
   cursor: pointer;
 }
-.od-iconbtn:hover { background: rgba(255,255,255,0.06); color: var(--t1); border-color: var(--border2); }
+.od-iconbtn:hover { background: rgba(255,255,255,0.06); color: var(--t1); border-color: var(--border2); transform: translateY(-1px); }
+.od-iconbtn:active { transform: translateY(0) scale(0.92); }
 .od-iconbtn svg { width: 16px; height: 16px; }
 
 /* ── Buttons ──────────────────────────────────────────────── */
@@ -567,10 +583,12 @@
   font-weight: 600;
   letter-spacing: -0.005em;
   border: 1px solid transparent;
-  transition: all var(--dur-fast) var(--ease-out);
+  transition: all 0.18s var(--ease-out);
   white-space: nowrap;
   cursor: pointer;
 }
+.od-btn:hover { transform: translateY(-1px); }
+.od-btn:active { transform: translateY(0) scale(0.96); }
 .od-btn svg { width: 14px; height: 14px; }
 
 .od-btn-primary {
@@ -578,14 +596,14 @@
   color: #0c0a12;
   box-shadow: var(--shadow-live), inset 0 1px 0 rgba(255,255,255,0.25);
 }
-.od-btn-primary:hover { filter: brightness(1.08); }
+.od-btn-primary:hover { filter: brightness(1.10); box-shadow: 0 0 36px rgba(59,130,246,0.42), inset 0 1px 0 rgba(255,255,255,0.25); }
 
 .od-btn-secondary {
   background: rgba(255,255,255,0.04);
   color: var(--t1);
   border-color: var(--border2);
 }
-.od-btn-secondary:hover { background: rgba(255,255,255,0.07); border-color: var(--border3); }
+.od-btn-secondary:hover { background: rgba(255,255,255,0.07); border-color: var(--border3); box-shadow: 0 0 18px rgba(125,211,252,0.15); }
 
 .od-btn-ghost {
   background: transparent;
@@ -598,7 +616,7 @@
   color: #fda4af;
   border-color: rgba(248, 113, 113, 0.30);
 }
-.od-btn-danger:hover { background: rgba(248, 113, 113, 0.18); }
+.od-btn-danger:hover { background: rgba(248, 113, 113, 0.18); box-shadow: 0 0 18px rgba(248,113,113,0.20); }
 
 .od-btn-sm { height: 28px; padding: 0 12px; font-size: 12px; border-radius: 999px; }
 
@@ -1271,21 +1289,22 @@
   background: var(--bg3);
   color: var(--t1);
   cursor: pointer;
-  transition: all var(--dur-fast) var(--ease-out);
+  transition: all 0.18s var(--ease-out);
   white-space: nowrap;
 }
-.odsa-btn:hover { background: var(--bg4); border-color: var(--border3); }
+.odsa-btn:hover { background: var(--bg4); border-color: var(--border3); transform: translateY(-1px); }
+.odsa-btn:active { transform: translateY(0) scale(0.96); }
 .odsa-btn-md { height: 38px; padding: 0 16px; font-size: 13px; }
 .odsa-btn-sm { height: 32px; padding: 0 12px; font-size: 12px; border-radius: var(--r-xl); }
 .odsa-btn-icon { width: 38px; padding: 0; }
 .odsa-btn-primary { background: var(--grad-live); color: #051018; border-color: transparent; box-shadow: var(--shadow-live); }
-.odsa-btn-primary:hover { filter: brightness(1.06); background: var(--grad-live); }
+.odsa-btn-primary:hover { filter: brightness(1.10); background: var(--grad-live); box-shadow: 0 0 36px rgba(59,130,246,0.42); }
 .odsa-btn-secondary { background: var(--bg2); }
-.odsa-btn-secondary:hover { border-color: rgba(125,211,252,0.45); background: var(--bg2); }
+.odsa-btn-secondary:hover { border-color: rgba(125,211,252,0.45); background: var(--bg2); box-shadow: 0 0 18px rgba(125,211,252,0.15); }
 .odsa-btn-ghost { background: transparent; border-color: transparent; color: var(--t2); }
 .odsa-btn-ghost:hover { background: var(--bg3); color: var(--t1); }
 .odsa-btn-danger { background: rgba(248,113,113,0.10); color: #fca5a5; border-color: rgba(248,113,113,0.25); }
-.odsa-btn-danger:hover { background: rgba(248,113,113,0.16); }
+.odsa-btn-danger:hover { background: rgba(248,113,113,0.16); box-shadow: 0 0 18px rgba(248,113,113,0.20); }
 .odsa-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .odsa-btn-ico { display: inline-flex; }
 
