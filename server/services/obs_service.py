@@ -1097,7 +1097,12 @@ class OBSService:
             base["error"] = None if not missing else f"Live layout incomplete: {', '.join(missing)}"
             return base
         except Exception as exc:
-            logger.error("[OBS_ERROR] live health failed: %s", exc)
+            if not self.enabled:
+                # OBS desativado de propósito (OBS_ENABLED=false) — não é erro,
+                # o frontend recebe ok:false e segue normalmente.
+                logger.warning("[OBS] live health skipped: OBS WebSocket disabled (OBS_ENABLED=false)")
+            else:
+                logger.error("[OBS_ERROR] live health failed: %s", exc)
             return {**base, "connected": self.connected, "error": str(exc)}
 
     async def get_current_program_scene(self) -> Optional[str]:

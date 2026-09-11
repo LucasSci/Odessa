@@ -1748,3 +1748,142 @@ button:active:not(:disabled) {
   animation: btn-shimmer 0.6s var(--ease-out);
 }
 
+/* ══════════════════════════════════════════════════════════════
+   ENTRANCE & TRANSITION ANIMATIONS
+══════════════════════════════════════════════════════════════ */
+
+@keyframes odessa-fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes odessa-slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes odessa-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes odessa-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Tab content transition — re-triggers via React key change */
+.anim-tab-enter {
+  animation: odessa-fade-in-up 0.35s var(--ease-out) both;
+}
+
+/* Sidebar nav staggered entrance */
+.anim-slide-in {
+  animation: odessa-slide-in-left 0.4s var(--ease-out) both;
+}
+
+/* Toast / modal entrance */
+.anim-scale-in {
+  animation: odessa-scale-in 0.3s var(--ease-out) both;
+}
+
+/* Simple fade */
+.anim-fade-in {
+  animation: odessa-fade-in 0.3s ease both;
+}
+
+/* Stagger delays for sidebar items */
+.anim-stagger-1 { animation-delay: 0.04s; }
+.anim-stagger-2 { animation-delay: 0.08s; }
+.anim-stagger-3 { animation-delay: 0.12s; }
+.anim-stagger-4 { animation-delay: 0.16s; }
+.anim-stagger-5 { animation-delay: 0.20s; }
+.anim-stagger-6 { animation-delay: 0.24s; }
+
+/* Panel/card hover lift */
+.odsa-panel,
+.od-panel,
+.odessa-panel-surface {
+  transition: transform var(--dur-med) var(--ease-out), box-shadow var(--dur-med) var(--ease-out), border-color var(--dur-med) var(--ease-out);
+}
+.odsa-panel:hover {
+  border-color: var(--border3);
+  box-shadow: var(--shadow-2), 0 0 24px rgba(125, 211, 252, 0.06);
+}
+
+/* Live pill entrance */
+.odsa-live-pill {
+  animation: odessa-scale-in 0.4s var(--ease-out) both;
+}
+
+/* Brand mark subtle float */
+@keyframes odessa-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+.odsa-brand-mark {
+  animation: odessa-float 4s ease-in-out infinite;
+}
+
+/* PageSurface header entrance */
+.anim-header-in {
+  animation: odessa-fade-in-up 0.4s var(--ease-out) both;
+}
+
+/* Metric card entrance */
+.anim-card-in {
+  animation: odessa-fade-in-up 0.3s var(--ease-out) both;
+}
+
+/* ── Click ripple ─────────────────────────────────────────── */
+.od-ripple-host {
+  position: relative;
+  overflow: hidden;
+}
+
+.od-ripple {
+  position: absolute;
+  border-radius: 9999px;
+  pointer-events: none;
+  transform: scale(0);
+  opacity: 0.85;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.35) 0%,
+    rgba(125, 211, 252, 0.18) 55%,
+    transparent 70%
+  );
+  animation: od-ripple 0.55s var(--ease-out) forwards;
+}
+
+@keyframes od-ripple {
+  to {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+/* Quick glow burst on press for all interactive elements */
+button:not(:disabled):active,
+[role="button"]:not([disabled]):active {
+  filter: brightness(1.15) saturate(1.1);
+}
+

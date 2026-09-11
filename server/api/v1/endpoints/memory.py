@@ -15,7 +15,8 @@ def get_memory_stats():
 
 @router.post("/round-context")
 def create_memory_round_context(request: MemoryRoundContextRequest):
-    return memory_service.upsert_round_memory(request.events)
+    # upsert_round_memory espera dicts (usa .get), não models Pydantic.
+    return memory_service.upsert_round_memory([event.model_dump() for event in request.events])
 
 
 @router.get("/profiles")
