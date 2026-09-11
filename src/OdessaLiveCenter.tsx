@@ -704,42 +704,54 @@ export default function OdessaLiveCenter({
         <nav className="odsa-side-nav">
           <div className="odsa-nav-group">
             <span className="odsa-nav-label">Estúdio</span>
+            <div className="anim-slide-in anim-stagger-1">
             <SideNavButton
               icon={<RadioTower />}
               label="Ao Vivo"
               active={activeTab === 'live' || activeTab === 'chat' || activeTab === 'home' || activeTab === 'stage'}
               onClick={() => setActiveTab('live')}
             />
+            </div>
+            <div className="anim-slide-in anim-stagger-2">
             <SideNavButton
               icon={<Film />}
               label="Biblioteca"
               active={activeTab === 'library'}
               onClick={() => setActiveTab('library')}
             />
+            </div>
+            <div className="anim-slide-in anim-stagger-3">
             <SideNavButton
               icon={<Link2 />}
               label="Automações"
               active={activeTab === 'flow' || activeTab === 'logs'}
               onClick={() => setActiveTab('flow')}
             />
+            </div>
+            <div className="anim-slide-in anim-stagger-4">
             <SideNavButton
               icon={<Users />}
               label="Personas"
               active={activeTab === 'personas'}
               onClick={() => setActiveTab('personas')}
             />
+            </div>
+            <div className="anim-slide-in anim-stagger-5">
             <SideNavButton
               icon={<History />}
               label="Histórico"
               active={activeTab === 'history'}
               onClick={() => setActiveTab('history')}
             />
+            </div>
+            <div className="anim-slide-in anim-stagger-6">
             <SideNavButton
               icon={<Settings />}
               label="Configurações"
               active={activeTab === 'settings' || activeTab === 'ai' || activeTab === 'canvas' || activeTab === 'sources'}
               onClick={() => setActiveTab('settings')}
             />
+            </div>
           </div>
         </nav>
 
@@ -796,7 +808,7 @@ export default function OdessaLiveCenter({
         </div>
 
         {liveStartError && (
-          <div className="odsa-toast">
+          <div className="odsa-toast anim-scale-in">
             {liveStartError}
           </div>
         )}
@@ -829,7 +841,7 @@ export default function OdessaLiveCenter({
         })}
       </div>
 
-      <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <section key={activeTab} className="anim-tab-enter flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* 1. AO VIVO (Central da Live + Palco / Visão Geral) */}
         {(activeTab === 'live' || activeTab === 'chat' || activeTab === 'home' || activeTab === 'stage') && (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -1111,7 +1123,7 @@ function PageSurface({
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden p-4 lg:p-5">
-      <div className="mb-4 shrink-0 rounded-[34px] border border-white/10 bg-[#101114] p-5">
+      <div className="anim-header-in mb-4 shrink-0 rounded-[34px] border border-white/10 bg-[#101114] p-5">
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-sky-200/70">
           {icon}
           Odessa console
@@ -2647,7 +2659,7 @@ function SectionTitle({ icon, title }: { icon: ReactNode; title: string }) {
 
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="min-w-0 rounded-[22px] border border-[var(--border2)] bg-black/20 p-4 shadow-[var(--shadow-1)]">
+    <div className="anim-card-in min-w-0 rounded-[22px] border border-[var(--border2)] bg-black/20 p-4 shadow-[var(--shadow-1)] transition-all duration-200 hover:border-[var(--border3)] hover:shadow-[0_0_24px_rgba(125,211,252,0.08)]">
       <div className="heading-serif truncate text-[34px] leading-none text-[var(--t1)]">{value}</div>
       <div className="mt-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-[var(--t3)]">
         {label}
