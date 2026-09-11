@@ -1524,3 +1524,227 @@
 /* Active accent nudge for the existing in-content tab pills */
 .od-tab.is-active, .odsa-tab.is-active { box-shadow: inset 0 -2px 0 var(--violet); }
 
+/* ══════════════════════════════════════════════════════════════
+   BUTTON ANIMATIONS — enhanced hover, press & shimmer
+   Applies to all three button systems: .btn, .od-btn, .odsa-btn
+══════════════════════════════════════════════════════════════ */
+
+@keyframes btn-shimmer {
+  0%   { transform: translateX(-120%) skewX(-12deg); }
+  100% { transform: translateX(220%)  skewX(-12deg); }
+}
+
+@keyframes btn-glow-pulse {
+  0%, 100% { box-shadow: var(--shadow-live), inset 0 1px 0 rgba(255,255,255,0.25); }
+  50%      { box-shadow: 0 0 38px rgba(59,130,246,0.45), 0 0 18px rgba(34,211,238,0.30), inset 0 1px 0 rgba(255,255,255,0.30); }
+}
+
+/* ── Shared base enhancements ─────────────────────────────── */
+.btn,
+.od-btn,
+.odsa-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── Legacy .btn system ───────────────────────────────────── */
+.btn {
+  transition: transform var(--dur-fast) var(--ease-out),
+              background 0.15s, border-color 0.15s, box-shadow 0.2s var(--ease-out);
+}
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.28);
+}
+.btn:active {
+  transform: translateY(0) scale(0.97);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}
+
+.btn-accent {
+  position: relative;
+  overflow: hidden;
+}
+.btn-accent::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 40%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+.btn-accent:hover::before {
+  opacity: 1;
+  animation: btn-shimmer 0.7s var(--ease-out);
+}
+.btn-accent:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.08);
+  box-shadow: 0 0 28px rgba(159, 122, 234, 0.35), 0 6px 20px rgba(0,0,0,0.3);
+}
+.btn-accent:active {
+  transform: translateY(0) scale(0.96);
+  filter: brightness(0.95);
+}
+
+/* ── od-btn system ────────────────────────────────────────── */
+.od-btn {
+  transition: transform var(--dur-med) var(--ease-out),
+              filter var(--dur-med) var(--ease-out),
+              background var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-med) var(--ease-out);
+}
+.od-btn:hover { transform: translateY(-1px); }
+.od-btn:active { transform: translateY(0) scale(0.96); }
+
+.od-btn-primary {
+  position: relative;
+  overflow: hidden;
+}
+.od-btn-primary::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 40%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+.od-btn-primary:hover::before {
+  opacity: 1;
+  animation: btn-shimmer 0.65s var(--ease-out);
+}
+.od-btn-primary:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.1);
+  box-shadow: 0 0 36px rgba(59,130,246,0.4), 0 6px 18px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.3);
+}
+.od-btn-primary:active {
+  transform: translateY(0) scale(0.95);
+  filter: brightness(0.95);
+}
+
+.od-btn-secondary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+}
+.od-btn-secondary:active { transform: scale(0.96); }
+
+.od-btn-ghost:hover { transform: translateY(-1px); }
+.od-btn-ghost:active { transform: scale(0.96); }
+
+.od-btn-danger:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 18px rgba(248,113,113,0.25);
+}
+.od-btn-danger:active { transform: scale(0.96); }
+
+/* ── odsa-btn system ──────────────────────────────────────── */
+.odsa-btn {
+  transition: transform var(--dur-med) var(--ease-out),
+              filter var(--dur-med) var(--ease-out),
+              background var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-med) var(--ease-out);
+}
+.odsa-btn:hover { transform: translateY(-1px); }
+.odsa-btn:active { transform: translateY(0) scale(0.96); }
+
+.odsa-btn-primary {
+  position: relative;
+  overflow: hidden;
+}
+.odsa-btn-primary::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 40%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+.odsa-btn-primary:hover::before {
+  opacity: 1;
+  animation: btn-shimmer 0.65s var(--ease-out);
+}
+.odsa-btn-primary:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.1);
+  box-shadow: 0 0 36px rgba(59,130,246,0.4), 0 6px 18px rgba(0,0,0,0.3);
+}
+.odsa-btn-primary:active {
+  transform: translateY(0) scale(0.95);
+  filter: brightness(0.95);
+}
+
+.odsa-btn-secondary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+}
+.odsa-btn-secondary:active { transform: scale(0.96); }
+
+.odsa-btn-ghost:hover { transform: translateY(-1px); }
+.odsa-btn-ghost:active { transform: scale(0.96); }
+
+.odsa-btn-danger:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 18px rgba(248,113,113,0.25);
+}
+.odsa-btn-danger:active { transform: scale(0.96); }
+
+/* ── Icon micro-animation on hover ────────────────────────── */
+.od-btn:hover svg,
+.odsa-btn:hover svg {
+  transform: scale(1.12);
+  transition: transform var(--dur-med) var(--ease-out);
+}
+.od-btn:active svg,
+.odsa-btn:active svg {
+  transform: scale(0.9);
+}
+
+/* ── Icon button hover glow ───────────────────────────────── */
+.od-iconbtn {
+  transition: all var(--dur-med) var(--ease-out);
+}
+.od-iconbtn:hover {
+  transform: translateY(-1px) scale(1.05);
+  box-shadow: 0 0 16px rgba(125,211,252,0.18);
+}
+.od-iconbtn:active {
+  transform: scale(0.92);
+}
+
+/* ── Global press feedback for ALL buttons ────────────────── */
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* ── Director card button ─────────────────────────────────── */
+.odsa-dc-btn {
+  position: relative;
+  overflow: hidden;
+  transition: transform var(--dur-fast) var(--ease-out), filter var(--dur-fast) var(--ease-out);
+}
+.odsa-dc-btn:hover {
+  transform: translateY(-1px) scale(1.03);
+  filter: brightness(1.1);
+  box-shadow: 0 4px 14px rgba(59,130,246,0.3);
+}
+.odsa-dc-btn:active { transform: scale(0.95); }
+.odsa-dc-btn::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 40%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+.odsa-dc-btn:hover::before {
+  opacity: 1;
+  animation: btn-shimmer 0.6s var(--ease-out);
+}
+
