@@ -1,0 +1,154 @@
+/* ══════════════════════════════════════════════════════════════════════
+   UX POLISH LAYER — feedback & acessibilidade global (todas as páginas)
+   Importado DEPOIS de index.css no main.tsx para vencer no cascade.
+   Nenhuma regra aqui muda layout/funcionalidade — só percepção e feedback.
+═══════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Base do documento ─────────────────────────────────────────── */
+html {
+  -webkit-tap-highlight-color: transparent;
+  scroll-behavior: smooth;
+  /* Firefox: scrollbar fina e temática (propriedades herdadas pelos filhos) */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(125, 211, 252, 0.28) transparent;
+}
+
+::selection {
+  background: rgba(59, 130, 246, 0.32);
+  color: var(--t1);
+}
+
+/* ── 2. Foco de teclado visível e consistente ─────────────────────── */
+/* :focus-visible só acende com navegação por teclado — clique de mouse
+   não mostra o anel (padrão WAI-ARIA). Ring azul-céu, mesmo em elementos
+   com outline:none inline (usa outline, que o inline sobrescreveria... por
+   isso também elevamos com box-shadow via regra de alta especificidade). */
+button:focus-visible,
+a:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+[role='button']:focus-visible,
+[role='tab']:focus-visible {
+  outline: 2px solid rgba(125, 211, 252, 0.75);
+  outline-offset: 2px;
+}
+
+/* Inputs: anel de foco via box-shadow (funciona mesmo com outline:none) */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: rgba(56, 189, 248, 0.55);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16);
+}
+
+/* ── 3. Reduced motion — respeita a preferência do usuário ────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── 4. Inputs, selects e checkboxes — feedback uniforme ──────────── */
+input,
+textarea,
+select {
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-med) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+
+/* Hover: borda acende sutilmente (só quando habilitado) */
+input:hover:not(:disabled):not([readonly]),
+textarea:hover:not(:disabled),
+select:hover:not(:disabled) {
+  border-color: rgba(125, 211, 252, 0.35);
+}
+
+/* Autofill: evita o fundo azul/amarelo do navegador no tema escuro */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--t1);
+  caret-color: var(--t1);
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+/* Options do select legíveis no tema escuro */
+select option {
+  background: var(--bg3);
+  color: var(--t1);
+}
+
+/* Checkboxes/radios/ranges com a cor de destaque do tema */
+input[type='checkbox'],
+input[type='radio'],
+input[type='range'] {
+  accent-color: var(--sky-2);
+}
+
+/* ── 5. Cursor consistente em tudo clicável ───────────────────────── */
+button:not(:disabled),
+[role='button']:not(:disabled),
+[role='tab']:not(:disabled),
+label:has(input[type='checkbox']),
+label:has(input[type='radio']) {
+  cursor: pointer;
+}
+
+button:disabled,
+[role='button']:disabled {
+  cursor: not-allowed;
+}
+
+/* ── 6. Scrollbars — feedback de hover ───────────────────────────── */
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(125, 211, 252, 0.4);
+}
+.od-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(125, 211, 252, 0.3);
+}
+
+/* ── 7. Micro-interações de navegação ─────────────────────────────── */
+/* Ícone da sidebar dá um "nudge" sutil ao passar o mouse */
+.odsa-side-ico svg {
+  transition: transform var(--dur-med) var(--ease-out);
+}
+.odsa-side-item:hover .odsa-side-ico svg {
+  transform: translateX(2px) scale(1.08);
+}
+
+/* Tab pills: leve escala no ativo para dar vida */
+.od-tab.is-active,
+.odsa-tab.is-active {
+  transform: scale(1.02);
+}
+
+/* Card da Diretora: lift sutil no hover (borda já existia) */
+.odsa-director-card {
+  transition:
+    border-color 0.15s,
+    transform var(--dur-med) var(--ease-out),
+    box-shadow var(--dur-med) var(--ease-out);
+}
+.odsa-director-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+/* Links de texto: sublinhado no hover */
+a:not([class]) {
+  color: var(--sky);
+  text-decoration-color: rgba(125, 211, 252, 0.4);
+  transition: text-decoration-color var(--dur-fast) var(--ease-out);
+}
+a:not([class]):hover {
+  text-decoration: underline;
+  text-decoration-color: var(--sky);
+}
