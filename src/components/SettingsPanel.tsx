@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import {
+  Activity,
   CheckCircle2,
   ChevronDown,
   ClipboardCheck,
@@ -21,6 +22,7 @@ import {
   ShieldAlert,
   Trash2,
   VolumeX,
+  Zap,
 } from 'lucide-react';
 import { apiUrl } from '../lib/api';
 import { cn } from '../lib/utils';
@@ -98,13 +100,13 @@ function Section({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="overflow-hidden rounded-3xl border border-[var(--border2)] bg-[var(--bg1)] shadow-[0_8px_30px_rgba(0,0,0,0.3)]">
+    <div className="overflow-hidden rounded-3xl border border-[var(--border2)] bg-gradient-to-b from-[var(--bg1)] to-[var(--bg)] shadow-[0_8px_30px_rgba(0,0,0,0.3)] transition-colors duration-200 hover:border-[var(--border3)]">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-white/[0.02]"
       >
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--border2)] bg-[var(--bg2)] text-[var(--accent2)]">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--border2)] bg-gradient-to-br from-[var(--bg2)] to-[var(--bg3)] text-[var(--accent2)] shadow-[0_0_16px_rgba(96,165,250,0.08)]">
           {icon}
         </span>
         <div className="min-w-0 flex-1">
@@ -115,10 +117,97 @@ function Section({
           {description && <p className="mt-0.5 truncate text-xs text-[var(--t3)]">{description}</p>}
         </div>
         <ChevronDown
-          className={cn('h-4 w-4 shrink-0 text-[var(--t3)] transition-transform duration-200', open && 'rotate-180')}
+          className={cn(
+            'h-4 w-4 shrink-0 text-[var(--t3)] transition-transform duration-300',
+            open && 'rotate-180',
+          )}
         />
       </button>
-      {open && <div className="border-t border-[var(--border)] px-5 py-4">{children}</div>}
+      <div
+        className={cn(
+          'grid transition-all duration-300 ease-in-out',
+          open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+        )}
+      >
+        <div className="overflow-hidden">
+          <div className="border-t border-[var(--border)] px-5 py-4">{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Status Overview Card ───────────────────────────────────── */
+function StatusOverview({
+  obsReady,
+  obsTested,
+  apiRows,
+  webhookCount,
+  automationMode,
+  allowedScenesCount,
+}: {
+  obsReady: boolean;
+  obsTested: boolean;
+  apiRows: { label: string; ok: boolean }[];
+  webhookCount: number;
+  automationMode: string;
+  allowedScenesCount: number;
+}) {
+  const activeApis = apiRows.filter((r) => r.ok).length;
+  const items = [
+    {
+      icon: <RadioTower className="h-4 w-4" />,
+      label: 'OBS',
+      value: obsReady ? 'Pronto' : obsTested ? 'Pendente' : 'Não testado',
+      tone: obsReady ? 'ok' : obsTested ? 'warn' : 'idle',
+    },
+    {
+      icon: <Zap className="h-4 w-4" />,
+      label: 'APIs',
+      value: `${activeApis}/${apiRows.length} ativas`,
+      tone: activeApis > 0 ? 'ok' : 'idle',
+    },
+    {
+      icon: <Link2 className="h-4 w-4" />,
+      label: 'Webhooks',
+      value: webhookCount > 0 ? `${webhookCount} ativo(s)` : 'Vazio',
+      tone: webhookCount > 0 ? 'ok' : 'idle',
+    },
+    {
+      icon: <Activity className="h-4 w-4" />,
+      label: 'Automação',
+      value: automationMode.charAt(0).toUpperCase() + automationMode.slice(1),
+      tone: automationMode === 'automatico' ? 'ok' : automationMode === 'assistido' ? 'warn' : 'idle',
+    },
+    {
+      icon: <ListVideo className="h-4 w-4" />,
+      label: 'Cenas',
+      value: `${allowedScenesCount} permitida(s)`,
+      tone: allowedScenesCount > 0 ? 'ok' : 'idle',
+    },
+  ];
+  const toneClasses: Record<string, string> = {
+    ok: 'text-emerald-300 border-emerald-400/20 bg-emerald-500/[0.06]',
+    warn: 'text-amber-300 border-amber-400/20 bg-amber-500/[0.06]',
+    idle: 'text-[var(--t3)] border-[var(--border2)] bg-[var(--bg2)]',
+  };
+  return (
+    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+      {items.map((item) => (
+        <div
+          key={item.label}
+          className={cn(
+            'flex items-center gap-2.5 rounded-2xl border px-3.5 py-3 transition-colors',
+            toneClasses[item.tone],
+          )}
+        >
+          <span className="shrink-0 opacity-80">{item.icon}</span>
+          <div className="min-w-0">
+            <div className="text-[10px] font-semibold uppercase tracking-widest opacity-60">{item.label}</div>
+            <div className="truncate text-sm font-bold">{item.value}</div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -657,6 +746,16 @@ export function SettingsPanel({
       </div>
 
       <div className="space-y-3 p-5">
+        {/* ── Status Overview ── */}
+        <StatusOverview
+          obsReady={obsReady}
+          obsTested={!!obsHealth}
+          apiRows={apiRows}
+          webhookCount={webhooks.length}
+          automationMode={workspace.automationMode}
+          allowedScenesCount={obsSettings.allowedScenes.length}
+        />
+
         {/* ── OBS WebSocket ── */}
         <Section
           icon={<Settings className="h-4 w-4" />}
@@ -1220,6 +1319,24 @@ export function SettingsPanel({
             </div>
           )}
         </Section>
+
+        {/* ── Sticky Action Bar ── */}
+        <div className="sticky bottom-0 z-10 flex items-center justify-between gap-3 rounded-2xl border border-[var(--border2)] bg-[var(--bg1)]/90 px-4 py-3 backdrop-blur-xl">
+          <div className="flex items-center gap-2 text-xs text-[var(--t3)]">
+            <Settings className="h-3.5 w-3.5" />
+            <span>Salvamento automático local · perfis e webhooks sincronizados com o backend</span>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="secondary" size="sm" loading={loading} onClick={() => void loadObsSettings()}>
+              <RefreshCw className="h-3.5 w-3.5" />
+              Recarregar
+            </Button>
+            <Button variant="primary" size="sm" loading={saving} onClick={() => void saveObsSettings()}>
+              <Save className="h-3.5 w-3.5" />
+              Salvar tudo
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );

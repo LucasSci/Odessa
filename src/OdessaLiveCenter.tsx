@@ -968,29 +968,53 @@ export default function OdessaLiveCenter({
         {/* 5. CONFIGURAÇÕES (OBS, IA, Mural, OCR) */}
         {(activeTab === 'settings' || activeTab === 'ai' || activeTab === 'canvas' || activeTab === 'sources') && (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="flex items-center gap-2 border-b border-white/5 bg-black/40 px-4 py-1.5 text-xs">
+            <div className="flex items-center gap-1.5 border-b border-white/5 bg-black/40 px-4 py-2 text-xs">
               <button
                 onClick={() => setSettingsSubTab('general')}
-                className={cn('rounded-lg px-2.5 py-1 font-semibold transition', settingsSubTab === 'general' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition',
+                  settingsSubTab === 'general'
+                    ? 'bg-gradient-to-r from-sky-500/20 to-cyan-500/10 text-white shadow-[inset_0_0_0_1px_rgba(125,211,252,0.25)]'
+                    : 'text-slate-400 hover:text-white hover:bg-white/5',
+                )}
               >
+                <Settings style={{ width: 13, height: 13 }} />
                 OBS & Webhooks
               </button>
               <button
                 onClick={() => setSettingsSubTab('ai')}
-                className={cn('rounded-lg px-2.5 py-1 font-semibold transition', settingsSubTab === 'ai' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition',
+                  settingsSubTab === 'ai'
+                    ? 'bg-gradient-to-r from-sky-500/20 to-cyan-500/10 text-white shadow-[inset_0_0_0_1px_rgba(125,211,252,0.25)]'
+                    : 'text-slate-400 hover:text-white hover:bg-white/5',
+                )}
               >
+                <Brain style={{ width: 13, height: 13 }} />
                 Diretora IA & Persona
               </button>
               <button
                 onClick={() => setSettingsSubTab('canvas')}
-                className={cn('rounded-lg px-2.5 py-1 font-semibold transition', settingsSubTab === 'canvas' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition',
+                  settingsSubTab === 'canvas'
+                    ? 'bg-gradient-to-r from-sky-500/20 to-cyan-500/10 text-white shadow-[inset_0_0_0_1px_rgba(125,211,252,0.25)]'
+                    : 'text-slate-400 hover:text-white hover:bg-white/5',
+                )}
               >
+                <ClipboardCheck style={{ width: 13, height: 13 }} />
                 Mural de Planejamento
               </button>
               <button
                 onClick={() => setSettingsSubTab('ocr')}
-                className={cn('rounded-lg px-2.5 py-1 font-semibold transition', settingsSubTab === 'ocr' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition',
+                  settingsSubTab === 'ocr'
+                    ? 'bg-gradient-to-r from-sky-500/20 to-cyan-500/10 text-white shadow-[inset_0_0_0_1px_rgba(125,211,252,0.25)]'
+                    : 'text-slate-400 hover:text-white hover:bg-white/5',
+                )}
               >
+                <Camera style={{ width: 13, height: 13 }} />
                 Fontes & OCR
               </button>
             </div>
