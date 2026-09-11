@@ -63,6 +63,11 @@ class ObsLiveLayoutRequest(BaseModel):
 
 class ObsTransmissionRequest(BaseModel):
     mode: Optional[str] = None
+    # O frontend envia "transmissionMode" (obsCommandRouter.ts) — aceita ambos.
+    transmissionMode: Optional[str] = None
+
+    def resolved_mode(self) -> Optional[str]:
+        return self.transmissionMode or self.mode
 
 
 class ObsSourceRequest(BaseModel):
@@ -288,18 +293,20 @@ async def obs_start_live(request: ObsStartLiveRequest):
 
 @router.post("/transmission/start")
 async def obs_start_transmission(request: Optional[ObsTransmissionRequest] = None):
+    mode = request.resolved_mode() if request else None
     try:
-        return await obs_service.start_transmission(request.mode if request else None)
+        return await obs_service.start_transmission(mode)
     except Exception as exc:
-        return {"ok": False, "status": "error", "mode": request.mode if request else None, "error": str(exc)}
+        return {"ok": False, "status": "error", "mode": mode, "error": str(exc)}
 
 
 @router.post("/transmission/stop")
 async def obs_stop_transmission(request: Optional[ObsTransmissionRequest] = None):
+    mode = request.resolved_mode() if request else None
     try:
-        return await obs_service.stop_transmission(request.mode if request else None)
+        return await obs_service.stop_transmission(mode)
     except Exception as exc:
-        return {"ok": False, "status": "error", "mode": request.mode if request else None, "error": str(exc)}
+        return {"ok": False, "status": "error", "mode": mode, "error": str(exc)}
 
 
 @router.get("/scenes")

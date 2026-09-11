@@ -6,15 +6,42 @@ back to the OBS router so the same backend serves both local and cloud
 frontends without code changes.
 """
 
+import inspect
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional, get_args
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from server.api.v1.endpoints import obs as obs_router
 
 router = APIRouter(tags=["agent"])
+
+
+def _coerce_post_body(handler: Any, body: Any) -> tuple[bool, Any]:
+    """Converte o body JSON cru no tipo esperado pelo handler.
+
+    Retorna (passar_body?, body). Handlers sem parâmetro `request` são
+    chamados SEM argumentos (antes: TypeError → 500). Bodies dict são
+    validados no model Pydantic anotado no handler (antes: AttributeError
+    acessando .mode num dict cru → 500). Body inválido → tratado como
+    ausente, o handler decide o padrão.
+    """
+    params = inspect.signature(handler).parameters
+    request_param = params.get("request")
+    if request_param is None:
+        return (False, None)
+    if isinstance(body, dict):
+        annotation = request_param.annotation
+        candidates = get_args(annotation) or (annotation,)
+        for candidate in candidates:
+            if isinstance(candidate, type) and issubclass(candidate, BaseModel):
+                try:
+                    return (True, candidate.model_validate(body))
+                except Exception:
+                    return (False, None)
+    return (True, body)
 
 
 def _json(status_code: int, body: dict[str, Any]) -> JSONResponse:
@@ -85,8 +112,9 @@ async def agent_relay(request: Request) -> JSONResponse:
                 body = await request.json()
             except Exception:
                 pass
-            if body is not None:
-                result = await handler(body)  # type: ignore[arg-type]
+            pass_body, coerced = _coerce_post_body(handler, body)
+            if pass_body:
+                result = await handler(coerced)  # type: ignore[arg-type]
             else:
                 result = await handler()  # type: ignore[call-arg]
         else:
