@@ -101,6 +101,8 @@ async def test_connect_fails_when_identification_times_out(monkeypatch):
 
     class FakeClient:
         async def connect(self):
+            # Reset connect attempt to bypass cooldown on retry
+            service._last_connect_attempt = 0
             return None
 
         async def wait_until_identified(self):
@@ -145,6 +147,8 @@ async def test_call_retries_once_after_not_identified(monkeypatch):
 
     class FakeClient:
         async def connect(self):
+            # Reset connect attempt to bypass cooldown on retry
+            service._last_connect_attempt = 0
             return None
 
         async def wait_until_identified(self):

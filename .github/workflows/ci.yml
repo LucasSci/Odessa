@@ -25,6 +25,10 @@ jobs:
         pip install pytest pytest-asyncio pytest-cov
         
     - name: Run Backend Tests
+      env:
+        ODESSA_AUTH_DISABLED: 1
+        ODESSA_SESSION_SECRET: test
+        ODESSA_AGENT_TOKEN: test
       run: |
         PYTHONPATH=. pytest --cov=server server/tests/
 
@@ -37,10 +41,12 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '20'
-        cache: 'npm'
+
+    - name: Install pnpm
+      run: npm install -g pnpm@9
         
     - name: Install dependencies
-      run: npm install
+      run: pnpm install --no-frozen-lockfile
       
     - name: Run Frontend Tests
-      run: npx vitest run
+      run: pnpm vitest run
