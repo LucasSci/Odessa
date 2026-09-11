@@ -3,9 +3,7 @@ import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import {
   Brain,
   Camera,
-  CheckCircle2,
   ClipboardCheck,
-  Database,
   Download,
   FastForward,
   Film,
@@ -19,9 +17,7 @@ import {
   RefreshCw,
   RotateCcw,
   Rewind,
-  Save,
   Settings,
-  ShieldAlert,
   Scissors,
   Trash2,
   Upload,
@@ -39,8 +35,9 @@ import {
 import { cn } from './lib/utils';
 import type { AutopilotRuntimeState } from './core/useAutopilotRuntime';
 import type { AuditTimelineEntry, AutopilotCycle, CapturedMessage } from './types';
-import { Badge, Button, Card, Input, StatusDot } from './components/ui';
+import { Badge, Button, Card } from './components/ui';
 import { AiConfigPanel } from './components/AiConfigPanel';
+import { SettingsPanel } from './components/SettingsPanel';
 import PersonaSelector from './components/PersonaSelector';
 import TopPersonaSelector from './components/TopPersonaSelector';
 import { PersonasPanel } from './components/PersonasPanel';
@@ -72,7 +69,7 @@ export type AdvancedPanel =
   | 'overlay'
   | 'canvas';
 
-type LiveConfig = {
+export type LiveConfig = {
   voiceEnabled?: boolean;
   enableChat?: boolean;
   prepareObs?: boolean;
@@ -220,7 +217,7 @@ type VideoState = {
   lastTransitionAt?: number | null;
 };
 
-type LivePlanStep = {
+export type LivePlanStep = {
   id: string;
   label: string;
   enabled: boolean;
@@ -229,7 +226,7 @@ type LivePlanStep = {
   status?: 'ready' | 'blocked' | 'warning';
 };
 
-type LivePlan = {
+export type LivePlan = {
   ok?: boolean;
   dryRun?: boolean;
   actionMode?: LiveConfig['actionMode'];
@@ -265,7 +262,7 @@ type AutomationExecutionResponse = {
   videoState?: VideoState;
 };
 
-type ObsSettings = {
+export type ObsSettings = {
   enabled: boolean;
   websocketUrl: string;
   websocketPassword?: string;
@@ -283,20 +280,20 @@ type ObsSettings = {
   allowedScenes: string[];
 };
 
-type ObsConnectionFields = {
+export type ObsConnectionFields = {
   host: string;
   port: string;
   authenticationEnabled: boolean;
 };
 
-type WorkspaceSettings = {
+export type WorkspaceSettings = {
   apiBudgetMode: 'economico' | 'normal' | 'agressivo';
   automationMode: 'manual' | 'assistido' | 'automatico';
   errorReports: boolean;
   telemetry: boolean;
 };
 
-type ObsHealthResult = {
+export type ObsHealthResult = {
   ok?: boolean;
   connected?: boolean;
   sourceReady?: boolean;
@@ -323,7 +320,7 @@ type ObsHealthResult = {
   error?: string | null;
 };
 
-type WebhookConfig = {
+export type WebhookConfig = {
   id: string;
   name: string;
   url: string;
@@ -334,7 +331,7 @@ type WebhookConfig = {
   bodyTemplate: string;
 };
 
-type WebhookDraft = Omit<WebhookConfig, 'id'> & { id?: string };
+export type WebhookDraft = Omit<WebhookConfig, 'id'> & { id?: string };
 
 type ReactiveRunResult = {
   input: string;
@@ -971,29 +968,53 @@ export default function OdessaLiveCenter({
         {/* 5. CONFIGURAÇÕES (OBS, IA, Mural, OCR) */}
         {(activeTab === 'settings' || activeTab === 'ai' || activeTab === 'canvas' || activeTab === 'sources') && (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="flex items-center gap-2 border-b border-white/5 bg-black/40 px-4 py-1.5 text-xs">
+            <div className="flex items-center gap-1.5 border-b border-white/5 bg-black/40 px-4 py-2 text-xs">
               <button
                 onClick={() => setSettingsSubTab('general')}
-                className={cn('rounded-lg px-2.5 py-1 font-semibold transition', settingsSubTab === 'general' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition',
+                  settingsSubTab === 'general'
+                    ? 'bg-gradient-to-r from-sky-500/20 to-cyan-500/10 text-white shadow-[inset_0_0_0_1px_rgba(125,211,252,0.25)]'
+                    : 'text-slate-400 hover:text-white hover:bg-white/5',
+                )}
               >
+                <Settings style={{ width: 13, height: 13 }} />
                 OBS & Webhooks
               </button>
               <button
                 onClick={() => setSettingsSubTab('ai')}
-                className={cn('rounded-lg px-2.5 py-1 font-semibold transition', settingsSubTab === 'ai' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition',
+                  settingsSubTab === 'ai'
+                    ? 'bg-gradient-to-r from-sky-500/20 to-cyan-500/10 text-white shadow-[inset_0_0_0_1px_rgba(125,211,252,0.25)]'
+                    : 'text-slate-400 hover:text-white hover:bg-white/5',
+                )}
               >
+                <Brain style={{ width: 13, height: 13 }} />
                 Diretora IA & Persona
               </button>
               <button
                 onClick={() => setSettingsSubTab('canvas')}
-                className={cn('rounded-lg px-2.5 py-1 font-semibold transition', settingsSubTab === 'canvas' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition',
+                  settingsSubTab === 'canvas'
+                    ? 'bg-gradient-to-r from-sky-500/20 to-cyan-500/10 text-white shadow-[inset_0_0_0_1px_rgba(125,211,252,0.25)]'
+                    : 'text-slate-400 hover:text-white hover:bg-white/5',
+                )}
               >
+                <ClipboardCheck style={{ width: 13, height: 13 }} />
                 Mural de Planejamento
               </button>
               <button
                 onClick={() => setSettingsSubTab('ocr')}
-                className={cn('rounded-lg px-2.5 py-1 font-semibold transition', settingsSubTab === 'ocr' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition',
+                  settingsSubTab === 'ocr'
+                    ? 'bg-gradient-to-r from-sky-500/20 to-cyan-500/10 text-white shadow-[inset_0_0_0_1px_rgba(125,211,252,0.25)]'
+                    : 'text-slate-400 hover:text-white hover:bg-white/5',
+                )}
               >
+                <Camera style={{ width: 13, height: 13 }} />
                 Fontes & OCR
               </button>
             </div>
@@ -1105,7 +1126,7 @@ function PageSurface({
   );
 }
 
-const DEFAULT_OBS_SETTINGS: ObsSettings = {
+export const DEFAULT_OBS_SETTINGS: ObsSettings = {
   enabled: true,
   websocketUrl: 'ws://localhost:4455',
   websocketPassword: '',
@@ -1123,16 +1144,16 @@ const DEFAULT_OBS_SETTINGS: ObsSettings = {
   allowedScenes: [],
 };
 
-const WORKSPACE_SETTINGS_KEY = 'odessa:workspace-settings:v1';
+export const WORKSPACE_SETTINGS_KEY = 'odessa:workspace-settings:v1';
 
-const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
+export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
   apiBudgetMode: 'normal',
   automationMode: 'assistido',
   errorReports: true,
   telemetry: false,
 };
 
-function normalizeObsSettings(settings?: Partial<ObsSettings>): ObsSettings {
+export function normalizeObsSettings(settings?: Partial<ObsSettings>): ObsSettings {
   const rawWhitelist = settings?.allowedScenes || settings?.sceneWhitelist;
   const scenes = Array.isArray(rawWhitelist)
     ? rawWhitelist.map((scene) => String(scene).trim()).filter(Boolean)
@@ -1153,7 +1174,7 @@ function normalizeObsSettings(settings?: Partial<ObsSettings>): ObsSettings {
   };
 }
 
-function loadWorkspaceSettings(): WorkspaceSettings {
+export function loadWorkspaceSettings(): WorkspaceSettings {
   if (typeof window === 'undefined') return DEFAULT_WORKSPACE_SETTINGS;
   try {
     const stored = window.localStorage.getItem(WORKSPACE_SETTINGS_KEY);
@@ -1164,7 +1185,7 @@ function loadWorkspaceSettings(): WorkspaceSettings {
   }
 }
 
-function parseObsConnection(settings: ObsSettings): ObsConnectionFields {
+export function parseObsConnection(settings: ObsSettings): ObsConnectionFields {
   try {
     const url = new URL(settings.websocketUrl || DEFAULT_OBS_SETTINGS.websocketUrl);
     return {
@@ -1185,13 +1206,13 @@ function parseObsConnection(settings: ObsSettings): ObsConnectionFields {
   }
 }
 
-function buildObsWebsocketUrl(connection: ObsConnectionFields) {
+export function buildObsWebsocketUrl(connection: ObsConnectionFields) {
   const host = connection.host.trim().replace(/^wss?:\/\//i, '').replace(/\/.*$/, '') || 'localhost';
   const port = String(connection.port || '4455').replace(/\D/g, '') || '4455';
   return `ws://${host}:${port}`;
 }
 
-const EMPTY_WEBHOOK_DRAFT: WebhookDraft = {
+export const EMPTY_WEBHOOK_DRAFT: WebhookDraft = {
   name: 'Novo webhook',
   url: '',
   method: 'POST',
@@ -1202,13 +1223,13 @@ const EMPTY_WEBHOOK_DRAFT: WebhookDraft = {
     '{\n  "product": "Odessa",\n  "event": "{event.text}",\n  "action": "{action.type}"\n}',
 };
 
-function headersToText(headers: Record<string, string>) {
+export function headersToText(headers: Record<string, string>) {
   return Object.entries(headers || {})
     .map(([key, value]) => `${key}: ${value}`)
     .join('\n');
 }
 
-function parseHeadersText(value: string) {
+export function parseHeadersText(value: string) {
   return Object.fromEntries(
     value
       .split('\n')
@@ -1219,1208 +1240,6 @@ function parseHeadersText(value: string) {
         return [key.trim(), rest.join(':').trim()];
       })
       .filter(([key]) => Boolean(key)),
-  );
-}
-
-function SettingsPanel({
-  health,
-  onRefreshHealth,
-  liveConfig,
-  onLiveConfigChange,
-  onSaved,
-  onObsSettingsChanged,
-}: {
-  health: AutopilotRuntimeState['health'];
-  onRefreshHealth: () => Promise<void>;
-  liveConfig: LiveConfig;
-  onLiveConfigChange?: Dispatch<SetStateAction<LiveConfig>>;
-  onSaved: () => void;
-  onObsSettingsChanged?: (settings: Record<string, unknown>) => void;
-}) {
-  const [obsSettings, setObsSettings] = useState<ObsSettings>(DEFAULT_OBS_SETTINGS);
-  const [obsConnection, setObsConnection] = useState<ObsConnectionFields>(() =>
-    parseObsConnection(DEFAULT_OBS_SETTINGS),
-  );
-  const [workspace, setWorkspace] = useState<WorkspaceSettings>(() => loadWorkspaceSettings());
-  const [passwordInput, setPasswordInput] = useState('');
-  const [obsHealth, setObsHealth] = useState<ObsHealthResult | null>(null);
-  const [availableScenes, setAvailableScenes] = useState<string[]>([]);
-  const [selectedSceneTest, setSelectedSceneTest] = useState('');
-  const [webhooks, setWebhooks] = useState<WebhookConfig[]>([]);
-  const [webhookDraft, setWebhookDraft] = useState<WebhookDraft>(EMPTY_WEBHOOK_DRAFT);
-  const [webhookHeaderText, setWebhookHeaderText] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [sceneTesting, setSceneTesting] = useState(false);
-  const [webhookSaving, setWebhookSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [webhookMessage, setWebhookMessage] = useState<string | null>(null);
-  const [livePlan, setLivePlan] = useState<LivePlan | null>(null);
-  const [livePlanLoading, setLivePlanLoading] = useState(false);
-  const [livePlanMessage, setLivePlanMessage] = useState<string | null>(null);
-  const [obsProfiles, setObsProfiles] = useState<Array<{ id: string; name: string; updatedAt?: string }>>([]);
-  const [obsProfileName, setObsProfileName] = useState('');
-  const [activeObsProfileId, setActiveObsProfileId] = useState('');
-
-  const loadObsSettings = useCallback(async () => {
-    setLoading(true);
-    setMessage(null);
-    try {
-      const response = await fetch(apiUrl('/obs/settings'));
-      const data = (await response.json()) as {
-        ok?: boolean;
-        settings?: Partial<ObsSettings>;
-        error?: string | null;
-      };
-      if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      const normalized = normalizeObsSettings(data.settings);
-      setObsSettings(normalized);
-      setObsConnection(parseObsConnection(normalized));
-      setSelectedSceneTest((current) => current || normalized.allowedScenes[0] || '');
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Falha ao carregar configuracoes do OBS');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // OBS profiles persisted in localStorage (per-device).
-  const OBS_PROFILES_KEY = 'odessa:obs-profiles:v1';
-
-  const readObsProfilesFromStorage = () => {
-    try {
-      const raw = typeof window !== 'undefined' ? window.localStorage.getItem(OBS_PROFILES_KEY) : null;
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch { return []; }
-  };
-
-  const writeObsProfilesToStorage = (list: typeof obsProfiles) => {
-    try { if (typeof window !== 'undefined') window.localStorage.setItem(OBS_PROFILES_KEY, JSON.stringify(list)); } catch { /* ignore */ }
-  };
-
-  const loadObsProfiles = useCallback(async () => {
-    setObsProfiles(readObsProfilesFromStorage());
-  }, []);
-
-  const saveObsProfile = async (name: string) => {
-    if (!name.trim()) return;
-    setSaving(true);
-    setMessage(null);
-    try {
-      // Build the snapshot from the LIVE form state (obsConnection holds the
-      // host/port the user typed; passwordInput holds a freshly typed password).
-      // obsSettings.websocketUrl can be stale until "Salvar OBS" is clicked.
-      const snapshot: ObsSettings = {
-        ...obsSettings,
-        websocketUrl: buildObsWebsocketUrl(obsConnection),
-        passwordConfigured: obsConnection.authenticationEnabled,
-        websocketPassword: passwordInput.trim() || obsSettings.websocketPassword || '',
-      };
-      const existing = readObsProfilesFromStorage();
-      const existingIdx = existing.findIndex((p) => p.name === name);
-      const profile = {
-        id: existingIdx >= 0 ? existing[existingIdx].id : `obs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        name,
-        settings: snapshot,
-        createdAt: existingIdx >= 0 ? existing[existingIdx].createdAt : new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      const next = existingIdx >= 0 ? existing.map((p, i) => i === existingIdx ? profile : p) : [...existing, profile];
-      writeObsProfilesToStorage(next);
-      setObsProfiles(next);
-      setActiveObsProfileId(profile.id);
-      setObsProfileName('');
-      const hasPwd = Boolean(snapshot.websocketPassword);
-      setMessage(
-        snapshot.passwordConfigured && !hasPwd
-          ? `Perfil "${name}" salvo. Dica: digite a senha do OBS antes de salvar para guarda-la no perfil.`
-          : `Perfil "${name}" salvo (local).`,
-      );
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Falha ao salvar perfil');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const applyObsProfile = async (id: string) => {
-    const profile = readObsProfilesFromStorage().find((p) => p.id === id);
-    if (!profile?.settings) {
-      setMessage('Perfil nao encontrado.');
-      return;
-    }
-    setSaving(true);
-    setMessage(null);
-    try {
-      // Only fill the form — never reconnect here. Reconnecting with a profile
-      // that has no stored password would drop the OBS connection. The user
-      // reviews the form and clicks "Salvar OBS" to apply + reconnect safely.
-      const normalized = normalizeObsSettings(profile.settings);
-      setObsSettings(normalized);
-      setObsConnection(parseObsConnection(normalized));
-      setActiveObsProfileId(id);
-      const storedPwd = (profile.settings as Partial<ObsSettings>).websocketPassword || '';
-      if (storedPwd) setPasswordInput(storedPwd);
-      setMessage(
-        storedPwd
-          ? `Perfil "${profile.name}" carregado. Clique em "Salvar OBS" para conectar.`
-          : `Perfil "${profile.name}" carregado. Confira a senha do OBS e clique em "Salvar OBS".`,
-      );
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Falha ao aplicar perfil');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const deleteObsProfile = async (id: string) => {
-    try {
-      const next = readObsProfilesFromStorage().filter((p) => p.id !== id);
-      writeObsProfilesToStorage(next);
-      setObsProfiles(next);
-      if (activeObsProfileId === id) setActiveObsProfileId('');
-    } catch { /* ignore */ }
-  };
-
-  const loadWebhooks = useCallback(async () => {
-    try {
-      const response = await fetch(apiUrl('/webhooks'));
-      const data = (await response.json().catch(() => ({}))) as {
-        ok?: boolean;
-        webhooks?: WebhookConfig[];
-        error?: string | null;
-      };
-      if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      setWebhooks(Array.isArray(data.webhooks) ? data.webhooks : []);
-    } catch (err) {
-      setWebhookMessage(err instanceof Error ? err.message : 'Falha ao carregar webhooks');
-    }
-  }, []);
-
-  const testObs = useCallback(async () => {
-    setLoading(true);
-    setMessage(null);
-    try {
-      const query = new URLSearchParams({
-        sourceName: obsSettings.chatSourceName || obsSettings.ocrSourceName,
-      });
-      const response = await fetch(apiUrl(`/obs/health?${query.toString()}`));
-      const data = (await response.json()) as ObsHealthResult;
-      setObsHealth(data);
-      setAvailableScenes(Array.isArray(data.availableScenes) ? data.availableScenes : []);
-      if (Array.isArray(data.allowedScenes)) {
-        setObsSettings((current) => ({
-          ...current,
-          sceneWhitelist: data.allowedScenes || current.sceneWhitelist,
-          allowedScenes: data.allowedScenes || current.allowedScenes,
-        }));
-      }
-      if (!response.ok || !data.ok) {
-        setMessage(data.error || 'OBS/source ainda nao esta pronto para iniciar a live');
-        return;
-      }
-      setMessage('OBS pronto para captura OCR persistente.');
-    } catch (err) {
-      const error = err instanceof Error ? err.message : 'Falha ao testar OBS';
-      setObsHealth({ ok: false, connected: false, sourceReady: false, screenshotReady: false, error });
-      setMessage(error);
-    } finally {
-      setLoading(false);
-    }
-  }, [obsSettings.chatSourceName, obsSettings.ocrSourceName]);
-
-  const loadLivePlan = useCallback(async () => {
-    setLivePlanLoading(true);
-    setLivePlanMessage(null);
-    try {
-      const query = new URLSearchParams({
-        voiceEnabled: String(!!liveConfig.voiceEnabled),
-        enableChat: String(!!liveConfig.enableChat),
-        prepareObs: String(liveConfig.prepareObs !== false),
-        showStage: String(liveConfig.showStage !== false),
-        startAutomation: String(liveConfig.startAutomation !== false),
-        startCapture: String(!!liveConfig.startCapture),
-        startTransmission: String(!!liveConfig.startTransmission),
-        actionMode: liveConfig.actionMode || 'simulated',
-      });
-      const response = await fetch(apiUrl(`/obs/live-plan?${query.toString()}`));
-      const data = (await response.json().catch(() => ({}))) as LivePlan;
-      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      setLivePlan(data);
-    } catch (err) {
-      setLivePlanMessage(err instanceof Error ? err.message : 'Falha ao carregar plano da live');
-    } finally {
-      setLivePlanLoading(false);
-    }
-  }, [liveConfig]);
-
-  const simulateLiveStart = async () => {
-    setLivePlanLoading(true);
-    setLivePlanMessage(null);
-    try {
-      const response = await fetch(apiUrl('/obs/start-live/dry-run'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(liveConfig),
-      });
-      const data = (await response.json().catch(() => ({}))) as LivePlan;
-      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      setLivePlan(data);
-      setLivePlanMessage('Simulacao concluida sem afetar OBS, chat, TTS ou transmissao.');
-    } catch (err) {
-      setLivePlanMessage(err instanceof Error ? err.message : 'Falha ao simular Iniciar Live');
-    } finally {
-      setLivePlanLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadObsSettings();
-      void loadObsProfiles();
-      void loadWebhooks();
-      void loadLivePlan();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [loadLivePlan, loadObsSettings, loadWebhooks]);
-
-  useEffect(() => {
-    window.localStorage.setItem(WORKSPACE_SETTINGS_KEY, JSON.stringify(workspace));
-  }, [workspace]);
-
-  const saveObsSettings = async () => {
-    setSaving(true);
-    setMessage(null);
-    try {
-      const payload: Partial<ObsSettings> = {
-        enabled: obsSettings.enabled,
-        websocketUrl: buildObsWebsocketUrl(obsConnection),
-        ocrSourceName: obsSettings.chatSourceName || obsSettings.ocrSourceName,
-        chatSourceName: obsSettings.chatSourceName || obsSettings.ocrSourceName,
-        stageSourceName: obsSettings.stageSourceName,
-        stageUrl: obsSettings.stageUrl,
-        startupSceneName: obsSettings.startupSceneName,
-        liveSceneName: obsSettings.liveSceneName,
-        transmissionMode: obsSettings.transmissionMode,
-        canvasWidth: obsSettings.canvasWidth,
-        canvasHeight: obsSettings.canvasHeight,
-        sceneWhitelist: obsSettings.allowedScenes,
-        allowedScenes: obsSettings.allowedScenes,
-      };
-      if (obsConnection.authenticationEnabled && passwordInput.trim()) {
-        payload.websocketPassword = passwordInput;
-      }
-      if (!obsConnection.authenticationEnabled) {
-        payload.websocketPassword = '';
-      }
-      const response = await fetch(apiUrl('/obs/settings'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = (await response.json()) as {
-        ok?: boolean;
-        settings?: Partial<ObsSettings>;
-        error?: string | null;
-      };
-      if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      const normalized = normalizeObsSettings(data.settings);
-      setObsSettings(normalized);
-      setObsConnection(parseObsConnection(normalized));
-      setSelectedSceneTest((current) => current || normalized.allowedScenes[0] || '');
-      setPasswordInput('');
-      setMessage('Configuracoes do OBS salvas.');
-      onSaved();
-      if (onObsSettingsChanged) {
-        onObsSettingsChanged(payload as Record<string, unknown>);
-      }
-      void onRefreshHealth();
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Falha ao salvar configuracoes');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const updateWorkspace = (patch: Partial<WorkspaceSettings>) => {
-    setWorkspace((current) => ({ ...current, ...patch }));
-  };
-
-  const syncObsScenes = async () => {
-    setLoading(true);
-    setMessage(null);
-    try {
-      const response = await fetch(apiUrl('/obs/scenes'));
-      const data = (await response.json().catch(() => ({}))) as {
-        ok?: boolean;
-        scenes?: string[];
-        currentScene?: string | null;
-        allowedScenes?: string[];
-        error?: string | null;
-      };
-      if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      const scenes = Array.isArray(data.scenes) ? data.scenes : [];
-      setAvailableScenes(scenes);
-      setObsHealth((current) => ({
-        ...(current || {}),
-        connected: true,
-        availableScenes: scenes,
-        allowedScenes: data.allowedScenes || obsSettings.allowedScenes,
-        currentScene: data.currentScene || current?.currentScene || null,
-        sceneSwitchReady: Boolean((data.allowedScenes || obsSettings.allowedScenes).length),
-      }));
-      setMessage(`Cenas sincronizadas: ${scenes.length}. Marque as cenas que as automacoes podem usar.`);
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Falha ao sincronizar cenas do OBS');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const toggleAllowedScene = (scene: string) => {
-    setObsSettings((current) => {
-      const exists = current.allowedScenes.some((item) => item.toLowerCase() === scene.toLowerCase());
-      const next = exists
-        ? current.allowedScenes.filter((item) => item.toLowerCase() !== scene.toLowerCase())
-        : [...current.allowedScenes, scene];
-      return { ...current, sceneWhitelist: next, allowedScenes: next };
-    });
-    setSelectedSceneTest((current) => current || scene);
-  };
-
-  const testSceneSwitch = async () => {
-    const sceneName = selectedSceneTest || obsSettings.allowedScenes[0] || '';
-    if (!sceneName) {
-      setMessage('Selecione uma cena permitida para testar a troca.');
-      return;
-    }
-    setSceneTesting(true);
-    setMessage(null);
-    try {
-      const response = await fetch(apiUrl('/obs/switch-scene'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sceneName }),
-      });
-      const data = (await response.json().catch(() => ({}))) as {
-        ok?: boolean;
-        currentScene?: string;
-        sceneName?: string;
-        scene?: string;
-        error?: string;
-      };
-      if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      setMessage(`Cena alterada no OBS: ${data.currentScene || data.sceneName || data.scene || sceneName}`);
-      void testObs();
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Falha ao trocar cena no OBS');
-    } finally {
-      setSceneTesting(false);
-    }
-  };
-
-  const saveWebhook = async () => {
-    setWebhookSaving(true);
-    setWebhookMessage(null);
-    try {
-      const payload = {
-        ...webhookDraft,
-        headers: parseHeadersText(webhookHeaderText),
-      };
-      const response = await fetch(apiUrl('/webhooks'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = (await response.json().catch(() => ({}))) as {
-        ok?: boolean;
-        webhook?: WebhookConfig;
-        webhooks?: WebhookConfig[];
-        error?: string | null;
-      };
-      if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      setWebhooks(Array.isArray(data.webhooks) ? data.webhooks : []);
-      setWebhookDraft({ ...payload, id: data.webhook?.id || payload.id });
-      setWebhookMessage('Webhook salvo.');
-    } catch (err) {
-      setWebhookMessage(err instanceof Error ? err.message : 'Falha ao salvar webhook');
-    } finally {
-      setWebhookSaving(false);
-    }
-  };
-
-  const editWebhook = (webhook: WebhookConfig) => {
-    setWebhookDraft(webhook);
-    setWebhookHeaderText(headersToText(webhook.headers));
-    setWebhookMessage(null);
-  };
-
-  const deleteWebhook = async (webhookId: string) => {
-    setWebhookSaving(true);
-    setWebhookMessage(null);
-    try {
-      const response = await fetch(apiUrl(`/webhooks/${encodeURIComponent(webhookId)}`), {
-        method: 'DELETE',
-      });
-      const data = (await response.json().catch(() => ({}))) as {
-        ok?: boolean;
-        webhooks?: WebhookConfig[];
-        error?: string | null;
-      };
-      if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      setWebhooks(Array.isArray(data.webhooks) ? data.webhooks : []);
-      if (webhookDraft.id === webhookId) {
-        setWebhookDraft(EMPTY_WEBHOOK_DRAFT);
-        setWebhookHeaderText('');
-      }
-      setWebhookMessage('Webhook removido.');
-    } catch (err) {
-      setWebhookMessage(err instanceof Error ? err.message : 'Falha ao remover webhook');
-    } finally {
-      setWebhookSaving(false);
-    }
-  };
-
-  const testWebhook = async (webhookId: string) => {
-    setWebhookSaving(true);
-    setWebhookMessage(null);
-    try {
-      const response = await fetch(apiUrl(`/webhooks/${encodeURIComponent(webhookId)}/test`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          event: { text: 'Teste manual do Centro de Acoes', kind: 'test' },
-          action: { type: 'webhook', capability: 'webhook.call', payload: { webhookId } },
-        }),
-      });
-      const data = (await response.json().catch(() => ({}))) as {
-        ok?: boolean;
-        statusCode?: number;
-        error?: string | null;
-      };
-      if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      setWebhookMessage(`Webhook executado: HTTP ${data.statusCode || 'ok'}.`);
-    } catch (err) {
-      setWebhookMessage(err instanceof Error ? err.message : 'Falha ao testar webhook');
-    } finally {
-      setWebhookSaving(false);
-    }
-  };
-
-  const obsReady =
-    !!obsHealth?.ok && !!obsHealth.connected && !!obsHealth.sourceReady && !!obsHealth.screenshotReady;
-  const sceneSwitchReady = !!obsHealth?.connected && !!obsHealth.sceneSwitchReady;
-  const apiRows = [
-    { label: 'Gemini', ok: !!health?.gemini_configured },
-    { label: 'OpenAI texto', ok: !!health?.openai_ai_configured },
-    { label: 'OpenAI TTS', ok: !!health?.openai_tts_configured },
-    { label: 'Kokoro TTS', ok: !!health?.kokoro_tts_configured },
-  ];
-
-  return (
-    <PageSurface
-      icon={<Settings className="h-4 w-4" />}
-      title="Configuracoes"
-      description="OBS WebSocket, fontes persistentes, consumo de APIs, automacoes e diagnosticos ficam centralizados aqui."
-    >
-      <div className="h-full overflow-y-auto p-4">
-        <div className="grid gap-4 xl:grid-cols-[minmax(560px,1fr)_360px]">
-          <section className="space-y-4">
-            <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
-              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <SectionTitle icon={<Settings />} title="OBS WebSocket" />
-                  <p className="mt-2 text-sm text-slate-400">
-                    A live assistida usa uma source dedicada do OBS para OCR, sem depender da aba ativa.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <StatusDot status={obsReady ? 'online' : obsHealth ? 'error' : 'idle'} />
-                  <Badge variant={obsReady ? 'success' : obsHealth ? 'danger' : 'default'}>
-                    {obsReady ? 'pronto' : obsHealth ? 'pendente' : 'nao testado'}
-                  </Badge>
-                </div>
-              </div>
-
-              <div className="mb-4 flex items-center gap-2">
-                {obsProfiles.length > 0 ? (
-                  <>
-                    <select
-                      className="h-9 cursor-pointer rounded-xl border border-white/10 bg-white/[0.06] px-3 pr-7 text-sm text-white outline-none focus:border-sky-400/40"
-                      value={activeObsProfileId}
-                      onChange={(e) => { if (e.target.value) void applyObsProfile(e.target.value); else setActiveObsProfileId(''); }}
-                    >
-                      <option value="">Selecionar perfil...</option>
-                      {obsProfiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
-                    {activeObsProfileId && (
-                      <button
-                        onClick={() => void deleteObsProfile(activeObsProfileId)}
-                        className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-red-500/15 hover:text-red-400"
-                        title="Excluir perfil"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    )}
-                    <div className="mx-1 h-5 w-px bg-white/10" />
-                  </>
-                ) : (
-                  <span className="text-xs font-semibold uppercase tracking-widest text-slate-500">Perfis</span>
-                )}
-                <Input
-                  value={obsProfileName}
-                  onChange={(e) => setObsProfileName(e.target.value)}
-                  placeholder="Novo perfil..."
-                  className="max-w-[200px]"
-                  onKeyDown={(e) => { if (e.key === 'Enter') void saveObsProfile(obsProfileName); }}
-                />
-                <Button size="sm" variant="secondary" disabled={!obsProfileName.trim() || saving} onClick={() => void saveObsProfile(obsProfileName)}>
-                  <Save className="h-4 w-4" />
-                </Button>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <label className="flex h-10 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-3 text-sm text-slate-200">
-                  <span>Exigir OBS WebSocket na live</span>
-                  <input
-                    type="checkbox"
-                    checked={obsSettings.enabled}
-                    onChange={(event) =>
-                      setObsSettings((current) => ({ ...current, enabled: event.target.checked }))
-                    }
-                  />
-                </label>
-                <label className="flex h-10 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-3 text-sm text-slate-200">
-                  <span>Habilitar autenticacao</span>
-                  <input
-                    type="checkbox"
-                    checked={obsConnection.authenticationEnabled}
-                    onChange={(event) =>
-                      setObsConnection((current) => ({
-                        ...current,
-                        authenticationEnabled: event.target.checked,
-                      }))
-                    }
-                  />
-                </label>
-                <Input
-                  label="Host do servidor"
-                  value={obsConnection.host}
-                  placeholder="localhost"
-                  onChange={(event) =>
-                    setObsConnection((current) => ({ ...current, host: event.target.value }))
-                  }
-                />
-                <Input
-                  label="Porta do servidor"
-                  type="number"
-                  min="1"
-                  max="65535"
-                  value={obsConnection.port}
-                  placeholder="4455"
-                  onChange={(event) =>
-                    setObsConnection((current) => ({ ...current, port: event.target.value }))
-                  }
-                />
-                <Input
-                  label="Source do chat/OCR"
-                  value={obsSettings.chatSourceName}
-                  onChange={(event) =>
-                    setObsSettings((current) => ({
-                      ...current,
-                      chatSourceName: event.target.value,
-                      ocrSourceName: event.target.value,
-                    }))
-                  }
-                />
-                <Input
-                  label="Senha do servidor"
-                  type="password"
-                  value={passwordInput}
-                  disabled={!obsConnection.authenticationEnabled}
-                  placeholder={
-                    !obsConnection.authenticationEnabled
-                      ? 'Autenticacao desativada'
-                      : obsSettings.passwordConfigured
-                        ? 'Senha configurada - deixe vazio para manter'
-                        : 'Senha do OBS WebSocket'
-                  }
-                  onChange={(event) => setPasswordInput(event.target.value)}
-                />
-                <Input
-                  label="Source do palco"
-                  value={obsSettings.stageSourceName}
-                  onChange={(event) =>
-                    setObsSettings((current) => ({ ...current, stageSourceName: event.target.value }))
-                  }
-                />
-                <Input
-                  label="URL do palco"
-                  value={obsSettings.stageUrl}
-                  onChange={(event) =>
-                    setObsSettings((current) => ({ ...current, stageUrl: event.target.value }))
-                  }
-                />
-                <Input
-                  label="Cena inicial"
-                  value={obsSettings.startupSceneName}
-                  onChange={(event) =>
-                    setObsSettings((current) => ({ ...current, startupSceneName: event.target.value }))
-                  }
-                />
-                <Input
-                  label="Cena ao vivo"
-                  value={obsSettings.liveSceneName}
-                  onChange={(event) =>
-                    setObsSettings((current) => ({ ...current, liveSceneName: event.target.value }))
-                  }
-                />
-                <Input
-                  label="Largura palco"
-                  type="number"
-                  min="1"
-                  value={obsSettings.canvasWidth}
-                  onChange={(event) =>
-                    setObsSettings((current) => ({
-                      ...current,
-                      canvasWidth: Math.max(1, Number(event.target.value) || current.canvasWidth),
-                    }))
-                  }
-                />
-                <Input
-                  label="Altura palco"
-                  type="number"
-                  min="1"
-                  value={obsSettings.canvasHeight}
-                  onChange={(event) =>
-                    setObsSettings((current) => ({
-                      ...current,
-                      canvasHeight: Math.max(1, Number(event.target.value) || current.canvasHeight),
-                    }))
-                  }
-                />
-              </div>
-
-              <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto] md:items-center">
-                <div className="rounded-2xl border border-white/10 bg-black/25 px-3 py-2 text-xs text-slate-400">
-                  URL gerada:{' '}
-                  <span className="font-mono font-semibold text-slate-200">
-                    {buildObsWebsocketUrl(obsConnection)}
-                  </span>
-                </div>
-                <Badge variant={obsConnection.authenticationEnabled ? 'gold' : 'default'}>
-                  {obsConnection.authenticationEnabled ? 'auth ligada' : 'sem auth'}
-                </Badge>
-              </div>
-
-              <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
-                <label className="block">
-                  <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-                    Transmissao
-                  </span>
-                  <select
-                    value={obsSettings.transmissionMode}
-                    onChange={(event) =>
-                      setObsSettings((current) => ({
-                        ...current,
-                        transmissionMode: event.target.value as ObsSettings['transmissionMode'],
-                      }))
-                    }
-                    className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
-                  >
-                    <option value="stream">OBS Stream</option>
-                    <option value="virtual_camera">Camera virtual</option>
-                    <option value="none">Nao iniciar automaticamente</option>
-                  </select>
-                </label>
-                <Button
-                  variant="secondary"
-                  loading={loading}
-                  onClick={async () => {
-                    setLoading(true);
-                    setMessage(null);
-                    try {
-                      const response = await fetch(apiUrl('/obs/setup-live-scene'), {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          chatSourceName: obsSettings.chatSourceName,
-                          stageSourceName: obsSettings.stageSourceName,
-                          stageUrl: obsSettings.stageUrl,
-                          startupSceneName: obsSettings.startupSceneName,
-                          liveSceneName: obsSettings.liveSceneName,
-                          transmissionMode: obsSettings.transmissionMode,
-                          canvasWidth: obsSettings.canvasWidth,
-                          canvasHeight: obsSettings.canvasHeight,
-                        }),
-                      });
-                      const data = (await response.json().catch(() => ({}))) as {
-                        ok?: boolean;
-                        layout?: Partial<ObsSettings>;
-                        allowedScenes?: string[];
-                        error?: string | null;
-                      };
-                      if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
-                      if (data.layout) setObsSettings((current) => normalizeObsSettings({ ...current, ...data.layout }));
-                      if (Array.isArray(data.allowedScenes)) {
-                        setObsSettings((current) => ({
-                          ...current,
-                          allowedScenes: data.allowedScenes || current.allowedScenes,
-                          sceneWhitelist: data.allowedScenes || current.sceneWhitelist,
-                        }));
-                      }
-                      setMessage('Mesa OBS preparada: cenas, palco e chat foram sincronizados.');
-                      void testObs();
-                    } catch (err) {
-                      setMessage(err instanceof Error ? err.message : 'Falha ao preparar Mesa OBS');
-                    } finally {
-                      setLoading(false);
-                    }
-                  }}
-                >
-                  <RadioTower className="h-4 w-4" />
-                  Preparar mesa OBS
-                </Button>
-              </div>
-
-              <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-3">
-                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-                      Cenas permitidas para automacoes
-                    </div>
-                    <div className="mt-1 text-xs text-slate-400">
-                      Sincronize do OBS e marque apenas as cenas que podem ser acionadas por gatilhos.
-                    </div>
-                  </div>
-                  <Button variant="secondary" loading={loading} onClick={() => void syncObsScenes()}>
-                    <RefreshCw className="h-4 w-4" />
-                    Sincronizar cenas
-                  </Button>
-                </div>
-
-                <div className="mt-3 grid gap-2 md:grid-cols-2">
-                  {availableScenes.length ? (
-                    availableScenes.map((scene) => {
-                      const allowed = obsSettings.allowedScenes.some(
-                        (item) => item.toLowerCase() === scene.toLowerCase(),
-                      );
-                      return (
-                        <label
-                          key={scene}
-                          className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-2 text-sm text-slate-200"
-                        >
-                          <span className="truncate">{scene}</span>
-                          <input
-                            type="checkbox"
-                            checked={allowed}
-                            onChange={() => toggleAllowedScene(scene)}
-                          />
-                        </label>
-                      );
-                    })
-                  ) : (
-                    <div className="rounded-2xl border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500 md:col-span-2">
-                      Nenhuma cena sincronizada ainda. Use o botao acima com o OBS aberto.
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
-                  <select
-                    value={selectedSceneTest}
-                    onChange={(event) => setSelectedSceneTest(event.target.value)}
-                    className="h-10 rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
-                  >
-                    <option value="">Selecionar cena para teste</option>
-                    {obsSettings.allowedScenes.map((scene) => (
-                      <option key={scene} value={scene}>
-                        {scene}
-                      </option>
-                    ))}
-                  </select>
-                  <Button
-                    variant="secondary"
-                    loading={sceneTesting}
-                    onClick={() => void testSceneSwitch()}
-                  >
-                    <RadioTower className="h-4 w-4" />
-                    Testar troca
-                  </Button>
-                </div>
-              </div>
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Button variant="primary" loading={saving} onClick={() => void saveObsSettings()}>
-                  <CheckCircle2 className="h-4 w-4" />
-                  Salvar OBS
-                </Button>
-                <Button variant="secondary" loading={loading} onClick={() => void testObs()}>
-                  <RefreshCw className="h-4 w-4" />
-                  Testar source
-                </Button>
-                <Button variant="secondary" loading={loading} onClick={() => void loadObsSettings()}>
-                  <RefreshCw className="h-4 w-4" />
-                  Recarregar
-                </Button>
-              </div>
-
-              {message && (
-                <div
-                  className={cn(
-                    'mt-4 rounded-2xl border px-3 py-2 text-sm',
-                    obsReady
-                      ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200'
-                      : 'border-amber-400/25 bg-amber-500/10 text-amber-100',
-                  )}
-                >
-                  {message}
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
-              <div className="mb-4">
-                <SectionTitle icon={<ClipboardCheck />} title="Iniciar Live" />
-                <p className="mt-2 text-sm text-slate-400">
-                  O botão <strong className="text-white">"Iniciar live"</strong> no topo ativa tudo automaticamente:
-                  prepara o OBS, inicia a automação, a captura do chat e a transmissão.
-                </p>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="flex h-12 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-4 text-sm text-slate-200">
-                  <span className="flex items-center gap-2">
-                    <VolumeX className="h-4 w-4 text-slate-400" />
-                    Voz IA (TTS)
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={!!liveConfig.voiceEnabled}
-                    onChange={(event) =>
-                      onLiveConfigChange?.((current) => ({ ...current, voiceEnabled: event.target.checked }))
-                    }
-                    className="h-4 w-4 accent-[var(--gold)]"
-                  />
-                </label>
-                <label className="flex h-12 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-4 text-sm text-slate-200">
-                  <span className="flex items-center gap-2">
-                    <RadioTower className="h-4 w-4 text-slate-400" />
-                    Resposta automática no chat
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={!!liveConfig.enableChat}
-                    onChange={(event) =>
-                      onLiveConfigChange?.((current) => ({ ...current, enableChat: event.target.checked }))
-                    }
-                    className="h-4 w-4 accent-[var(--gold)]"
-                  />
-                </label>
-              </div>
-            </div>
-
-            <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
-              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <SectionTitle icon={<Link2 />} title="Webhooks" />
-                  <p className="mt-2 text-sm text-slate-400">
-                    Cadastre endpoints genericos para gatilhos. n8n entra aqui como um webhook comum.
-                  </p>
-                </div>
-                <Badge variant={webhooks.length ? 'success' : 'default'}>
-                  {webhooks.length ? `${webhooks.length} configurado(s)` : 'sem webhooks'}
-                </Badge>
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-[minmax(280px,360px)_1fr]">
-                <div className="space-y-2">
-                  {webhooks.length ? (
-                    webhooks.map((webhook) => (
-                      <div
-                        key={webhook.id}
-                        className="rounded-2xl border border-white/10 bg-white/[0.045] p-3"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <button
-                            className="min-w-0 text-left"
-                            onClick={() => editWebhook(webhook)}
-                          >
-                            <div className="truncate text-sm font-semibold text-white">
-                              {webhook.name}
-                            </div>
-                            <div className="mt-1 truncate text-xs text-slate-500">
-                              {webhook.id}
-                            </div>
-                          </button>
-                          <Badge variant={webhook.enabled ? 'success' : 'warning'}>
-                            {webhook.enabled ? 'ativo' : 'pausado'}
-                          </Badge>
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            loading={webhookSaving}
-                            onClick={() => void testWebhook(webhook.id)}
-                          >
-                            Testar
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="danger"
-                            loading={webhookSaving}
-                            onClick={() => void deleteWebhook(webhook.id)}
-                          >
-                            Remover
-                          </Button>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="rounded-2xl border border-dashed border-white/10 px-3 py-4 text-sm text-slate-500">
-                      Nenhum webhook salvo.
-                    </div>
-                  )}
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  <Input
-                    label="Nome"
-                    value={webhookDraft.name}
-                    onChange={(event) =>
-                      setWebhookDraft((current) => ({ ...current, name: event.target.value }))
-                    }
-                  />
-                  <label className="block">
-                    <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-                      Metodo
-                    </span>
-                    <select
-                      value={webhookDraft.method}
-                      onChange={(event) =>
-                        setWebhookDraft((current) => ({ ...current, method: event.target.value }))
-                      }
-                      className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
-                    >
-                      <option value="POST">POST</option>
-                      <option value="PUT">PUT</option>
-                      <option value="PATCH">PATCH</option>
-                    </select>
-                  </label>
-                  <Input
-                    label="URL"
-                    value={webhookDraft.url}
-                    placeholder="https://..."
-                    className="md:col-span-2"
-                    onChange={(event) =>
-                      setWebhookDraft((current) => ({ ...current, url: event.target.value }))
-                    }
-                  />
-                  <Input
-                    label="Timeout ms"
-                    type="number"
-                    min="500"
-                    max="15000"
-                    value={webhookDraft.timeoutMs}
-                    onChange={(event) =>
-                      setWebhookDraft((current) => ({
-                        ...current,
-                        timeoutMs: Number(event.target.value) || 2500,
-                      }))
-                    }
-                  />
-                  <label className="flex h-10 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-3 text-sm text-slate-200">
-                    <span>Ativo</span>
-                    <input
-                      type="checkbox"
-                      checked={webhookDraft.enabled}
-                      onChange={(event) =>
-                        setWebhookDraft((current) => ({
-                          ...current,
-                          enabled: event.target.checked,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="block md:col-span-2">
-                    <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-                      Headers
-                    </span>
-                    <textarea
-                      value={webhookHeaderText}
-                      onChange={(event) => setWebhookHeaderText(event.target.value)}
-                      className="min-h-20 w-full resize-y rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 py-2 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
-                      placeholder="Authorization: Bearer ..."
-                    />
-                  </label>
-                  <label className="block md:col-span-2">
-                    <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-                      Body template
-                    </span>
-                    <textarea
-                      value={webhookDraft.bodyTemplate}
-                      onChange={(event) =>
-                        setWebhookDraft((current) => ({
-                          ...current,
-                          bodyTemplate: event.target.value,
-                        }))
-                      }
-                      className="min-h-28 w-full resize-y rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 py-2 font-mono text-xs text-[var(--t1)] outline-none focus:border-[var(--gold)]"
-                    />
-                  </label>
-                  <div className="flex flex-wrap gap-2 md:col-span-2">
-                    <Button variant="primary" loading={webhookSaving} onClick={() => void saveWebhook()}>
-                      <CheckCircle2 className="h-4 w-4" />
-                      Salvar webhook
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        setWebhookDraft(EMPTY_WEBHOOK_DRAFT);
-                        setWebhookHeaderText('');
-                        setWebhookMessage(null);
-                      }}
-                    >
-                      Novo
-                    </Button>
-                  </div>
-                  {webhookMessage && (
-                    <div className="rounded-2xl border border-white/10 bg-black/25 px-3 py-2 text-sm text-slate-300 md:col-span-2">
-                      {webhookMessage}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
-                <SectionTitle icon={<Database />} title="Consumo de APIs" />
-                <div className="mt-4 grid gap-3">
-                  <label className="block">
-                    <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-                      Perfil de custo
-                    </span>
-                    <select
-                      value={workspace.apiBudgetMode}
-                      onChange={(event) =>
-                        updateWorkspace({
-                          apiBudgetMode: event.target.value as WorkspaceSettings['apiBudgetMode'],
-                        })
-                      }
-                      className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
-                    >
-                      <option value="economico">Economico</option>
-                      <option value="normal">Normal</option>
-                      <option value="agressivo">Agressivo</option>
-                    </select>
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {apiRows.map((row) => (
-                      <div
-                        key={row.label}
-                        className="flex items-center justify-between gap-2 rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-2 text-sm"
-                      >
-                        <span className="truncate text-slate-300">{row.label}</span>
-                        <StatusDot status={row.ok ? 'online' : 'idle'} />
-                      </div>
-                    ))}
-                  </div>
-                  <Button variant="secondary" onClick={() => void onRefreshHealth()}>
-                    <RefreshCw className="h-4 w-4" />
-                    Atualizar health
-                  </Button>
-                </div>
-              </div>
-
-              <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
-                <SectionTitle icon={<RadioTower />} title="Automacoes" />
-                <div className="mt-4 grid gap-3">
-                  <label className="block">
-                    <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-                      Modo operacional
-                    </span>
-                    <select
-                      value={workspace.automationMode}
-                      onChange={(event) =>
-                        updateWorkspace({
-                          automationMode: event.target.value as WorkspaceSettings['automationMode'],
-                        })
-                      }
-                      className="h-10 w-full rounded-2xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
-                    >
-                      <option value="manual">Manual</option>
-                      <option value="assistido">Assistido</option>
-                      <option value="automatico">Automatico</option>
-                    </select>
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Metric label="Regras" value={health ? 'online' : 'aguardando'} />
-                    <Metric label="Cenas permitidas" value={obsSettings.allowedScenes.length} />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <aside className="space-y-4">
-            <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
-              <SectionTitle icon={<ShieldAlert />} title="Relatorio de erros" />
-              <div className="mt-4 space-y-3">
-                <label className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-3 text-sm text-slate-200">
-                  <span>Salvar diagnosticos locais</span>
-                  <input
-                    type="checkbox"
-                    checked={workspace.errorReports}
-                    onChange={(event) => updateWorkspace({ errorReports: event.target.checked })}
-                  />
-                </label>
-                <label className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-3 text-sm text-slate-200">
-                  <span>Telemetria de uso</span>
-                  <input
-                    type="checkbox"
-                    checked={workspace.telemetry}
-                    onChange={(event) => updateWorkspace({ telemetry: event.target.checked })}
-                  />
-                </label>
-                <div className="rounded-2xl border border-white/10 bg-black/25 p-3 text-xs leading-5 text-slate-400">
-                  Estas preferencias ficam locais por enquanto. A estrutura ja deixa o painel pronto para
-                  plugar provedores de erro, custos de API e novas automacoes.
-                </div>
-              </div>
-            </div>
-
-
-            <div className="rounded-[28px] border border-white/10 bg-[#101114] p-4">
-              <SectionTitle icon={<ListVideo />} title="Diagnostico OBS" />
-              <div className="mt-4 space-y-2 text-sm">
-                <FlowDatum label="Conectado" value={obsHealth?.connected ? 'sim' : 'nao'} />
-                <FlowDatum label="Source pronta" value={obsHealth?.sourceReady ? 'sim' : 'nao'} />
-                <FlowDatum label="Screenshot" value={obsHealth?.screenshotReady ? 'sim' : 'nao'} />
-                <FlowDatum label="Troca de cena" value={sceneSwitchReady ? 'sim' : 'nao'} />
-                <FlowDatum
-                  label="Cenas OBS"
-                  value={String(availableScenes.length || obsHealth?.availableScenes?.length || 0)}
-                />
-                <FlowDatum label="Cenas permitidas" value={String(obsSettings.allowedScenes.length)} />
-                <FlowDatum
-                  label="Resolucao"
-                  value={
-                    obsHealth?.imageWidth && obsHealth?.imageHeight
-                      ? `${obsHealth.imageWidth}x${obsHealth.imageHeight}`
-                      : '-'
-                  }
-                />
-                <FlowDatum label="Cena atual" value={obsHealth?.currentScene || '-'} />
-                <FlowDatum label="Erro" value={obsHealth?.error || '-'} />
-              </div>
-            </div>
-          </aside>
-        </div>
-      </div>
-    </PageSurface>
   );
 }
 
