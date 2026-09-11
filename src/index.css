@@ -1717,6 +1717,11 @@
   transform: scale(0.92);
 }
 
+/* ── Global press feedback for ALL buttons ────────────────── */
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
 /* ── Director card button ─────────────────────────────────── */
 .odsa-dc-btn {
   position: relative;
