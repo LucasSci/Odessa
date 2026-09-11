@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import { installClickFeedback } from './lib/clickFeedback.ts';
 import './index.css';
+import './ux-polish.css';
 
 installClickFeedback();
 
