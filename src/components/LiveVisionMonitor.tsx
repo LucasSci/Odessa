@@ -21,6 +21,8 @@ import {
   ExternalLink,
   Keyboard,
   Loader2,
+  Maximize2,
+  Minimize2,
   MousePointerClick,
   Navigation,
   Radio,
@@ -80,6 +82,7 @@ export function LiveVisionMonitor({ connected }: Props) {
   const [busy, setBusy] = useState(false);
   const [lastClick, setLastClick] = useState<{ x: number; y: number } | null>(null);
   const [actionLog, setActionLog] = useState<string[]>([]);
+  const [maximized, setMaximized] = useState(false);
 
   const logAction = useCallback((line: string) => {
     const stamp = new Date().toLocaleTimeString('pt-BR');
@@ -402,7 +405,7 @@ export function LiveVisionMonitor({ connected }: Props) {
       : null;
 
   return (
-    <div className="space-y-3">
+    <div className={cn(maximized ? 'fixed inset-0 z-50 flex flex-col gap-3 bg-black/95 p-4' : 'space-y-3')}>
       {/* ── Cabeçalho compacto ─────────────────────────────── */}
       <div className="flex items-center justify-between gap-2 px-1">
         <div className="flex items-center gap-2">
@@ -445,6 +448,15 @@ export function LiveVisionMonitor({ connected }: Props) {
           <Button size="sm" variant="secondary" onClick={() => void handleRefreshViewport()} title="Atualizar dados da página">
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setMaximized((m) => !m)}
+            title={maximized ? 'Restaurar tela' : 'Expandir tela'}
+          >
+            {maximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+            {maximized ? 'Restaurar' : 'Expandir'}
+          </Button>
         </div>
       </div>
 
@@ -453,9 +465,12 @@ export function LiveVisionMonitor({ connected }: Props) {
         ref={wrapRef}
         tabIndex={0}
         onKeyDown={handleKeyDown}
-        className="relative overflow-hidden rounded-2xl border border-white/10 bg-black/70 shadow-xl outline-none focus:ring-2 focus:ring-violet-500/40"
+        className={cn(
+          'relative overflow-hidden rounded-2xl border border-white/10 bg-black/70 shadow-xl outline-none focus:ring-2 focus:ring-violet-500/40',
+          maximized && 'flex-1 min-h-0'
+        )}
         style={{
-          aspectRatio: pageMeta ? `${pageMeta.w} / ${pageMeta.h}` : '16 / 9',
+          aspectRatio: maximized ? undefined : pageMeta ? `${pageMeta.w} / ${pageMeta.h}` : '16 / 9',
           contain: 'layout paint',
         }}
       >
