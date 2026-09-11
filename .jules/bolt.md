@@ -4,3 +4,6 @@
 ## 2026-07-10 - Avoid O(N) useRef initialization
 **Learning:** Initializing hooks with inline computations like `useRef(new Set(array.map(...)))` forces O(N) execution on every single render.
 **Action:** Conditionally initialize `useRef` inside an if-block (`if (ref.current === null)`) and use non-null assertions for subsequent access.
+## 2026-07-28 - Optimizing React array state deduplication
+**Learning:** Updating React state arrays that require merging and deduplicating new items (e.g. `setCapturedText`) using patterns like `[...current.filter(x => !newItems.some(y => y.id === x.id)), ...newItems]` creates multiple shallow copies and an O(N*M) lookup bottleneck.
+**Action:** Replace chained `.filter().some()` methods inside state setters with a single-pass loop and a `Set` of IDs for fast O(1) lookups, greatly reducing GC pressure and micro-stutters during high-frequency events.

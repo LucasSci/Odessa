@@ -129,6 +129,7 @@ async def test_connect_fails_when_identification_times_out(monkeypatch):
 async def test_call_retries_once_after_not_identified(monkeypatch):
     service = OBSService()
     service.enabled = True
+    service._last_connect_attempt = 0
     attempts = 0
 
     class FakeRequest:
@@ -150,6 +151,7 @@ async def test_call_retries_once_after_not_identified(monkeypatch):
             return True
 
         async def disconnect(self):
+            service._last_connect_attempt = 0
             return None
 
         async def call(self, _request):

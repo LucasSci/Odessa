@@ -236,6 +236,27 @@ const MAX_EVENTS = 120;
 const MAX_PERSONA_MESSAGES = 100;
 const DEFAULT_OBS_SOURCE_NAME = 'Odessa Chat OCR';
 
+// ⚡ Bolt: Optimize array updates to avoid multiple shallow copies and O(N*M) lookups
+const optimizedAppend = (current: CapturedMessage[], newItems: CapturedMessage[], max: number) => {
+  if (!newItems || newItems.length === 0) return current;
+  const result: CapturedMessage[] = [];
+  if (newItems.length === 1) {
+    const item = newItems[0];
+    for (let i = 0; i < current.length; i++) {
+      if (current[i].id !== item.id) result.push(current[i]);
+    }
+  } else {
+    const itemIds = new Set(newItems.map((item) => item.id));
+    for (let i = 0; i < current.length; i++) {
+      if (!itemIds.has(current[i].id)) result.push(current[i]);
+    }
+  }
+  for (let i = 0; i < newItems.length; i++) {
+    result.push(newItems[i]);
+  }
+  return result.length > max ? result.slice(result.length - max) : result;
+};
+
 const DEFAULT_SETTINGS: CaptureSettings = {
   magnification: 2,
   contrast: 1.4,
@@ -3258,14 +3279,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 }),
               );
               if (emittedEvents.length > 0) {
-                setCapturedText((current) =>
-                  [
-                    ...current.filter(
-                      (event) => !emittedEvents.some((emitted) => emitted.id === event.id),
-                    ),
-                    ...emittedEvents,
-                  ].slice(MAX_PERSONA_MESSAGES * -1),
-                );
+                setCapturedText((current) => optimizedAppend(current, emittedEvents, MAX_PERSONA_MESSAGES));
               }
             }
             if (!chatLikeZone) {
@@ -3295,11 +3309,7 @@ const CaptureStudio = React.memo(function CaptureStudio({
                 ocrEvent: canonicalOcrEvent,
               },
             });
-            setCapturedText((current) =>
-              [...current.filter((event) => event.id !== liveEvent.id), liveEvent].slice(
-                MAX_PERSONA_MESSAGES * -1,
-              ),
-            );
+            setCapturedText((current) => optimizedAppend(current, [liveEvent], MAX_PERSONA_MESSAGES));
             }
             // Show trigger feedback in the error bar
             if ((captureEvent.triggersFired ?? 0) > 0) {

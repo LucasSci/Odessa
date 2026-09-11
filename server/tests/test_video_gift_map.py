@@ -10,21 +10,24 @@ def setup_module(module):
     video_service.refresh_config()
 
 
-def test_exact_gift_match():
+def test_exact_gift_match(monkeypatch):
+    monkeypatch.setattr("server.core.auth.AUTH_DISABLED", True)
     resp = client.get("/api/v1/video/next", params={"trigger": "gift", "giftName": "Rosa"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == "04"
 
 
-def test_regex_gift_match():
+def test_regex_gift_match(monkeypatch):
+    monkeypatch.setattr("server.core.auth.AUTH_DISABLED", True)
     resp = client.get("/api/v1/video/next", params={"trigger": "gift", "giftName": "rosinha"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == "02"
 
 
-def test_wildcard_default():
+def test_wildcard_default(monkeypatch):
+    monkeypatch.setattr("server.core.auth.AUTH_DISABLED", True)
     resp = client.get("/api/v1/video/next", params={"trigger": "gift", "giftName": "something_unknown"})
     assert resp.status_code == 200
     data = resp.json()
