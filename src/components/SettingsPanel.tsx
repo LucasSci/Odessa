@@ -288,6 +288,17 @@ function DataRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+/* ── Sub-section label ─────────────────────────────────────── */
+function GroupLabel({ children }: { children: ReactNode }) {
+  return (
+    <div className="mb-2 mt-4 first:mt-0">
+      <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--accent2)]">
+        {children}
+      </span>
+    </div>
+  );
+}
+
 /* ── Main Component ────────────────────────────────────────── */
 export function SettingsPanel({
   health,
@@ -756,19 +767,20 @@ export function SettingsPanel({
           allowedScenesCount={obsSettings.allowedScenes.length}
         />
 
-        {/* ── OBS WebSocket ── */}
+        {/* ════════ OBS: Conexão ════════ */}
         <Section
-          icon={<Settings className="h-4 w-4" />}
+          icon={<RadioTower className="h-4 w-4" />}
           title="Conexão OBS"
-          description="WebSocket, fontes e cenas do OBS Studio"
+          description="WebSocket, autenticação e perfis salvos"
           badge={
             <Badge variant={obsReady ? 'success' : obsHealth ? 'danger' : 'default'}>
               {obsReady ? 'pronto' : obsHealth ? 'pendente' : 'não testado'}
             </Badge>
           }
         >
-          {/* Profiles */}
-          <div className="mb-4 flex flex-wrap items-center gap-2">
+          {/* Perfis */}
+          <GroupLabel>Perfis salvos</GroupLabel>
+          <div className="flex flex-wrap items-center gap-2">
             {obsProfiles.length > 0 ? (
               <>
                 <select
@@ -791,7 +803,7 @@ export function SettingsPanel({
                 <div className="mx-1 h-5 w-px bg-[var(--border)]" />
               </>
             ) : (
-              <span className="text-xs font-semibold uppercase tracking-widest text-[var(--t3)]">Perfis</span>
+              <span className="text-xs text-[var(--t3)]">Nenhum perfil salvo ainda.</span>
             )}
             <Input
               value={obsProfileName}
@@ -805,8 +817,9 @@ export function SettingsPanel({
             </Button>
           </div>
 
-          {/* Toggles */}
-          <div className="mb-4 grid gap-2 sm:grid-cols-2">
+          {/* Opções */}
+          <GroupLabel>Opções</GroupLabel>
+          <div className="grid gap-2 sm:grid-cols-2">
             <ToggleRow
               icon={<RadioTower className="h-4 w-4" />}
               label="Exigir OBS na live"
@@ -821,7 +834,8 @@ export function SettingsPanel({
             />
           </div>
 
-          {/* Connection fields */}
+          {/* Servidor */}
+          <GroupLabel>Servidor WebSocket</GroupLabel>
           <div className="grid gap-3 sm:grid-cols-2">
             <Input
               label="Host"
@@ -839,13 +853,6 @@ export function SettingsPanel({
               onChange={(e) => setObsConnection((c) => ({ ...c, port: e.target.value }))}
             />
             <Input
-              label="Source do chat/OCR"
-              value={obsSettings.chatSourceName}
-              onChange={(e) =>
-                setObsSettings((c) => ({ ...c, chatSourceName: e.target.value, ocrSourceName: e.target.value }))
-              }
-            />
-            <Input
               label="Senha do servidor"
               type="password"
               value={passwordInput}
@@ -859,6 +866,65 @@ export function SettingsPanel({
               }
               onChange={(e) => setPasswordInput(e.target.value)}
             />
+          </div>
+
+          {/* URL preview */}
+          <div className="mt-3 flex items-center gap-2 rounded-xl border border-[var(--border)] bg-black/30 px-3 py-2 text-xs">
+            <span className="text-[var(--t3)]">URL:</span>
+            <span className="font-mono font-semibold text-[var(--t1)]">
+              {buildObsWebsocketUrl(obsConnection)}
+            </span>
+            <Badge variant={obsConnection.authenticationEnabled ? 'gold' : 'default'} className="ml-auto">
+              {obsConnection.authenticationEnabled ? 'auth' : 'sem auth'}
+            </Badge>
+          </div>
+
+          {/* Actions */}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button variant="primary" loading={saving} onClick={() => void saveObsSettings()}>
+              <CheckCircle2 className="h-4 w-4" />
+              Salvar OBS
+            </Button>
+            <Button variant="secondary" loading={loading} onClick={() => void testObs()}>
+              <RefreshCw className="h-4 w-4" />
+              Testar source
+            </Button>
+            <Button variant="secondary" loading={loading} onClick={() => void loadObsSettings()}>
+              <RefreshCw className="h-4 w-4" />
+              Recarregar
+            </Button>
+          </div>
+
+          {message && (
+            <div
+              className={cn(
+                'mt-4 rounded-xl border px-3 py-2 text-sm',
+                obsReady
+                  ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200'
+                  : 'border-amber-400/25 bg-amber-500/10 text-amber-100',
+              )}
+            >
+              {message}
+            </div>
+          )}
+        </Section>
+
+        {/* ════════ OBS: Fontes e Transmissão ════════ */}
+        <Section
+          icon={<ListVideo className="h-4 w-4" />}
+          title="Fontes e Transmissão"
+          description="Fontes de chat/palco, cenas e resolução do canvas"
+        >
+          {/* Fontes */}
+          <GroupLabel>Fontes</GroupLabel>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Input
+              label="Source do chat/OCR"
+              value={obsSettings.chatSourceName}
+              onChange={(e) =>
+                setObsSettings((c) => ({ ...c, chatSourceName: e.target.value, ocrSourceName: e.target.value }))
+              }
+            />
             <Input
               label="Source do palco"
               value={obsSettings.stageSourceName}
@@ -869,6 +935,11 @@ export function SettingsPanel({
               value={obsSettings.stageUrl}
               onChange={(e) => setObsSettings((c) => ({ ...c, stageUrl: e.target.value }))}
             />
+          </div>
+
+          {/* Cenas */}
+          <GroupLabel>Cenas</GroupLabel>
+          <div className="grid gap-3 sm:grid-cols-2">
             <Input
               label="Cena inicial"
               value={obsSettings.startupSceneName}
@@ -879,6 +950,11 @@ export function SettingsPanel({
               value={obsSettings.liveSceneName}
               onChange={(e) => setObsSettings((c) => ({ ...c, liveSceneName: e.target.value }))}
             />
+          </div>
+
+          {/* Canvas */}
+          <GroupLabel>Resolução do canvas</GroupLabel>
+          <div className="grid gap-3 sm:grid-cols-2">
             <Input
               label="Largura palco"
               type="number"
@@ -893,21 +969,11 @@ export function SettingsPanel({
             />
           </div>
 
-          {/* Generated URL */}
-          <div className="mt-3 flex items-center gap-2 rounded-xl border border-[var(--border)] bg-black/30 px-3 py-2 text-xs">
-            <span className="text-[var(--t3)]">URL:</span>
-            <span className="font-mono font-semibold text-[var(--t1)]">
-              {buildObsWebsocketUrl(obsConnection)}
-            </span>
-            <Badge variant={obsConnection.authenticationEnabled ? 'gold' : 'default'} className="ml-auto">
-              {obsConnection.authenticationEnabled ? 'auth' : 'sem auth'}
-            </Badge>
-          </div>
-
-          {/* Transmission + Prepare */}
-          <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+          {/* Transmissão + Preparar */}
+          <GroupLabel>Transmissão</GroupLabel>
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
             <SelectField
-              label="Transmissão"
+              label="Modo de transmissão"
               value={obsSettings.transmissionMode}
               onChange={(v) => setObsSettings((c) => ({ ...c, transmissionMode: v as ObsSettings['transmissionMode'] }))}
             >
@@ -964,96 +1030,72 @@ export function SettingsPanel({
               Preparar mesa
             </Button>
           </div>
-
-          {/* Scenes */}
-          <div className="mt-4 rounded-2xl border border-[var(--border)] bg-black/20 p-3">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-                  Cenas permitidas para automações
-                </div>
-                <div className="mt-1 text-xs text-[var(--t3)]">
-                  Sincronize do OBS e marque apenas as cenas que podem ser acionadas.
-                </div>
-              </div>
-              <Button variant="secondary" loading={loading} onClick={() => void syncObsScenes()}>
-                <RefreshCw className="h-4 w-4" />
-                Sincronizar
-              </Button>
-            </div>
-
-            <div className="mt-3 grid gap-2 md:grid-cols-2">
-              {availableScenes.length ? (
-                availableScenes.map((scene) => {
-                  const allowed = obsSettings.allowedScenes.some(
-                    (item) => item.toLowerCase() === scene.toLowerCase(),
-                  );
-                  return (
-                    <label
-                      key={scene}
-                      className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg2)] px-3 py-2 text-sm text-[var(--t1)] transition-colors hover:border-[var(--border2)]"
-                    >
-                      <span className="truncate">{scene}</span>
-                      <Toggle checked={allowed} onChange={() => toggleAllowedScene(scene)} />
-                    </label>
-                  );
-                })
-              ) : (
-                <div className="rounded-xl border border-dashed border-[var(--border)] px-3 py-4 text-sm text-[var(--t3)] md:col-span-2">
-                  Nenhuma cena sincronizada. Use o botão acima com o OBS aberto.
-                </div>
-              )}
-            </div>
-
-            <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
-              <select
-                value={selectedSceneTest}
-                onChange={(e) => setSelectedSceneTest(e.target.value)}
-                className="h-10 rounded-xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
-              >
-                <option value="">Selecionar cena para teste</option>
-                {obsSettings.allowedScenes.map((scene) => (
-                  <option key={scene} value={scene}>{scene}</option>
-                ))}
-              </select>
-              <Button variant="secondary" loading={sceneTesting} onClick={() => void testSceneSwitch()}>
-                <RadioTower className="h-4 w-4" />
-                Testar troca
-              </Button>
-            </div>
-          </div>
-
-          {/* Action buttons */}
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button variant="primary" loading={saving} onClick={() => void saveObsSettings()}>
-              <CheckCircle2 className="h-4 w-4" />
-              Salvar OBS
-            </Button>
-            <Button variant="secondary" loading={loading} onClick={() => void testObs()}>
-              <RefreshCw className="h-4 w-4" />
-              Testar source
-            </Button>
-            <Button variant="secondary" loading={loading} onClick={() => void loadObsSettings()}>
-              <RefreshCw className="h-4 w-4" />
-              Recarregar
-            </Button>
-          </div>
-
-          {message && (
-            <div
-              className={cn(
-                'mt-4 rounded-xl border px-3 py-2 text-sm',
-                obsReady
-                  ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200'
-                  : 'border-amber-400/25 bg-amber-500/10 text-amber-100',
-              )}
-            >
-              {message}
-            </div>
-          )}
         </Section>
 
-        {/* ── Iniciar Live ── */}
+        {/* ════════ OBS: Cenas Permitidas ════════ */}
+        <Section
+          icon={<ListVideo className="h-4 w-4" />}
+          title="Cenas Permitidas"
+          description="Sincronize e marque quais cenas as automações podem acionar"
+          badge={
+            <Badge variant={obsSettings.allowedScenes.length ? 'success' : 'default'}>
+              {obsSettings.allowedScenes.length ? `${obsSettings.allowedScenes.length} ativa(s)` : 'vazio'}
+            </Badge>
+          }
+        >
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-xs text-[var(--t3)]">
+              Sincronize do OBS e marque apenas as cenas que podem ser acionadas.
+            </div>
+            <Button variant="secondary" loading={loading} onClick={() => void syncObsScenes()}>
+              <RefreshCw className="h-4 w-4" />
+              Sincronizar cenas
+            </Button>
+          </div>
+
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {availableScenes.length ? (
+              availableScenes.map((scene) => {
+                const allowed = obsSettings.allowedScenes.some(
+                  (item) => item.toLowerCase() === scene.toLowerCase(),
+                );
+                return (
+                  <label
+                    key={scene}
+                    className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg2)] px-3 py-2 text-sm text-[var(--t1)] transition-colors hover:border-[var(--border2)]"
+                  >
+                    <span className="truncate">{scene}</span>
+                    <Toggle checked={allowed} onChange={() => toggleAllowedScene(scene)} />
+                  </label>
+                );
+              })
+            ) : (
+              <div className="rounded-xl border border-dashed border-[var(--border)] px-3 py-4 text-sm text-[var(--t3)] md:col-span-2">
+                Nenhuma cena sincronizada. Use o botão acima com o OBS aberto.
+              </div>
+            )}
+          </div>
+
+          <GroupLabel>Testar troca de cena</GroupLabel>
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+            <select
+              value={selectedSceneTest}
+              onChange={(e) => setSelectedSceneTest(e.target.value)}
+              className="h-10 rounded-xl border border-[var(--border2)] bg-[var(--bg3)] px-3 text-sm text-[var(--t1)] outline-none focus:border-[var(--gold)]"
+            >
+              <option value="">Selecionar cena para teste</option>
+              {obsSettings.allowedScenes.map((scene) => (
+                <option key={scene} value={scene}>{scene}</option>
+              ))}
+            </select>
+            <Button variant="secondary" loading={sceneTesting} onClick={() => void testSceneSwitch()}>
+              <RadioTower className="h-4 w-4" />
+              Testar troca
+            </Button>
+          </div>
+        </Section>
+
+        {/* ════════ Live ════════ */}
         <Section
           icon={<ClipboardCheck className="h-4 w-4" />}
           title="Iniciar Live"
@@ -1080,7 +1122,7 @@ export function SettingsPanel({
           </div>
         </Section>
 
-        {/* ── Webhooks ── */}
+        {/* ════════ Webhooks ════════ */}
         <Section
           icon={<Link2 className="h-4 w-4" />}
           title="Webhooks"
@@ -1210,7 +1252,7 @@ export function SettingsPanel({
           </div>
         </Section>
 
-        {/* ── APIs & Automações ── */}
+        {/* ════════ APIs e Automações ════════ */}
         <div className="grid gap-3 lg:grid-cols-2">
           <Section
             icon={<Database className="h-4 w-4" />}
@@ -1240,7 +1282,7 @@ export function SettingsPanel({
           </Section>
 
           <Section
-            icon={<RadioTower className="h-4 w-4" />}
+            icon={<Activity className="h-4 w-4" />}
             title="Automações"
             description="Modo operacional e métricas"
           >
@@ -1262,40 +1304,15 @@ export function SettingsPanel({
           </Section>
         </div>
 
-        {/* ── Erros & Telemetria ── */}
+        {/* ════════ Diagnóstico e Telemetria ════════ */}
         <Section
           icon={<ShieldAlert className="h-4 w-4" />}
-          title="Relatório de erros"
-          description="Preferências de diagnóstico e telemetria"
+          title="Diagnóstico e Telemetria"
+          description="Status do OBS, preferências de erro e telemetria"
           defaultOpen={false}
         >
-          <div className="space-y-2">
-            <ToggleRow
-              icon={<ShieldAlert className="h-4 w-4" />}
-              label="Salvar diagnósticos locais"
-              checked={workspace.errorReports}
-              onChange={(v) => updateWorkspace({ errorReports: v })}
-            />
-            <ToggleRow
-              icon={<Database className="h-4 w-4" />}
-              label="Telemetria de uso"
-              checked={workspace.telemetry}
-              onChange={(v) => updateWorkspace({ telemetry: v })}
-            />
-            <div className="rounded-xl border border-[var(--border)] bg-black/25 p-3 text-xs leading-5 text-[var(--t3)]">
-              Estas preferências ficam locais. A estrutura já deixa o painel pronto para plugar
-              provedores de erro, custos de API e novas automações.
-            </div>
-          </div>
-        </Section>
-
-        {/* ── Diagnóstico OBS ── */}
-        <Section
-          icon={<ListVideo className="h-4 w-4" />}
-          title="Diagnóstico OBS"
-          description="Status detalhado da conexão e fontes"
-          defaultOpen={false}
-        >
+          {/* OBS Diagnostics */}
+          <GroupLabel>Diagnóstico OBS</GroupLabel>
           <div className="grid gap-2 sm:grid-cols-2">
             <DataRow label="Conectado" value={obsHealth?.connected ? 'sim' : 'não'} />
             <DataRow label="Source pronta" value={obsHealth?.sourceReady ? 'sim' : 'não'} />
@@ -1318,6 +1335,27 @@ export function SettingsPanel({
               {obsHealth.error}
             </div>
           )}
+
+          {/* Privacy */}
+          <GroupLabel>Privacidade</GroupLabel>
+          <div className="space-y-2">
+            <ToggleRow
+              icon={<ShieldAlert className="h-4 w-4" />}
+              label="Salvar diagnósticos locais"
+              checked={workspace.errorReports}
+              onChange={(v) => updateWorkspace({ errorReports: v })}
+            />
+            <ToggleRow
+              icon={<Database className="h-4 w-4" />}
+              label="Telemetria de uso"
+              checked={workspace.telemetry}
+              onChange={(v) => updateWorkspace({ telemetry: v })}
+            />
+            <div className="rounded-xl border border-[var(--border)] bg-black/25 p-3 text-xs leading-5 text-[var(--t3)]">
+              Estas preferências ficam locais. A estrutura já deixa o painel pronto para plugar
+              provedores de erro, custos de API e novas automações.
+            </div>
+          </div>
         </Section>
 
         {/* ── Sticky Action Bar ── */}
