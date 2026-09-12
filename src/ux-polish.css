@@ -152,3 +152,129 @@ a:not([class]):hover {
   text-decoration: underline;
   text-decoration-color: var(--sky);
 }
+
+/* ── 8. Botões — animações de hover globais ───────────────────────── */
+/* Transição suave padrão para todos os botões interativos */
+button:not(:disabled),
+[role='button']:not(:disabled),
+.od-btn,
+.odsa-btn,
+.btn,
+.od-iconbtn {
+  transition:
+    transform 0.18s var(--ease-out),
+    background 0.18s var(--ease-out),
+    border-color 0.18s var(--ease-out),
+    box-shadow 0.22s var(--ease-out),
+    filter 0.18s var(--ease-out);
+}
+
+/* Lift sutil ao passar o mouse — aplica a todos os botões habilitados */
+button:not(:disabled):not(.od-ripple-host):hover,
+[role='button']:not(:disabled):hover,
+.od-btn:not(:disabled):hover,
+.odsa-btn:not(:disabled):hover,
+.btn:not(:disabled):hover,
+.od-iconbtn:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+/* Press: comprime ao clicar */
+button:not(:disabled):active,
+[role='button']:not(:disabled):active,
+.od-btn:not(:disabled):active,
+.odsa-btn:not(:disabled):active,
+.btn:not(:disabled):active,
+.od-iconbtn:not(:disabled):active {
+  transform: translateY(0) scale(0.96);
+}
+
+/* ── Shine sweep — efeito de brilho que atravessa o botão ─────────── */
+/* Funciona em botões primários/accent com fundo gradiente. O ::before
+   cria uma barra diagonal translúcida que varre da esquerda para a
+   direita no hover. overflow:hidden no botão garante o recorte. */
+.od-btn-primary,
+.odsa-btn-primary,
+.btn-accent,
+.odsa-live-pill.is-on {
+  position: relative;
+  overflow: hidden;
+}
+
+.od-btn-primary::before,
+.odsa-btn-primary::before,
+.btn-accent::before,
+.odsa-live-pill.is-on::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgba(255, 255, 255, 0.22),
+    transparent
+  );
+  transform: skewX(-18deg);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s var(--ease-out);
+}
+
+.od-btn-primary:hover::before,
+.odsa-btn-primary:hover::before,
+.btn-accent:hover::before,
+.odsa-live-pill.is-on:hover::before {
+  opacity: 1;
+  animation: odessa-shine-sweep 0.7s var(--ease-out) forwards;
+}
+
+@keyframes odessa-shine-sweep {
+  0% {
+    left: -60%;
+  }
+  100% {
+    left: 120%;
+  }
+}
+
+/* ── Glow intensificado no hover dos botões primários ────────────── */
+.od-btn-primary:hover,
+.odsa-btn-primary:hover {
+  filter: brightness(1.10);
+  box-shadow:
+    0 0 36px rgba(59, 130, 246, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+/* ── Icon buttons: leve pulso de brilho no hover ─────────────────── */
+.od-iconbtn:hover,
+.odsa-btn-icon:hover {
+  box-shadow: 0 0 16px rgba(125, 211, 252, 0.18);
+}
+
+.od-iconbtn:active,
+.odsa-btn-icon:active {
+  transform: scale(0.90);
+}
+
+/* ── Tabs: transição suave de cor e fundo no hover ────────────────── */
+.od-tab,
+.odsa-tab {
+  transition:
+    color 0.18s var(--ease-out),
+    background 0.18s var(--ease-out),
+    transform 0.18s var(--ease-out);
+}
+
+.od-tab:not(.is-active):hover,
+.odsa-tab:not(.is-active):hover {
+  transform: translateY(-1px);
+}
+
+.od-tab:active,
+.odsa-tab:active {
+  transform: scale(0.97);
+}
