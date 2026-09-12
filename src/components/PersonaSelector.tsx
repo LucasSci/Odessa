@@ -72,6 +72,12 @@ export default function PersonaSelector({ onPersonaChange }: PersonaSelectorProp
     }
   };
 
+  const handlePersonaFlash = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.classList.remove('od-persona-flash');
+    void e.currentTarget.offsetWidth;
+    e.currentTarget.classList.add('od-persona-flash');
+  };
+
   const handleCreate = async () => {
     const name = newName.trim();
     if (!name) return;
@@ -140,8 +146,9 @@ export default function PersonaSelector({ onPersonaChange }: PersonaSelectorProp
             >
               <button
                 type="button"
+                data-persona-switch
                 className="flex-1 text-left"
-                onClick={() => handleSelect(p.id)}
+                onClick={(e) => { handlePersonaFlash(e); handleSelect(p.id); }}
                 title={p.description || p.name}
               >
                 <span className="font-medium">{p.name}</span>

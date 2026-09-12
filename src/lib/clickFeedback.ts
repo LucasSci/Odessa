@@ -10,6 +10,9 @@
 const INTERACTIVE_SELECTOR =
   'button, [role="button"], .od-toggle, .od-tab, .odsa-tab, .od-iconbtn';
 
+/** Classes que identificam botões de troca de persona (ripple violeta). */
+const PERSONA_SELECTOR = '.od-persona-btn, [data-persona-switch]';
+
 let installed = false;
 
 export function installClickFeedback() {
@@ -27,7 +30,8 @@ export function installClickFeedback() {
       const rect = host.getBoundingClientRect();
       const size = Math.max(rect.width, rect.height) * 2.2;
       const ripple = document.createElement('span');
-      ripple.className = 'od-ripple';
+      const isPersona = host.matches(PERSONA_SELECTOR) || host.closest(PERSONA_SELECTOR) !== null;
+      ripple.className = isPersona ? 'od-ripple od-ripple--persona' : 'od-ripple';
       ripple.style.width = `${size}px`;
       ripple.style.height = `${size}px`;
       ripple.style.left = `${event.clientX - rect.left - size / 2}px`;
@@ -39,6 +43,21 @@ export function installClickFeedback() {
       // Fallback: se a aba estiver oculta (timeline congelada), o animationend
       // pode não disparar — garante que o ripple nunca acumula no DOM.
       window.setTimeout(() => ripple.remove(), 900);
+
+      // Bounce-back: adiciona a classe no pointerup (soltar o clique)
+      const onPointerUp = () => {
+        host.classList.add('od-click-bounce');
+        host.addEventListener(
+          'animationend',
+          () => host.classList.remove('od-click-bounce'),
+          { once: true },
+        );
+        window.setTimeout(() => host.classList.remove('od-click-bounce'), 400);
+        host.removeEventListener('pointerup', onPointerUp);
+        host.removeEventListener('pointerleave', onPointerUp);
+      };
+      host.addEventListener('pointerup', onPointerUp, { once: true });
+      host.addEventListener('pointerleave', onPointerUp, { once: true });
     },
     { passive: true },
   );
