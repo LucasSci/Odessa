@@ -100,7 +100,14 @@ export function mergeChatReplyQueue(
   current: ChatReplyQueueItem[],
   incoming: ChatReplyQueueItem[],
 ): ChatReplyQueueItem[] {
-  const next = current.filter((item) => !incoming.some((newItem) => newItem.id === item.id));
+  // ⚡ Bolt: Use a Set for O(1) deduplication lookups instead of chained O(N*M) array methods
+  const incomingIds = new Set(incoming.map((item) => item.id));
+  const next: ChatReplyQueueItem[] = [];
+  for (const item of current) {
+    if (!incomingIds.has(item.id)) {
+      next.push(item);
+    }
+  }
   return [...next, ...incoming].slice(-80);
 }
 

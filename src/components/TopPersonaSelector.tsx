@@ -53,6 +53,13 @@ export default function TopPersonaSelector({ onPersonaChanged }: Props) {
     }
   };
 
+  const handlePersonaFlash = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.classList.remove('od-persona-flash');
+    // Força o reflow para reiniciar a animação
+    void e.currentTarget.offsetWidth;
+    e.currentTarget.classList.add('od-persona-flash');
+  };
+
   const active = personas.find((p) => p.id === activeId);
 
   return (
@@ -82,7 +89,8 @@ export default function TopPersonaSelector({ onPersonaChanged }: Props) {
             <button
               key={p.id}
               type="button"
-              onClick={() => handleSelect(p.id)}
+              data-persona-switch
+              onClick={(e) => { handlePersonaFlash(e); handleSelect(p.id); }}
               className={cn(
                 'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
                 p.id === activeId

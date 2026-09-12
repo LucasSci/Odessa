@@ -18,18 +18,18 @@ export function Button({
   return (
     <button
       className={cn(
-        'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[22px] border font-semibold transition focus:outline-none focus:ring-2 focus:ring-[var(--gold)]/40 disabled:cursor-not-allowed disabled:opacity-55',
+        'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[22px] border font-semibold transition-all duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.96] hover:-translate-y-px focus:outline-none focus:ring-2 focus:ring-[var(--gold)]/40 disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:translate-y-0 disabled:active:scale-100',
         size === 'sm' && 'h-8 px-3 text-xs',
         size === 'md' && 'h-[38px] px-4 text-[13px]',
         size === 'icon' && 'h-9 w-9 px-0',
         variant === 'default' && 'border-[var(--border2)] bg-[var(--bg3)] text-[var(--t1)] hover:bg-[var(--bg4)]',
         variant === 'primary' &&
-          'border-transparent bg-[image:var(--grad-live)] text-[#051018] shadow-[var(--shadow-live)] hover:brightness-105',
+          'border-transparent bg-[image:var(--grad-live)] text-[#051018] shadow-[var(--shadow-live)] hover:brightness-110 hover:shadow-[0_0_36px_rgba(59,130,246,0.42)]',
         variant === 'secondary' &&
-          'border-[var(--border2)] bg-[var(--bg2)] text-[var(--t1)] hover:border-[var(--gold)]/45',
-        variant === 'ghost' && 'border-transparent bg-transparent text-[var(--t2)] hover:bg-[var(--bg3)] hover:text-[var(--t1)]',
-        variant === 'danger' && 'border-red-400/25 bg-red-500/10 text-red-300 hover:bg-red-500/15',
-        variant === 'success' && 'border-emerald-400/25 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15',
+          'border-[var(--border2)] bg-[var(--bg2)] text-[var(--t1)] hover:border-[var(--gold)]/45 hover:shadow-[0_0_20px_rgba(96,165,250,0.15)]',
+        variant === 'ghost' && 'border-transparent bg-transparent text-[var(--t2)] hover:bg-[var(--bg3)] hover:text-[var(--t1)] active:scale-[0.97]',
+        variant === 'danger' && 'border-red-400/25 bg-red-500/10 text-red-300 hover:bg-red-500/15 hover:shadow-[0_0_18px_rgba(248,113,113,0.20)]',
+        variant === 'success' && 'border-emerald-400/25 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15 hover:shadow-[0_0_18px_rgba(52,211,153,0.20)]',
         className,
       )}
       disabled={disabled || loading}
@@ -211,8 +211,8 @@ export function ConfirmButton({
       disabled={disabled || loading}
       className={cn(
         'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[22px] border',
-        'font-semibold transition focus:outline-none',
-        'disabled:cursor-not-allowed disabled:opacity-55',
+        'font-semibold transition-all duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.96] hover:-translate-y-px focus:outline-none',
+        'disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:translate-y-0 disabled:active:scale-100',
         size === 'sm' && 'h-8 px-3 text-xs',
         size === 'md' && 'h-[38px] px-4 text-[13px]',
         size === 'icon' && 'h-9 w-9 px-0',
