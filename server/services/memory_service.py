@@ -15,14 +15,18 @@ class MemoryService:
         normalized = re.sub(r"[^0-9a-zA-Z_.-]+", "-", username.strip().lower()).strip("-")
         return normalized or f"user-{int(time.time() * 1000)}"
 
-    def extract_username_from_event(self, event: Dict[str, Any]) -> Optional[str]:
-        metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+    def extract_username_from_event(self, event: Dict[str, Any] | Any) -> Optional[str]:
+        payload = event.model_dump() if hasattr(event, "model_dump") else event
+        if not isinstance(payload, dict):
+            return None
+
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
         for key in ("user", "username", "sender", "author"):
             value = metadata.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip().lstrip("@")
 
-        text = str(event.get("text") or "").strip()
+        text = str(payload.get("text") or "").strip()
         patterns = [
             r"^@?([A-Za-zÀ-ÿ0-9_.-]{2,32})\s*(?:[:\-]|disse|falou|comentou|enviou|mandou|deu|resgatou|pediu)\b",
             r"\bde\s+@?([A-Za-zÀ-ÿ0-9_.-]{2,32})\b",

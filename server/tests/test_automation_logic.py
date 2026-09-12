@@ -5,6 +5,8 @@ from server.services.automation.parser import event_parser
 from server.services.automation.aggregator import event_aggregator
 from server.services.automation.gift_ledger import gift_ledger
 from server.services.automation.rule_engine import gift_rule_engine
+from server.models import LiveEventPayload
+from server.services.memory_service import MemoryService
 
 @pytest.mark.asyncio
 async def test_classification_chat_vs_gift():
@@ -32,6 +34,21 @@ async def test_gift_classification():
     events = event_parser.parse_text(text)
     assert len(events) == 1
     assert events[0]["quantity"] == 1
+
+def test_memory_service_accepts_pydantic_event_models():
+    event = LiveEventPayload(
+        id="evt-1",
+        source="chat",
+        zoneName="teste",
+        text="@Alice comentou no chat",
+        kind="chat",
+        createdAt="2026-01-01T00:00:00Z",
+        time="2026-01-01T00:00:00Z",
+        metadata={"user": "Alice"},
+    )
+
+    username = MemoryService().extract_username_from_event(event)
+    assert username == "Alice"
 
 @pytest.mark.asyncio
 async def test_gift_aggregation():

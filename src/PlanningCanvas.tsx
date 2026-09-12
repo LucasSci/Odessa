@@ -30,7 +30,13 @@ import '@xyflow/react/dist/style.css';
 import {
   Download,
   FileText,
+  Image,
   Link2,
+  MessageSquare,
+  MoreHorizontal,
+  MousePointer2,
+  Move,
+  Plus,
   Save,
   StickyNote,
   Trash2,
@@ -43,7 +49,7 @@ import {
   Check,
   RefreshCw,
 } from 'lucide-react';
-import { Button } from './components/ui';
+import { Badge, Button } from './components/ui';
 import { apiUrl } from './lib/api';
 import { cn } from './lib/utils';
 
@@ -183,9 +189,7 @@ function StickyNoteNode({ id, data, selected }: NodeProps<Node<CanvasItemData>>)
           <GripVertical size={14} style={{ color: colors.text, opacity: 0.4 }} className="cursor-grab" />
           <div className="flex gap-1">
             {data.linkedTriggerId && (
-              <span title="Conectado ao Fluxo Reativo">
-                <Zap size={12} style={{ color: colors.text }} />
-              </span>
+              <Zap size={12} style={{ color: colors.text }} title="Conectado ao Fluxo Reativo" />
             )}
             <button onClick={cycleColor} title="Mudar cor">
               <Palette size={13} style={{ color: colors.text, opacity: 0.6 }} />
@@ -549,7 +553,7 @@ function nextId() {
 }
 
 function PlanningCanvasInner() {
-  const { getViewport } = useReactFlow();
+  const { screenToFlowPosition, getViewport } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<CanvasItemData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [dirty, setDirty] = useState(false);
@@ -851,6 +855,12 @@ function PlanningCanvasInner() {
     [linkPanelNode],
   );
 
+  // ── Content change marks dirty ──
+  const onNodeDoubleClick = useCallback(() => {
+    // After editing completes, the node data changes → mark dirty
+    // This is handled by the individual node components calling setNodes
+  }, []);
+
   const selectedNodeData = useMemo(() => {
     if (!linkPanelNode) return null;
     const node = nodes.find((n) => n.id === linkPanelNode);
@@ -866,7 +876,7 @@ function PlanningCanvasInner() {
   }
 
   return (
-    <div className="relative w-full h-full">
+    <div className="relative w-full h-full min-h-[420px]" style={{ minHeight: 420 }}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
