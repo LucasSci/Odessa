@@ -154,7 +154,10 @@ a:not([class]):hover {
 }
 
 /* ── 8. Botões — animações de hover globais ───────────────────────── */
-/* Transição suave padrão para todos os botões interativos */
+/* Transição suave padrão para todos os botões interativos.
+   Cores (background, border-color) usam 300ms para uma mudança gradual
+   e profissional; transform e filter continuam rápidos (180ms) para
+   manter o lift e o press responsivos ao toque. */
 button:not(:disabled),
 [role='button']:not(:disabled),
 .od-btn,
@@ -163,10 +166,11 @@ button:not(:disabled),
 .od-iconbtn {
   transition:
     transform 0.18s var(--ease-out),
-    background 0.18s var(--ease-out),
-    border-color 0.18s var(--ease-out),
-    box-shadow 0.22s var(--ease-out),
-    filter 0.18s var(--ease-out);
+    background 0.3s var(--ease-out),
+    border-color 0.3s var(--ease-out),
+    box-shadow 0.3s var(--ease-out),
+    filter 0.22s var(--ease-out),
+    color 0.3s var(--ease-out);
 }
 
 /* Lift sutil ao passar o mouse — aplica a todos os botões habilitados */
@@ -264,8 +268,8 @@ button:not(:disabled):active,
 .od-tab,
 .odsa-tab {
   transition:
-    color 0.18s var(--ease-out),
-    background 0.18s var(--ease-out),
+    color 0.3s var(--ease-out),
+    background 0.3s var(--ease-out),
     transform 0.18s var(--ease-out);
 }
 

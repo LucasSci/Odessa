@@ -140,7 +140,12 @@
   border: 1px solid var(--border2);
   background: var(--bg3);
   color: var(--t1);
-  transition: all 0.18s var(--ease-out);
+  transition:
+    transform 0.18s var(--ease-out),
+    background 0.3s var(--ease-out),
+    border-color 0.3s var(--ease-out),
+    box-shadow 0.3s var(--ease-out),
+    filter 0.22s var(--ease-out);
   white-space: nowrap;
 }
 
@@ -538,8 +543,9 @@
   color: var(--t2);
   background: transparent;
   border: none;
-  transition: color var(--dur-fast) var(--ease-out),
-              background var(--dur-fast) var(--ease-out);
+  transition: color 0.3s var(--ease-out),
+              background 0.3s var(--ease-out),
+              transform 0.18s var(--ease-out);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -564,7 +570,12 @@
   border: 1px solid var(--border);
   color: var(--t2);
   display: grid; place-items: center;
-  transition: all var(--dur-fast) var(--ease-out);
+  transition:
+    transform 0.18s var(--ease-out),
+    background 0.3s var(--ease-out),
+    border-color 0.3s var(--ease-out),
+    color 0.3s var(--ease-out),
+    box-shadow 0.3s var(--ease-out);
   cursor: pointer;
 }
 .od-iconbtn:hover { background: rgba(255,255,255,0.06); color: var(--t1); border-color: var(--border2); transform: translateY(-1px); }
@@ -583,7 +594,12 @@
   font-weight: 600;
   letter-spacing: -0.005em;
   border: 1px solid transparent;
-  transition: all 0.18s var(--ease-out);
+  transition:
+    transform 0.18s var(--ease-out),
+    background 0.3s var(--ease-out),
+    border-color 0.3s var(--ease-out),
+    box-shadow 0.3s var(--ease-out),
+    filter 0.22s var(--ease-out);
   white-space: nowrap;
   cursor: pointer;
 }
@@ -1247,7 +1263,7 @@
   border: none;
   cursor: pointer;
   white-space: nowrap;
-  transition: background var(--dur-fast), color var(--dur-fast);
+  transition: background 0.3s var(--ease-out), color 0.3s var(--ease-out), transform 0.18s var(--ease-out);
 }
 .odsa-tab:hover { color: var(--t1); background: var(--bg3); }
 .odsa-tab.is-active {
@@ -1271,7 +1287,7 @@
   font-weight: 600;
   color: var(--t2);
   cursor: pointer;
-  transition: background var(--dur-fast);
+  transition: background 0.3s var(--ease-out), border-color 0.3s var(--ease-out);
 }
 .odsa-status-pill:hover { background: var(--bg3); }
 .odsa-status-pill .badge { background: rgba(255,255,255,0.08); padding: 1px 6px; border-radius: 99px; font-size: 10px; color: var(--t2); }
@@ -1289,7 +1305,13 @@
   background: var(--bg3);
   color: var(--t1);
   cursor: pointer;
-  transition: all 0.18s var(--ease-out);
+  transition:
+    transform 0.18s var(--ease-out),
+    background 0.3s var(--ease-out),
+    border-color 0.3s var(--ease-out),
+    box-shadow 0.3s var(--ease-out),
+    filter 0.22s var(--ease-out),
+    color 0.3s var(--ease-out);
   white-space: nowrap;
 }
 .odsa-btn:hover { background: var(--bg4); border-color: var(--border3); transform: translateY(-1px); }
