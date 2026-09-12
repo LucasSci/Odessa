@@ -8,7 +8,7 @@ import { useAutopilotRuntime } from './core/useAutopilotRuntime';
 import { TangoChatSessionProvider } from './core/tangoChatSession';
 import { apiUrl } from './lib/api';
 import { installCredentialedFetch } from './lib/fetchCredentials';
-import { startAutoLogin, ensureFreshSession } from './lib/autoLogin';
+import { startAutoLogin } from './lib/autoLogin';
 import { connectObs, disconnectObs } from './lib/obsWebSocket';
 import {
   routeSetupLiveScene,
@@ -89,9 +89,9 @@ function loadLiveConfig(): LiveConfig {
 }
 
 export default function App() {
-  // A sessão é mantida viva por login automático (ver useEffect abaixo). Começa
-  // "carregando" (null) até confirmar; o overlay (live) entra direto.
-  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  // O app roda localmente e entra direto no painel; o login continua disponível
+  // apenas quando solicitado explicitamente por #login.
+  const [authenticated, setAuthenticated] = useState(true);
   const [requestedPanel, setRequestedPanel] = useState<AdvancedPanel>(() => getPanelFromHash());
   const [capturedText, setCapturedTextState] = useState<CapturedMessage[]>(() => getRecentEvents());
   const [liveConfigOpen, setLiveConfigOpen] = useState(false);
@@ -99,20 +99,6 @@ export default function App() {
   const [liveStartError, setLiveStartError] = useState<string | null>(null);
 
   const [obsSettings, setObsSettings] = useState<ObsSettingsState | null>(null);
-
-  useEffect(() => {
-    // Overlay (fonte do OBS) nunca precisa de login.
-    if (getPanelFromHash() === ('overlay' as AdvancedPanel)) {
-      setAuthenticated(true);
-      return;
-    }
-    // Mantém a sessão viva via login automático (se configurado). Se não houver
-    // sessão válida, mostra o login antes de montar o painel protegido.
-    (async () => {
-      const hasSession = await ensureFreshSession();
-      setAuthenticated(hasSession);
-    })();
-  }, []);
 
   // Direct OBS WebSocket connection — works both local and cloud.
   // Fetches OBS settings from API, then connects to ws://localhost:<port>.
@@ -224,14 +210,6 @@ export default function App() {
           setAuthenticated(true);
         }}
       />
-    );
-  }
-
-  if (authenticated === null) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg, #0a0a0f)' }}>
-        <p style={{ color: 'var(--t3, #888)', fontSize: 14 }}>Carregando...</p>
-      </div>
     );
   }
 
