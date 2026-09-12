@@ -1893,6 +1893,16 @@ button:active:not(:disabled) {
   animation: od-ripple 0.55s var(--ease-out) forwards;
 }
 
+/* Ripple violeta para botões de troca de persona */
+.od-ripple.od-ripple--persona {
+  background: radial-gradient(
+    circle,
+    rgba(196, 181, 253, 0.45) 0%,
+    rgba(139, 92, 246, 0.25) 55%,
+    transparent 70%
+  );
+}
+
 @keyframes od-ripple {
   to {
     transform: scale(1);
@@ -1904,5 +1914,31 @@ button:active:not(:disabled) {
 button:not(:disabled):active,
 [role="button"]:not([disabled]):active {
   filter: brightness(1.15) saturate(1.1);
+}
+
+/* ── Bounce-back after click ──────────────────────────────── */
+/* Aplica um "bounce" elástico ao soltar o clique — o botão
+   comprime no :active e volta com um leve overshoot. */
+@keyframes od-click-bounce {
+  0%   { transform: scale(0.96); }
+  50%  { transform: scale(1.03); }
+  75%  { transform: scale(0.99); }
+  100% { transform: scale(1); }
+}
+
+.od-click-bounce {
+  animation: od-click-bounce 0.32s var(--ease-out);
+}
+
+/* ── Persona switch glow flash ────────────────────────────── */
+/* Flash violeta que pulsa uma vez ao trocar de persona */
+@keyframes od-persona-flash {
+  0%   { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.50); }
+  50%  { box-shadow: 0 0 24px 4px rgba(139, 92, 246, 0.30); }
+  100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+}
+
+.od-persona-flash {
+  animation: od-persona-flash 0.6s var(--ease-out);
 }
 
