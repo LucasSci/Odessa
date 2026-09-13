@@ -2,7 +2,6 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import {
   Brain,
-  Camera,
   ClipboardCheck,
   Download,
   FastForward,
@@ -52,7 +51,6 @@ import { applyVideoEdit, getVideoEdit, saveVideoEdit, defaultVideoEdit, type Vid
 import { getAiConfig, hasActiveGeminiKey, type AiAutonomyLevel } from './core/aiConfig';
 import { globalMoodEngine } from './core/moodEngine';
 
-const CaptureStudio = lazy(() => import('./CaptureStudio'));
 const ReactiveFlowBoard = lazy(() => import('./ReactiveFlowBoard'));
 const PlanningCanvas = lazy(() => import('./PlanningCanvas'));
 // VideoEditor é importado de forma normal (não-lazy): no Palco o stream de vídeo
@@ -63,7 +61,6 @@ const PlanningCanvas = lazy(() => import('./PlanningCanvas'));
 
 export type AdvancedPanel =
   | 'overview'
-  | 'capture'
   | 'persona'
   | 'content'
   | 'runtime'
@@ -110,7 +107,6 @@ type TabKey =
   | 'ai'
   | 'chat'
   | 'canvas'
-  | 'sources'
   | 'logs';
 
 type VideoEntry = {
@@ -387,7 +383,7 @@ export default function OdessaLiveCenter({
   onObsSettingsChanged,
 }: OdessaLiveCenterProps) {
   const [activeTab, setActiveTab] = useState<TabKey>(() => tabFromPanel(requestedPanel));
-  const [settingsSubTab, setSettingsSubTab] = useState<'general' | 'ai' | 'ocr' | 'canvas'>('general');
+  const [settingsSubTab, setSettingsSubTab] = useState<'general' | 'ai' | 'canvas'>('general');
   const [flowSubTab, setFlowSubTab] = useState<'board' | 'logs'>('board');
   const [liveMode, setLiveMode] = useState<'central' | 'stage' | 'overview'>('central');
   const [config, setConfig] = useState<PersonaConfig | null>(null);
@@ -573,7 +569,6 @@ export default function OdessaLiveCenter({
       const target = tabFromPanel(requestedPanel);
       setActiveTab(target);
       if (requestedPanel === 'canvas') setSettingsSubTab('canvas');
-      else if (requestedPanel === 'capture') setSettingsSubTab('ocr');
       else if (requestedPanel === 'persona') setSettingsSubTab('ai');
     }, 0);
     return () => window.clearTimeout(timer);
@@ -759,7 +754,7 @@ export default function OdessaLiveCenter({
             <SideNavButton
               icon={<Settings />}
               label="Configurações"
-              active={activeTab === 'settings' || activeTab === 'ai' || activeTab === 'canvas' || activeTab === 'sources'}
+              active={activeTab === 'settings' || activeTab === 'ai' || activeTab === 'canvas'}
               onClick={() => setActiveTab('settings')}
             />
             </div>
@@ -838,7 +833,7 @@ export default function OdessaLiveCenter({
             activeTab === id ||
             (id === 'live' && (activeTab === 'chat' || activeTab === 'home' || activeTab === 'stage')) ||
             (id === 'flow' && activeTab === 'logs') ||
-            (id === 'settings' && (activeTab === 'ai' || activeTab === 'canvas' || activeTab === 'sources'));
+            (id === 'settings' && (activeTab === 'ai' || activeTab === 'canvas'));
           return (
             <button
               key={id}
@@ -991,8 +986,8 @@ export default function OdessaLiveCenter({
           </PageSurface>
         )}
 
-        {/* 5. CONFIGURAÇÕES (OBS, IA, Mural, OCR) */}
-        {(activeTab === 'settings' || activeTab === 'ai' || activeTab === 'canvas' || activeTab === 'sources') && (
+        {/* 5. CONFIGURAÇÕES (OBS, IA, Mural) */}
+        {(activeTab === 'settings' || activeTab === 'ai' || activeTab === 'canvas') && (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex items-center gap-1.5 border-b border-white/5 bg-black/40 px-4 py-2 text-xs">
               <button
@@ -1031,18 +1026,6 @@ export default function OdessaLiveCenter({
                 <ClipboardCheck style={{ width: 13, height: 13 }} />
                 Mural de Planejamento
               </button>
-              <button
-                onClick={() => setSettingsSubTab('ocr')}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition',
-                  settingsSubTab === 'ocr'
-                    ? 'bg-gradient-to-r from-sky-500/20 to-cyan-500/10 text-white shadow-[inset_0_0_0_1px_rgba(125,211,252,0.25)]'
-                    : 'text-slate-400 hover:text-white hover:bg-white/5',
-                )}
-              >
-                <Camera style={{ width: 13, height: 13 }} />
-                Fontes & OCR
-              </button>
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto">
@@ -1077,38 +1060,6 @@ export default function OdessaLiveCenter({
           </div>
         )}
 
-        {/*
-          CaptureStudio stays mounted on every tab so screen capture / OCR
-          keeps running when the user navigates away from "Fontes / OCR".
-          When inactive it is moved off-screen (NOT display:none) so the
-          <video> element keeps decoding frames for the OCR pipeline.
-        */}
-        <div
-          className={cn(
-            'flex min-h-0 flex-col',
-            (activeTab === 'sources' || (activeTab === 'settings' && settingsSubTab === 'ocr'))
-              ? 'flex-1'
-              : 'pointer-events-none fixed -left-[9999px] top-0 h-px w-px overflow-hidden opacity-0',
-          )}
-          aria-hidden={!(activeTab === 'sources' || (activeTab === 'settings' && settingsSubTab === 'ocr'))}
-        >
-          <PageSurface
-            icon={<Camera className="h-4 w-4" />}
-            title="Fontes e OCR"
-            description="Calibre captura, texto bruto, eventos parseados e testes manuais no mesmo console visual."
-          >
-            <Suspense fallback={<PanelLoading label="Carregando fontes OCR" />}>
-              <CaptureStudio
-                capturedText={capturedText}
-                setCapturedText={setCapturedText}
-                autopilotEnabled={runtime.autopilotEnabled}
-                pendingAutopilotEvents={runtime.pendingEvents.length}
-                latestAutopilotActionStatus={runtime.latestAction?.status}
-                onStartAutopilot={runtime.start}
-              />
-            </Suspense>
-          </PageSurface>
-        </div>
       </section>
       </div>
     </main>

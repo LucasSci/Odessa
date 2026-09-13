@@ -53,7 +53,7 @@ const LIVE_CONFIG_KEY = 'odessa:live-config:v1';
 // Agent removed — browser connects to OBS directly via WebSocket
 
 function getPanelFromHash(): AdvancedPanel {
-  if (window.location.hash === '#capture') return 'capture';
+  if (window.location.hash === '#capture') return 'settings';
   if (window.location.hash === '#persona') return 'overview';
   if (window.location.hash === '#content') return 'content';
   if (window.location.hash === '#runtime') return 'runtime';
