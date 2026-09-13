@@ -12,6 +12,27 @@
 Habilite o OBS WebSocket em **Tools → WebSocket Server Settings** (porta 4455).
 A Browser Source "Odessa Chat OCR" deve permanecer ativa (não feche quando ocultar).
 
+### Iniciar live automaticamente
+
+O botão **Iniciar live** executa uma sequência única e aguardada:
+
+1. valida e reconecta ao OBS WebSocket;
+2. cria ou atualiza as cenas `Odessa START` e `Odessa LIVE`;
+3. cria ou corrige as Browser Sources do palco e do chat;
+4. ajusta o canvas vertical e os transforms das fontes;
+5. atualiza as fontes sem cache e troca para `Odessa LIVE`;
+6. inicia o stream ou a câmera virtual conforme `transmissionMode`;
+7. confirma o estado final antes de considerar a live iniciada.
+
+Se o OBS estiver fechado, o botão não inicia parcialmente o runtime: mostra o
+erro de conexão e pausa a automação. Depois de abrir o OBS e habilitar o
+WebSocket, basta clicar novamente. A configuração é idempotente e pode ser
+executada em mais de uma live sem duplicar cenas ou fontes.
+
+O endpoint equivalente para diagnóstico é `POST /api/v1/obs/start-live` com
+`actionMode: "real"`. O endpoint retorna `ok: false` quando não consegue
+conectar ou confirmar a transmissão.
+
 ## Bridge do Tango
 
 A bridge é um subprocesso headless Chromium (Playwright) que captura o chat ao

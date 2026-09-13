@@ -156,7 +156,7 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  const startLiveWithConfig = () => {
+  const startLiveWithConfig = async () => {
     setLiveStartError(null);
 
     // Cada live começa com uma sessão limpa. Eventos persistidos pertencem a
@@ -188,26 +188,50 @@ export default function App() {
       } catch { /* Capture can still be started manually. */ }
     }
 
-    // 3. OBS preparation + transmission — runs in background, never blocks
-    (async () => {
+    // 3. OBS preparation + transmission. This is deliberately awaited: the
+    // live must not report success while OBS is still disconnected or half-ready.
+    if (liveConfig.prepareObs !== false || liveConfig.startTransmission !== false) {
+      if (!obsSettings?.enabled) {
+        const message = 'OBS esta desabilitado. Ative o OBS nas configuracoes antes de iniciar a live.';
+        setLiveStartError(message);
+        runtime.pause();
+        return;
+      }
+
       try {
-        if (liveConfig.prepareObs !== false && obsSettings?.enabled) {
-          const health = await routeLiveHealth(obsSettings);
-          if (!health.ok) {
-            await routeSetupLiveScene(obsSettings);
-          }
-          if (liveConfig.showStage !== false) {
-            await routeShowStage(obsSettings);
-          }
+        let port = '4455';
+        try {
+          const parsed = new URL(obsSettings.websocketUrl || 'ws://localhost:4455');
+          port = parsed.port || '4455';
+        } catch { /* usa a porta padrao do OBS */ }
+        const connected = await connectObs(`ws://localhost:${port}`, obsSettings.websocketPassword || '');
+        if (!connected) {
+          throw new Error('OBS indisponivel. Abra o OBS, habilite o WebSocket na porta configurada e tente novamente.');
         }
-        // Start transmission
-        if (liveConfig.startTransmission !== false && obsSettings?.enabled) {
-          await routeStartTransmission(obsSettings);
+        const health = await routeLiveHealth(obsSettings);
+        if (health.connected === false) {
+          throw new Error(`OBS indisponivel: ${health.error}`);
+        }
+
+        if (liveConfig.prepareObs !== false) {
+          const setup = await routeSetupLiveScene(obsSettings);
+          if (!setup.ok) throw new Error(`Falha ao preparar OBS: ${setup.error || 'erro desconhecido'}`);
+        }
+        if (liveConfig.showStage !== false) {
+          const stage = await routeShowStage(obsSettings);
+          if (!stage.ok) throw new Error(`Falha ao colocar palco ao vivo: ${stage.error || 'erro desconhecido'}`);
+        }
+        if (liveConfig.startTransmission !== false) {
+          const transmission = await routeStartTransmission(obsSettings);
+          if (!transmission.ok) throw new Error(`Falha ao iniciar transmissao: ${transmission.error || 'erro desconhecido'}`);
         }
       } catch (err) {
-        console.warn('[Odessa] OBS:', err);
+        const message = err instanceof Error ? err.message : String(err);
+        console.error('[Odessa] Falha ao iniciar live:', message);
+        setLiveStartError(message);
+        runtime.pause();
       }
-    })();
+    }
   };
 
   if (requestedPanel === ('overlay' as AdvancedPanel)) {

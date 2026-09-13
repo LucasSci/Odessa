@@ -80,9 +80,9 @@ class ObsStartLiveRequest(BaseModel):
     prepareObs: bool = True
     showStage: bool = True
     startAutomation: bool = True
-    startCapture: bool = False
-    startTransmission: bool = False
-    actionMode: str = "simulated"
+    startCapture: bool = True
+    startTransmission: bool = True
+    actionMode: str = "real"
 
 
 def _live_plan_from_request(config: ObsStartLiveRequest, health: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -270,7 +270,9 @@ async def obs_start_live(request: ObsStartLiveRequest):
     results: list[dict[str, Any]] = []
     try:
         if request.prepareObs:
-            health = await obs_service.live_health()
+            health = await obs_service.live_health(force_reconnect=True)
+            if health.get("connected") is False:
+                return {"ok": False, "results": results, "error": health.get("error") or "OBS indisponivel"}
             if not health.get("ok"):
                 setup = await obs_service.setup_live_scene()
                 results.append({"id": "setup", "result": setup})
@@ -286,7 +288,10 @@ async def obs_start_live(request: ObsStartLiveRequest):
             results.append({"id": "transmission", "result": transmission})
             if not transmission.get("ok"):
                 return {"ok": False, "results": results, "error": transmission.get("error")}
-        return {"ok": True, "results": results, "error": None}
+        final_health = await obs_service.live_health()
+        if request.startTransmission and not final_health.get("transmission", {}).get("ok", False):
+            return {"ok": False, "results": results, "health": final_health, "error": final_health.get("error") or "Transmissao nao confirmou estado ativo"}
+        return {"ok": True, "results": results, "health": final_health, "error": None}
     except Exception as exc:
         return {"ok": False, "results": results, "error": str(exc)}
 

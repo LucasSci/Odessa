@@ -280,7 +280,7 @@ class OBSService:
         self._save_settings()
         return self.get_settings()
 
-    async def connect(self) -> None:
+    async def connect(self, *, force: bool = False) -> None:
         if not self.enabled:
             raise RuntimeError("OBS WebSocket disabled. Set OBS_ENABLED=true.")
         if simpleobsws is None:
@@ -291,7 +291,7 @@ class OBSService:
         # Cooldown de reconexão: se a última tentativa falhou há pouco, não
         # tenta de novo (evita logs ruidosos e conexões a cada health check).
         now = time.monotonic()
-        if not self.connected and (now - self._last_connect_attempt) < self._reconnect_cooldown_s:
+        if not force and not self.connected and (now - self._last_connect_attempt) < self._reconnect_cooldown_s:
             raise RuntimeError(
                 f"OBS WebSocket offline (reconexão em cooldown, tenta de novo em "
                 f"{int(self._reconnect_cooldown_s - (now - self._last_connect_attempt))}s)"
@@ -1016,7 +1016,7 @@ class OBSService:
             await self._call("StopVirtualCam")
         return {"ok": True, "status": "stopped", "mode": target_mode, "error": None}
 
-    async def live_health(self) -> dict[str, Any]:
+    async def live_health(self, *, force_reconnect: bool = False) -> dict[str, Any]:
         base: dict[str, Any] = {
             "ok": False,
             "connected": False,
@@ -1034,7 +1034,10 @@ class OBSService:
         }
 
         try:
-            await self.connect()
+            if force_reconnect:
+                await self.connect(force=True)
+            else:
+                await self.connect()
             base["connected"] = True
             inventory = await self.get_source_inventory()
             scenes = inventory.get("scenes", [])
