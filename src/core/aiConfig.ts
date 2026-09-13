@@ -93,7 +93,7 @@ const DEFAULTS: AiLocalConfig = {
   chatReplyMaxPerMinute: 4,
   chatReplyMinConfidence: 0.65,
   localModelUrl: 'http://127.0.0.1:11434',
-  localModelName: 'llama3.1:8b',
+  localModelName: 'qwen2.5:latest',
   localModelTemperature: 0.7,
 };
 

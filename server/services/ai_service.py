@@ -75,6 +75,13 @@ class AIService:
         if json_mode:
             payload["format"] = "json"
         try:
+            logger.info(
+                "[OLLAMA] chat request model=%s url=%s messages=%d temperature=%.2f",
+                payload["model"],
+                url,
+                len(payload["messages"]),
+                temperature,
+            )
             with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
                 response = client.post(f"{url}/api/chat", json=payload)
             response.raise_for_status()
@@ -82,10 +89,15 @@ class AIService:
             text = ((data.get("message") or {}).get("content") or "").strip()
             if not text:
                 raise RuntimeError("Ollama retornou uma resposta vazia")
+            logger.info("[OLLAMA] chat response model=%s chars=%d", payload["model"], len(text))
             return text
         except httpx.ConnectError as exc:
             raise RuntimeError(
                 f"Ollama indisponível em {url}. Inicie o Ollama e baixe o modelo {(model or OLLAMA_MODEL).strip()}."
+            ) from exc
+        except httpx.TimeoutException as exc:
+            raise RuntimeError(
+                f"Ollama excedeu o timeout de {OLLAMA_TIMEOUT:g}s usando o modelo {(model or OLLAMA_MODEL).strip()}."
             ) from exc
 
     def generate_ai_text_with_fallback(

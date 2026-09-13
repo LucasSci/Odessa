@@ -92,6 +92,8 @@ curl -X POST http://localhost:8000/api/v1/ai/respond \
 `openai`), `local_model_url` e `local_model_name`. O roteador tenta o provedor
 selecionado e aplica os fallbacks configurados no backend. O laboratório de
 personas usa `ollama` por padrão e não publica a resposta no chat do Tango.
+Em uma instalação local, use `AI_PROVIDER=ollama`, mantenha o Ollama ativo e
+confirme `GET /api/v1/ai/status` antes de testar uma conversa.
 
 ## Personas
 

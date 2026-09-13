@@ -30,6 +30,12 @@ export interface GeneratedReplyResult {
   confidence: number;
 }
 
+export interface PersonaChatOptions {
+  maxLength?: number;
+  conversationMode?: boolean;
+  timeoutMs?: number;
+}
+
 const DEFAULT_TANGO_PROMPT = `\
 Você é a Odessa, uma streamer ao vivo cativante, carinhosa, bem-humorada e atenciosa com seu público.
 Seu objetivo é responder mensagens no chat ao vivo do Tango.
@@ -79,19 +85,22 @@ async function callBackendAiRespond(
   systemPrompt: string,
   incoming: TangoChatMessage,
   recentHistory: TangoChatMessage[],
-): Promise<string | null> {
+  options: PersonaChatOptions = {},
+): Promise<{ text: string | null; error?: string }> {
   const config = getAiConfig();
   const historyContext = recentHistory
     .slice(-12)
     .map((msg) => `${msg.username}: ${msg.text}`)
     .join('\n');
   const userPrompt = [
-    `[HISTÓRICO RECENTE DO CHAT]:`,
+    `[HISTÓRICO DA CONVERSA]:`,
     historyContext || '(Nenhuma mensagem recente)',
-    `\n[MENSAGEM PARA RESPONDER]:`,
+    `\n[MENSAGEM ATUAL]:`,
     `Usuário: ${incoming.username}`,
     `Mensagem: "${incoming.text}"`,
-    `\nInstrução: Gere uma resposta rápida e cativante para @${incoming.username}:`,
+    options.conversationMode
+      ? `\nInstrução: Responda como uma pessoa real em uma conversa natural com ${incoming.username}. Desenvolva a resposta quando fizer sentido, sem mencionar live, Tango, limites de caracteres ou que você é um modelo.`
+      : `\nInstrução: Gere uma resposta rápida e cativante para @${incoming.username}:`,
   ].join('\n');
 
   try {
@@ -110,13 +119,16 @@ async function callBackendAiRespond(
         // falha atrás da resposta fixa local.
         provider: hasActiveGeminiKey() && config.provider === 'gemini' ? 'gemini' : 'ollama',
       }),
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(options.timeoutMs ?? 20_000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const detail = await res.text();
+      return { text: null, error: `Backend retornou HTTP ${res.status}: ${detail.slice(0, 240)}` };
+    }
     const data = (await res.json()) as { response?: string };
-    return data.response?.trim() || null;
-  } catch {
-    return null;
+    return { text: data.response?.trim() || null, error: 'O backend retornou uma resposta vazia.' };
+  } catch (error) {
+    return { text: null, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -127,6 +139,7 @@ export async function generateTangoChatReply(
   incoming: TangoChatMessage,
   recentHistory: TangoChatMessage[] = [],
   customPrompt?: string,
+  options: PersonaChatOptions = {},
 ): Promise<GeneratedReplyResult> {
   const config = getAiConfig();
   const basePrompt = customPrompt || config.systemPrompt || DEFAULT_TANGO_PROMPT;
@@ -137,23 +150,25 @@ export async function generateTangoChatReply(
   // (RouteLLM/OpenAI/Gemini configurada no servidor). Se falhar, usa o motor
   // de respostas prontas locais para não parar o chat.
   if (!useDirectGemini) {
-    const backendReply = await callBackendAiRespond(basePrompt, incoming, recentHistory);
-    if (backendReply) {
-      const cleanReply = sanitizeTangoReply(backendReply);
+    const backendResult = await callBackendAiRespond(basePrompt, incoming, recentHistory, options);
+    if (backendResult.text) {
+      const cleanReply = sanitizeTangoReply(backendResult.text, options.maxLength || 140);
       const safety = checkSafetyRestrictions(cleanReply);
       if (safety.safe) {
         return {
           ok: true,
           reply: cleanReply,
           confidence: 0.9,
-          reason: 'Resposta gerada pela IA do backend (RouteLLM)',
+          reason: 'Resposta gerada pela IA local no backend (Ollama)',
         };
       }
     }
     return {
       ok: false,
       reply: '',
-      reason: 'Ollama não respondeu. Verifique se o Ollama está ativo e se o modelo qwen2.5:latest está instalado.',
+      reason: backendResult.error
+        ? `Ollama não respondeu: ${backendResult.error}`
+        : `Ollama não respondeu. Verifique se está ativo e se o modelo ${config.localModelName} está instalado.`,
       confidence: 0,
     };
   }

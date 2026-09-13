@@ -57,6 +57,7 @@ export function PersonaChatLab() {
         { username: 'Voce', text, timestamp: userMessage.timestamp },
         history,
         selectedPersona.personality?.trim() || DEFAULT_PERSONA_PROMPT,
+        { conversationMode: true, maxLength: 2000, timeoutMs: 150_000 },
       );
       const assistantMessage: LabMessage = {
         role: 'assistant',

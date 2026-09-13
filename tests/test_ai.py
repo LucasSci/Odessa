@@ -1,5 +1,36 @@
-"""Tests for /ai/* endpoints."""
+"""Tests for /ai/* endpoints and the local Ollama adapter."""
+from unittest.mock import Mock, patch
+
 import pytest
+
+from server.services.ai_service import AIService
+
+
+@pytest.mark.unit
+def test_ollama_adapter_posts_chat_payload():
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"message": {"content": "Resposta da Barbara."}}
+    client = Mock()
+    client.__enter__ = Mock(return_value=client)
+    client.__exit__ = Mock(return_value=None)
+    client.post.return_value = response
+
+    with patch("httpx.Client", return_value=client):
+        result = AIService().generate_ollama_text(
+            "Voce e Barbara.",
+            "Oi, Barbara!",
+            0.7,
+            model="qwen2.5:latest",
+            base_url="http://127.0.0.1:11434",
+        )
+
+    assert result == "Resposta da Barbara."
+    request_url, request_kwargs = client.post.call_args.args[0], client.post.call_args.kwargs
+    assert request_url == "http://127.0.0.1:11434/api/chat"
+    assert request_kwargs["json"]["model"] == "qwen2.5:latest"
+    assert request_kwargs["json"]["stream"] is False
+    assert request_kwargs["json"]["messages"][-1]["content"] == "Oi, Barbara!"
 
 
 @pytest.mark.unit

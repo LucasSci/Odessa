@@ -45,7 +45,7 @@ persona antes de colocá-la em uma live. O laboratório:
 - não inicia a bridge do Tango, o OBS, a captura OCR nem o envio de mensagens reais.
 
 O laboratório usa a IA local configurada no navegador (por padrão, Ollama em
-`http://127.0.0.1:11434`, modelo `llama3.1:8b`). A configuração fica no
+`http://127.0.0.1:11434`, modelo `qwen2.5:latest`). A configuração fica no
 `localStorage` do navegador e pode ser ajustada no painel de IA. Se o provedor
 local não responder, o motor aplica as respostas de fallback configuradas para
 manter o teste disponível.
