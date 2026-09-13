@@ -10,6 +10,7 @@ import {
   History,
   Link2,
   ListVideo,
+  MessageCircle,
   Maximize2,
   Pause,
   Play,
@@ -41,6 +42,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import PersonaSelector from './components/PersonaSelector';
 import TopPersonaSelector from './components/TopPersonaSelector';
 import { PersonasPanel } from './components/PersonasPanel';
+import { PersonaChatLab } from './components/PersonaChatLab';
 import { TangoChatPanel } from './components/TangoChatPanel';
 import { SessionHistoryPanel } from './components/SessionHistoryPanel';
 import VideoEditor from './components/VideoEditor';
@@ -97,6 +99,7 @@ interface OdessaLiveCenterProps {
 
 type TabKey =
   | 'live'
+  | 'conversation'
   | 'library'
   | 'flow'
   | 'history'
@@ -730,6 +733,14 @@ export default function OdessaLiveCenter({
             </div>
             <div className="anim-slide-in anim-stagger-4">
             <SideNavButton
+              icon={<MessageCircle />}
+              label="Conversar"
+              active={activeTab === 'conversation'}
+              onClick={() => setActiveTab('conversation')}
+            />
+            </div>
+            <div className="anim-slide-in anim-stagger-4">
+            <SideNavButton
               icon={<Users />}
               label="Personas"
               active={activeTab === 'personas'}
@@ -964,7 +975,10 @@ export default function OdessaLiveCenter({
         {/* 4. PERSONAS */}
         {activeTab === 'personas' && <PersonasPanel />}
 
-        {/* 5. HISTÓRICO */}
+        {/* 5. CONVERSA LOCAL */}
+        {activeTab === 'conversation' && <PersonaChatLab />}
+
+        {/* 6. HISTÓRICO */}
         {activeTab === 'history' && (
           <PageSurface
             icon={<History className="h-4 w-4" />}
@@ -1652,6 +1666,7 @@ function FlowDatum({ label, value }: { label: string; value: string }) {
 // Metadados de cada aba para o cabeçalho/sidebar (redesign Studio 2.0).
 const TAB_META: Record<TabKey, { group: string; title: string }> = {
   live:     { group: 'Operação', title: 'Central da Live' },
+  conversation: { group: 'Laboratório', title: 'Conversa com Personas' },
   library:  { group: 'Conteúdo', title: 'Biblioteca' },
   flow:     { group: 'Operação', title: 'Automações' },
   personas: { group: 'Conteúdo', title: 'Personas de IA' },

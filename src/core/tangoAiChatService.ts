@@ -80,6 +80,7 @@ async function callBackendAiRespond(
   incoming: TangoChatMessage,
   recentHistory: TangoChatMessage[],
 ): Promise<string | null> {
+  const config = getAiConfig();
   const historyContext = recentHistory
     .slice(-12)
     .map((msg) => `${msg.username}: ${msg.text}`)
@@ -102,6 +103,12 @@ async function callBackendAiRespond(
         chat_context: historyContext,
         user_prompt: userPrompt,
         temperature: 0.7,
+        local_model_url: getAiConfig().localModelUrl,
+        local_model_name: getAiConfig().localModelName,
+        // Sem uma chave Gemini, Ollama é o provedor real padrão. Isso evita
+        // que uma configuração antiga salva como "mock" ou "auto" esconda a
+        // falha atrás da resposta fixa local.
+        provider: hasActiveGeminiKey() && config.provider === 'gemini' ? 'gemini' : 'ollama',
       }),
       signal: AbortSignal.timeout(20_000),
     });
@@ -124,11 +131,12 @@ export async function generateTangoChatReply(
   const config = getAiConfig();
   const basePrompt = customPrompt || config.systemPrompt || DEFAULT_TANGO_PROMPT;
   const insightsContext = buildChatInsightsContext();
+  const useDirectGemini = config.provider === 'gemini' && hasActiveGeminiKey();
 
   // Sem chave Gemini no frontend → tenta a IA generativa do backend
   // (RouteLLM/OpenAI/Gemini configurada no servidor). Se falhar, usa o motor
   // de respostas prontas locais para não parar o chat.
-  if (!hasActiveGeminiKey()) {
+  if (!useDirectGemini) {
     const backendReply = await callBackendAiRespond(basePrompt, incoming, recentHistory);
     if (backendReply) {
       const cleanReply = sanitizeTangoReply(backendReply);
@@ -142,22 +150,11 @@ export async function generateTangoChatReply(
         };
       }
     }
-    const local = generateLocalReply(incoming, recentHistory);
-    const safety = checkSafetyRestrictions(local.reply);
-    if (!safety.safe) {
-      return {
-        ok: false,
-        reply: local.reply,
-        blocked: true,
-        blockedReason: `Termo bloqueado por segurança: "${safety.blockedTerm}"`,
-        confidence: 0,
-      };
-    }
     return {
-      ok: true,
-      reply: local.reply,
-      confidence: 0.6,
-      reason: 'Resposta pronta local (sem chave Gemini — IA real ativa ao configurar a chave)',
+      ok: false,
+      reply: '',
+      reason: 'Ollama não respondeu. Verifique se o Ollama está ativo e se o modelo qwen2.5:latest está instalado.',
+      confidence: 0,
     };
   }
 

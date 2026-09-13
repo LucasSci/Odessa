@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI):
     logger.info("Modular API mounted at /api/v1")
     logger.info("Odessa Backend is ready.")
 
-    if os.getenv("ODESSA_AUTOSTART_BRIDGE", "1") == "1":
+    if os.getenv("ODESSA_AUTOSTART_BRIDGE", "0") == "1":
         try:
             from server.services.bridge_manager import bridge_manager, load_bridge_config
             if not bridge_manager.is_running:

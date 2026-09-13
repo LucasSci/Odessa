@@ -711,6 +711,14 @@ async def handle_history(request: web.Request) -> web.Response:
     return web.json_response({"messages": [m.to_dict() for m in msgs]})
 
 
+async def handle_clear_history(request: web.Request) -> web.Response:
+    """POST /clear-history — descarta mensagens da sessão em memória."""
+    if bridge:
+        bridge.history.clear()
+        bridge._message_count = 0
+    return web.json_response({"ok": True})
+
+
 async def handle_send(request: web.Request) -> web.Response:
     """POST /send"""
     if not bridge or bridge._status != "connected":
@@ -1209,6 +1217,7 @@ def create_app() -> web.Application:
     app = web.Application(middlewares=[cors_middleware])
     app.router.add_get("/status", handle_status)
     app.router.add_get("/history", handle_history)
+    app.router.add_post("/clear-history", handle_clear_history)
     app.router.add_get("/messages", handle_messages_sse)
     app.router.add_get("/debug-dom", handle_debug_dom)
     app.router.add_get("/screenshot", handle_screenshot)

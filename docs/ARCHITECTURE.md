@@ -33,7 +33,7 @@ Chat do Tango
 Bridge do Tango (tango_chat/tango_chat.py, porta 7555)
       │  SSE /messages
       ▼
-Frontend (TangoChatPanel.tsx)
+    Frontend (TangoChatSessionProvider + TangoChatPanel)
       │  routeChatToTriggers() → POST /api/automation/ingest
       │  handleAutoTriggerAi() → POST /api/ai/respond (IA generativa)
       ▼
@@ -60,6 +60,9 @@ Player de vídeo (overlay no OBS)
 4. **Governança anti-flood** (`src/core/chatConversationGovernor.ts`) — aplica
    cooldown global, limite por minuto, cooldown por usuário e anti-flood de
    repetição antes de responder.
+5. **Laboratório de personas** (`src/components/PersonaChatLab.tsx`) — permite
+  testar cada personalidade em uma conversa local, com histórico separado por
+  persona, sem iniciar a bridge ou enviar mensagens para o Tango.
 
 ## Estrutura de diretórios
 
@@ -70,7 +73,8 @@ Odessa/
 │   ├── OdessaLiveCenter.tsx  # Painel central de controle da live
 │   ├── CaptureStudio.tsx     # Captura + OCR
 │   ├── ReactiveFlowBoard.tsx # Editor de fluxo visual
-│   ├── TangoChatPanel.tsx    # Painel do chat do Tango
+│   ├── components/PersonaChatLab.tsx # Laboratório local por persona
+│   ├── components/TangoChatPanel.tsx # Painel do chat do Tango
 │   ├── PersonaOverlay.tsx    # Browser source do OBS
 │   ├── components/           # Componentes UI compartilhados
 │   ├── core/                 # Engine de automação, IA, personas, governança
@@ -97,7 +101,7 @@ Odessa/
 |---|---|
 | `server/core/persona_manager.py` | Perfis de IA (personas), cada um com vídeos, fluxo, gatilhos e personalidade |
 | `server/core/config_manager.py` | Carrega/salva a config da persona ativa (com cache) |
-| `server/services/ai_service.py` | IA generativa (RouteLLM/OpenAI/Gemini) com router e fallback |
+| `server/services/ai_service.py` | IA generativa (Ollama/RouteLLM/OpenAI/Gemini) com router e fallback |
 | `server/services/automation/engine.py` | Trigger engine (casa eventos com gatilhos) |
 | `server/services/bridge_manager.py` | Gerencia o processo da bridge do Tango |
 | `server/services/video_service.py` | Player de vídeo e estado do fluxo |
@@ -110,6 +114,8 @@ Odessa/
   palavra-chave/presente → vídeo; a IA fica só com a conversa.
 - **IA com fallback:** RouteLLM → Gemini → respostas prontas locais, para o
   chat nunca parar.
+- **Teste local sem live:** o `PersonaChatLab` usa Ollama como provedor padrão
+  para validar prompts e personalidades sem acionar Tango, OBS ou OCR.
 - **Personas por arquivo:** índice `personas.json` + um arquivo de config por
   persona; a persona padrão "odessa" aponta para o config legado.
 - **Geração de vídeo plugável:** provedor selecionado por `VIDEO_GEN_PROVIDER`

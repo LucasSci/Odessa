@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import LoginScreen from './LoginScreen';
 import OdessaLiveCenter, { type AdvancedPanel } from './OdessaLiveCenter';
 import PersonaOverlay from './PersonaOverlay';
-import { getRecentEvents, replaceEvents } from './core/eventBus';
+import { clearEvents, getRecentEvents, replaceEvents } from './core/eventBus';
 import { useAutopilotRuntime } from './core/useAutopilotRuntime';
 import { TangoChatSessionProvider } from './core/tangoChatSession';
 import { apiUrl } from './lib/api';
@@ -93,12 +93,17 @@ export default function App() {
   // apenas quando solicitado explicitamente por #login.
   const [authenticated, setAuthenticated] = useState(true);
   const [requestedPanel, setRequestedPanel] = useState<AdvancedPanel>(() => getPanelFromHash());
-  const [capturedText, setCapturedTextState] = useState<CapturedMessage[]>(() => getRecentEvents());
+  // Eventos de uma execução anterior não pertencem ao feed da live atual.
+  const [capturedText, setCapturedTextState] = useState<CapturedMessage[]>([]);
   const [liveConfigOpen, setLiveConfigOpen] = useState(false);
   const [liveConfig, setLiveConfig] = useState<LiveConfig>(() => loadLiveConfig());
   const [liveStartError, setLiveStartError] = useState<string | null>(null);
 
   const [obsSettings, setObsSettings] = useState<ObsSettingsState | null>(null);
+
+  useEffect(() => {
+    clearEvents();
+  }, []);
 
   // Direct OBS WebSocket connection — works both local and cloud.
   // Fetches OBS settings from API, then connects to ws://localhost:<port>.
@@ -154,6 +159,11 @@ export default function App() {
   const startLiveWithConfig = () => {
     setLiveStartError(null);
 
+    // Cada live começa com uma sessão limpa. Eventos persistidos pertencem a
+    // uma execução anterior e não podem reaparecer como chat atual.
+    clearEvents();
+    setCapturedTextState([]);
+
     // 1. ALWAYS start automation first — this is the primary action
     const toolPatches = [
       {
@@ -167,6 +177,10 @@ export default function App() {
     ];
     runtime.start({ voiceEnabled: liveConfig.voiceEnabled, toolPatches });
 
+    // O provider da bridge escuta este evento e inicia a conexão do chat junto
+    // com a live, mantendo o CTA principal como ponto único de partida.
+    window.dispatchEvent(new CustomEvent('odessa:start-chat-bridge'));
+
     // 2. Start capture if configured
     if (liveConfig.startCapture) {
       try {
@@ -177,7 +191,7 @@ export default function App() {
     // 3. OBS preparation + transmission — runs in background, never blocks
     (async () => {
       try {
-        if (liveConfig.prepareObs !== false) {
+        if (liveConfig.prepareObs !== false && obsSettings?.enabled) {
           const health = await routeLiveHealth(obsSettings);
           if (!health.ok) {
             await routeSetupLiveScene(obsSettings);
@@ -187,7 +201,7 @@ export default function App() {
           }
         }
         // Start transmission
-        if (liveConfig.startTransmission !== false) {
+        if (liveConfig.startTransmission !== false && obsSettings?.enabled) {
           await routeStartTransmission(obsSettings);
         }
       } catch (err) {
@@ -234,6 +248,10 @@ export default function App() {
         onLiveConfigOpenChange={setLiveConfigOpen}
         onLiveConfigChange={setLiveConfig}
         onStartLive={startLiveWithConfig}
+        onEndLive={() => {
+          window.dispatchEvent(new CustomEvent('odessa:end-live'));
+          runtime.pause();
+        }}
         onObsSettingsChanged={(newSettings) => {
           setObsSettings(newSettings);
           let port = '4455';

@@ -29,6 +29,9 @@ class AIRespondRequest(BaseModel):
     user_prompt: Optional[str] = None
     model: str = "gemini-2.5-flash"
     temperature: float = 0.9
+    local_model_url: Optional[str] = None
+    local_model_name: Optional[str] = None
+    provider: Optional[str] = None
 
 
 class LiveEventPayload(BaseModel):

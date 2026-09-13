@@ -83,7 +83,7 @@ export type AiLocalConfig = {
 const DEFAULTS: AiLocalConfig = {
   geminiKey: '',
   systemPrompt: '',
-  provider: 'auto',
+  provider: 'local',
   confidenceThreshold: 0.65,
   autonomyLevel: 'assistido',
   geminiProxyUrl: '',
@@ -92,8 +92,8 @@ const DEFAULTS: AiLocalConfig = {
   chatReplyCooldownMs: 15_000,
   chatReplyMaxPerMinute: 4,
   chatReplyMinConfidence: 0.65,
-  localModelUrl: '',
-  localModelName: '',
+  localModelUrl: 'http://127.0.0.1:11434',
+  localModelName: 'llama3.1:8b',
   localModelTemperature: 0.7,
 };
 
@@ -110,11 +110,20 @@ function readRaw(): Partial<AiLocalConfig> {
 /** Lê a configuração atual (merged com defaults). */
 export function getAiConfig(): AiLocalConfig {
   const stored = readRaw();
+  // O laboratório local usa Ollama; configurações antigas de mock/Gemini
+  // não devem desviar a conversa para uma chave inválida salva anteriormente.
+  const storedProvider = stored.provider === 'mock' || stored.provider === 'gemini' || stored.provider === 'auto'
+    ? 'local'
+    : stored.provider;
+  const storedLocalModelName = typeof stored.localModelName === 'string' ? stored.localModelName.trim() : '';
+  const localModelName = !storedLocalModelName || storedLocalModelName === 'llama3.1:8b'
+    ? DEFAULTS.localModelName
+    : storedLocalModelName;
   return {
     geminiKey: typeof stored.geminiKey === 'string' ? stored.geminiKey : DEFAULTS.geminiKey,
     systemPrompt: typeof stored.systemPrompt === 'string' ? stored.systemPrompt : DEFAULTS.systemPrompt,
-    provider: (['auto','gemini','local','mock'] as AiProvider[]).includes(stored.provider as AiProvider)
-      ? (stored.provider as AiProvider)
+    provider: (['auto','gemini','local','mock'] as AiProvider[]).includes(storedProvider as AiProvider)
+      ? (storedProvider as AiProvider)
       : DEFAULTS.provider,
     confidenceThreshold: typeof stored.confidenceThreshold === 'number'
       ? Math.max(0.1, Math.min(0.99, stored.confidenceThreshold))
@@ -135,7 +144,7 @@ export function getAiConfig(): AiLocalConfig {
       ? Math.max(0.1, Math.min(0.99, stored.chatReplyMinConfidence))
       : DEFAULTS.chatReplyMinConfidence,
     localModelUrl: typeof stored.localModelUrl === 'string' ? stored.localModelUrl.trim() : DEFAULTS.localModelUrl,
-    localModelName: typeof stored.localModelName === 'string' ? stored.localModelName.trim() : DEFAULTS.localModelName,
+    localModelName,
     localModelTemperature: typeof stored.localModelTemperature === 'number'
       ? Math.max(0, Math.min(2, stored.localModelTemperature))
       : DEFAULTS.localModelTemperature,

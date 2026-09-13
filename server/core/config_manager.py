@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict
 import os
 
-from server.core.persona_manager import get_persona_config_path
+from server.core.persona_manager import DEFAULT_CONFIG_PATH, get_persona_config_path
 
 _cached_config = None
 _cached_mtime = 0
@@ -271,12 +271,26 @@ def load_persona_config() -> Dict[str, Any]:
 
         logger.info("Loading persona config from %s", config_path)
         with open(config_path, "r", encoding="utf-8") as f:
-            data = _normalize_config(json.load(f))
-            _cached_config = data
-            _cached_mtime = mtime
-            _cached_path = config_path
-            logger.info("Successfully loaded persona config with %s videos.", len(data.get("videos", [])))
-            return data
+            data = json.load(f)
+
+        # Personas criadas a partir do perfil legado podem conter os vídeos,
+        # mas ainda não ter workflow publicado. Nesse caso, reaproveita os
+        # gatilhos padrão até que a persona configure seu próprio workflow.
+        if config_path != DEFAULT_CONFIG_PATH and not data.get("triggers"):
+            with open(DEFAULT_CONFIG_PATH, "r", encoding="utf-8") as f:
+                legacy = json.load(f)
+            if legacy.get("triggers"):
+                for key in ("triggers", "flowNodes", "flowConnections", "flowCanvasVideoIds", "idleVideoId"):
+                    if key in legacy:
+                        data[key] = legacy[key]
+                logger.info("Inherited legacy workflow for persona config %s", config_path)
+
+        data = _normalize_config(data)
+        _cached_config = data
+        _cached_mtime = mtime
+        _cached_path = config_path
+        logger.info("Successfully loaded persona config with %s videos.", len(data.get("videos", [])))
+        return data
     except Exception as exc:
         logger.error("Error loading persona config: %s", exc)
         return _empty_config()

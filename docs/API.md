@@ -78,6 +78,7 @@ curl -X POST http://localhost:8000/api/v1/automation/ingest \
 | POST | `/api/v1/ai/respond` | Gera uma resposta conversacional (RouteLLM/OpenAI/Gemini) |
 | POST | `/api/v1/ai/decide` | Decisão da Diretora (fala + vídeo + cena) |
 | POST | `/api/v1/ai/gemini` | Chamada direta ao Gemini |
+| GET | `/api/v1/ai/status` | Informa o provedor configurado e a disponibilidade do Ollama |
 
 Exemplo de respond:
 
@@ -86,6 +87,11 @@ curl -X POST http://localhost:8000/api/v1/ai/respond \
   -H "Content-Type: application/json" \
   -d '{"persona_prompt":"Você é a Odessa...","chat_context":"Usuário: Lucas","user_prompt":"Mensagem: \"oi amores\"","temperature":0.7}'
 ```
+
+`/api/v1/ai/respond` aceita também `provider` (`ollama`, `gemini` ou
+`openai`), `local_model_url` e `local_model_name`. O roteador tenta o provedor
+selecionado e aplica os fallbacks configurados no backend. O laboratório de
+personas usa `ollama` por padrão e não publica a resposta no chat do Tango.
 
 ## Personas
 

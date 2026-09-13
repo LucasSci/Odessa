@@ -24,6 +24,7 @@ vídeo.
 - **ReactiveFlow** — editor visual de fluxo; conecta vídeos a gatilhos (presente, palavra, tempo)
 - **Perfis de IA (personas)** — múltiplas personas selecionáveis, cada uma com vídeos, fluxo, gatilhos e personalidade próprios
 - **Conversa automática** — o chat responde com IA generativa, com governança anti-flood
+- **Laboratório de personas** — conversa com qualquer persona em um ambiente local de teste, sem iniciar live, OBS, bridge ou OCR
 - **Chat → gatilhos** — mensagens do chat disparam troca de vídeo por palavra-chave/presente
 - **Geração de vídeo em tempo real** — interações do chat geram prompts e vídeos a partir do último frame da live, registrados no fluxo da persona
 - **Bridge do Tango** — captura de chat e tela em tempo real (Playwright/CDP)

@@ -34,6 +34,22 @@ Na aba **Diretora IA** do painel, o seletor de personas permite:
 - Editar a personalidade da persona ativa (textarea + "Salvar personalidade")
 - Excluir personas (exceto a padrão "odessa")
 
+### Laboratório de conversa
+
+A aba **Conversa com Personas** do `OdessaLiveCenter` permite testar uma
+persona antes de colocá-la em uma live. O laboratório:
+
+- carrega a lista de personas do backend;
+- mantém o histórico separado para cada persona durante a sessão do navegador;
+- usa a personalidade configurada para gerar respostas curtas e contextualizadas;
+- não inicia a bridge do Tango, o OBS, a captura OCR nem o envio de mensagens reais.
+
+O laboratório usa a IA local configurada no navegador (por padrão, Ollama em
+`http://127.0.0.1:11434`, modelo `llama3.1:8b`). A configuração fica no
+`localStorage` do navegador e pode ser ajustada no painel de IA. Se o provedor
+local não responder, o motor aplica as respostas de fallback configuradas para
+manter o teste disponível.
+
 ### Via API
 
 ```bash
@@ -65,6 +81,10 @@ Abacus.AI, compatível com OpenAI). O fluxo:
    a personalidade da persona ativa.
 4. A resposta é enviada de volta ao chat pela bridge (`/send`).
 
+O laboratório de conversa usa o mesmo contrato de geração, mas permanece
+isolado do fluxo ao vivo: ele chama a API de resposta e exibe o resultado
+somente no painel.
+
 ### Governança anti-flood
 
 Para respostas naturais e sem flood, o `chatConversationGovernor` aplica:
@@ -87,6 +107,12 @@ OPENAI_TEXT_MODEL=route-llm
 
 Para usar a OpenAI oficial, troque `OPENAI_BASE_URL` para
 `https://api.openai.com/v1` e `OPENAI_TEXT_MODEL` para um modelo OpenAI.
+
+Para verificar o provedor selecionado e a disponibilidade do Ollama:
+
+```bash
+curl http://localhost:8000/api/v1/ai/status
+```
 
 ## Geração de vídeo por persona
 

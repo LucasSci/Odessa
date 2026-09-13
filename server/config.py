@@ -72,8 +72,11 @@ GEMINI_IMAGE_ASPECT_RATIO = os.getenv("GEMINI_IMAGE_ASPECT_RATIO", "9:16").strip
 GEMINI_IMAGE_SIZE = os.getenv("GEMINI_IMAGE_SIZE", "").strip()
 
 # Automation & Service Config
-AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini").strip().lower()
+AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama").strip().lower()
 ENABLE_LOCAL_FALLBACK = os.getenv("ENABLE_LOCAL_FALLBACK", "true").lower() == "true"
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip().rstrip("/")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:latest").strip()
+OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "90"))
 
 ENABLE_TTS = os.getenv("ENABLE_TTS", "false").lower() == "true"
 TTS_SIMULATION_MODE = os.getenv("TTS_SIMULATION_MODE", "true").lower() == "true"

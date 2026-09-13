@@ -50,6 +50,24 @@ async def gemini_proxy(request: GeminiProxyRequest):
         raise HTTPException(status_code=502, detail=f"Proxy Gemini falhou: {exc}") from exc
 
 
+@router.get("/status")
+async def ai_status():
+    """Retorna o provedor configurado e se o Ollama local está acessível."""
+    from server.config import AI_PROVIDER, OLLAMA_BASE_URL, OLLAMA_MODEL
+
+    ollama = {"configured": True, "url": OLLAMA_BASE_URL, "model": OLLAMA_MODEL, "reachable": False}
+    try:
+        async with httpx.AsyncClient(timeout=2.5) as client:
+            response = await client.get(f"{OLLAMA_BASE_URL}/api/tags")
+        ollama["reachable"] = response.is_success
+        if response.is_success:
+            models = response.json().get("models", [])
+            ollama["modelInstalled"] = any(item.get("name") == OLLAMA_MODEL for item in models)
+    except Exception:
+        pass
+    return {"provider": AI_PROVIDER, "ollama": ollama}
+
+
 def get_ai_service():
     from server.services.ai_service import ai_service
 
@@ -64,6 +82,9 @@ def ai_respond(request: AIRespondRequest):
             system_prompt=request.persona_prompt,
             user_prompt=user_prompt,
             temperature=request.temperature,
+            local_model_url=request.local_model_url,
+            local_model_name=request.local_model_name,
+            provider=request.provider,
         )
         return {"response": text, "provider": provider}
     except HTTPException:

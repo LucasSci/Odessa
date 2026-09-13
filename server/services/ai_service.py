@@ -9,6 +9,9 @@ from server.config import (
     GEMINI_API_KEY,
     OPENAI_TEXT_MODEL,
     OPENAI_BASE_URL,
+    OLLAMA_BASE_URL,
+    OLLAMA_MODEL,
+    OLLAMA_TIMEOUT,
 )
 
 logger = logging.getLogger("odessa.ai")
@@ -46,6 +49,45 @@ class AIService:
         response = self.openai_client.chat.completions.create(**kwargs)
         return response.choices[0].message.content or ""
 
+    def generate_ollama_text(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        *,
+        model: str | None = None,
+        base_url: str | None = None,
+        json_mode: bool = False,
+    ) -> str:
+        """Gera texto via Ollama local usando a API nativa /api/chat."""
+        import httpx
+
+        url = (base_url or OLLAMA_BASE_URL).strip().rstrip("/")
+        payload: dict[str, Any] = {
+            "model": (model or OLLAMA_MODEL).strip(),
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "options": {"temperature": temperature},
+        }
+        if json_mode:
+            payload["format"] = "json"
+        try:
+            with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
+                response = client.post(f"{url}/api/chat", json=payload)
+            response.raise_for_status()
+            data = response.json()
+            text = ((data.get("message") or {}).get("content") or "").strip()
+            if not text:
+                raise RuntimeError("Ollama retornou uma resposta vazia")
+            return text
+        except httpx.ConnectError as exc:
+            raise RuntimeError(
+                f"Ollama indisponível em {url}. Inicie o Ollama e baixe o modelo {(model or OLLAMA_MODEL).strip()}."
+            ) from exc
+
     def generate_ai_text_with_fallback(
         self,
         *,
@@ -54,18 +96,24 @@ class AIService:
         user_prompt: str,
         temperature: float,
         json_mode: bool = False,
+        local_model_url: str | None = None,
+        local_model_name: str | None = None,
+        provider: str | None = None,
     ) -> Tuple[str, str]:
         """
         AI Provider Router: Tries configured providers in order,
         then falls back to local simulation or neutral response.
         """
         from server.config import AI_PROVIDER, ENABLE_LOCAL_FALLBACK
+        selected_provider = (provider or AI_PROVIDER).strip().lower()
 
         # Priority 1: Configured Provider
         providers_to_try = []
-        if AI_PROVIDER == "gemini":
+        if selected_provider in {"ollama", "local"}:
+            providers_to_try = ["ollama", "gemini", "openai"]
+        elif selected_provider == "gemini":
             providers_to_try = ["gemini", "openai"]
-        elif AI_PROVIDER == "openai":
+        elif selected_provider == "openai":
             providers_to_try = ["openai", "gemini"]
         else:
             providers_to_try = ["gemini", "openai"]
@@ -73,6 +121,22 @@ class AIService:
         errors: List[str] = []
 
         for provider in providers_to_try:
+            if provider == "ollama":
+                try:
+                    text = self.generate_ollama_text(
+                        system_prompt,
+                        user_prompt,
+                        temperature,
+                        model=local_model_name,
+                        base_url=local_model_url,
+                        json_mode=json_mode,
+                    )
+                    if text.strip():
+                        return text, "ollama"
+                except Exception as exc:
+                    logger.warning("[AI ROUTER] Ollama failed: %s", exc)
+                    errors.append(f"Ollama: {exc}")
+
             if provider == "gemini" and self.gemini_client:
                 try:
                     config: dict[str, Any] = {

@@ -5,6 +5,16 @@ Todas as mudanças relevantes do projeto Odessa.
 ## [1.1.0] — Em desenvolvimento
 
 ### Adicionado
+- **Laboratório local de conversa por persona** — nova aba no
+  `OdessaLiveCenter` para testar personalidades e respostas da IA sem iniciar
+  live, OBS, bridge ou OCR. Cada persona mantém seu próprio histórico de teste;
+  o provedor local padrão é Ollama, com modelo e URL configuráveis no painel de
+  IA. (`src/components/PersonaChatLab.tsx`, `src/core/aiConfig.ts`,
+  `src/core/tangoAiChatService.ts`)
+- **Status e roteamento de provedores de IA** — endpoint
+  `/api/v1/ai/status` e suporte explícito a Ollama, Gemini e OpenAI/RouteLLM
+  no endpoint conversacional, com fallback local configurável.
+  (`server/api/v1/endpoints/ai.py`, `server/services/ai_service.py`)
 - **Geração de vídeo em tempo real** — as interações do chat (mensagens +
   gatilhos) alimentam um buffer de prompts; ao atingir o limiar, um prompt é
   gerado via RouteLLM e um vídeo é criado a partir do último frame da live. O

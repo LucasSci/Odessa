@@ -79,7 +79,6 @@ export interface UnifiedLivePanelProps {
 // ── Component ──
 
 export function UnifiedLivePanel({
-  capturedText,
   runtime,
   videoState,
   onStartLive,
@@ -110,20 +109,11 @@ export function UnifiedLivePanel({
 }: UnifiedLivePanelProps) {
   const isLive = runtime.autopilotEnabled;
 
-  // ── Mensagens unificadas: usa mensagens da bridge se houver, senão converte capturedText ──
-  // Quando a bridge NÃO está conectada, as mensagens da bridge estão vazias.
-  // Precisamos mostrar as mensagens capturadas pelo runtime do Odessa (OCR, manual, etc.)
-  // no formato TangoChatMessage para o TangoChatFeed exibi-las.
+  // O painel ao vivo mostra apenas mensagens recebidas pela bridge nesta sessão.
+  // OCR e eventos de teste pertencem ao runtime, não ao chat do Tango.
   const unifiedMessages = useMemo<TangoChatMessage[]>(() => {
-    if (messages.length > 0) return messages; // bridge messages têm prioridade
-    return (capturedText || [])
-      .filter((m) => m.kind === 'chat' || m.kind === 'gift')
-      .map((m) => ({
-        username: (m.metadata?.username as string) || m.zoneName || 'Espectador',
-        text: m.text,
-        timestamp: m.createdAt,
-      }));
-  }, [messages, capturedText]);
+    return messages;
+  }, [messages]);
 
   // Fila de respostas IA pendentes (draft + blocked)
   const pendingReplies = useMemo(

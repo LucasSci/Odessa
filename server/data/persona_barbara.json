@@ -5,7 +5,7 @@
       "label": "01 Fluxo Idle Sorriso Leve",
       "group": "uploaded",
       "description": "Auto-detected: 01_FLUXO_idle_sorriso_leve.mp4",
-      "loop": false
+      "loop": true
     },
     {
       "id": "02_FLUXO_sorriso_charmoso_lento",
@@ -263,15 +263,3426 @@
   "action_map": {
     "gift": [],
     "message": [],
-    "idle": []
+    "idle": [
+      "01_FLUXO_idle_sorriso_leve"
+    ]
   },
   "gift_map": {},
   "transitions": {},
-  "triggers": [],
-  "flowNodes": [],
-  "flowConnections": [],
-  "flowCanvasVideoIds": [],
-  "idleVideoId": "",
+  "triggers": [
+    {
+      "id": "trigger-1778100906700",
+      "name": "Quando take selfie",
+      "enabled": false,
+      "eventType": "manual",
+      "conditions": {
+        "keyword": "Tirar selfie"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "videoId": "grok-855849df-aab8-4ec5-8845-132732e358c7-720p"
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778555213393",
+      "name": "Quando 02 Lendo Chat Monitor",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-02_lendo_chat_monitor-1778555208879-6uob1",
+          "videoId": "02_lendo_chat_monitor",
+          "playback": {
+            "startSec": 0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778555275404",
+      "name": "Quando 04 Sorriso Suave",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-04_sorriso_suave-1778555262805-fp1yg",
+          "videoId": "04_sorriso_suave",
+          "playback": {
+            "startSec": 0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778555331245",
+      "name": "Quando 05 Digitando Suave",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-05_digitando_suave-1778555324455-opb2m",
+          "videoId": "05_digitando_suave",
+          "playback": {
+            "startSec": 0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778555336549",
+      "name": "Quando 06 Idle Reset",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-06_idle_reset-1778555301278-1z25o",
+          "videoId": "06_idle_reset",
+          "playback": {
+            "startSec": 0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778555346606",
+      "name": "Quando 07 Mexendo No Cabelo",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-07_mexendo_no_cabelo-1778555339817-m58xd",
+          "videoId": "07_mexendo_no_cabelo",
+          "playback": {
+            "startSec": 0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778555356815",
+      "name": "Quando 06 Idle Reset",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-06_idle_reset-1778555301278-1z25o",
+          "videoId": "06_idle_reset",
+          "playback": {
+            "startSec": 0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778555363006",
+      "name": "Quando 08 Lendo Chat Variante",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-08_lendo_chat_variante-1778555349335-jsdzc",
+          "videoId": "08_lendo_chat_variante",
+          "playback": {
+            "startSec": 0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778555397119",
+      "name": "Quando 10 Idle Calmo",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-10_idle_calmo-1778555392625-ai3f9",
+          "videoId": "10_idle_calmo",
+          "playback": {
+            "startSec": 0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778555407816",
+      "name": "Quando 11 Bebendo Agua",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-11_bebendo_agua-1778555403682-z13du",
+          "videoId": "11_bebendo_agua",
+          "playback": {
+            "startSec": 0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778555417672",
+      "name": "Quando 06 Idle Reset",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-06_idle_reset-1778555415043-akbse",
+          "videoId": "06_idle_reset",
+          "playback": {
+            "startSec": 0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778555781075",
+      "name": "Quando 01 Idle Principal",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-01_idle_principal-1778555199993-ijfaa",
+          "videoId": "01_idle_principal",
+          "playback": {
+            "startSec": 0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778557711265",
+      "name": "Quando 05 Digitando Suave",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-05_digitando_suave-1778555324455-opb2m",
+          "videoId": "05_digitando_suave",
+          "playback": {
+            "startSec": 0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778558350976",
+      "name": "Quando 01 Idle Principal",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-01_idle_principal-1778555199993-ijfaa",
+          "videoId": "01_idle_principal",
+          "playback": {
+            "startSec": 0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778558493401",
+      "name": "Quando 12 Sorriso Finalonline-Video-Cuttercom",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-12_sorriso_finalonline-video-cuttercom-1778558478016-340fo",
+          "videoId": "12_sorriso_finalonline-video-cuttercom",
+          "playback": {
+            "startSec": 0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778558515745",
+      "name": "Quando 01 Idle Principal",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-01_idle_principal-1778555199993-ijfaa",
+          "videoId": "01_idle_principal",
+          "playback": {
+            "startSec": 0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778605861214",
+      "name": "Quando 02 Lendo Chat Monitor",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-02_lendo_chat_monitor-1778605855828-owizy",
+          "videoId": "02_lendo_chat_monitor",
+          "playback": {
+            "startSec": 0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778605886725",
+      "name": "Quando 03 Mao No Mouse",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-03_mao_no_mouse-1778605883826-7wyi9",
+          "videoId": "03_mao_no_mouse",
+          "playback": {
+            "startSec": 0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778627956433",
+      "name": "Quando 02 Clip Limpo Sem Audio",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-02_clip_limpo_sem_audio-1778627953866-gla8k",
+          "videoId": "02_clip_limpo_sem_audio",
+          "playback": {
+            "startSec": 0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630233720",
+      "name": "Quando 02 Fluxo Sorriso Charmoso Lento",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-02_FLUXO_sorriso_charmoso_lento-1778630190159-pkt5i",
+          "videoId": "02_FLUXO_sorriso_charmoso_lento",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630237137",
+      "name": "Quando 03 Fluxo Olha Chat Direita Leve",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-03_FLUXO_olha_chat_direita_leve-1778630197031-xwf1z",
+          "videoId": "03_FLUXO_olha_chat_direita_leve",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630238936",
+      "name": "Quando 04 Fluxo Olha Chat Lateral Forte",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-04_FLUXO_olha_chat_lateral_forte-1778630201032-injgc",
+          "videoId": "04_FLUXO_olha_chat_lateral_forte",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630247161",
+      "name": "Quando 05 Fluxo Idle Neutro Suave",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-05_FLUXO_idle_neutro_suave-1778630205336-10085",
+          "videoId": "05_FLUXO_idle_neutro_suave",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630291578",
+      "name": "Quando 06 Especial Alongamento Bracos",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "Alongue os braços"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-06_ESPECIAL_alongamento_bracos-1778630276730-2vhgr",
+          "videoId": "06_ESPECIAL_alongamento_bracos",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630330612",
+      "name": "Quando 06 Especial Alongamento Bracos",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "Levante a mão"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-06_ESPECIAL_alongamento_bracos-1778630276730-2vhgr",
+          "videoId": "06_ESPECIAL_alongamento_bracos",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630351733",
+      "name": "Quando 06 Especial Alongamento Bracos",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "levante a mão"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-06_ESPECIAL_alongamento_bracos-1778630276730-2vhgr",
+          "videoId": "06_ESPECIAL_alongamento_bracos",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630395478",
+      "name": "Quando 07 Fluxo Sorriso Timido Camera",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "Linda"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-07_FLUXO_sorriso_timido_camera-1778630382070-o03az",
+          "videoId": "07_FLUXO_sorriso_timido_camera",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630408342",
+      "name": "Quando 07 Fluxo Sorriso Timido Camera",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "Gostosa"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-07_FLUXO_sorriso_timido_camera-1778630382070-o03az",
+          "videoId": "07_FLUXO_sorriso_timido_camera",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630451120",
+      "name": "Quando 07 Fluxo Sorriso Timido Camera",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "sorria"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-07_FLUXO_sorriso_timido_camera-1778630382070-o03az",
+          "videoId": "07_FLUXO_sorriso_timido_camera",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630488857",
+      "name": "Quando 08 Transicao Ajuste Ombro Roupa",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-08_TRANSICAO_ajuste_ombro_roupa-1778630482378-7xo5q",
+          "videoId": "08_TRANSICAO_ajuste_ombro_roupa",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630529316",
+      "name": "Quando 09 Gatilho Beijo Discreto 1",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "beijo"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-09_GATILHO_beijo_discreto_1-1778630522233-8rj3z",
+          "videoId": "09_GATILHO_beijo_discreto_1",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630546344",
+      "name": "Quando 09 Gatilho Beijo Discreto 1",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "manda um beijo"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-09_GATILHO_beijo_discreto_1-1778630522233-8rj3z",
+          "videoId": "09_GATILHO_beijo_discreto_1",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630616869",
+      "name": "Quando 10 Gatilho Beijo Discreto 2",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "você é perfeita"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-10_GATILHO_beijo_discreto_2-1778630604093-hrtyy",
+          "videoId": "10_GATILHO_beijo_discreto_2",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630642375",
+      "name": "Quando 10 Gatilho Beijo Discreto 2",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "Your AI generated"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-10_GATILHO_beijo_discreto_2-1778630604093-hrtyy",
+          "videoId": "10_GATILHO_beijo_discreto_2",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630727736",
+      "name": "Quando 11 Fluxo Idle Base Neutro",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-11_FLUXO_idle_base_neutro-1778630719328-577xo",
+          "videoId": "11_FLUXO_idle_base_neutro",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630732345",
+      "name": "Quando 11 Fluxo Idle Base Neutro",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-11_FLUXO_idle_base_neutro-1778630719328-577xo",
+          "videoId": "11_FLUXO_idle_base_neutro",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630739832",
+      "name": "Quando 11 Fluxo Idle Base Neutro",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-11_FLUXO_idle_base_neutro-1778630719328-577xo",
+          "videoId": "11_FLUXO_idle_base_neutro",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630812020",
+      "name": "Quando 01 Fluxo Idle Sorriso Leve",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+          "videoId": "01_FLUXO_idle_sorriso_leve",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630851580",
+      "name": "Quando 12 Fluxo Sorriso Inclinacao Leve",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-12_FLUXO_sorriso_inclinacao_leve-1778630846766-q05hf",
+          "videoId": "12_FLUXO_sorriso_inclinacao_leve",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630909902",
+      "name": "Quando 13 Fluxo Idle Sorriso Leve Var2",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-13_FLUXO_idle_sorriso_leve_var2-1778630861316-q8u76",
+          "videoId": "13_FLUXO_idle_sorriso_leve_var2",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630923870",
+      "name": "Quando 14 Fluxo Olha Chat Lateral Var2",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-14_FLUXO_olha_chat_lateral_var2-1778630917390-uog71",
+          "videoId": "14_FLUXO_olha_chat_lateral_var2",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630952040",
+      "name": "Quando 15 Fluxo Olha Chat Direita Var2",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-15_FLUXO_olha_chat_direita_var2-1778630930334-kny8c",
+          "videoId": "15_FLUXO_olha_chat_direita_var2",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778630967391",
+      "name": "Quando 16 Fluxo Olha Chat Baixo Lateral",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-16_FLUXO_olha_chat_baixo_lateral-1778630959079-y4srf",
+          "videoId": "16_FLUXO_olha_chat_baixo_lateral",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778631043658",
+      "name": "Quando 17 Gatilho Reacao Chat Lateral Com Overlay",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "Ola"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-17_GATILHO_reacao_chat_lateral_com_overlay-1778630978576-aceoq",
+          "videoId": "17_GATILHO_reacao_chat_lateral_com_overlay",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778631100820",
+      "name": "Quando 13 Fluxo Idle Sorriso Leve Var2",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-13_FLUXO_idle_sorriso_leve_var2-1778630861316-q8u76",
+          "videoId": "13_FLUXO_idle_sorriso_leve_var2",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778631227407",
+      "name": "Quando 19 Fluxo Sorriso Charmoso Var2",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "voce é tão linda"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-19_FLUXO_sorriso_charmoso_var2-1778631196303-brmqc",
+          "videoId": "19_FLUXO_sorriso_charmoso_var2",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778631230520",
+      "name": "Quando 19 Fluxo Sorriso Charmoso Var2",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "voce é tão linda"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-19_FLUXO_sorriso_charmoso_var2-1778631196303-brmqc",
+          "videoId": "19_FLUXO_sorriso_charmoso_var2",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778631233624",
+      "name": "Quando 19 Fluxo Sorriso Charmoso Var2",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "voce é tão linda"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-19_FLUXO_sorriso_charmoso_var2-1778631196303-brmqc",
+          "videoId": "19_FLUXO_sorriso_charmoso_var2",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778631315266",
+      "name": "Quando 20 Gatilho Beijo Discreto Var3",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "Nem parece IA"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-20_GATILHO_beijo_discreto_var3-1778631298730-vh32s",
+          "videoId": "20_GATILHO_beijo_discreto_var3",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778631368620",
+      "name": "Quando 21 Gatilho Beijo Discreto Var4",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "IA"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-21_GATILHO_beijo_discreto_var4-1778631349181-r56ik",
+          "videoId": "21_GATILHO_beijo_discreto_var4",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778631384276",
+      "name": "Quando 13 Fluxo Idle Sorriso Leve Var2",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-13_FLUXO_idle_sorriso_leve_var2-1778630861316-q8u76",
+          "videoId": "13_FLUXO_idle_sorriso_leve_var2",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778631502489",
+      "name": "Quando 30 Gatilho Beijo Aceno Discreto",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "Novo seguidor!"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-30_GATILHO_beijo_aceno_discreto-1778631494816-q3yea",
+          "videoId": "30_GATILHO_beijo_aceno_discreto",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778631562914",
+      "name": "Quando 27 Especial Mexendo Cabelo",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-27_ESPECIAL_mexendo_cabelo-1778631547074-fh3k0",
+          "videoId": "27_ESPECIAL_mexendo_cabelo",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778631602724",
+      "name": "Quando 25 Gatilho Revirando Olhos Sutil",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-25_GATILHO_revirando_olhos_sutil-1778631596499-maenp",
+          "videoId": "25_GATILHO_revirando_olhos_sutil",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778631614428",
+      "name": "Quando 04 Fluxo Olha Chat Lateral Forte",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-04_FLUXO_olha_chat_lateral_forte-1778630201032-injgc",
+          "videoId": "04_FLUXO_olha_chat_lateral_forte",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778633064642",
+      "name": "Quando 06 Revisar Audio Forte 06 Especial Alongamento Bracos",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos-1778633048025-sk6z0",
+          "videoId": "06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778633067505",
+      "name": "Quando 22 Transicao Ajuste Ombros Roupa",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-22_TRANSICAO_ajuste_ombros_roupa-1778631410645-7d7gw",
+          "videoId": "22_TRANSICAO_ajuste_ombros_roupa",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778634036192",
+      "name": "Quando 22 Transicao Ajuste Ombros Roupa",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-22_TRANSICAO_ajuste_ombros_roupa-1778631410645-7d7gw",
+          "videoId": "22_TRANSICAO_ajuste_ombros_roupa",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778634041400",
+      "name": "Quando 22 Transicao Ajuste Ombros Roupa",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-22_TRANSICAO_ajuste_ombros_roupa-1778631410645-7d7gw",
+          "videoId": "22_TRANSICAO_ajuste_ombros_roupa",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778634846337",
+      "name": "Quando 02 Fluxo Sorriso Charmoso Lento",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "Novo seguidor!"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-02_FLUXO_sorriso_charmoso_lento-1778630190159-pkt5i",
+          "videoId": "02_FLUXO_sorriso_charmoso_lento",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778634853386",
+      "name": "Quando 03 Fluxo Olha Chat Direita Leve",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "Novo seguidor!"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-03_FLUXO_olha_chat_direita_leve-1778630197031-xwf1z",
+          "videoId": "03_FLUXO_olha_chat_direita_leve",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778634856906",
+      "name": "Quando 04 Fluxo Olha Chat Lateral Forte",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "Novo Seguidor!"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-04_FLUXO_olha_chat_lateral_forte-1778630201032-injgc",
+          "videoId": "04_FLUXO_olha_chat_lateral_forte",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778634871226",
+      "name": "Quando 05 Fluxo Idle Neutro Suave",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "Novo seguidor"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-05_FLUXO_idle_neutro_suave-1778630205336-10085",
+          "videoId": "05_FLUXO_idle_neutro_suave",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778635078468",
+      "name": "Quando 27 Especial Mexendo Cabelo",
+      "enabled": true,
+      "eventType": "gift",
+      "conditions": {
+        "giftKey": "começou a ver"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-27_ESPECIAL_mexendo_cabelo-1778631547074-fh3k0",
+          "videoId": "27_ESPECIAL_mexendo_cabelo",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778635253846",
+      "name": "Quando 02 Fluxo Sorriso Charmoso Lento",
+      "enabled": true,
+      "eventType": "gift",
+      "conditions": {
+        "giftKey": "gift.rosa"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-02_FLUXO_sorriso_charmoso_lento-1778630190159-pkt5i",
+          "videoId": "02_FLUXO_sorriso_charmoso_lento",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778635259190",
+      "name": "Quando 03 Fluxo Olha Chat Direita Leve",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "Your AI generated"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-03_FLUXO_olha_chat_direita_leve-1778630197031-xwf1z",
+          "videoId": "03_FLUXO_olha_chat_direita_leve",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778636369959",
+      "name": "Quando 17 Gatilho Reacao Chat Lateral Com Overlay",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "amor"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-17_GATILHO_reacao_chat_lateral_com_overlay-1778630978576-aceoq",
+          "videoId": "17_GATILHO_reacao_chat_lateral_com_overlay",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778639031168",
+      "name": "Quando 23 Fluxo Reacao Chat Sorriso Lateral",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "Olá"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-23_FLUXO_reacao_chat_sorriso_lateral-1778635210453-ps9mg",
+          "videoId": "23_FLUXO_reacao_chat_sorriso_lateral",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778639064143",
+      "name": "Quando 02 Fluxo Sorriso Charmoso Lento",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-02_FLUXO_sorriso_charmoso_lento-1778630190159-pkt5i",
+          "videoId": "02_FLUXO_sorriso_charmoso_lento",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778639429794",
+      "name": "Quando 29 Transicao Ajuste Gola Roupa",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "Novo seguidor!"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-29_TRANSICAO_ajuste_gola_roupa-1778631571627-tyqfn",
+          "videoId": "29_TRANSICAO_ajuste_gola_roupa",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 4,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778639477027",
+      "name": "Quando 17 Gatilho Reacao Chat Lateral Com Overlay",
+      "enabled": true,
+      "eventType": "natural",
+      "conditions": {},
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-17_GATILHO_reacao_chat_lateral_com_overlay-1778630978576-aceoq",
+          "videoId": "17_GATILHO_reacao_chat_lateral_com_overlay",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778639727667",
+      "name": "Quando 07 Fluxo Sorriso Timido Camera",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "Deixa eu ver seus seios"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-07_FLUXO_sorriso_timido_camera-1778630382070-o03az",
+          "videoId": "07_FLUXO_sorriso_timido_camera",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778644175330",
+      "name": "Quando 30 Gatilho Beijo Aceno Discreto",
+      "enabled": true,
+      "eventType": "gift",
+      "conditions": {
+        "giftKey": "gift.rosa"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-30_GATILHO_beijo_aceno_discreto-1778631494816-q3yea",
+          "videoId": "30_GATILHO_beijo_aceno_discreto",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    },
+    {
+      "id": "trigger-1778644207802",
+      "name": "Quando 13 Fluxo Idle Sorriso Leve Var2",
+      "enabled": true,
+      "eventType": "comment",
+      "conditions": {
+        "keyword": "absolutely gorgeous"
+      },
+      "actions": [
+        {
+          "type": "play_video",
+          "nodeId": "node-13_FLUXO_idle_sorriso_leve_var2-1778630861316-q8u76",
+          "videoId": "13_FLUXO_idle_sorriso_leve_var2",
+          "playback": {
+            "startSec": 0.0,
+            "endSec": null,
+            "transitionMs": 220
+          },
+          "audio": {
+            "mode": "muted",
+            "volume": 1.0,
+            "trackId": "",
+            "trackUrl": ""
+          },
+          "returnToIdle": true
+        }
+      ],
+      "priority": 1,
+      "cooldown_ms": 2500
+    }
+  ],
+  "flowNodes": [
+    {
+      "nodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "videoId": "01_FLUXO_idle_sorriso_leve",
+      "label": "01 Fluxo Idle Sorriso Leve",
+      "position": {
+        "x": -291,
+        "y": -213
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-02_FLUXO_sorriso_charmoso_lento-1778630190159-pkt5i",
+      "videoId": "02_FLUXO_sorriso_charmoso_lento",
+      "label": "02 Fluxo Sorriso Charmoso Lento",
+      "position": {
+        "x": 54,
+        "y": -166
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-03_FLUXO_olha_chat_direita_leve-1778630197031-xwf1z",
+      "videoId": "03_FLUXO_olha_chat_direita_leve",
+      "label": "03 Fluxo Olha Chat Direita Leve",
+      "position": {
+        "x": 144,
+        "y": -97
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-04_FLUXO_olha_chat_lateral_forte-1778630201032-injgc",
+      "videoId": "04_FLUXO_olha_chat_lateral_forte",
+      "label": "04 Fluxo Olha Chat Lateral Forte",
+      "position": {
+        "x": 567,
+        "y": -24
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-05_FLUXO_idle_neutro_suave-1778630205336-10085",
+      "videoId": "05_FLUXO_idle_neutro_suave",
+      "label": "05 Fluxo Idle Neutro Suave",
+      "position": {
+        "x": 876,
+        "y": 465
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-06_ESPECIAL_alongamento_bracos-1778630276730-2vhgr",
+      "videoId": "06_ESPECIAL_alongamento_bracos",
+      "label": "06 Especial Alongamento Bracos",
+      "position": {
+        "x": -557,
+        "y": 165
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-07_FLUXO_sorriso_timido_camera-1778630382070-o03az",
+      "videoId": "07_FLUXO_sorriso_timido_camera",
+      "label": "07 Fluxo Sorriso Timido Camera",
+      "position": {
+        "x": -563,
+        "y": 333
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-08_TRANSICAO_ajuste_ombro_roupa-1778630482378-7xo5q",
+      "videoId": "08_TRANSICAO_ajuste_ombro_roupa",
+      "label": "08 Transicao Ajuste Ombro Roupa",
+      "position": {
+        "x": -562,
+        "y": 543
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-09_GATILHO_beijo_discreto_1-1778630522233-8rj3z",
+      "videoId": "09_GATILHO_beijo_discreto_1",
+      "label": "09 Gatilho Beijo Discreto 1",
+      "position": {
+        "x": -461,
+        "y": 857
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-10_GATILHO_beijo_discreto_2-1778630604093-hrtyy",
+      "videoId": "10_GATILHO_beijo_discreto_2",
+      "label": "10 Gatilho Beijo Discreto 2",
+      "position": {
+        "x": -681,
+        "y": 1142
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-11_FLUXO_idle_base_neutro-1778630719328-577xo",
+      "videoId": "11_FLUXO_idle_base_neutro",
+      "label": "11 Fluxo Idle Base Neutro",
+      "position": {
+        "x": -28,
+        "y": 825
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-12_FLUXO_sorriso_inclinacao_leve-1778630846766-q05hf",
+      "videoId": "12_FLUXO_sorriso_inclinacao_leve",
+      "label": "12 Fluxo Sorriso Inclinacao Leve",
+      "position": {
+        "x": 332,
+        "y": 929
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-13_FLUXO_idle_sorriso_leve_var2-1778630861316-q8u76",
+      "videoId": "13_FLUXO_idle_sorriso_leve_var2",
+      "label": "13 Fluxo Idle Sorriso Leve Var2",
+      "position": {
+        "x": 714,
+        "y": 1123
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-14_FLUXO_olha_chat_lateral_var2-1778630917390-uog71",
+      "videoId": "14_FLUXO_olha_chat_lateral_var2",
+      "label": "14 Fluxo Olha Chat Lateral Var2",
+      "position": {
+        "x": 708,
+        "y": 1372
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-15_FLUXO_olha_chat_direita_var2-1778630930334-kny8c",
+      "videoId": "15_FLUXO_olha_chat_direita_var2",
+      "label": "15 Fluxo Olha Chat Direita Var2",
+      "position": {
+        "x": 711,
+        "y": 1559
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-16_FLUXO_olha_chat_baixo_lateral-1778630959079-y4srf",
+      "videoId": "16_FLUXO_olha_chat_baixo_lateral",
+      "label": "16 Fluxo Olha Chat Baixo Lateral",
+      "position": {
+        "x": 716,
+        "y": 1729
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-17_GATILHO_reacao_chat_lateral_com_overlay-1778630978576-aceoq",
+      "videoId": "17_GATILHO_reacao_chat_lateral_com_overlay",
+      "label": "17 Gatilho Reacao Chat Lateral Com Overlay",
+      "position": {
+        "x": 145,
+        "y": 1334
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-19_FLUXO_sorriso_charmoso_var2-1778631196303-brmqc",
+      "videoId": "19_FLUXO_sorriso_charmoso_var2",
+      "label": "19 Fluxo Sorriso Charmoso Var2",
+      "position": {
+        "x": 1192,
+        "y": 1526
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-20_GATILHO_beijo_discreto_var3-1778631298730-vh32s",
+      "videoId": "20_GATILHO_beijo_discreto_var3",
+      "label": "20 Gatilho Beijo Discreto Var3",
+      "position": {
+        "x": 1408,
+        "y": 1877
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-21_GATILHO_beijo_discreto_var4-1778631349181-r56ik",
+      "videoId": "21_GATILHO_beijo_discreto_var4",
+      "label": "21 Gatilho Beijo Discreto Var4",
+      "position": {
+        "x": 147,
+        "y": 1514
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-22_TRANSICAO_ajuste_ombros_roupa-1778631410645-7d7gw",
+      "videoId": "22_TRANSICAO_ajuste_ombros_roupa",
+      "label": "22 Transicao Ajuste Ombros Roupa",
+      "position": {
+        "x": 915,
+        "y": 2172
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-30_GATILHO_beijo_aceno_discreto-1778631494816-q3yea",
+      "videoId": "30_GATILHO_beijo_aceno_discreto",
+      "label": "30 Gatilho Beijo Aceno Discreto",
+      "position": {
+        "x": -130,
+        "y": 343
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-27_ESPECIAL_mexendo_cabelo-1778631547074-fh3k0",
+      "videoId": "27_ESPECIAL_mexendo_cabelo",
+      "label": "27 Especial Mexendo Cabelo",
+      "position": {
+        "x": -117,
+        "y": 588
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-29_TRANSICAO_ajuste_gola_roupa-1778631571627-tyqfn",
+      "videoId": "29_TRANSICAO_ajuste_gola_roupa",
+      "label": "29 Transicao Ajuste Gola Roupa",
+      "position": {
+        "x": -387,
+        "y": 1338
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-25_GATILHO_revirando_olhos_sutil-1778631596499-maenp",
+      "videoId": "25_GATILHO_revirando_olhos_sutil",
+      "label": "25 Gatilho Revirando Olhos Sutil",
+      "position": {
+        "x": 135,
+        "y": 584
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos-1778633048025-sk6z0",
+      "videoId": "06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos",
+      "label": "06 Revisar Audio Forte 06 Especial Alongamento Bracos",
+      "position": {
+        "x": 911,
+        "y": 1969
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    },
+    {
+      "nodeId": "node-23_FLUXO_reacao_chat_sorriso_lateral-1778635210453-ps9mg",
+      "videoId": "23_FLUXO_reacao_chat_sorriso_lateral",
+      "label": "23 Fluxo Reacao Chat Sorriso Lateral",
+      "position": {
+        "x": 867,
+        "y": -106
+      },
+      "playback": {
+        "startSec": 0.0,
+        "endSec": null,
+        "transitionMs": 220
+      },
+      "audio": {
+        "mode": "muted",
+        "volume": 1.0,
+        "trackId": "",
+        "trackUrl": ""
+      }
+    }
+  ],
+  "flowConnections": [
+    {
+      "id": "flow-trigger-1778630233720",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-02_FLUXO_sorriso_charmoso_lento-1778630190159-pkt5i",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "02_FLUXO_sorriso_charmoso_lento",
+      "triggerId": "trigger-1778630233720",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630237137",
+      "fromNodeId": "node-02_FLUXO_sorriso_charmoso_lento-1778630190159-pkt5i",
+      "toNodeId": "node-03_FLUXO_olha_chat_direita_leve-1778630197031-xwf1z",
+      "fromVideoId": "02_FLUXO_sorriso_charmoso_lento",
+      "toVideoId": "03_FLUXO_olha_chat_direita_leve",
+      "triggerId": "trigger-1778630237137",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630238936",
+      "fromNodeId": "node-03_FLUXO_olha_chat_direita_leve-1778630197031-xwf1z",
+      "toNodeId": "node-04_FLUXO_olha_chat_lateral_forte-1778630201032-injgc",
+      "fromVideoId": "03_FLUXO_olha_chat_direita_leve",
+      "toVideoId": "04_FLUXO_olha_chat_lateral_forte",
+      "triggerId": "trigger-1778630238936",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630247161",
+      "fromNodeId": "node-04_FLUXO_olha_chat_lateral_forte-1778630201032-injgc",
+      "toNodeId": "node-05_FLUXO_idle_neutro_suave-1778630205336-10085",
+      "fromVideoId": "04_FLUXO_olha_chat_lateral_forte",
+      "toVideoId": "05_FLUXO_idle_neutro_suave",
+      "triggerId": "trigger-1778630247161",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630291578",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-06_ESPECIAL_alongamento_bracos-1778630276730-2vhgr",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "06_ESPECIAL_alongamento_bracos",
+      "triggerId": "trigger-1778630291578",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630330612",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-06_ESPECIAL_alongamento_bracos-1778630276730-2vhgr",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "06_ESPECIAL_alongamento_bracos",
+      "triggerId": "trigger-1778630330612",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630351733",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-06_ESPECIAL_alongamento_bracos-1778630276730-2vhgr",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "06_ESPECIAL_alongamento_bracos",
+      "triggerId": "trigger-1778630351733",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630395478",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-07_FLUXO_sorriso_timido_camera-1778630382070-o03az",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "07_FLUXO_sorriso_timido_camera",
+      "triggerId": "trigger-1778630395478",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630408342",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-07_FLUXO_sorriso_timido_camera-1778630382070-o03az",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "07_FLUXO_sorriso_timido_camera",
+      "triggerId": "trigger-1778630408342",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630451120",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-07_FLUXO_sorriso_timido_camera-1778630382070-o03az",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "07_FLUXO_sorriso_timido_camera",
+      "triggerId": "trigger-1778630451120",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630488857",
+      "fromNodeId": "node-07_FLUXO_sorriso_timido_camera-1778630382070-o03az",
+      "toNodeId": "node-08_TRANSICAO_ajuste_ombro_roupa-1778630482378-7xo5q",
+      "fromVideoId": "07_FLUXO_sorriso_timido_camera",
+      "toVideoId": "08_TRANSICAO_ajuste_ombro_roupa",
+      "triggerId": "trigger-1778630488857",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630529316",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-09_GATILHO_beijo_discreto_1-1778630522233-8rj3z",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "09_GATILHO_beijo_discreto_1",
+      "triggerId": "trigger-1778630529316",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630546344",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-09_GATILHO_beijo_discreto_1-1778630522233-8rj3z",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "09_GATILHO_beijo_discreto_1",
+      "triggerId": "trigger-1778630546344",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630616869",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-10_GATILHO_beijo_discreto_2-1778630604093-hrtyy",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "10_GATILHO_beijo_discreto_2",
+      "triggerId": "trigger-1778630616869",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630642375",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-10_GATILHO_beijo_discreto_2-1778630604093-hrtyy",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "10_GATILHO_beijo_discreto_2",
+      "triggerId": "trigger-1778630642375",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630727736",
+      "fromNodeId": "node-08_TRANSICAO_ajuste_ombro_roupa-1778630482378-7xo5q",
+      "toNodeId": "node-11_FLUXO_idle_base_neutro-1778630719328-577xo",
+      "fromVideoId": "08_TRANSICAO_ajuste_ombro_roupa",
+      "toVideoId": "11_FLUXO_idle_base_neutro",
+      "triggerId": "trigger-1778630727736",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630732345",
+      "fromNodeId": "node-10_GATILHO_beijo_discreto_2-1778630604093-hrtyy",
+      "toNodeId": "node-11_FLUXO_idle_base_neutro-1778630719328-577xo",
+      "fromVideoId": "10_GATILHO_beijo_discreto_2",
+      "toVideoId": "11_FLUXO_idle_base_neutro",
+      "triggerId": "trigger-1778630732345",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630739832",
+      "fromNodeId": "node-09_GATILHO_beijo_discreto_1-1778630522233-8rj3z",
+      "toNodeId": "node-11_FLUXO_idle_base_neutro-1778630719328-577xo",
+      "fromVideoId": "09_GATILHO_beijo_discreto_1",
+      "toVideoId": "11_FLUXO_idle_base_neutro",
+      "triggerId": "trigger-1778630739832",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630812020",
+      "fromNodeId": "node-05_FLUXO_idle_neutro_suave-1778630205336-10085",
+      "toNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "fromVideoId": "05_FLUXO_idle_neutro_suave",
+      "toVideoId": "01_FLUXO_idle_sorriso_leve",
+      "triggerId": "trigger-1778630812020",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630851580",
+      "fromNodeId": "node-11_FLUXO_idle_base_neutro-1778630719328-577xo",
+      "toNodeId": "node-12_FLUXO_sorriso_inclinacao_leve-1778630846766-q05hf",
+      "fromVideoId": "11_FLUXO_idle_base_neutro",
+      "toVideoId": "12_FLUXO_sorriso_inclinacao_leve",
+      "triggerId": "trigger-1778630851580",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630909902",
+      "fromNodeId": "node-12_FLUXO_sorriso_inclinacao_leve-1778630846766-q05hf",
+      "toNodeId": "node-13_FLUXO_idle_sorriso_leve_var2-1778630861316-q8u76",
+      "fromVideoId": "12_FLUXO_sorriso_inclinacao_leve",
+      "toVideoId": "13_FLUXO_idle_sorriso_leve_var2",
+      "triggerId": "trigger-1778630909902",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630923870",
+      "fromNodeId": "node-13_FLUXO_idle_sorriso_leve_var2-1778630861316-q8u76",
+      "toNodeId": "node-14_FLUXO_olha_chat_lateral_var2-1778630917390-uog71",
+      "fromVideoId": "13_FLUXO_idle_sorriso_leve_var2",
+      "toVideoId": "14_FLUXO_olha_chat_lateral_var2",
+      "triggerId": "trigger-1778630923870",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630952040",
+      "fromNodeId": "node-14_FLUXO_olha_chat_lateral_var2-1778630917390-uog71",
+      "toNodeId": "node-15_FLUXO_olha_chat_direita_var2-1778630930334-kny8c",
+      "fromVideoId": "14_FLUXO_olha_chat_lateral_var2",
+      "toVideoId": "15_FLUXO_olha_chat_direita_var2",
+      "triggerId": "trigger-1778630952040",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778630967391",
+      "fromNodeId": "node-15_FLUXO_olha_chat_direita_var2-1778630930334-kny8c",
+      "toNodeId": "node-16_FLUXO_olha_chat_baixo_lateral-1778630959079-y4srf",
+      "fromVideoId": "15_FLUXO_olha_chat_direita_var2",
+      "toVideoId": "16_FLUXO_olha_chat_baixo_lateral",
+      "triggerId": "trigger-1778630967391",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778631043658",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-17_GATILHO_reacao_chat_lateral_com_overlay-1778630978576-aceoq",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "17_GATILHO_reacao_chat_lateral_com_overlay",
+      "triggerId": "trigger-1778631043658",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778631100820",
+      "fromNodeId": "node-17_GATILHO_reacao_chat_lateral_com_overlay-1778630978576-aceoq",
+      "toNodeId": "node-13_FLUXO_idle_sorriso_leve_var2-1778630861316-q8u76",
+      "fromVideoId": "17_GATILHO_reacao_chat_lateral_com_overlay",
+      "toVideoId": "13_FLUXO_idle_sorriso_leve_var2",
+      "triggerId": "trigger-1778631100820",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778631227407",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-19_FLUXO_sorriso_charmoso_var2-1778631196303-brmqc",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "19_FLUXO_sorriso_charmoso_var2",
+      "triggerId": "trigger-1778631227407",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778631230520",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-19_FLUXO_sorriso_charmoso_var2-1778631196303-brmqc",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "19_FLUXO_sorriso_charmoso_var2",
+      "triggerId": "trigger-1778631230520",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778631233624",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-19_FLUXO_sorriso_charmoso_var2-1778631196303-brmqc",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "19_FLUXO_sorriso_charmoso_var2",
+      "triggerId": "trigger-1778631233624",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778631315266",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-20_GATILHO_beijo_discreto_var3-1778631298730-vh32s",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "20_GATILHO_beijo_discreto_var3",
+      "triggerId": "trigger-1778631315266",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778631368620",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-21_GATILHO_beijo_discreto_var4-1778631349181-r56ik",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "21_GATILHO_beijo_discreto_var4",
+      "triggerId": "trigger-1778631368620",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778631384276",
+      "fromNodeId": "node-21_GATILHO_beijo_discreto_var4-1778631349181-r56ik",
+      "toNodeId": "node-13_FLUXO_idle_sorriso_leve_var2-1778630861316-q8u76",
+      "fromVideoId": "21_GATILHO_beijo_discreto_var4",
+      "toVideoId": "13_FLUXO_idle_sorriso_leve_var2",
+      "triggerId": "trigger-1778631384276",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778631502489",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-30_GATILHO_beijo_aceno_discreto-1778631494816-q3yea",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "30_GATILHO_beijo_aceno_discreto",
+      "triggerId": "trigger-1778631502489",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778631562914",
+      "fromNodeId": "node-30_GATILHO_beijo_aceno_discreto-1778631494816-q3yea",
+      "toNodeId": "node-27_ESPECIAL_mexendo_cabelo-1778631547074-fh3k0",
+      "fromVideoId": "30_GATILHO_beijo_aceno_discreto",
+      "toVideoId": "27_ESPECIAL_mexendo_cabelo",
+      "triggerId": "trigger-1778631562914",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778631602724",
+      "fromNodeId": "node-27_ESPECIAL_mexendo_cabelo-1778631547074-fh3k0",
+      "toNodeId": "node-25_GATILHO_revirando_olhos_sutil-1778631596499-maenp",
+      "fromVideoId": "27_ESPECIAL_mexendo_cabelo",
+      "toVideoId": "25_GATILHO_revirando_olhos_sutil",
+      "triggerId": "trigger-1778631602724",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778631614428",
+      "fromNodeId": "node-25_GATILHO_revirando_olhos_sutil-1778631596499-maenp",
+      "toNodeId": "node-04_FLUXO_olha_chat_lateral_forte-1778630201032-injgc",
+      "fromVideoId": "25_GATILHO_revirando_olhos_sutil",
+      "toVideoId": "04_FLUXO_olha_chat_lateral_forte",
+      "triggerId": "trigger-1778631614428",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778633064642",
+      "fromNodeId": "node-16_FLUXO_olha_chat_baixo_lateral-1778630959079-y4srf",
+      "toNodeId": "node-06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos-1778633048025-sk6z0",
+      "fromVideoId": "16_FLUXO_olha_chat_baixo_lateral",
+      "toVideoId": "06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos",
+      "triggerId": "trigger-1778633064642",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778633067505",
+      "fromNodeId": "node-06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos-1778633048025-sk6z0",
+      "toNodeId": "node-22_TRANSICAO_ajuste_ombros_roupa-1778631410645-7d7gw",
+      "fromVideoId": "06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos",
+      "toVideoId": "22_TRANSICAO_ajuste_ombros_roupa",
+      "triggerId": "trigger-1778633067505",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778634036192",
+      "fromNodeId": "node-20_GATILHO_beijo_discreto_var3-1778631298730-vh32s",
+      "toNodeId": "node-22_TRANSICAO_ajuste_ombros_roupa-1778631410645-7d7gw",
+      "fromVideoId": "20_GATILHO_beijo_discreto_var3",
+      "toVideoId": "22_TRANSICAO_ajuste_ombros_roupa",
+      "triggerId": "trigger-1778634036192",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778634041400",
+      "fromNodeId": "node-19_FLUXO_sorriso_charmoso_var2-1778631196303-brmqc",
+      "toNodeId": "node-22_TRANSICAO_ajuste_ombros_roupa-1778631410645-7d7gw",
+      "fromVideoId": "19_FLUXO_sorriso_charmoso_var2",
+      "toVideoId": "22_TRANSICAO_ajuste_ombros_roupa",
+      "triggerId": "trigger-1778634041400",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778634846337",
+      "fromNodeId": "node-06_ESPECIAL_alongamento_bracos-1778630276730-2vhgr",
+      "toNodeId": "node-02_FLUXO_sorriso_charmoso_lento-1778630190159-pkt5i",
+      "fromVideoId": "06_ESPECIAL_alongamento_bracos",
+      "toVideoId": "02_FLUXO_sorriso_charmoso_lento",
+      "triggerId": "trigger-1778634846337",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778634853386",
+      "fromNodeId": "node-06_ESPECIAL_alongamento_bracos-1778630276730-2vhgr",
+      "toNodeId": "node-03_FLUXO_olha_chat_direita_leve-1778630197031-xwf1z",
+      "fromVideoId": "06_ESPECIAL_alongamento_bracos",
+      "toVideoId": "03_FLUXO_olha_chat_direita_leve",
+      "triggerId": "trigger-1778634853386",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778634856906",
+      "fromNodeId": "node-06_ESPECIAL_alongamento_bracos-1778630276730-2vhgr",
+      "toNodeId": "node-04_FLUXO_olha_chat_lateral_forte-1778630201032-injgc",
+      "fromVideoId": "06_ESPECIAL_alongamento_bracos",
+      "toVideoId": "04_FLUXO_olha_chat_lateral_forte",
+      "triggerId": "trigger-1778634856906",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778634871226",
+      "fromNodeId": "node-06_ESPECIAL_alongamento_bracos-1778630276730-2vhgr",
+      "toNodeId": "node-05_FLUXO_idle_neutro_suave-1778630205336-10085",
+      "fromVideoId": "06_ESPECIAL_alongamento_bracos",
+      "toVideoId": "05_FLUXO_idle_neutro_suave",
+      "triggerId": "trigger-1778634871226",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778635078468",
+      "fromNodeId": "node-03_FLUXO_olha_chat_direita_leve-1778630197031-xwf1z",
+      "toNodeId": "node-27_ESPECIAL_mexendo_cabelo-1778631547074-fh3k0",
+      "fromVideoId": "03_FLUXO_olha_chat_direita_leve",
+      "toVideoId": "27_ESPECIAL_mexendo_cabelo",
+      "triggerId": "trigger-1778635078468",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778635253846",
+      "fromNodeId": "node-10_GATILHO_beijo_discreto_2-1778630604093-hrtyy",
+      "toNodeId": "node-02_FLUXO_sorriso_charmoso_lento-1778630190159-pkt5i",
+      "fromVideoId": "10_GATILHO_beijo_discreto_2",
+      "toVideoId": "02_FLUXO_sorriso_charmoso_lento",
+      "triggerId": "trigger-1778635253846",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778635259190",
+      "fromNodeId": "node-10_GATILHO_beijo_discreto_2-1778630604093-hrtyy",
+      "toNodeId": "node-03_FLUXO_olha_chat_direita_leve-1778630197031-xwf1z",
+      "fromVideoId": "10_GATILHO_beijo_discreto_2",
+      "toVideoId": "03_FLUXO_olha_chat_direita_leve",
+      "triggerId": "trigger-1778635259190",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778636369959",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-17_GATILHO_reacao_chat_lateral_com_overlay-1778630978576-aceoq",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "17_GATILHO_reacao_chat_lateral_com_overlay",
+      "triggerId": "trigger-1778636369959",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778639031168",
+      "fromNodeId": "node-04_FLUXO_olha_chat_lateral_forte-1778630201032-injgc",
+      "toNodeId": "node-23_FLUXO_reacao_chat_sorriso_lateral-1778635210453-ps9mg",
+      "fromVideoId": "04_FLUXO_olha_chat_lateral_forte",
+      "toVideoId": "23_FLUXO_reacao_chat_sorriso_lateral",
+      "triggerId": "trigger-1778639031168",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778639064143",
+      "fromNodeId": "node-23_FLUXO_reacao_chat_sorriso_lateral-1778635210453-ps9mg",
+      "toNodeId": "node-02_FLUXO_sorriso_charmoso_lento-1778630190159-pkt5i",
+      "fromVideoId": "23_FLUXO_reacao_chat_sorriso_lateral",
+      "toVideoId": "02_FLUXO_sorriso_charmoso_lento",
+      "triggerId": "trigger-1778639064143",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778639429794",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-29_TRANSICAO_ajuste_gola_roupa-1778631571627-tyqfn",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "29_TRANSICAO_ajuste_gola_roupa",
+      "triggerId": "trigger-1778639429794",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778639477027",
+      "fromNodeId": "node-29_TRANSICAO_ajuste_gola_roupa-1778631571627-tyqfn",
+      "toNodeId": "node-17_GATILHO_reacao_chat_lateral_com_overlay-1778630978576-aceoq",
+      "fromVideoId": "29_TRANSICAO_ajuste_gola_roupa",
+      "toVideoId": "17_GATILHO_reacao_chat_lateral_com_overlay",
+      "triggerId": "trigger-1778639477027",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778639727667",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-07_FLUXO_sorriso_timido_camera-1778630382070-o03az",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "07_FLUXO_sorriso_timido_camera",
+      "triggerId": "trigger-1778639727667",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778644175330",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-30_GATILHO_beijo_aceno_discreto-1778631494816-q3yea",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "30_GATILHO_beijo_aceno_discreto",
+      "triggerId": "trigger-1778644175330",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    },
+    {
+      "id": "flow-trigger-1778644207802",
+      "fromNodeId": "node-01_FLUXO_idle_sorriso_leve-1778630184319-7u64f",
+      "toNodeId": "node-13_FLUXO_idle_sorriso_leve_var2-1778630861316-q8u76",
+      "fromVideoId": "01_FLUXO_idle_sorriso_leve",
+      "toVideoId": "13_FLUXO_idle_sorriso_leve_var2",
+      "triggerId": "trigger-1778644207802",
+      "returnToIdle": true,
+      "connectionSettings": {
+        "transitionMs": 220,
+        "fadeMode": "crossfade",
+        "previewTailSec": 2.0,
+        "previewHeadSec": 2.0
+      }
+    }
+  ],
+  "flowCanvasVideoIds": [
+    "01_FLUXO_idle_sorriso_leve",
+    "02_FLUXO_sorriso_charmoso_lento",
+    "03_FLUXO_olha_chat_direita_leve",
+    "04_FLUXO_olha_chat_lateral_forte",
+    "05_FLUXO_idle_neutro_suave",
+    "06_ESPECIAL_alongamento_bracos",
+    "07_FLUXO_sorriso_timido_camera",
+    "08_TRANSICAO_ajuste_ombro_roupa",
+    "09_GATILHO_beijo_discreto_1",
+    "10_GATILHO_beijo_discreto_2",
+    "11_FLUXO_idle_base_neutro",
+    "12_FLUXO_sorriso_inclinacao_leve",
+    "13_FLUXO_idle_sorriso_leve_var2",
+    "14_FLUXO_olha_chat_lateral_var2",
+    "15_FLUXO_olha_chat_direita_var2",
+    "16_FLUXO_olha_chat_baixo_lateral",
+    "17_GATILHO_reacao_chat_lateral_com_overlay",
+    "19_FLUXO_sorriso_charmoso_var2",
+    "20_GATILHO_beijo_discreto_var3",
+    "21_GATILHO_beijo_discreto_var4",
+    "22_TRANSICAO_ajuste_ombros_roupa",
+    "30_GATILHO_beijo_aceno_discreto",
+    "27_ESPECIAL_mexendo_cabelo",
+    "29_TRANSICAO_ajuste_gola_roupa",
+    "25_GATILHO_revirando_olhos_sutil",
+    "06_REVISAR_AUDIO_FORTE_06_ESPECIAL_alongamento_bracos",
+    "23_FLUXO_reacao_chat_sorriso_lateral"
+  ],
+  "idleVideoId": "01_FLUXO_idle_sorriso_leve",
   "stageSettings": {
     "fit": "contain",
     "zoom": 1.0,

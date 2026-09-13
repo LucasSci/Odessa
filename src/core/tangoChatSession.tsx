@@ -239,20 +239,13 @@ export function TangoChatSessionProvider({
 
   const bridgeConnected = processStatus?.bridgeStatus?.status === 'connected';
 
-  // ── Mensagens unificadas: bridge + capturedText do Odessa ──
-  // Quando a bridge está offline, messages (bridge) está vazia. Convertemos
-  // capturedText (eventos do runtime: OCR, manual, etc.) para o formato
-  // TangoChatMessage para que a IA tenha contexto ao gerar respostas.
+  // ── Mensagens da sessão atual da bridge ──
+  // Eventos OCR/manual não são chat do Tango e não devem aparecer no feed
+  // quando a bridge está offline. Isso evita apresentar histórico local como
+  // se fosse uma live atual.
   const unifiedMessages = useMemo<TangoChatMessage[]>(() => {
-    if (messages.length > 0 || bridgeConnected) return messages;
-    return (capturedText || [])
-      .filter((m) => m.kind === 'chat' || m.kind === 'gift')
-      .map((m) => ({
-        username: (m.metadata?.username as string) || m.zoneName || 'Espectador',
-        text: m.text,
-        timestamp: m.createdAt,
-      }));
-  }, [messages, bridgeConnected, capturedText]);
+    return messages;
+  }, [messages]);
 
   // ── Polling de Status com backoff exponencial e pausa quando inativo ──
   const inFlightStatusRef = useRef(false);
@@ -334,6 +327,7 @@ export function TangoChatSessionProvider({
 
   const handleClearChat = useCallback(() => {
     setMessages([]);
+    void fetchJson(`${BRIDGE_URL}/clear-history`, { method: 'POST' });
   }, []);
 
   // ── Envio no Tango ────────────────────────────────
@@ -514,6 +508,9 @@ export function TangoChatSessionProvider({
   const handleStartProcess = useCallback(async () => {
     setStarting(true);
     try {
+      setMessages([]);
+      setReplyQueue([]);
+      await fetchJson(`${BRIDGE_URL}/clear-history`, { method: 'POST' });
       await fetchJson(`${BRIDGE_API}/start`, {
         method: 'POST',
         body: JSON.stringify({
@@ -533,6 +530,7 @@ export function TangoChatSessionProvider({
     await fetchJson(`${BRIDGE_API}/stop`, { method: 'POST' });
     setMessages([]);
     setReplyQueue([]);
+    await fetchJson(`${BRIDGE_URL}/clear-history`, { method: 'POST' });
     await refreshStatus();
   }, [refreshStatus]);
 
@@ -553,6 +551,7 @@ export function TangoChatSessionProvider({
   const handleDisconnectBridge = useCallback(async () => {
     await fetchJson(`${BRIDGE_URL}/disconnect`, { method: 'POST' });
     setMessages([]);
+    await fetchJson(`${BRIDGE_URL}/clear-history`, { method: 'POST' });
     await refreshStatus();
   }, [refreshStatus]);
 
@@ -656,6 +655,30 @@ export function TangoChatSessionProvider({
       setSseAttempts(0);
     };
   }, [bridgeConnected]);
+
+  // O botão principal da live dispara a bridge sem exigir que o usuário abra
+  // primeiro a aba de configurações do chat.
+  useEffect(() => {
+    const handleStartLive = async () => {
+      if (processStatus?.bridgeStatus?.status === 'connected') return;
+      await handleStartProcess();
+      await handleConnectBridge();
+    };
+
+    window.addEventListener('odessa:start-chat-bridge', handleStartLive);
+    return () => window.removeEventListener('odessa:start-chat-bridge', handleStartLive);
+  }, [handleConnectBridge, handleStartProcess, processStatus?.bridgeStatus?.status]);
+
+  useEffect(() => {
+    const handleEndLive = async () => {
+      await handleStopProcess();
+      setSseState('stopped');
+      setSseAttempts(0);
+    };
+
+    window.addEventListener('odessa:end-live', handleEndLive);
+    return () => window.removeEventListener('odessa:end-live', handleEndLive);
+  }, [handleStopProcess]);
 
   const value: TangoChatSessionValue = {
     processStatus,
