@@ -19,6 +19,7 @@ import {
   Rewind,
   Settings,
   Scissors,
+  Stethoscope,
   Trash2,
   Upload,
   Users,
@@ -41,6 +42,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import PersonaSelector from './components/PersonaSelector';
 import TopPersonaSelector from './components/TopPersonaSelector';
 import { PersonasPanel } from './components/PersonasPanel';
+import { AdminPanel } from './components/AdminPanel';
 import { PersonaChatLab } from './components/PersonaChatLab';
 import { TangoChatPanel } from './components/TangoChatPanel';
 import { SessionHistoryPanel } from './components/SessionHistoryPanel';
@@ -66,7 +68,8 @@ export type AdvancedPanel =
   | 'runtime'
   | 'settings'
   | 'overlay'
-  | 'canvas';
+  | 'canvas'
+  | 'admin';
 
 export type LiveConfig = {
   voiceEnabled?: boolean;
@@ -90,6 +93,7 @@ interface OdessaLiveCenterProps {
   onLiveConfigOpenChange?: Dispatch<SetStateAction<boolean>>;
   onLiveConfigChange?: Dispatch<SetStateAction<LiveConfig>>;
   onStartLive?: () => void | Promise<void>;
+  onEndLive?: () => void;
   obsSettingsFromApp?: Record<string, unknown> | null;
   onObsSettingsChanged?: (settings: Record<string, unknown>) => void;
 }
@@ -101,6 +105,7 @@ type TabKey =
   | 'flow'
   | 'history'
   | 'personas'
+  | 'admin'
   | 'settings'
   | 'home'
   | 'stage'
@@ -341,7 +346,6 @@ type ReactiveRunResult = {
 };
 
 function tabFromPanel(panel: AdvancedPanel): TabKey {
-  if (panel === 'capture') return 'settings';
   if (panel === 'content') return 'library';
   if (panel === 'runtime') return 'flow';
   if (panel === 'settings') return 'settings';
@@ -379,6 +383,7 @@ export default function OdessaLiveCenter({
   onLiveConfigOpenChange,
   onLiveConfigChange,
   onStartLive,
+  onEndLive,
   obsSettingsFromApp = null,
   onObsSettingsChanged,
 }: OdessaLiveCenterProps) {
@@ -758,6 +763,14 @@ export default function OdessaLiveCenter({
               onClick={() => setActiveTab('settings')}
             />
             </div>
+            <div className="anim-slide-in anim-stagger-6">
+            <SideNavButton
+              icon={<Stethoscope />}
+              label="Diagnóstico"
+              active={activeTab === 'admin'}
+              onClick={() => setActiveTab('admin')}
+            />
+            </div>
           </div>
         </nav>
 
@@ -801,7 +814,7 @@ export default function OdessaLiveCenter({
           <button
             className={cn('odsa-btn odsa-btn-md', runtime.autopilotEnabled ? 'odsa-btn-secondary' : 'odsa-btn-primary')}
             onClick={() => {
-              if (runtime.autopilotEnabled) { runtime.pause(); return; }
+              if (runtime.autopilotEnabled) { onEndLive?.(); return; }
               if (onStartLive) { void onStartLive(); return; }
               runtime.start();
             }}
@@ -827,6 +840,7 @@ export default function OdessaLiveCenter({
           { id: 'flow', label: 'Automações' },
           { id: 'personas', label: 'Personas' },
           { id: 'history', label: 'Histórico' },
+          { id: 'admin', label: 'Diagnóstico' },
           { id: 'settings', label: 'Configurações' },
         ] as { id: TabKey; label: string }[]).map(({ id, label }) => {
           const isActive =
@@ -881,6 +895,7 @@ export default function OdessaLiveCenter({
                   runtime={runtime}
                   videoState={videoState}
                   onStartLive={onStartLive}
+                  onEndLive={onEndLive}
                   obsSettings={obsSettingsFromApp}
                 />
               )}
@@ -972,6 +987,8 @@ export default function OdessaLiveCenter({
 
         {/* 5. CONVERSA LOCAL */}
         {activeTab === 'conversation' && <PersonaChatLab />}
+
+        {activeTab === 'admin' && <AdminPanel />}
 
         {/* 6. HISTÓRICO */}
         {activeTab === 'history' && (
@@ -1623,12 +1640,12 @@ const TAB_META: Record<TabKey, { group: string; title: string }> = {
   personas: { group: 'Conteúdo', title: 'Personas de IA' },
   history:  { group: 'Operação', title: 'Histórico da Live' },
   settings: { group: 'Sistema',  title: 'Configurações' },
+  admin:    { group: 'Sistema',  title: 'Diagnóstico do Sistema' },
   home:     { group: 'Operação', title: 'Central da Live' },
   stage:    { group: 'Operação', title: 'Palco' },
   ai:       { group: 'Configuração', title: 'Diretora IA' },
   chat:     { group: 'Operação', title: 'Central da Live' },
   canvas:   { group: 'Conteúdo', title: 'Mural de Planejamento' },
-  sources:  { group: 'Sistema',  title: 'Fontes / OCR' },
   logs:     { group: 'Sistema',  title: 'Logs' },
 };
 

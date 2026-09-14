@@ -1,12 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Bot, MessageCircle, Send, Sparkles, User } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Bot, MessageCircle, Send, Sparkles, User, Wand2 } from 'lucide-react';
 import { listPersonas, type PersonaMeta } from '../core/personaManager';
 import { generateTangoChatReply, type TangoChatMessage } from '../core/tangoAiChatService';
+import {
+  applySelfConfig,
+  buildSelfConfigPrompt,
+  fetchFaces,
+  parseAutoConfig,
+  reflectOnConversation,
+  type SelfConfigFace,
+} from '../core/personaSelfConfig';
 import { cn } from '../lib/utils';
 
-type LabMessage = TangoChatMessage & { role: 'user' | 'assistant'; pending?: boolean };
+type LabMessage = TangoChatMessage & { role: 'user' | 'assistant' | 'system'; pending?: boolean };
 
 const DEFAULT_PERSONA_PROMPT = 'Responda em portugues brasileiro, com naturalidade, brevidade e personalidade.';
+/** A cada N respostas da persona, dispara a reflexão de evolução automática. */
+const EVOLVE_EVERY = 6;
 
 export function PersonaChatLab() {
   const [personas, setPersonas] = useState<PersonaMeta[]>([]);
@@ -16,6 +26,26 @@ export function PersonaChatLab() {
   const [loadingPersonas, setLoadingPersonas] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoConfig, setAutoConfig] = useState(true);
+  const [facesByPersona, setFacesByPersona] = useState<Record<string, SelfConfigFace[]>>({});
+  const assistantCountRef = useRef(0);
+  const reflectingRef = useRef(false);
+
+  const refreshPersonas = () => {
+    void listPersonas()
+      .then((data) => setPersonas(data.personas))
+      .catch(() => { /* a lista atual é suficiente em caso de falha */ });
+  };
+
+  const pushSystemMessage = (personaId: string, text: string) => {
+    setMessagesByPersona((current) => ({
+      ...current,
+      [personaId]: [
+        ...(current[personaId] || []),
+        { role: 'system', username: 'sistema', text, timestamp: new Date().toISOString() },
+      ],
+    }));
+  };
 
   useEffect(() => {
     void listPersonas()
@@ -26,6 +56,16 @@ export function PersonaChatLab() {
       .catch((err) => setError(err instanceof Error ? err.message : 'Nao foi possivel carregar as personas.'))
       .finally(() => setLoadingPersonas(false));
   }, []);
+
+  // Imagens de rosto disponíveis para a persona escolher o próprio avatar.
+  useEffect(() => {
+    if (!selectedId || facesByPersona[selectedId]) return;
+    let cancelled = false;
+    void fetchFaces(selectedId).then((faces) => {
+      if (!cancelled) setFacesByPersona((current) => ({ ...current, [selectedId]: faces }));
+    });
+    return () => { cancelled = true; };
+  }, [selectedId, facesByPersona]);
 
   const selectedPersona = useMemo(
     () => personas.find((persona) => persona.id === selectedId) || null,
@@ -53,23 +93,62 @@ export function PersonaChatLab() {
     }));
 
     try {
+      const systemPrompt = [
+        selectedPersona.personality?.trim() || DEFAULT_PERSONA_PROMPT,
+        autoConfig ? buildSelfConfigPrompt(selectedPersona, facesByPersona[selectedId] || []) : '',
+      ].join('');
       const result = await generateTangoChatReply(
         { username: 'Voce', text, timestamp: userMessage.timestamp },
         history,
-        selectedPersona.personality?.trim() || DEFAULT_PERSONA_PROMPT,
+        systemPrompt,
         { conversationMode: true, maxLength: 2000, timeoutMs: 150_000 },
       );
+      const { cleanText, changes } = autoConfig && result.ok
+        ? parseAutoConfig(result.reply)
+        : { cleanText: result.reply, changes: null };
       const assistantMessage: LabMessage = {
         role: 'assistant',
         username: selectedPersona.name,
-        text: result.ok ? result.reply : (result.reason || 'A IA não conseguiu responder.'),
+        text: result.ok ? cleanText : (result.reason || 'A IA não conseguiu responder.'),
         timestamp: new Date().toISOString(),
       };
       setMessagesByPersona((current) => ({
         ...current,
         [selectedId]: [...(current[selectedId] || []), assistantMessage],
       }));
-      if (!result.ok) setError(result.blockedReason || result.reason || 'A resposta foi bloqueada.');
+      if (!result.ok) {
+        setError(result.blockedReason || result.reason || 'A resposta foi bloqueada.');
+      } else {
+        // A persona pediu para mudar a si mesma → aplica no backend.
+        if (changes) {
+          try {
+            const applied = await applySelfConfig(selectedId, changes, 'conversation');
+            if (applied.applied.length) {
+              pushSystemMessage(selectedId, `🛠️ ${selectedPersona.name} se autoconfigurou: ${applied.applied.join('; ')}`);
+              refreshPersonas();
+            }
+          } catch {
+            pushSystemMessage(selectedId, '⚠️ A autoconfiguração pedida pela persona falhou ao ser aplicada.');
+          }
+        }
+        // Evolução automática: a cada EVOLVE_EVERY respostas a persona reflete
+        // sobre a conversa e incorpora traços duradouros.
+        assistantCountRef.current += 1;
+        if (autoConfig && assistantCountRef.current % EVOLVE_EVERY === 0 && !reflectingRef.current) {
+          reflectingRef.current = true;
+          void reflectOnConversation(selectedPersona, [...history, userMessage, assistantMessage])
+            .then(async (evolved) => {
+              if (!evolved) return;
+              const applied = await applySelfConfig(selectedId, evolved, 'evolution', 'reflexão automática');
+              if (applied.applied.length) {
+                pushSystemMessage(selectedId, `🧬 ${selectedPersona.name} evoluiu sozinha: ${applied.applied.join('; ')}`);
+                refreshPersonas();
+              }
+            })
+            .catch(() => { /* evolução é best-effort */ })
+            .finally(() => { reflectingRef.current = false; });
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao conversar com a persona.');
     } finally {
@@ -93,6 +172,7 @@ export function PersonaChatLab() {
         <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-white">Converse com uma persona</h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-400">
           Teste a personalidade e o modelo local sem iniciar live, OBS, bridge ou captura.
+          Peça para a persona mudar algo em si mesma (nome, imagem, jeito de ser) — com a autoconfiguração ativa, ela se reconfigura sozinha pela conversa e sua personalidade evolui com o uso.
         </p>
       </div>
 
@@ -136,12 +216,35 @@ export function PersonaChatLab() {
                 <div className="text-[11px] text-slate-500">Ollama · conversa de teste</div>
               </div>
             </div>
-            <button type="button" onClick={clearConversation} className="text-xs text-slate-500 hover:text-white">Limpar conversa</button>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setAutoConfig((value) => !value)}
+                title="Permitir que a persona mude a si mesma pela conversa (nome, imagem, personalidade)"
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition',
+                  autoConfig
+                    ? 'border-emerald-400/40 bg-emerald-400/10 text-emerald-200'
+                    : 'border-white/10 bg-white/[0.03] text-slate-500 hover:text-slate-300',
+                )}
+              >
+                <Wand2 className="h-3 w-3" />
+                Autoconfig {autoConfig ? 'ON' : 'OFF'}
+              </button>
+              <button type="button" onClick={clearConversation} className="text-xs text-slate-500 hover:text-white">Limpar conversa</button>
+            </div>
           </header>
 
           <div className="flex-1 space-y-3 overflow-y-auto p-4">
             {!messages.length && <div className="flex h-full min-h-[300px] items-center justify-center text-center text-sm text-slate-500">Envie uma mensagem para iniciar esta conversa.</div>}
-            {messages.map((message, index) => (
+            {messages.map((message, index) =>
+              message.role === 'system' ? (
+                <div key={`${message.timestamp}-${index}`} className="flex justify-center">
+                  <div className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-center text-[11px] text-emerald-200">
+                    {message.text}
+                  </div>
+                </div>
+              ) : (
               <div key={`${message.timestamp}-${index}`} className={cn('flex gap-2', message.role === 'user' ? 'justify-end' : 'justify-start')}>
                 {message.role === 'assistant' && <Bot className="mt-2 h-4 w-4 shrink-0 text-emerald-400" />}
                 <div className={cn('max-w-[78%] rounded-2xl px-3 py-2 text-sm', message.role === 'user' ? 'bg-sky-500/15 text-sky-100' : 'bg-white/[0.06] text-slate-200')}>
@@ -150,7 +253,8 @@ export function PersonaChatLab() {
                 </div>
                 {message.role === 'user' && <User className="mt-2 h-4 w-4 shrink-0 text-sky-400" />}
               </div>
-            ))}
+              )
+            )}
             {sending && <div className="text-xs text-slate-500">{selectedPersona?.name} está pensando...</div>}
           </div>
 
