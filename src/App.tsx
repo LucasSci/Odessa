@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import LoginScreen from './LoginScreen';
 import OdessaLiveCenter, { type AdvancedPanel } from './OdessaLiveCenter';
 import PersonaOverlay from './PersonaOverlay';
-import { clearEvents, getRecentEvents, replaceEvents } from './core/eventBus';
+import { clearEvents, replaceEvents } from './core/eventBus';
 import { useAutopilotRuntime } from './core/useAutopilotRuntime';
 import { TangoChatSessionProvider } from './core/tangoChatSession';
 import { apiUrl } from './lib/api';

@@ -90,6 +90,7 @@ interface OdessaLiveCenterProps {
   onLiveConfigOpenChange?: Dispatch<SetStateAction<boolean>>;
   onLiveConfigChange?: Dispatch<SetStateAction<LiveConfig>>;
   onStartLive?: () => void | Promise<void>;
+  onEndLive?: () => void;
   obsSettingsFromApp?: Record<string, unknown> | null;
   onObsSettingsChanged?: (settings: Record<string, unknown>) => void;
 }
@@ -341,7 +342,6 @@ type ReactiveRunResult = {
 };
 
 function tabFromPanel(panel: AdvancedPanel): TabKey {
-  if (panel === 'capture') return 'settings';
   if (panel === 'content') return 'library';
   if (panel === 'runtime') return 'flow';
   if (panel === 'settings') return 'settings';
@@ -379,6 +379,7 @@ export default function OdessaLiveCenter({
   onLiveConfigOpenChange,
   onLiveConfigChange,
   onStartLive,
+  onEndLive,
   obsSettingsFromApp = null,
   onObsSettingsChanged,
 }: OdessaLiveCenterProps) {
@@ -801,7 +802,7 @@ export default function OdessaLiveCenter({
           <button
             className={cn('odsa-btn odsa-btn-md', runtime.autopilotEnabled ? 'odsa-btn-secondary' : 'odsa-btn-primary')}
             onClick={() => {
-              if (runtime.autopilotEnabled) { runtime.pause(); return; }
+              if (runtime.autopilotEnabled) { onEndLive?.(); return; }
               if (onStartLive) { void onStartLive(); return; }
               runtime.start();
             }}
@@ -881,6 +882,7 @@ export default function OdessaLiveCenter({
                   runtime={runtime}
                   videoState={videoState}
                   onStartLive={onStartLive}
+                  onEndLive={onEndLive}
                   obsSettings={obsSettingsFromApp}
                 />
               )}
@@ -1628,7 +1630,6 @@ const TAB_META: Record<TabKey, { group: string; title: string }> = {
   ai:       { group: 'Configuração', title: 'Diretora IA' },
   chat:     { group: 'Operação', title: 'Central da Live' },
   canvas:   { group: 'Conteúdo', title: 'Mural de Planejamento' },
-  sources:  { group: 'Sistema',  title: 'Fontes / OCR' },
   logs:     { group: 'Sistema',  title: 'Logs' },
 };
 
