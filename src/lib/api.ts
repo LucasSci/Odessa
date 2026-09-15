@@ -48,7 +48,7 @@ export function apiUrl(path: string) {
   }
   if (
     usesSameOriginCloudApi &&
-    ['/auth', '/health', '/ocr', '/webhooks', '/proxy', '/agent'].some(
+    ['/auth', '/health', '/ocr', '/webhooks', '/proxy'].some(
       (prefix) =>
         normalized === prefix ||
         normalized.startsWith(`${prefix}/`) ||
@@ -56,6 +56,11 @@ export function apiUrl(path: string) {
     )
   ) {
     return `${browserOrigin}/api${normalized}`;
+  }
+  // agent.py só é montado sob /api no backend (é o espelho da rota de nuvem,
+  // sem mount solto como /obs) — precisa do prefixo em qualquer modo.
+  if (normalized === '/agent' || normalized.startsWith('/agent/') || normalized.startsWith('/agent?')) {
+    return `${API_ORIGIN}/api${normalized}`;
   }
   if (normalized.startsWith('/api/v1/')) return `${API_ORIGIN}${normalized}`;
   if (normalized.startsWith('/api/')) return `${API_BASE_URL}${normalized.replace(/^\/api/, '')}`;
