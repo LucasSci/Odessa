@@ -60,10 +60,21 @@ try {
     }
 } catch { }
 
-#  Sobe o backend em segundo plano 
+#  Sobe o backend em segundo plano
 Write-Log "Iniciando backend..."
 $stdOutLog = Join-Path $logDir "backend.out.log"
 $stdErrLog = Join-Path $logDir "backend.err.log"
+
+# Critico: o Chromium do Playwright foi baixado em build-runtime.ps1 com
+# PLAYWRIGHT_BROWSERS_PATH=0 (fica dentro de python\Lib\site-packages\
+# playwright\driver\package\.local-browsers, junto com o app, em vez do cache
+# global do usuario). Sem essa MESMA variavel aqui no processo que roda o
+# backend, o Playwright procura no cache global (que nao existe na maquina do
+# usuario final), nao acha o Chromium embutido e a bridge do Tango falha ao
+# abrir o navegador -- mesmo com os ~700MB do Chromium corretamente instalados
+# ao lado do app.
+$env:PLAYWRIGHT_BROWSERS_PATH = "0"
+
 $psi = Start-Process -FilePath $pyExe `
     -ArgumentList @("-m", "uvicorn", "server.main:app", "--host", "127.0.0.1", "--port", "$serverPort") `
     -WorkingDirectory $installRoot `
