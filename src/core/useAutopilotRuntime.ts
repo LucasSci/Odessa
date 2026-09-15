@@ -353,7 +353,12 @@ export function useAutopilotRuntime({
   // ⚡ Bolt: Using lazy initialization pattern to prevent O(N) memory allocation and iteration on every render
   const queuedOrProcessedIdsRef = useRef<Set<string> | null>(null);
   if (queuedOrProcessedIdsRef.current === null) {
-    queuedOrProcessedIdsRef.current = new Set(capturedText.filter((event) => event.processedAt).map((event) => event.id));
+    // ⚡ Bolt: Using a single-pass loop instead of .filter().map() to avoid multiple intermediate O(N) allocations.
+    const processedIds = new Set<string>();
+    for (const event of capturedText) {
+      if (event.processedAt) processedIds.add(event.id);
+    }
+    queuedOrProcessedIdsRef.current = processedIds;
   }
   const pendingEventsRef = useRef<LiveEvent[]>([]);
   const roundTimerRef = useRef<number | null>(null);
