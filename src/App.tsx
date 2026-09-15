@@ -7,6 +7,7 @@ import { clearEvents, replaceEvents } from './core/eventBus';
 import { useAutopilotRuntime } from './core/useAutopilotRuntime';
 import { TangoChatSessionProvider } from './core/tangoChatSession';
 import { apiUrl } from './lib/api';
+import { getActivePersona } from './core/personaManager';
 import { installCredentialedFetch } from './lib/fetchCredentials';
 import { startAutoLogin } from './lib/autoLogin';
 import { connectObs, disconnectObs } from './lib/obsWebSocket';
@@ -109,28 +110,40 @@ export default function App() {
   // Fetches OBS settings from API, then connects to ws://localhost:<port>.
   useEffect(() => {
     if (!authenticated) return;
-    // Fetch settings from API and connect to OBS directly
-    fetch(apiUrl('/obs/settings'))
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { ok?: boolean; settings?: ObsSettingsState } | null) => {
-        if (!data?.ok || !data?.settings) return;
-        const settings = data.settings;
-        setObsSettings(settings);
-        // Extract port from stored URL (might be ws://192.168.x.x:4455)
-        let port = '4455';
-        try {
-          const parsed = new URL(settings.websocketUrl || 'ws://localhost:4455');
-          port = parsed.port || '4455';
-        } catch { /* use default */ }
-        // Always connect via localhost (browser is on same machine as OBS)
-        const directUrl = `ws://localhost:${port}`;
-        connectObs(directUrl, settings.websocketPassword || '');
-      })
-      .catch(() => {
-        // Fallback: try default OBS WebSocket without settings
-        connectObs('ws://localhost:4455');
-      });
+    void (async () => {
+      let settings: ObsSettingsState | null = null;
+      try {
+        const res = await fetch(apiUrl('/obs/settings'));
+        const data = (res.ok ? await res.json() : null) as { ok?: boolean; settings?: ObsSettingsState } | null;
+        if (data?.ok && data?.settings) settings = data.settings;
+      } catch { /* segue com settings=null; fallback abaixo conecta com defaults */ }
 
+      // As cenas/sources do OBS sao configuradas por persona (aba Personas >
+      // Configuracao de Transmissao) — só a URL/senha do WebSocket e global.
+      // Sobrepoe aqui pra já carregar com a persona ativa, sem precisar trocar
+      // de persona uma vez pra "destravar" a config certa.
+      try {
+        const { config } = await getActivePersona();
+        const transmissionConfig = (config as { transmissionConfig?: Partial<ObsSettingsState> } | null)
+          ?.transmissionConfig;
+        if (transmissionConfig) settings = { ...(settings ?? {}), ...transmissionConfig };
+      } catch { /* usa so a config global se a persona ativa falhar ao carregar */ }
+
+      if (!settings) {
+        connectObs('ws://localhost:4455');
+        return;
+      }
+      setObsSettings(settings);
+      // Extract port from stored URL (might be ws://192.168.x.x:4455)
+      let port = '4455';
+      try {
+        const parsed = new URL(settings.websocketUrl || 'ws://localhost:4455');
+        port = parsed.port || '4455';
+      } catch { /* use default */ }
+      // Always connect via localhost (browser is on same machine as OBS)
+      const directUrl = `ws://localhost:${port}`;
+      connectObs(directUrl, settings.websocketPassword || '');
+    })();
   }, [authenticated]);
 
   const setCapturedText = useCallback<Dispatch<SetStateAction<CapturedMessage[]>>>((value) => {

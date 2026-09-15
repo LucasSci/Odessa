@@ -28,6 +28,7 @@ import {
 import { emitEvent } from './core/eventBus';
 import { registerFrameCapture, unregisterFrameCapture, captureVideoFrame } from './core/frameCapture';
 import { apiUrl } from './lib/api';
+import { getPersonaTransmission } from './core/personaManager';
 import {
   routeSetupLiveScene,
   routeStartTransmission,
@@ -420,6 +421,23 @@ export default function OdessaLiveCenter({
     }
   }, []);
 
+  // Cenas/sources do OBS são configuradas por persona (aba Personas >
+  // Configuração de Transmissão), mas o "Iniciar live" e os botões de OBS
+  // usam obsSettingsFromApp — que só carregava a config GLOBAL de
+  // /obs/settings. Sem isto, trocar de persona nunca atualizava cena/source
+  // no OBS, misturando o conteúdo de uma persona com a live da outra.
+  const refreshObsSettingsForPersona = useCallback(
+    async (personaId: string) => {
+      try {
+        const { transmissionConfig } = await getPersonaTransmission(personaId);
+        onObsSettingsChanged?.({ ...(obsSettingsFromApp ?? {}), ...transmissionConfig });
+      } catch {
+        // Melhor esforço — a live continua usável com a config anterior.
+      }
+    },
+    [obsSettingsFromApp, onObsSettingsChanged],
+  );
+
   const refreshVideoState = useCallback(async () => {
     try {
       const response = await fetch(apiUrl('/api/video/state'));
@@ -789,9 +807,10 @@ export default function OdessaLiveCenter({
         <div className="odsa-header-end">
           {/* Seletor de persona ativa — cada persona carrega sua própria config de transmissão */}
           <TopPersonaSelector
-            onPersonaChanged={() => {
+            onPersonaChanged={(personaId) => {
               void loadConfig();
               void refreshVideoState();
+              void refreshObsSettingsForPersona(personaId);
             }}
           />
 
