@@ -131,7 +131,10 @@ class AIService:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "options": {"temperature": temperature, "num_predict": num_predict},
+            # repeat_penalty acima do padrão do Ollama (1.1) para reduzir o
+            # modelo travando em repetição de palavras/frases dentro da mesma
+            # resposta — sintoma relatado com respostas tipo "oi oi, legal legal".
+            "options": {"temperature": temperature, "num_predict": num_predict, "repeat_penalty": 1.3},
             # Mantém o modelo carregado na memória por mais tempo (padrão do
             # Ollama é ~5min). Numa live o chat pode ficar minutos sem gerar
             # nada; o modelo descarrega e a PRÓXIMA chamada precisa recarregar

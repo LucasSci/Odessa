@@ -266,6 +266,22 @@ export function TangoChatSessionProvider({
   // ── Chat & Mensagens ──────────────────────────────
   const [messages, setMessages] = useState<TangoChatMessage[]>([]);
   const [replyQueue, setReplyQueue] = useState<TangoReplyItem[]>([]);
+  // O observer de DOM da bridge (tango_chat.py) não distingue "mensagem de um
+  // espectador" de "mensagem que a própria Barbara acabou de enviar" — ele
+  // simplesmente captura qualquer texto novo que aparece no chat. Sem isso, a
+  // fala da própria persona ecoava de volta pelo SSE como se fosse uma
+  // mensagem de outra pessoa: duplicava no histórico (já adicionado por
+  // executeSendMessage) e, em modo Autônomo, disparava a IA respondendo a si
+  // mesma — o que explica repetição e respostas sem contexto/continuidade.
+  const recentlySentRef = useRef<{ text: string; at: number }[]>([]);
+  const SELF_ECHO_WINDOW_MS = 8_000;
+  const normalizeForEchoCheck = (text: string) => text.trim().toLowerCase().replace(/\s+/g, ' ');
+  const isOwnEcho = useCallback((incomingText: string) => {
+    const now = Date.now();
+    const normalized = normalizeForEchoCheck(incomingText);
+    recentlySentRef.current = recentlySentRef.current.filter((entry) => now - entry.at < SELF_ECHO_WINDOW_MS);
+    return recentlySentRef.current.some((entry) => entry.text === normalized);
+  }, []);
   const [generatingForId, setGeneratingForId] = useState<string | null>(null);
   // Timestamp de quando a IA começou a gerar a resposta ATUAL (manual ou
   // autônoma) — null quando ociosa. Não dá pra saber uma % real de progresso
@@ -441,6 +457,10 @@ export function TangoChatSessionProvider({
           ...prev.slice(-399),
           { username: activePersona?.name || 'Você', text: clean, timestamp: new Date().toISOString() },
         ]);
+        // Marca esse texto como "acabei de enviar" para o filtro de eco do
+        // SSE (isOwnEcho) descartar a versão que o observer da bridge captura
+        // de volta do próprio DOM do chat.
+        recentlySentRef.current.push({ text: normalizeForEchoCheck(clean), at: Date.now() });
       };
 
       if (executionMode === 'dry_run') {
@@ -778,6 +798,15 @@ export function TangoChatSessionProvider({
       es.onmessage = (ev) => {
         try {
           const msg: TangoChatMessage = JSON.parse(ev.data);
+
+          // O observer da bridge captura QUALQUER texto novo no DOM do chat,
+          // inclusive a mensagem que a própria Barbara acabou de enviar. Sem
+          // esse filtro, a fala dela ecoava de volta como se fosse de outra
+          // pessoa: duplicava no histórico e, em modo Autônomo, disparava a
+          // IA gerando resposta pra si mesma — causando repetição e perda de
+          // contexto/continuidade na conversa.
+          if (isOwnEcho(msg.text)) return;
+
           setMessages((prev) => [...prev.slice(-399), msg]);
 
           // Roteia a mensagem para o trigger engine do backend (palavra-chave/
@@ -821,7 +850,7 @@ export function TangoChatSessionProvider({
       setSseState('stopped');
       setSseAttempts(0);
     };
-  }, [bridgeConnected]);
+  }, [bridgeConnected, isOwnEcho]);
 
   // O botão principal da live dispara a bridge sem exigir que o usuário abra
   // primeiro a aba de configurações do chat.
