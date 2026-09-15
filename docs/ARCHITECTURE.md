@@ -16,7 +16,6 @@ mas usam backends diferentes:
 | Runtime | Backend | Uso |
 |---|---|---|
 | **Local dev** | Python FastAPI (`server/`) porta 8000 + Vite porta 3000 | Desenvolvimento |
-| **Desktop (Electron)** | Python FastAPI (`server/`) — `electron/main.ts` faz spawn do uvicorn | App instalado |
 | **Produção (Hostinger)** | Node.js (`hostinger-server.mjs` + `api/[...path].js`) | Deploy web |
 
 > **Nota de arquitetura:** as features recentes (bridge do Tango, personas,
@@ -87,9 +86,7 @@ Odessa/
 │   └── data/                 # personas.json, persona_config.json
 ├── api/                      # Handlers Node de produção (Hostinger)
 ├── tango_chat/               # Bridge do Tango (aiohttp porta 7555)
-├── electron/                 # Runtime desktop (Electron)
 ├── scripts/                  # Scripts utilitários (PowerShell, Python)
-├── workflows/n8n/            # Workflows n8n (opcional)
 ├── docs/                     # Documentação do projeto
 ├── assets/                   # Branding e vídeos locais (dev)
 └── public/                   # Arquivos estáticos servidos pelo Vite

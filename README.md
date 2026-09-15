@@ -91,9 +91,7 @@ odessa/
 │   └── data/               # personas.json, persona_config.json
 ├── api/                    # Handlers Node de produção (Hostinger)
 ├── tango_chat/             # Bridge do Tango (porta 7555)
-├── electron/               # Runtime desktop (Electron)
 ├── scripts/                # Scripts utilitários (PowerShell, Python)
-├── workflows/n8n/          # Workflows n8n (opcional)
 ├── docs/                   # Documentação do projeto
 └── assets/                 # Branding e vídeos locais (dev)
 ```

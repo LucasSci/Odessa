@@ -118,3 +118,33 @@ node hostinger-server.mjs
 - O HMR pode ser desabilitado via `DISABLE_HMR=true`.
 - Artefatos locais como `.env`, `venv`, `server/runtime` e modelos
   `*.traineddata` não entram no Git.
+
+## Uso: Diretoria IA, memória e captura do chat
+
+A aba `Diretoria IA` agora e focada em configurar a IA e a memoria:
+
+- `Cerebro`: provedor, chave Gemini, ponte da IA e status de conexao.
+- `Politica da IA no chat`: dry-run/real, cooldown, limite por minuto e confianca minima.
+- `Aprendizado`: memoria de chat, usuarios recorrentes e presentes aprendidos.
+- `Teste manual`: simula uma mensagem do chat e mostra a decisao antes da live.
+
+A parte fisica do chat fica em `Fontes / OCR`:
+
+- zonas de captura do OCR;
+- source OBS/janela/link direto;
+- `Alvo visual do chat`, com inputPoint, sendPoint, viewport, dry-run e teste de digitar sem enviar.
+
+Na Diretoria, use `Abrir OCR do chat` quando precisar calibrar a captura ou o
+alvo visual usado pelo agente local.
+
+Estados visuais:
+
+- `pronto`: envio real pode operar se a Diretora estiver ligada.
+- `atencao`: falta algum ajuste, mas o cockpit ainda pode operar em modo seguro.
+- `bloqueado`: existe impedimento para envio real.
+- `simulado`: dry-run ativo; nada publico deve ser enviado.
+
+Os detalhes de auditoria e replay continuam na timeline da live. A Diretoria
+mantem apenas a configuracao e uma fila recolhida de respostas publicas quando
+existirem pendencias. A matriz tecnica de permissoes tambem fica recolhida por
+padrao para manter a tela mais limpa.

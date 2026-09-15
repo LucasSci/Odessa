@@ -16,8 +16,6 @@ coverage/
 *.traineddata
 server/runtime/
 server/data/logs/
-certs/dev/*.pfx
-certs/dev/*.password.txt
 .env*
 !.env.example
 !.env.base44-defaults
@@ -36,6 +34,9 @@ uploads/
 # Deploy artifacts
 deploy.zip
 deploy-nodist.zip
+
+# pnpm e o gerenciador de pacotes oficial do projeto (ver CI)
+package-lock.json
 
 # Design mockups / scratch files
 home-design*.png
