@@ -1,5 +1,9 @@
 """Tests for Tango Chat Bridge management endpoints."""
+from pathlib import Path
+
 import pytest
+
+from server.services import bridge_manager
 
 
 def test_bridge_status(client):
@@ -13,8 +17,18 @@ def test_bridge_status(client):
     assert "bridgeReachable" in data
 
 
-def test_bridge_config_lifecycle(client):
-    """Test getting and updating bridge configuration."""
+def test_bridge_config_lifecycle(client, tmp_path, monkeypatch):
+    """Test getting and updating bridge configuration.
+
+    POST /bridge/config grava direto em server/runtime/bridge_config.json —
+    o MESMO arquivo que o app real usa pra saber em qual sala do Tango e com
+    quais seletores conectar. Sem isolar esse caminho, rodar a suíte
+    sobrescreve a configuração real do usuário com os valores de teste
+    abaixo (roomUrl=test_room, seletores fake), quebrando a leitura/envio de
+    chat até alguém reconfigurar manualmente pela UI de novo.
+    """
+    monkeypatch.setattr(bridge_manager, "BRIDGE_CONFIG_FILE", tmp_path / "bridge_config.json")
+
     # Get initial config
     get_res = client.get("/api/v1/chat-automation/bridge/config")
     assert get_res.status_code == 200
@@ -65,8 +79,16 @@ def test_bridge_logs(client):
     assert isinstance(data["lines"], list)
 
 
-def test_chrome_helpers_endpoints(client):
-    """Test chrome tabs inspection and shortcut creation."""
+def test_chrome_helpers_endpoints(client, tmp_path, monkeypatch):
+    """Test chrome tabs inspection and shortcut creation.
+
+    create_desktop_shortcut() resolve Path.home()/"Desktop" internamente —
+    sem isolar isso o teste cria de verdade um atalho .lnk na Área de
+    Trabalho real de quem rodar a suíte.
+    """
+    (tmp_path / "Desktop").mkdir()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
     tabs_res = client.get("/api/v1/chat-automation/bridge/chrome-tabs?port=9222")
     assert tabs_res.status_code == 200
     data = tabs_res.json()
