@@ -97,11 +97,18 @@ export function PersonaChatLab() {
         selectedPersona.personality?.trim() || DEFAULT_PERSONA_PROMPT,
         autoConfig ? buildSelfConfigPrompt(selectedPersona, facesByPersona[selectedId] || []) : '',
       ].join('');
+      // Sem conversationMode/maxLength inflado: o Laboratório precisa gerar
+      // exatamente a mesma resposta (mesmas regras de brevidade, diálogo real,
+      // sem convites inventados) que o chat de verdade do Tango geraria pra
+      // essa mensagem — senão testar aqui não prevê o que vai acontecer na
+      // live. maxLength fica um pouco acima do padrão (140) só para não
+      // truncar o bloco <autoconfig> (invisível, some do texto exibido) que a
+      // autoconfiguração pode anexar à resposta.
       const result = await generateTangoChatReply(
         { username: 'Voce', text, timestamp: userMessage.timestamp },
         history,
         systemPrompt,
-        { conversationMode: true, maxLength: 2000, timeoutMs: 150_000 },
+        { maxLength: 320, timeoutMs: 150_000 },
       );
       const { cleanText, changes } = autoConfig && result.ok
         ? parseAutoConfig(result.reply)
