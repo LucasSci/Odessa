@@ -130,7 +130,13 @@ async function callBackendAiRespond(
         // falha atrás da resposta fixa local.
         provider: hasActiveGeminiKey() && config.provider === 'gemini' ? 'gemini' : 'ollama',
       }),
-      signal: AbortSignal.timeout(options.timeoutMs ?? 20_000),
+      // 20s era curto demais: o Ollama descarrega da memória depois de ficar
+      // ocioso (keep_alive de 30min no backend, mas mensagens do chat costumam
+      // vir espaçadas por mais que isso numa live). Um cold-start pode levar
+      // 20-30s+ só pra carregar o modelo — o timeout batia ANTES do backend
+      // (que já tem 120s + retry) sequer terminar, matando a resposta em
+      // silêncio a cada vez que o chat ficava um tempo sem atividade.
+      signal: AbortSignal.timeout(options.timeoutMs ?? 60_000),
     });
     if (!res.ok) {
       const detail = await res.text();
