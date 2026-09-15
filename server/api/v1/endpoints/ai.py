@@ -1,5 +1,8 @@
+import asyncio
 import json
 import logging
+import shutil
+import subprocess
 from typing import Any
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -10,6 +13,31 @@ from server.utils.text_utils import extract_json_object
 
 router = APIRouter(tags=["AI"])
 logger = logging.getLogger("odessa.routes.ai")
+
+
+async def _check_ollama(timeout: float = 2.5) -> dict[str, Any]:
+    """Verifica se o Ollama está acessível e se o modelo configurado está instalado."""
+    from server.config import OLLAMA_BASE_URL, OLLAMA_MODEL
+
+    result: dict[str, Any] = {
+        "configured": True,
+        "url": OLLAMA_BASE_URL,
+        "model": OLLAMA_MODEL,
+        "reachable": False,
+        "modelInstalled": False,
+        "installedModels": [],
+    }
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(f"{OLLAMA_BASE_URL}/api/tags")
+        result["reachable"] = response.is_success
+        if response.is_success:
+            models = [item.get("name") for item in response.json().get("models", [])]
+            result["installedModels"] = models
+            result["modelInstalled"] = OLLAMA_MODEL in models
+    except Exception:
+        pass
+    return result
 
 
 class GeminiProxyRequest(BaseModel):
@@ -53,19 +81,93 @@ async def gemini_proxy(request: GeminiProxyRequest):
 @router.get("/status")
 async def ai_status():
     """Retorna o provedor configurado e se o Ollama local está acessível."""
-    from server.config import AI_PROVIDER, OLLAMA_BASE_URL, OLLAMA_MODEL
+    from server.config import AI_PROVIDER
 
-    ollama = {"configured": True, "url": OLLAMA_BASE_URL, "model": OLLAMA_MODEL, "reachable": False}
-    try:
-        async with httpx.AsyncClient(timeout=2.5) as client:
-            response = await client.get(f"{OLLAMA_BASE_URL}/api/tags")
-        ollama["reachable"] = response.is_success
-        if response.is_success:
-            models = response.json().get("models", [])
-            ollama["modelInstalled"] = any(item.get("name") == OLLAMA_MODEL for item in models)
-    except Exception:
-        pass
+    ollama = await _check_ollama()
     return {"provider": AI_PROVIDER, "ollama": ollama}
+
+
+@router.post("/ollama/connect")
+async def ollama_connect():
+    """Garante que o Ollama esteja rodando e com o modelo configurado instalado.
+
+    Usado pelo botão "Conectar Ollama" no Diagnóstico: se o serviço não estiver
+    acessível, tenta iniciar `ollama serve` (processo já instalado no PATH do
+    usuário); se estiver acessível mas o modelo configurado não estiver
+    instalado, dispara `ollama pull <modelo>` em segundo plano (download pode
+    levar minutos — o chamador deve reexecutar o diagnóstico depois para
+    conferir se já terminou).
+    """
+    ollama_exe = shutil.which("ollama")
+
+    status = await _check_ollama()
+    started = False
+
+    if not status["reachable"]:
+        if not ollama_exe:
+            raise HTTPException(
+                status_code=503,
+                detail="Ollama não foi encontrado no PATH. Instale em https://ollama.com/download e tente novamente.",
+            )
+        try:
+            creationflags = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
+            subprocess.Popen(
+                [ollama_exe, "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=creationflags,
+            )
+            started = True
+        except Exception as exc:
+            logger.error("[ollama/connect] falha ao iniciar 'ollama serve': %s", exc, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Falha ao iniciar o Ollama: {exc}") from exc
+
+        # Espera o servidor subir (cold start do processo, não do modelo).
+        for _ in range(15):
+            await asyncio.sleep(1)
+            status = await _check_ollama()
+            if status["reachable"]:
+                break
+
+    if not status["reachable"]:
+        raise HTTPException(
+            status_code=503,
+            detail="O Ollama foi iniciado mas não respondeu a tempo. Tente de novo em alguns segundos.",
+        )
+
+    pulling = False
+    if not status["modelInstalled"]:
+        exe = ollama_exe or "ollama"
+        try:
+            creationflags = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
+            subprocess.Popen(
+                [exe, "pull", status["model"]],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=creationflags,
+            )
+            pulling = True
+        except Exception as exc:
+            logger.error("[ollama/connect] falha ao baixar modelo: %s", exc, exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Ollama conectado, mas falhou ao baixar o modelo {status['model']}: {exc}",
+            ) from exc
+
+    return {
+        "ok": True,
+        "started": started,
+        "reachable": status["reachable"],
+        "modelInstalled": status["modelInstalled"],
+        "pulling": pulling,
+        "model": status["model"],
+        "message": (
+            f"Baixando o modelo {status['model']} em segundo plano — isso pode levar alguns minutos. "
+            "Reexecute o diagnóstico depois para conferir."
+            if pulling
+            else "Ollama conectado e modelo já instalado."
+        ),
+    }
 
 
 def get_ai_service():

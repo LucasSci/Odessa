@@ -6,7 +6,7 @@
  * serviço offline, modelo ausente, config incompleta da persona ativa etc.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Activity, RefreshCw, Wrench } from 'lucide-react';
+import { Activity, Plug, RefreshCw, Wrench } from 'lucide-react';
 import { apiUrl } from '../lib/api';
 import { SystemHealthCard, type ServiceHealth } from './SystemHealthCard';
 import { ValidationChecklist, type ValidationCheck } from './ValidationChecklist';
@@ -15,6 +15,16 @@ import { cn } from '../lib/utils';
 type AiStatus = {
   provider?: string;
   ollama?: { reachable?: boolean; model?: string; modelInstalled?: boolean; url?: string };
+};
+
+type OllamaConnectResult = {
+  ok: boolean;
+  started: boolean;
+  reachable: boolean;
+  modelInstalled: boolean;
+  pulling: boolean;
+  model: string;
+  message: string;
 };
 
 type PersonaMetaLite = { id: string; name: string; personality?: string; avatarUrl?: string };
@@ -35,6 +45,7 @@ type DiagnosticsResult = {
   services: ServiceHealth[];
   checks: ValidationCheck[];
   stats: { personas: number; activePersona: string; videos: number; problems: number };
+  ollama: { online: boolean; modelInstalled: boolean; model?: string };
 };
 
 async function probe<T>(path: string): Promise<{ ok: boolean; data: T | null; latencyMs: number; error?: string }> {
@@ -152,6 +163,7 @@ async function runDiagnostics(): Promise<DiagnosticsResult> {
       videos: videos.length,
       problems: checks.filter((check) => check.status === 'error' || check.status === 'warn').length,
     },
+    ollama: { online: aiOnline, modelInstalled: Boolean(ollama?.modelInstalled), model: ollama?.model },
   };
 }
 
@@ -170,6 +182,8 @@ function StatTile({ label, value, tone }: { label: string; value: string | numbe
 export function AdminPanel() {
   const [result, setResult] = useState<DiagnosticsResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [connectingOllama, setConnectingOllama] = useState(false);
+  const [ollamaConnectMessage, setOllamaConnectMessage] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -180,8 +194,32 @@ export function AdminPanel() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  const connectOllama = useCallback(async () => {
+    setConnectingOllama(true);
+    setOllamaConnectMessage(null);
+    try {
+      const res = await fetch(apiUrl('/ai/ollama/connect'), {
+        method: 'POST',
+        signal: AbortSignal.timeout(30_000),
+      });
+      const data = (await res.json().catch(() => null)) as OllamaConnectResult | { detail?: string } | null;
+      if (!res.ok) {
+        const detail = data && 'detail' in data ? data.detail : undefined;
+        setOllamaConnectMessage(detail || `Falha ao conectar o Ollama (HTTP ${res.status}).`);
+      } else if (data && 'message' in data) {
+        setOllamaConnectMessage(data.message);
+      }
+    } catch (err) {
+      setOllamaConnectMessage(err instanceof Error ? err.message : 'Falha ao conectar o Ollama.');
+    } finally {
+      setConnectingOllama(false);
+      refresh();
+    }
+  }, [refresh]);
+
   const errors = result?.checks.filter((check) => check.status === 'error') || [];
   const warns = result?.checks.filter((check) => check.status === 'warn') || [];
+  const ollamaNeedsAttention = Boolean(result) && (!result!.ollama.online || !result!.ollama.modelInstalled);
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
@@ -238,6 +276,36 @@ export function AdminPanel() {
               <ValidationChecklist checks={result.checks} title="Pendências do sistema" />
             </div>
           </div>
+
+          {ollamaNeedsAttention && (
+            <div className="mb-4 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-amber-300">
+                    <Plug className="h-3.5 w-3.5" /> Ollama não está pronto
+                  </div>
+                  <p className="mt-1 max-w-2xl text-sm text-slate-400">
+                    {!result.ollama.online
+                      ? 'O Ollama não está acessível — a persona não consegue responder no chat.'
+                      : `O modelo ${result.ollama.model || 'configurado'} ainda não está instalado.`}
+                    {' '}Clique para tentar conectar e configurar automaticamente.
+                  </p>
+                  {ollamaConnectMessage && (
+                    <p className="mt-1.5 text-xs text-slate-300">{ollamaConnectMessage}</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={connectOllama}
+                  disabled={connectingOllama}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-black transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Plug className={cn('h-4 w-4', connectingOllama && 'animate-pulse')} />
+                  {connectingOllama ? 'Conectando…' : 'Conectar Ollama'}
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
 
