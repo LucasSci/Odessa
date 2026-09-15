@@ -704,6 +704,11 @@ export function TangoChatSessionProvider({
     autoTriggerRef.current = handleAutoTriggerAi;
   }, [handleAutoTriggerAi]);
 
+  const bridgePortRef = useRef(bridgeConfig.port);
+  useEffect(() => {
+    bridgePortRef.current = bridgeConfig.port;
+  }, [bridgeConfig.port]);
+
   useEffect(() => {
     if (!bridgeConnected) {
       // Nota: o cleanup do effect anterior ja fecha o ES; o estado 'stopped'
@@ -719,7 +724,17 @@ export function TangoChatSessionProvider({
 
     const connect = () => {
       if (disposed) return;
-      const es = new EventSource(`${BRIDGE_URL}/messages`);
+      // Em dev, o proxy do Vite (server.proxy, /tango-bridge → 127.0.0.1:7555)
+      // nunca entrega os headers/bytes de uma resposta SSE (text/event-stream,
+      // chunked, sem fim) — a conexão fica presa em CONNECTING para sempre,
+      // então NENHUMA mensagem nova chega ao app e o modo autônomo nunca
+      // dispara, mesmo com a bridge e o Ollama funcionando perfeitamente.
+      // Como a bridge já libera CORS (Access-Control-Allow-Origin: *), em dev
+      // conectamos direto nela, sem passar pelo proxy quebrado.
+      const sseUrl = import.meta.env.DEV
+        ? `http://${window.location.hostname}:${bridgePortRef.current}/messages`
+        : `${BRIDGE_URL}/messages`;
+      const es = new EventSource(sseUrl);
       sseRef.current = es;
 
       es.onopen = () => {
