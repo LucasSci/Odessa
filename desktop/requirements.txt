@@ -1,0 +1,28 @@
+# Dependências do runtime Python empacotado no instalador desktop.
+#
+# Deliberadamente MENOR que server/requirements.txt e server/requirements-local.txt:
+# - Sem `kokoro` (arrasta `torch`, ~490MB) — TTS local fica de fora do instalador
+#   desktop; `edge-tts` (baseado em rede, sem binário pesado) continua disponível.
+# - Sem `pytest`/`pytest-asyncio` — são dependências de teste, não de runtime.
+# - Inclui playwright/playwright-stealth/aiohttp (tango_chat/requirements.txt),
+#   que o server/requirements*.txt não lista mas tango_chat/tango_chat.py importa
+#   direto — sem isso a bridge do Tango falha com ModuleNotFoundError.
+
+edge-tts
+fastapi
+google-genai
+httpx
+numpy
+openai
+Pillow
+pydantic
+python-dotenv
+simpleobsws
+soundfile
+uvicorn[standard]
+python-multipart
+
+# Bridge do Tango (tango_chat/tango_chat.py)
+playwright>=1.62.0
+playwright-stealth>=2.0.3
+aiohttp>=3.14.3
