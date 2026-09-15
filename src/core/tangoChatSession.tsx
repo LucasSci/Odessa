@@ -152,7 +152,7 @@ export function defaultConfig(): BridgeConfig {
 export type TangoChatSessionValue = {
   // Status do processo/bridge
   processStatus: BridgeProcessStatus | null;
-  refreshStatus: () => Promise<void>;
+  refreshStatus: () => Promise<BridgeProcessStatus | null>;
   starting: boolean;
   connecting: boolean;
   // Config da bridge
@@ -215,6 +215,10 @@ export function TangoChatSessionProvider({
 }) {
   // ── Bridge Status & Processo ──────────────────────
   const [processStatus, setProcessStatus] = useState<BridgeProcessStatus | null>(null);
+  // Espelha processStatus para refreshStatus() poder devolver o valor recém-buscado
+  // de forma síncrona ao chamador — ler o state diretamente logo após o await
+  // pegaria a closure antiga (o setState ainda não re-renderizou).
+  const processStatusRef = useRef<BridgeProcessStatus | null>(null);
   const [bridgeConfig, setBridgeConfig] = useState<BridgeConfig>(defaultConfig());
   const [configDirty, setConfigDirty] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
@@ -251,21 +255,24 @@ export function TangoChatSessionProvider({
   const inFlightStatusRef = useRef(false);
   const statusBackoffMsRef = useRef(3500);
 
-  const refreshStatus = useCallback(async () => {
+  const refreshStatus = useCallback(async (): Promise<BridgeProcessStatus | null> => {
     if (inFlightStatusRef.current || (typeof document !== 'undefined' && document.hidden)) {
-      return;
+      return processStatusRef.current;
     }
     inFlightStatusRef.current = true;
     try {
       const data = await fetchJson<BridgeProcessStatus>(`${BRIDGE_API}/status`);
       setProcessStatus(data);
+      processStatusRef.current = data;
       if (data) {
         statusBackoffMsRef.current = 3500; // Reset backoff no sucesso
       } else {
         statusBackoffMsRef.current = Math.min(statusBackoffMsRef.current * 1.5, 30000);
       }
+      return data;
     } catch {
       statusBackoffMsRef.current = Math.min(statusBackoffMsRef.current * 1.5, 30000);
+      return processStatusRef.current;
     } finally {
       inFlightStatusRef.current = false;
     }

@@ -301,21 +301,26 @@ export function TangoChatPanel({
   const inFlightChromeRef = useRef(false);
   const chromeBackoffMsRef = useRef(4000);
 
-  const refreshChromeStatus = useCallback(async () => {
+  const chromeStatusRef = useRef<ChromeStatus | null>(null);
+
+  const refreshChromeStatus = useCallback(async (): Promise<ChromeStatus | null> => {
     if (inFlightChromeRef.current || (typeof document !== 'undefined' && document.hidden)) {
-      return;
+      return chromeStatusRef.current;
     }
     inFlightChromeRef.current = true;
     try {
       const data = await fetchJson<ChromeStatus>(`${BRIDGE_API}/chrome-tabs?port=9222`);
       setChromeStatus(data);
+      chromeStatusRef.current = data;
       if (data) {
         chromeBackoffMsRef.current = 4000;
       } else {
         chromeBackoffMsRef.current = Math.min(chromeBackoffMsRef.current * 1.5, 30000);
       }
+      return data;
     } catch {
       chromeBackoffMsRef.current = Math.min(chromeBackoffMsRef.current * 1.5, 30000);
+      return chromeStatusRef.current;
     } finally {
       inFlightChromeRef.current = false;
     }
@@ -417,6 +422,26 @@ export function TangoChatPanel({
   const [autoConfiguring, setAutoConfiguring] = useState(false);
   const [autoConfigStepName, setAutoConfigStepName] = useState<string>('');
 
+  /**
+   * Repete `fetchStatus` até `isReady` aceitar o resultado ou o tempo acabar.
+   * Substitui os antigos `setTimeout` fixos: numa máquina lenta, um delay fixo
+   * termina antes do Chrome/bridge ficar pronto e o passo seguinte já falha
+   * lendo um status desatualizado; aqui cada tentativa busca o estado fresco.
+   */
+  async function pollUntil<T>(
+    fetchStatus: () => Promise<T>,
+    isReady: (status: T) => boolean,
+    { intervalMs = 900, timeoutMs = 12000 }: { intervalMs?: number; timeoutMs?: number } = {},
+  ): Promise<T> {
+    const deadline = Date.now() + timeoutMs;
+    let status = await fetchStatus();
+    while (!isReady(status) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, intervalMs));
+      status = await fetchStatus();
+    }
+    return status;
+  }
+
   const handleRunFullAutoSetup = async () => {
     setAutoConfiguring(true);
     setWizardTestResult(null);
@@ -424,35 +449,55 @@ export function TangoChatPanel({
       // 1. Salva Config
       setAutoConfigStepName('1/4: Salvando configuração do alvo...');
       await handleSelectWizardPreset();
-      await new Promise((r) => setTimeout(r, 600));
 
-      // 2. Abre Chrome se necessário
+      // 2. Abre Chrome se necessário (espera de verdade a porta 9222 responder,
+      // em vez de assumir que 2s bastam)
       setAutoConfigStepName('2/4: Verificando / Abrindo navegador...');
-      if (!chromeStatus?.runningWithDebug) {
+      let latestChromeStatus = chromeStatus;
+      if (!latestChromeStatus?.runningWithDebug) {
         await handleLaunchChrome();
-        await new Promise((r) => setTimeout(r, 2000));
-        await refreshChromeStatus();
+        latestChromeStatus = await pollUntil(refreshChromeStatus, (s) => !!s?.runningWithDebug, {
+          intervalMs: 1000,
+          timeoutMs: 15000,
+        });
+      }
+      if (!latestChromeStatus?.runningWithDebug) {
+        setWizardStep(2);
+        setWizardTestResult(
+          '⚠️ O Chrome não respondeu na porta de depuração 9222 a tempo.\n\n' +
+          'Verifique se:\n' +
+          '• O Chrome foi mesmo aberto (confira se uma janela apareceu)\n' +
+          '• Nenhuma outra instância do Chrome está usando a porta 9222\n\n' +
+          'Dica: use o atalho no Desktop para abrir o Chrome corretamente.',
+        );
+        return;
       }
 
-      // 3. Inicia Bridge e Conecta
+      // 3. Inicia Bridge e Conecta (idem: espera o status confirmar em vez de
+      // um delay fixo seguido de leitura do estado antigo)
       setAutoConfigStepName('3/4: Iniciando Bridge e acoplando à aba...');
       if (!processRunning) {
         await handleStartProcess();
-        await new Promise((r) => setTimeout(r, 1800));
+        await pollUntil(refreshStatus, (s) => !!s?.processRunning, { intervalMs: 800, timeoutMs: 10000 });
       }
       await handleConnectBridge();
-      await new Promise((r) => setTimeout(r, 1500));
-      await refreshStatus();
+      const finalStatus = await pollUntil(
+        refreshStatus,
+        (s) => s?.bridgeStatus?.status === 'connected' || Boolean(s?.bridgeStatus?.error),
+        { intervalMs: 900, timeoutMs: 12000 },
+      );
 
       // ── Verificação HONESTA: a bridge realmente conectou? ──
       // Antes este passo reportava "100% validado" mesmo com a bridge offline,
       // porque a IA gera respostas sem precisar da bridge. Agora só prossegue
-      // se a conexão foi confirmada de verdade.
+      // se a conexão foi confirmada de verdade — e usa o status recém-buscado
+      // pelo polling acima, não o `processStatus` da closure (que ainda seria
+      // o valor de antes do refresh, já que o setState não é síncrono).
       const actuallyConnected =
-        processStatus?.bridgeStatus?.status === 'connected' && processStatus?.bridgeStatus?.observerInjected;
+        finalStatus?.bridgeStatus?.status === 'connected' && finalStatus?.bridgeStatus?.observerInjected;
 
       if (!actuallyConnected) {
-        const bridgeErr = processStatus?.bridgeStatus?.error || 'conexão não estabelecida';
+        const bridgeErr = finalStatus?.bridgeStatus?.error || 'conexão não estabelecida (tempo esgotado)';
         setWizardStep(3); // volta para o passo 3 para o usuário tentar de novo
         setWizardTestResult(
           '⚠️ A bridge NÃO conectou à aba do navegador.\n' +
