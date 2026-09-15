@@ -13,8 +13,6 @@ load_dotenv(SERVER_DIR / ".env", override=False)
 
 LOG_FILE = Path(os.getenv("CAPTURE_LOG_FILE", RUNTIME_DIR / "captura_chat.txt"))
 REGION_FILE = Path(os.getenv("CAPTURE_REGION_FILE", RUNTIME_DIR / "regions.json"))
-MAX_OCR_IMAGE_BYTES = int(os.getenv("OCR_MAX_IMAGE_BYTES", str(8 * 1024 * 1024)))
-MAX_OCR_IMAGE_PIXELS = int(os.getenv("OCR_MAX_IMAGE_PIXELS", "6000000"))
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()

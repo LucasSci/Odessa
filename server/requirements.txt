@@ -1,4 +1,3 @@
-easyocr
 edge-tts
 fastapi
 google-genai

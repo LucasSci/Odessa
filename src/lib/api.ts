@@ -24,7 +24,6 @@ const API_V1_PREFIXES = [
   '/video',
   '/workflow',
   '/automation',
-  '/ocr',
   '/ai',
   '/tts',
   '/memory',
@@ -48,7 +47,7 @@ export function apiUrl(path: string) {
   }
   if (
     usesSameOriginCloudApi &&
-    ['/auth', '/health', '/ocr', '/webhooks', '/proxy'].some(
+    ['/auth', '/health', '/webhooks', '/proxy'].some(
       (prefix) =>
         normalized === prefix ||
         normalized.startsWith(`${prefix}/`) ||

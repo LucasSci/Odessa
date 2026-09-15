@@ -144,8 +144,8 @@ export default defineConfig(() => {
         output: {
           // Separa libs estáveis em chunks cacheáveis (melhora cache entre
           // deploys e reduz o chunk principal). NÃO captura deps carregadas
-          // dinamicamente (ex.: tesseract.js no CaptureStudio) — estas devolvem
-          // undefined e o Rollup mantém seus chunks lazy.
+          // dinamicamente via import() — estas devolvem undefined e o Rollup
+          // mantém seus chunks lazy.
           manualChunks(id: string) {
             if (!id.includes('node_modules')) return undefined;
             if (id.includes('react-dom') || id.includes('/scheduler/') || /[\\/]react[\\/]/.test(id)) {

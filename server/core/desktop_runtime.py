@@ -25,7 +25,6 @@ CORE_SERVICES = [
 HEAVY_SERVICES = [
     ("ai", "server.services.ai_service", "ai_service"),
     ("tts", "server.services.tts_service", "tts_service"),
-    ("ocr", "server.services.ocr_service", "ocr_service"),
 ]
 
 
@@ -118,7 +117,7 @@ def core_ready() -> bool:
 
 def heavy_ready() -> bool:
     services = WARMUP_STATE.get("services") or {}
-    required = ["video", "workflow", "automation", "ai", "tts", "ocr"]
+    required = ["video", "workflow", "automation", "ai", "tts"]
     return all(bool(services.get(name, {}).get("ready")) for name in required)
 
 

@@ -12,6 +12,4 @@ async def test_health_endpoint():
     data = response.json()
     # Validate required fields
     assert "status" in data
-    assert "ocr" in data
     assert isinstance(data["status"], str)
-    assert isinstance(data["ocr"], str)
