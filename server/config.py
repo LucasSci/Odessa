@@ -11,9 +11,6 @@ RUNTIME_DIR.mkdir(exist_ok=True)
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(SERVER_DIR / ".env", override=False)
 
-LOG_FILE = Path(os.getenv("CAPTURE_LOG_FILE", RUNTIME_DIR / "captura_chat.txt"))
-REGION_FILE = Path(os.getenv("CAPTURE_REGION_FILE", RUNTIME_DIR / "regions.json"))
-
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 # Base URL do provedor OpenAI-compatível. Padrão: RouteLLM da Abacus.AI.
