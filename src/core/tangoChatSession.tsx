@@ -424,9 +424,22 @@ export function TangoChatSessionProvider({
       const clean = text.trim();
       if (!clean) return false;
 
+      // Registra a própria fala no histórico local — sem isso a IA nunca via
+      // o que ela mesma tinha dito, só as mensagens do público. Isso é o que
+      // fazia ela "esquecer" a conversa e cair sempre no mesmo movimento
+      // genérico (convite pra jogar/dançar) em vez de manter um diálogo real
+      // de pergunta-resposta-pergunta.
+      const recordOwnReply = () => {
+        setMessages((prev) => [
+          ...prev.slice(-399),
+          { username: activePersona?.name || 'Você', text: clean, timestamp: new Date().toISOString() },
+        ]);
+      };
+
       if (executionMode === 'dry_run') {
         console.log('[DRY-RUN] Simulação de envio no Tango:', clean);
         setLastSentAt(Date.now());
+        recordOwnReply();
         return true;
       }
 
@@ -437,6 +450,7 @@ export function TangoChatSessionProvider({
         });
         if (res?.ok) {
           setLastSentAt(Date.now());
+          recordOwnReply();
           return true;
         }
         return false;
@@ -444,7 +458,7 @@ export function TangoChatSessionProvider({
         return false;
       }
     },
-    [executionMode],
+    [executionMode, activePersona],
   );
 
   // ── Geração de Resposta por IA ─────────────────────
