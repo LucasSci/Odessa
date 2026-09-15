@@ -71,34 +71,63 @@ class AIService:
                 {"role": "user", "content": user_prompt},
             ],
             "options": {"temperature": temperature},
+            # Mantém o modelo carregado na memória por mais tempo (padrão do
+            # Ollama é ~5min). Numa live o chat pode ficar minutos sem gerar
+            # nada; o modelo descarrega e a PRÓXIMA chamada precisa recarregar
+            # do zero (10-30s p/ modelos de alguns GB) — essa fase de
+            # carregamento intermitentemente derruba a conexão do httpx
+            # (RemoteProtocolError / "Server disconnected without sending a
+            # response") mesmo bem dentro do OLLAMA_TIMEOUT configurado; curl
+            # com a mesma requisição não reproduz isso de forma confiável.
+            # Um keep_alive maior reduz a frequência do cold-start em si.
+            "keep_alive": "30m",
         }
         if json_mode:
             payload["format"] = "json"
-        try:
-            logger.info(
-                "[OLLAMA] chat request model=%s url=%s messages=%d temperature=%.2f",
-                payload["model"],
-                url,
-                len(payload["messages"]),
-                temperature,
-            )
-            with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
-                response = client.post(f"{url}/api/chat", json=payload)
-            response.raise_for_status()
-            data = response.json()
-            text = ((data.get("message") or {}).get("content") or "").strip()
-            if not text:
-                raise RuntimeError("Ollama retornou uma resposta vazia")
-            logger.info("[OLLAMA] chat response model=%s chars=%d", payload["model"], len(text))
-            return text
-        except httpx.ConnectError as exc:
-            raise RuntimeError(
-                f"Ollama indisponível em {url}. Inicie o Ollama e baixe o modelo {(model or OLLAMA_MODEL).strip()}."
-            ) from exc
-        except httpx.TimeoutException as exc:
-            raise RuntimeError(
-                f"Ollama excedeu o timeout de {OLLAMA_TIMEOUT:g}s usando o modelo {(model or OLLAMA_MODEL).strip()}."
-            ) from exc
+
+        last_exc: Exception | None = None
+        # Retry único: o disconnect intermitente acima acontece especificamente
+        # durante o carregamento a frio — na segunda tentativa o modelo já está
+        # total ou parcialmente carregado e a chamada tende a completar normal.
+        for attempt in range(2):
+            try:
+                logger.info(
+                    "[OLLAMA] chat request model=%s url=%s messages=%d temperature=%.2f attempt=%d/2",
+                    payload["model"],
+                    url,
+                    len(payload["messages"]),
+                    temperature,
+                    attempt + 1,
+                )
+                with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
+                    response = client.post(f"{url}/api/chat", json=payload)
+                response.raise_for_status()
+                data = response.json()
+                text = ((data.get("message") or {}).get("content") or "").strip()
+                if not text:
+                    raise RuntimeError("Ollama retornou uma resposta vazia")
+                logger.info("[OLLAMA] chat response model=%s chars=%d", payload["model"], len(text))
+                return text
+            except httpx.ConnectError as exc:
+                raise RuntimeError(
+                    f"Ollama indisponível em {url}. Inicie o Ollama e baixe o modelo {(model or OLLAMA_MODEL).strip()}."
+                ) from exc
+            except httpx.TimeoutException as exc:
+                raise RuntimeError(
+                    f"Ollama excedeu o timeout de {OLLAMA_TIMEOUT:g}s usando o modelo {(model or OLLAMA_MODEL).strip()}."
+                ) from exc
+            except httpx.RemoteProtocolError as exc:
+                last_exc = exc
+                logger.warning(
+                    "[OLLAMA] Conexão derrubada durante carregamento do modelo (tentativa %d/2): %s",
+                    attempt + 1,
+                    exc,
+                )
+                continue
+        raise RuntimeError(
+            f"Ollama desconectou sem responder após 2 tentativas (modelo provavelmente ainda "
+            f"carregando na memória): {last_exc}"
+        ) from last_exc
 
     def generate_ai_text_with_fallback(
         self,

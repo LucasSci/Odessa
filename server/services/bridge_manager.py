@@ -10,7 +10,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import subprocess
 import sys
+import threading
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,15 +50,15 @@ class BridgeProcessManager:
     """Gerencia o subprocesso do tango_chat.py."""
 
     def __init__(self) -> None:
-        self._process: asyncio.subprocess.Process | None = None
+        self._process: subprocess.Popen | None = None
         self._log_buffer: deque[str] = deque(maxlen=MAX_LOG_LINES)
         self._started_at: str | None = None
-        self._reader_task: asyncio.Task | None = None
+        self._reader_thread: threading.Thread | None = None
         self._adopted: bool = False
 
     @property
     def is_running(self) -> bool:
-        return self._process is not None and self._process.returncode is None
+        return self._process is not None and self._process.poll() is None
 
     @property
     def pid(self) -> int | None:
@@ -143,17 +145,33 @@ class BridgeProcessManager:
         log.info("Starting bridge: %s", " ".join(args))
 
         try:
-            self._process = await asyncio.create_subprocess_exec(
-                *args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+            # subprocess.Popen (síncrono) em vez de asyncio.create_subprocess_exec:
+            # uvicorn --reload no Windows força o worker a rodar sob
+            # SelectorEventLoop (uvicorn/loops/asyncio.py usa
+            # asyncio.SelectorEventLoop diretamente quando use_subprocess=True,
+            # ignorando qualquer asyncio.set_event_loop_policy em código de app),
+            # e SelectorEventLoop não implementa subprocess_exec — sempre falha
+            # com NotImplementedError (que além disso stringifica pra "",
+            # mascarando o erro). Popen não depende do loop, então funciona
+            # com --reload ligado ou desligado. launch_chrome_for_live() abaixo
+            # já usa o mesmo padrão.
+            self._process = subprocess.Popen(
+                args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 env=env,
+                text=True,
+                bufsize=1,
             )
         except Exception as exc:
-            return {"ok": False, "error": str(exc)}
+            log.exception("Failed to spawn bridge subprocess")
+            return {"ok": False, "error": str(exc) or type(exc).__name__}
 
         self._started_at = datetime.now(timezone.utc).isoformat()
-        self._reader_task = asyncio.create_task(self._read_output())
+        self._reader_thread = threading.Thread(
+            target=self._read_output, daemon=True, name="bridge-output-reader"
+        )
+        self._reader_thread.start()
 
         log.info("Bridge started, pid=%s", self._process.pid)
         return {"ok": True, "pid": self._process.pid}
@@ -168,15 +186,16 @@ class BridgeProcessManager:
         try:
             self._process.terminate()
             try:
-                await asyncio.wait_for(self._process.wait(), timeout=5)
-            except asyncio.TimeoutError:
+                await asyncio.to_thread(self._process.wait, timeout=5)
+            except subprocess.TimeoutExpired:
                 self._process.kill()
-                await self._process.wait()
+                await asyncio.to_thread(self._process.wait)
         except Exception as exc:
             log.warning("Error stopping bridge: %s", exc)
 
-        if self._reader_task and not self._reader_task.done():
-            self._reader_task.cancel()
+        # Thread daemon: termina sozinha quando o pipe fecha (processo morto);
+        # não precisa de cancelamento explícito como uma asyncio.Task.
+        self._reader_thread = None
 
         self._process = None
         self._started_at = None
@@ -207,20 +226,21 @@ class BridgeProcessManager:
         lines = list(self._log_buffer)[-limit:]
         return {"lines": lines, "total": len(self._log_buffer)}
 
-    async def _read_output(self) -> None:
-        """Lê stdout/stderr do processo e armazena no buffer."""
+    def _read_output(self) -> None:
+        """Lê stdout/stderr do processo (bloqueante) e armazena no buffer.
+
+        Roda numa thread dedicada porque agora usamos subprocess.Popen (as
+        pipes dele são síncronas), não mais asyncio.subprocess.
+        """
         if not self._process or not self._process.stdout:
             return
         try:
-            while True:
-                line = await self._process.stdout.readline()
-                if not line:
-                    break
-                decoded = line.decode("utf-8", errors="replace").rstrip()
+            for line in self._process.stdout:
+                decoded = line.rstrip()
                 if decoded:
                     self._log_buffer.append(decoded)
-        except asyncio.CancelledError:
-            pass
+        except (ValueError, OSError):
+            pass  # pipe fechado (processo encerrado) — encerra a thread normalmente
         except Exception as exc:
             log.warning("Error reading bridge output: %s", exc)
 
@@ -275,10 +295,19 @@ async def launch_chrome_for_live(url: str = "https://tango.me/stream/broadcast",
     if not chrome_path:
         return {"ok": False, "error": "Google Chrome não encontrado no sistema."}
 
+    # Desde o Chrome ~136, --remote-debugging-port é ignorado SILENCIOSAMENTE
+    # (nenhum erro, a flag simplesmente não tem efeito) quando o processo usa
+    # o user-data-dir PADRÃO do usuário — restrição de segurança do Google
+    # contra ativação remota de depuração no perfil principal. Precisa de um
+    # --user-data-dir dedicado (perfil só para essa depuração) pra funcionar.
+    debug_profile_dir = RUNTIME_DIR / "chrome-debug-profile"
+    debug_profile_dir.mkdir(parents=True, exist_ok=True)
+
     # Flags do Chrome para habilitar acoplamento CDP sem interferir no uso normal
     args = [
         chrome_path,
         f"--remote-debugging-port={port}",
+        f"--user-data-dir={debug_profile_dir}",
         "--no-first-run",
         "--no-default-browser-check",
         url,
@@ -346,7 +375,11 @@ def create_desktop_shortcut(url: str = "https://tango.me/stream/broadcast", port
         desktop_dir = Path.home() / "Desktop"
 
     shortcut_path = desktop_dir / "Tango Live Studio (Odessa).lnk"
-    arguments = f'--remote-debugging-port={port} "{url}"'
+    debug_profile_dir = RUNTIME_DIR / "chrome-debug-profile"
+    debug_profile_dir.mkdir(parents=True, exist_ok=True)
+    # Mesmo motivo do launch_chrome_for_live: sem --user-data-dir dedicado,
+    # o Chrome ignora --remote-debugging-port silenciosamente no perfil padrão.
+    arguments = f'--remote-debugging-port={port} --user-data-dir="{debug_profile_dir}" "{url}"'
 
     ps_script = """
     $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json
