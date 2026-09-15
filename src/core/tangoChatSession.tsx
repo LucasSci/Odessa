@@ -43,11 +43,47 @@ import {
   recordIncomingMessage,
 } from './chatConversationGovernor';
 import { recordSessionEvent } from './sessionHistory';
+import { getActivePersona, type PersonaMeta } from './personaManager';
+import { reflectOnConversation, applySelfConfig } from './personaSelfConfig';
 import type { CapturedMessage } from '../types';
 
 // ─── Config & Endpoints ──────────────────────────────────────────────
 export const BRIDGE_URL = '/tango-bridge';
 export const BRIDGE_API = '/api/v1/chat-automation/bridge';
+
+// Persiste o modo de autonomia/execução escolhido pelo usuário — sem isso o
+// modo "Autônomo" resetava para "assistido" a cada F5, tornando a conversa
+// autônoma pedida pelo usuário impossível de manter ligada de verdade.
+const AUTONOMY_STORAGE_KEY = 'odessa:tango:autonomy:v1';
+
+// A cada quantas respostas autônomas realmente enviadas a persona para e
+// reflete sobre a conversa recente para (talvez) evoluir um traço duradouro.
+// Baixo o suficiente para aprender rápido numa live, alto o suficiente para
+// não gerar uma chamada de IA extra a cada única mensagem.
+const AUTO_LEARN_EVERY_N_REPLIES = 6;
+
+function loadStoredAutonomy(): { autonomyMode: AutonomyMode; executionMode: ExecutionMode } {
+  const fallback = { autonomyMode: 'assistido' as AutonomyMode, executionMode: 'real' as ExecutionMode };
+  if (typeof window === 'undefined' || !window.localStorage) return fallback;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(AUTONOMY_STORAGE_KEY) || '{}');
+    return {
+      autonomyMode: ['off', 'assistido', 'auto'].includes(parsed.autonomyMode) ? parsed.autonomyMode : fallback.autonomyMode,
+      executionMode: ['dry_run', 'real'].includes(parsed.executionMode) ? parsed.executionMode : fallback.executionMode,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveStoredAutonomy(autonomyMode: AutonomyMode, executionMode: ExecutionMode) {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(AUTONOMY_STORAGE_KEY, JSON.stringify({ autonomyMode, executionMode }));
+  } catch {
+    // Ignora falhas de storage — o modo só deixa de persistir entre sessões.
+  }
+}
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -231,10 +267,55 @@ export function TangoChatSessionProvider({
   const [generatingForId, setGeneratingForId] = useState<string | null>(null);
 
   // ── IA & Modos ────────────────────────────────────
-  const [autonomyMode, setAutonomyMode] = useState<AutonomyMode>('assistido');
-  const [executionMode, setExecutionMode] = useState<ExecutionMode>('real');
+  // autonomyMode + executionMode vivem num único state (em vez de dois
+  // separados) para que cada setter possa persistir os DOIS valores em
+  // localStorage sem precisar ler o "outro" valor de uma ref — refs lidas
+  // dentro de um useCallback memoizado entram em conflito com a checagem de
+  // imutabilidade do React Compiler quando outro efeito escreve nelas.
+  const [autonomy, setAutonomyState] = useState(loadStoredAutonomy);
+  const autonomyMode = autonomy.autonomyMode;
+  const executionMode = autonomy.executionMode;
+  const setAutonomyMode: Dispatch<SetStateAction<AutonomyMode>> = useCallback((value) => {
+    setAutonomyState((prev) => {
+      const nextMode = typeof value === 'function' ? (value as (p: AutonomyMode) => AutonomyMode)(prev.autonomyMode) : value;
+      const next = { ...prev, autonomyMode: nextMode };
+      saveStoredAutonomy(next.autonomyMode, next.executionMode);
+      return next;
+    });
+  }, []);
+  const setExecutionMode: Dispatch<SetStateAction<ExecutionMode>> = useCallback((value) => {
+    setAutonomyState((prev) => {
+      const nextMode = typeof value === 'function' ? (value as (p: ExecutionMode) => ExecutionMode)(prev.executionMode) : value;
+      const next = { ...prev, executionMode: nextMode };
+      saveStoredAutonomy(next.autonomyMode, next.executionMode);
+      return next;
+    });
+  }, []);
+
   const [aiPrompt, setAiPrompt] = useState(() => getAiConfig().systemPrompt || '');
+  const [activePersona, setActivePersona] = useState<PersonaMeta | null>(null);
   const [lastSentAt, setLastSentAt] = useState<number>(0);
+  const autonomousReplyCountRef = useRef(0);
+
+  // ── Persona ativa: usada para (1) semear o prompt com a identidade real da
+  // persona (Barbara, etc.) em vez de um "Odessa" genérico, e (2) permitir a
+  // reflexão de auto-evolução aprender com as respostas reais do chat.
+  useEffect(() => {
+    (async () => {
+      try {
+        const { persona } = await getActivePersona();
+        setActivePersona(persona);
+        // Só semeia o prompt se o usuário não tiver customizado nada ainda
+        // (nem em AiConfigPanel, nem editando o campo aqui na sessão).
+        const hasCustomPrompt = Boolean(getAiConfig().systemPrompt?.trim());
+        if (!hasCustomPrompt && persona.personality?.trim()) {
+          setAiPrompt((prev) => (prev.trim() ? prev : persona.personality!.trim()));
+        }
+      } catch {
+        // Sem persona ativa disponível — segue com o prompt padrão da Odessa.
+      }
+    })();
+  }, []);
 
   // ── SSE ───────────────────────────────────────────
   const [sseState, setSseState] = useState<SseConnectionState>('stopped');
@@ -445,6 +526,39 @@ export function TangoChatSessionProvider({
           sourceText: msg.text,
           reply: result.reply,
         });
+
+        // Aprendizado automático: a cada N respostas autônomas enviadas de
+        // verdade, a persona reflete sobre a conversa recente e pode
+        // incorporar um traço duradouro (mesmo protocolo do PersonaChatLab,
+        // agora também alimentado pela conversa real e ao vivo do Tango).
+        autonomousReplyCountRef.current += 1;
+        if (activePersona && autonomousReplyCountRef.current % AUTO_LEARN_EVERY_N_REPLIES === 0) {
+          void (async () => {
+            try {
+              const changes = await reflectOnConversation(activePersona, [...unifiedMessages, msg].slice(-20));
+              if (!changes) return;
+              const applyResult = await applySelfConfig(
+                activePersona.id,
+                changes,
+                'conversation',
+                'Aprendizado automático da conversa ao vivo do Tango',
+              );
+              if (applyResult.ok && applyResult.applied.length) {
+                recordSessionEvent('persona.selfconfig.applied', { applied: applyResult.applied, source: 'tango-auto' });
+                // Recarrega a persona (e o prompt em uso) com a personalidade
+                // já evoluída, para que a PRÓXIMA resposta já reflita o que
+                // acabou de ser aprendido nesta mesma sessão.
+                const { persona: refreshed } = await getActivePersona();
+                setActivePersona(refreshed);
+                if (!getAiConfig().systemPrompt?.trim() && refreshed.personality?.trim()) {
+                  setAiPrompt(refreshed.personality.trim());
+                }
+              }
+            } catch {
+              // Melhor esforço — a conversa continua normalmente sem o aprendizado desta rodada.
+            }
+          })();
+        }
       }
       setReplyQueue((prev) =>
         prev.map((item) =>
@@ -454,7 +568,7 @@ export function TangoChatSessionProvider({
         ),
       );
     },
-    [unifiedMessages, aiPrompt, executeSendMessage],
+    [unifiedMessages, aiPrompt, executeSendMessage, activePersona],
   );
 
   const handleApproveReply = useCallback(

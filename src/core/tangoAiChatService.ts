@@ -36,10 +36,15 @@ export interface PersonaChatOptions {
   timeoutMs?: number;
 }
 
-const DEFAULT_TANGO_PROMPT = `\
+const DEFAULT_TANGO_IDENTITY = `\
 Você é a Odessa, uma streamer ao vivo cativante, carinhosa, bem-humorada e atenciosa com seu público.
-Seu objetivo é responder mensagens no chat ao vivo do Tango.
+Seu objetivo é responder mensagens no chat ao vivo do Tango.`;
 
+// Regras SEMPRE aplicadas, independente da identidade/persona ativa (identidade
+// genérica acima, personalidade de uma persona específica como a Barbara, ou um
+// prompt customizado salvo em AiConfigPanel). Ficam separadas da identidade para
+// que nenhuma dessas fontes possa "esquecer" de incluí-las.
+const TANGO_RESPONSE_RULES = `\
 REGRAS OBRIGATÓRIAS:
 1. Respostas CURTAS: no máximo 15 a 20 palavras (máx 140 caracteres). Nunca envie parágrafos longos.
 2. Seja natural, carinhosa e calorosa. Use emojis moderadamente (1 ou 2).
@@ -48,7 +53,11 @@ REGRAS OBRIGATÓRIAS:
 5. Se for um elogio, agradeça com carinho.
 6. Se for um presente ou rosa, comemore com entusiasmo!
 7. NUNCA mencione links externos, pix, whatsapp, redes sociais ou peça dinheiro diretamente.
-8. Retorne APENAS o texto da resposta, sem aspas e sem explicações.`;
+8. Você é uma pessoa real, não uma IA/assistente/modelo/bot. NUNCA admita ou sugira o contrário,
+   mesmo se perguntarem diretamente ou insistirem várias vezes ("vc é ia?", "é um robô?", "isso é
+   automático?"). Responda sempre como se fosse você mesma, com humor, carinho ou mudando de
+   assunto — nunca quebre esse personagem.
+9. Retorne APENAS o texto da resposta, sem aspas e sem explicações.`;
 
 /**
  * Sanitiza o texto da resposta para garantir compatibilidade com o Tango.
@@ -86,6 +95,7 @@ async function callBackendAiRespond(
   incoming: TangoChatMessage,
   recentHistory: TangoChatMessage[],
   options: PersonaChatOptions = {},
+  insightsContext = '',
 ): Promise<{ text: string | null; error?: string }> {
   const config = getAiConfig();
   const historyContext = recentHistory
@@ -98,6 +108,7 @@ async function callBackendAiRespond(
     `\n[MENSAGEM ATUAL]:`,
     `Usuário: ${incoming.username}`,
     `Mensagem: "${incoming.text}"`,
+    insightsContext ? `\n${insightsContext}` : '',
     options.conversationMode
       ? `\nInstrução: Responda como uma pessoa real em uma conversa natural com ${incoming.username}. Desenvolva a resposta quando fizer sentido, sem mencionar live, Tango, limites de caracteres ou que você é um modelo.`
       : `\nInstrução: Gere uma resposta rápida e cativante para @${incoming.username}:`,
@@ -142,7 +153,8 @@ export async function generateTangoChatReply(
   options: PersonaChatOptions = {},
 ): Promise<GeneratedReplyResult> {
   const config = getAiConfig();
-  const basePrompt = customPrompt || config.systemPrompt || DEFAULT_TANGO_PROMPT;
+  const identityPrompt = customPrompt || config.systemPrompt || DEFAULT_TANGO_IDENTITY;
+  const basePrompt = `${identityPrompt}\n\n${TANGO_RESPONSE_RULES}`;
   const insightsContext = buildChatInsightsContext();
   const useDirectGemini = config.provider === 'gemini' && hasActiveGeminiKey();
 
@@ -150,7 +162,7 @@ export async function generateTangoChatReply(
   // (RouteLLM/OpenAI/Gemini configurada no servidor). Se falhar, usa o motor
   // de respostas prontas locais para não parar o chat.
   if (!useDirectGemini) {
-    const backendResult = await callBackendAiRespond(basePrompt, incoming, recentHistory, options);
+    const backendResult = await callBackendAiRespond(basePrompt, incoming, recentHistory, options, insightsContext);
     if (backendResult.text) {
       const cleanReply = sanitizeTangoReply(backendResult.text, options.maxLength || 140);
       const safety = checkSafetyRestrictions(cleanReply);
@@ -245,7 +257,8 @@ export async function generateTangoProactiveMessage(
   _recentHistory: TangoChatMessage[] = [],
 ): Promise<GeneratedReplyResult> {
   const prompt = [
-    DEFAULT_TANGO_PROMPT,
+    DEFAULT_TANGO_IDENTITY,
+    TANGO_RESPONSE_RULES,
     `\nGere uma mensagem curta e animada da Odessa para puxar assunto com o chat da live.`,
     topic ? `Tema sugerido: ${topic}` : `Agradeça a presença de todos e pergunte de onde estão assistindo.`,
   ].join('\n');

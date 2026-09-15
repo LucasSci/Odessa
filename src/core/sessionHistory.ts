@@ -16,7 +16,8 @@ export type SessionEventType =
   | 'video.generated'
   | 'ai.reply'
   | 'ai.reply.sent'
-  | 'message.sent';
+  | 'message.sent'
+  | 'persona.selfconfig.applied';
 
 export interface SessionEvent {
   id: string;

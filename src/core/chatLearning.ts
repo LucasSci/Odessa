@@ -18,6 +18,8 @@ import type { LiveEvent } from '../types';
 import { extractUsername } from '../lib/memory';
 import { globalRAGMemory } from './longTermMemory';
 import { callGeminiText } from './aiDecisionContract';
+import { apiUrl } from '../lib/api';
+import { getAiConfig, hasActiveGeminiKey } from './aiConfig';
 
 const STORAGE_KEY = 'odessa:chat-learning:v1';
 
@@ -238,8 +240,39 @@ frases, em português do Brasil) sobre: o que o público mais pede, o que ele cu
 mais aparecem. Seja direto e útil para guiar a apresentadora. Sem markdown.`;
 
 /**
+ * Chama a IA generativa do backend (POST /api/v1/ai/respond) — mesma rota usada
+ * pelo chat do Tango, que já resolve Ollama local sem precisar de chave Gemini.
+ * Usado como alternativa ao callGeminiText quando não há chave Gemini no cliente
+ * (caso comum: operador usa só o modelo local via Ollama).
+ */
+async function callBackendAiText(systemPrompt: string, userMessage: string): Promise<string | null> {
+  const config = getAiConfig();
+  try {
+    const res = await fetch(apiUrl('/ai/respond'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        persona_prompt: systemPrompt,
+        chat_context: '',
+        user_prompt: userMessage,
+        temperature: 0.4,
+        local_model_url: config.localModelUrl,
+        local_model_name: config.localModelName,
+        provider: 'ollama',
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { response?: string };
+    return data.response?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Gera (sob demanda) um resumo em linguagem natural do aprendizado e o salva no
- * store. Retorna o texto, ou null se não houver chave de IA.
+ * store. Retorna o texto, ou null se a IA (Gemini ou Ollama local) não responder.
  */
 export async function summarizeChatLearning(): Promise<string | null> {
   const s = load();
@@ -254,7 +287,9 @@ export async function summarizeChatLearning(): Promise<string | null> {
     `Tópicos (palavra(frequência)): ${topics.join(', ') || 'nenhum'}`,
   ].join('\n\n');
 
-  const text = await callGeminiText(SUMMARY_PROMPT, userMessage, { temperature: 0.4, maxOutputTokens: 220 });
+  const text = hasActiveGeminiKey()
+    ? await callGeminiText(SUMMARY_PROMPT, userMessage, { temperature: 0.4, maxOutputTokens: 220 })
+    : await callBackendAiText(SUMMARY_PROMPT, userMessage);
   if (!text) return null;
 
   const next = load();
