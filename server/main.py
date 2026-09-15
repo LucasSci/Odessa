@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -30,6 +31,16 @@ async def lifespan(app: FastAPI):
     logger.info("Modular API mounted at /api/v1")
     logger.info("Odessa Backend is ready.")
 
+    # Mantém o Ollama aquecido em segundo plano (ver ollama_keepalive_loop) —
+    # evita o cold-start de 15-35s na primeira resposta depois de um tempo
+    # sem mensagens no chat.
+    keepalive_task = None
+    try:
+        from server.services.ai_service import ollama_keepalive_loop
+        keepalive_task = asyncio.create_task(ollama_keepalive_loop())
+    except Exception as exc:
+        logger.warning("Erro ao iniciar keep-alive do Ollama: %s", exc)
+
     if os.getenv("ODESSA_AUTOSTART_BRIDGE", "0") == "1":
         try:
             from server.services.bridge_manager import bridge_manager, load_bridge_config
@@ -56,6 +67,9 @@ async def lifespan(app: FastAPI):
             logger.info("Bridge do Tango encerrada no shutdown.")
     except Exception as exc:
         logger.warning("Erro ao encerrar bridge no shutdown: %s", exc)
+
+    if keepalive_task is not None:
+        keepalive_task.cancel()
 
 
 app = FastAPI(

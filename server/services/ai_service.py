@@ -118,6 +118,12 @@ class AIService:
         import httpx
 
         url = (base_url or OLLAMA_BASE_URL).strip().rstrip("/")
+        # num_predict limita o tamanho da geração — as respostas do chat já são
+        # pedidas curtas (poucas frases), então 220 tokens só existe como teto
+        # de segurança contra o modelo divagar e demorar mais que o necessário.
+        # json_mode (decisões da Diretora) retorna um objeto maior, por isso
+        # ganha um teto bem mais folgado em vez do mesmo limite do chat.
+        num_predict = 700 if json_mode else 220
         payload: dict[str, Any] = {
             "model": (model or OLLAMA_MODEL).strip(),
             "stream": False,
@@ -125,7 +131,7 @@ class AIService:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "options": {"temperature": temperature},
+            "options": {"temperature": temperature, "num_predict": num_predict},
             # Mantém o modelo carregado na memória por mais tempo (padrão do
             # Ollama é ~5min). Numa live o chat pode ficar minutos sem gerar
             # nada; o modelo descarrega e a PRÓXIMA chamada precisa recarregar
@@ -293,3 +299,35 @@ class AIService:
 
 # Singleton instance
 ai_service = AIService()
+
+
+async def ollama_keepalive_loop(interval_seconds: int = 20 * 60) -> None:
+    """Mantém o modelo do Ollama carregado na memória em segundo plano.
+
+    O modelo descarrega depois de ~30min sem uso (keep_alive configurado em
+    generate_ollama_text), e uma live pode ficar bastante tempo entre
+    mensagens — a PRÓXIMA mensagem então paga um cold-start de 15-35s antes
+    de a persona conseguir responder. Chamando /api/generate com um prompt
+    vazio periodicamente (bem abaixo dos 30min) o modelo nunca chega a
+    descarregar durante uma sessão ativa do backend, e só a primeiríssima
+    mensagem depois de o backend subir paga esse custo.
+    """
+    import asyncio
+    import httpx
+    from server.config import AI_PROVIDER, OLLAMA_BASE_URL, OLLAMA_MODEL
+
+    if AI_PROVIDER not in ("ollama", "local"):
+        return
+
+    url = OLLAMA_BASE_URL.strip().rstrip("/")
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(
+                    f"{url}/api/generate",
+                    json={"model": OLLAMA_MODEL, "prompt": "", "keep_alive": "30m"},
+                )
+            logger.info("[OLLAMA] keep-alive ping ok (model=%s)", OLLAMA_MODEL)
+        except Exception as exc:
+            logger.info("[OLLAMA] keep-alive ping falhou (Ollama pode estar desligado): %s", exc)
+        await asyncio.sleep(interval_seconds)

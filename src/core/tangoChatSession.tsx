@@ -212,6 +212,8 @@ export type TangoChatSessionValue = {
   replyQueue: TangoReplyItem[];
   setReplyQueue: Dispatch<SetStateAction<TangoReplyItem[]>>;
   generatingForId: string | null;
+  /** Timestamp (Date.now()) de quando a geração atual começou, ou null se ociosa. */
+  aiGenerationStartedAt: number | null;
   handleGenerateReplyForMessage: (msg: TangoChatMessage) => Promise<void>;
   handleApproveReply: (item: TangoReplyItem) => Promise<void>;
   handleDiscardReply: (id: string) => void;
@@ -265,6 +267,11 @@ export function TangoChatSessionProvider({
   const [messages, setMessages] = useState<TangoChatMessage[]>([]);
   const [replyQueue, setReplyQueue] = useState<TangoReplyItem[]>([]);
   const [generatingForId, setGeneratingForId] = useState<string | null>(null);
+  // Timestamp de quando a IA começou a gerar a resposta ATUAL (manual ou
+  // autônoma) — null quando ociosa. Não dá pra saber uma % real de progresso
+  // (o Ollama não expõe isso na chamada não-streaming que usamos), mas o
+  // tempo decorrido já responde "ela está escrevendo ou travou?" na prática.
+  const [aiGenerationStartedAt, setAiGenerationStartedAt] = useState<number | null>(null);
 
   // ── IA & Modos ────────────────────────────────────
   // autonomyMode + executionMode vivem num único state (em vez de dois
@@ -465,6 +472,7 @@ export function TangoChatSessionProvider({
   const handleGenerateReplyForMessage = useCallback(
     async (msg: TangoChatMessage) => {
       setGeneratingForId(msg.timestamp || msg.text);
+      setAiGenerationStartedAt(Date.now());
       try {
         const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt);
         recordSessionEvent('ai.reply', {
@@ -490,6 +498,7 @@ export function TangoChatSessionProvider({
         setReplyQueue((prev) => [newItem, ...prev].slice(0, 30));
       } finally {
         setGeneratingForId(null);
+        setAiGenerationStartedAt(null);
       }
     },
     [unifiedMessages, aiPrompt],
@@ -508,7 +517,15 @@ export function TangoChatSessionProvider({
       });
       if (!decision.allowed) return;
 
-      const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt);
+      setGeneratingForId(msg.timestamp || msg.text);
+      setAiGenerationStartedAt(Date.now());
+      let result: Awaited<ReturnType<typeof generateTangoChatReply>>;
+      try {
+        result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt);
+      } finally {
+        setGeneratingForId(null);
+        setAiGenerationStartedAt(null);
+      }
       if (!result.ok || result.blocked || !result.reply) return;
 
       recordSessionEvent('ai.reply', {
@@ -852,6 +869,7 @@ export function TangoChatSessionProvider({
     replyQueue,
     setReplyQueue,
     generatingForId,
+    aiGenerationStartedAt,
     handleGenerateReplyForMessage,
     handleApproveReply,
     handleDiscardReply,
