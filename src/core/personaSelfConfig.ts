@@ -8,7 +8,7 @@
  * mudanças no backend e faz a reflexão de evolução automática.
  */
 import { apiUrl } from '../lib/api';
-import { getAiConfig, hasActiveGeminiKey } from './aiConfig';
+import { getAiConfig, resolveEffectiveProvider } from './aiConfig';
 import type { PersonaMeta } from './personaManager';
 import type { TangoChatMessage } from './tangoAiChatService';
 
@@ -145,7 +145,7 @@ Se você não incorporou nada novo, responda apenas: <autoconfig>{}</autoconfig>
         temperature: 0.5,
         local_model_url: config.localModelUrl,
         local_model_name: config.localModelName,
-        provider: hasActiveGeminiKey() && config.provider === 'gemini' ? 'gemini' : 'ollama',
+        provider: resolveEffectiveProvider(config),
       }),
       signal: AbortSignal.timeout(60_000),
     });

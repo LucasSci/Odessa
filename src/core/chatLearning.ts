@@ -19,7 +19,7 @@ import { extractUsername } from '../lib/memory';
 import { globalRAGMemory } from './longTermMemory';
 import { callGeminiText } from './aiDecisionContract';
 import { apiUrl } from '../lib/api';
-import { getAiConfig, hasActiveGeminiKey } from './aiConfig';
+import { getAiConfig, hasActiveGeminiKey, resolveEffectiveProvider } from './aiConfig';
 
 const STORAGE_KEY = 'odessa:chat-learning:v1';
 
@@ -258,7 +258,7 @@ async function callBackendAiText(systemPrompt: string, userMessage: string): Pro
         temperature: 0.4,
         local_model_url: config.localModelUrl,
         local_model_name: config.localModelName,
-        provider: 'ollama',
+        provider: resolveEffectiveProvider(config),
       }),
       signal: AbortSignal.timeout(60_000),
     });

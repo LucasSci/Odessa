@@ -81,10 +81,11 @@ async def gemini_proxy(request: GeminiProxyRequest):
 @router.get("/status")
 async def ai_status():
     """Retorna o provedor configurado e se o Ollama local está acessível."""
-    from server.config import AI_PROVIDER
+    from server.config import AI_PROVIDER, ANTHROPIC_API_KEY, ANTHROPIC_MODEL
 
     ollama = await _check_ollama()
-    return {"provider": AI_PROVIDER, "ollama": ollama}
+    claude = {"configured": bool(ANTHROPIC_API_KEY), "model": ANTHROPIC_MODEL}
+    return {"provider": AI_PROVIDER, "ollama": ollama, "claude": claude}
 
 
 @router.post("/ollama/connect")

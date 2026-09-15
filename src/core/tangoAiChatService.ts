@@ -9,7 +9,7 @@
  */
 
 import { callGeminiText } from './aiDecisionContract';
-import { getAiConfig, hasActiveGeminiKey } from './aiConfig';
+import { getAiConfig, hasActiveGeminiKey, resolveEffectiveProvider } from './aiConfig';
 import { apiUrl } from '../lib/api';
 import { PUBLIC_REPLY_BLOCKED_TERMS } from './liveAutonomyGovernor';
 import { buildChatInsightsContext } from './chatLearning';
@@ -145,10 +145,7 @@ async function callBackendAiRespond(
         temperature: 0.7,
         local_model_url: getAiConfig().localModelUrl,
         local_model_name: getAiConfig().localModelName,
-        // Sem uma chave Gemini, Ollama é o provedor real padrão. Isso evita
-        // que uma configuração antiga salva como "mock" ou "auto" esconda a
-        // falha atrás da resposta fixa local.
-        provider: hasActiveGeminiKey() && config.provider === 'gemini' ? 'gemini' : 'ollama',
+        provider: resolveEffectiveProvider(config),
       }),
       // 20s era curto demais: o Ollama descarrega da memória depois de ficar
       // ocioso (keep_alive de 30min no backend, mas mensagens do chat costumam

@@ -155,8 +155,8 @@ export function AiConfigPanel() {
                 <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
                   Provedor
                 </span>
-                <div className="flex gap-1.5">
-                  {(['auto', 'gemini', 'local', 'mock'] as AiProvider[]).map((p) => (
+                <div className="flex flex-wrap gap-1.5">
+                  {(['auto', 'gemini', 'claude', 'local', 'mock'] as AiProvider[]).map((p) => (
                     <button
                       key={p}
                       onClick={() => update({ provider: p })}
@@ -167,10 +167,16 @@ export function AiConfigPanel() {
                           : 'border-white/10 bg-black/40 text-slate-500 hover:text-slate-300',
                       )}
                     >
-                      {p === 'auto' ? 'Auto' : p === 'gemini' ? 'Gemini' : p === 'local' ? 'Local' : 'Mock'}
+                      {p === 'auto' ? 'Auto' : p === 'gemini' ? 'Gemini' : p === 'claude' ? 'Claude' : p === 'local' ? 'Local' : 'Mock'}
                     </button>
                   ))}
                 </div>
+                {config.provider === 'claude' && (
+                  <p className="mt-1.5 text-[10px] text-slate-500 leading-relaxed">
+                    A chave da Anthropic é configurada no servidor (arquivo .env,
+                    ANTHROPIC_API_KEY) — não precisa colar nada aqui.
+                  </p>
+                )}
               </div>
               <Input
                 label="Gemini API Key"

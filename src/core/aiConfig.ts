@@ -34,7 +34,7 @@ Regras:
 - Para eventos de baixa relevância use intent: "idle_maintenance" e wait
 `;
 
-export type AiProvider = 'auto' | 'gemini' | 'local' | 'mock';
+export type AiProvider = 'auto' | 'gemini' | 'local' | 'mock' | 'claude';
 
 /**
  * Nível de autonomia da Diretora de IA.
@@ -122,7 +122,7 @@ export function getAiConfig(): AiLocalConfig {
   return {
     geminiKey: typeof stored.geminiKey === 'string' ? stored.geminiKey : DEFAULTS.geminiKey,
     systemPrompt: typeof stored.systemPrompt === 'string' ? stored.systemPrompt : DEFAULTS.systemPrompt,
-    provider: (['auto','gemini','local','mock'] as AiProvider[]).includes(storedProvider as AiProvider)
+    provider: (['auto','gemini','local','mock','claude'] as AiProvider[]).includes(storedProvider as AiProvider)
       ? (storedProvider as AiProvider)
       : DEFAULTS.provider,
     confidenceThreshold: typeof stored.confidenceThreshold === 'number'
@@ -181,6 +181,21 @@ export function getEffectiveGeminiKey(): string {
 /** True se há uma chave Gemini disponível (build ou localStorage). */
 export function hasActiveGeminiKey(): boolean {
   return Boolean(getEffectiveGeminiKey());
+}
+
+/**
+ * Resolve qual provedor enviar ao backend em /ai/respond, dado o que o
+ * usuário escolheu em AiConfigPanel. Centralizado aqui porque vários
+ * chamadores (chat do Tango, laboratório, aprendizado, auto-evolução)
+ * precisam do mesmo critério: Claude e Gemini só se o usuário escolheu
+ * explicitamente E (no caso do Gemini) há uma chave disponível — a chave
+ * do Claude fica só no servidor, então não há checagem client-side pra ela.
+ * Caso contrário, cai em Ollama (motor local padrão).
+ */
+export function resolveEffectiveProvider(config: AiLocalConfig = getAiConfig()): 'ollama' | 'gemini' | 'claude' {
+  if (config.provider === 'claude') return 'claude';
+  if (config.provider === 'gemini' && hasActiveGeminiKey()) return 'gemini';
+  return 'ollama';
 }
 
 /**

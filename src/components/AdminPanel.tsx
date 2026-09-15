@@ -15,6 +15,7 @@ import { cn } from '../lib/utils';
 type AiStatus = {
   provider?: string;
   ollama?: { reachable?: boolean; model?: string; modelInstalled?: boolean; url?: string };
+  claude?: { configured?: boolean; model?: string };
 };
 
 type OllamaConnectResult = {
@@ -74,6 +75,7 @@ async function runDiagnostics(): Promise<DiagnosticsResult> {
 
   const aiData = ai.data;
   const ollama = aiData?.ollama;
+  const claude = aiData?.claude;
   const aiOnline = Boolean(ollama?.reachable);
   const services: ServiceHealth[] = [
     { name: 'API Odessa', status: personas.ok ? 'online' : 'offline', latencyMs: personas.latencyMs, detail: personas.error },
@@ -82,6 +84,11 @@ async function runDiagnostics(): Promise<DiagnosticsResult> {
       status: aiOnline ? (ollama?.modelInstalled ? 'online' : 'degraded') : 'offline',
       latencyMs: ai.latencyMs,
       detail: aiOnline ? (ollama?.modelInstalled ? undefined : 'modelo não instalado') : 'inacessível',
+    },
+    {
+      name: `Claude (Anthropic${claude?.model ? ` · ${claude.model}` : ''})`,
+      status: claude?.configured ? 'online' : 'offline',
+      detail: claude?.configured ? undefined : 'ANTHROPIC_API_KEY não configurada no .env',
     },
     {
       name: 'OBS Studio',

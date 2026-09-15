@@ -7,6 +7,8 @@ from google import genai
 from server.config import (
     OPENAI_API_KEY,
     GEMINI_API_KEY,
+    ANTHROPIC_API_KEY,
+    ANTHROPIC_MODEL,
     OPENAI_TEXT_MODEL,
     OPENAI_BASE_URL,
     OLLAMA_BASE_URL,
@@ -16,13 +18,66 @@ from server.config import (
 
 logger = logging.getLogger("odessa.ai")
 
+ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_API_VERSION = "2023-06-01"
+
+
 class AIService:
     def __init__(self):
         self.openai_client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL) if OPENAI_API_KEY else None
         self.gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+        self.anthropic_api_key = ANTHROPIC_API_KEY or None
 
-        if not self.openai_client and not self.gemini_client:
-            logger.warning("No AI providers (OpenAI or Gemini) are configured!")
+        if not self.openai_client and not self.gemini_client and not self.anthropic_api_key:
+            logger.warning("No AI providers (OpenAI, Gemini or Claude) are configured!")
+
+    def generate_claude_text(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        *,
+        model: str | None = None,
+        max_tokens: int = 1024,
+    ) -> str:
+        """Gera texto via Claude (Anthropic Messages API)."""
+        import httpx
+
+        if not self.anthropic_api_key:
+            raise RuntimeError("ANTHROPIC_API_KEY não está configurada no backend")
+
+        payload: dict[str, Any] = {
+            "model": (model or ANTHROPIC_MODEL).strip(),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_prompt}],
+        }
+        headers = {
+            "x-api-key": self.anthropic_api_key,
+            "anthropic-version": ANTHROPIC_API_VERSION,
+            "content-type": "application/json",
+        }
+
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                response = client.post(ANTHROPIC_API_URL, json=payload, headers=headers)
+            if response.status_code == 401:
+                raise RuntimeError("Chave da Anthropic (ANTHROPIC_API_KEY) inválida ou revogada.")
+            response.raise_for_status()
+            data = response.json()
+            blocks = data.get("content") or []
+            text = "".join(block.get("text", "") for block in blocks if block.get("type") == "text").strip()
+            if not text:
+                raise RuntimeError("Claude retornou uma resposta vazia")
+            return text
+        except httpx.ConnectError as exc:
+            raise RuntimeError("Não foi possível conectar à API da Anthropic.") from exc
+        except httpx.TimeoutException as exc:
+            raise RuntimeError("A API da Anthropic excedeu o tempo limite.") from exc
+        except httpx.HTTPStatusError as exc:
+            detail = exc.response.text[:200] if exc.response is not None else str(exc)
+            raise RuntimeError(f"Claude retornou HTTP {exc.response.status_code}: {detail}") from exc
 
     def generate_openai_text(
         self,
@@ -151,7 +206,9 @@ class AIService:
         # Priority 1: Configured Provider
         providers_to_try = []
         if selected_provider in {"ollama", "local"}:
-            providers_to_try = ["ollama", "gemini", "openai"]
+            providers_to_try = ["ollama", "claude", "gemini", "openai"]
+        elif selected_provider == "claude":
+            providers_to_try = ["claude", "gemini", "openai"]
         elif selected_provider == "gemini":
             providers_to_try = ["gemini", "openai"]
         elif selected_provider == "openai":
@@ -177,6 +234,19 @@ class AIService:
                 except Exception as exc:
                     logger.warning("[AI ROUTER] Ollama failed: %s", exc)
                     errors.append(f"Ollama: {exc}")
+
+            if provider == "claude" and self.anthropic_api_key:
+                try:
+                    text = self.generate_claude_text(
+                        system_prompt,
+                        user_prompt,
+                        temperature,
+                    )
+                    if text.strip():
+                        return text, "claude"
+                except Exception as exc:
+                    logger.warning("[AI ROUTER] Claude failed: %s", exc)
+                    errors.append(f"Claude: {exc}")
 
             if provider == "gemini" and self.gemini_client:
                 try:

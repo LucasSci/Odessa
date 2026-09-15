@@ -13,6 +13,8 @@ load_dotenv(SERVER_DIR / ".env", override=False)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001").strip()
 # Base URL do provedor OpenAI-compatível. Padrão: RouteLLM da Abacus.AI.
 # Para usar a OpenAI oficial, defina OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://routellm.abacus.ai/v1").strip().rstrip("/")
