@@ -4,6 +4,7 @@
  * Cliente TS para os endpoints do pipeline de geração de vídeo em tempo real
  * (/api/video-gen/*). Tipos espelham o estado retornado pelo backend.
  */
+import { apiUrl } from '../lib/api';
 
 export interface VideoGenInteraction {
   kind: string;
@@ -71,7 +72,7 @@ export interface VideoGenState {
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetch(apiUrl(url), {
     headers: { 'Content-Type': 'application/json' },
     ...init,
   });

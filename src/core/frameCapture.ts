@@ -7,6 +7,7 @@
  * canvas e devolve um data URL. O chatToTriggerBridge chama captureActiveFrame
  * ao rotear mensagens, enviando o frame para POST /api/video-gen/frame.
  */
+import { apiUrl } from '../lib/api';
 
 const FRAME_ENDPOINT = '/api/video-gen/frame';
 
@@ -57,7 +58,7 @@ export async function sendActiveFrame(): Promise<boolean> {
   const dataUrl = await captureActiveFrame();
   if (!dataUrl) return false;
   try {
-    const res = await fetch(FRAME_ENDPOINT, {
+    const res = await fetch(apiUrl(FRAME_ENDPOINT), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ dataUrl }),

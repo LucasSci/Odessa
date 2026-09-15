@@ -12,6 +12,7 @@
  */
 import type { TangoChatMessage } from './tangoAiChatService';
 import { sendActiveFrame } from './frameCapture';
+import { apiUrl } from '../lib/api';
 
 const INGEST_URL = '/api/automation/ingest';
 const MIN_INTERVAL_MS = 800;
@@ -44,10 +45,17 @@ export async function routeChatToTriggers(msg: TangoChatMessage): Promise<void> 
   lastIngestAt = now;
 
   // Captura o frame base do vídeo em reprodução para o pipeline de geração.
-  void sendActiveFrame();
+  // Precisa terminar ANTES do ingest: o backend pode decidir gerar vídeo de
+  // forma síncrona dentro do próprio request de ingest (ver
+  // automation_service._feed_video_gen -> video_gen_service.auto_generate,
+  // que roda quase imediatamente numa thread em background). Se o frame
+  // ainda não tiver sido salvo nesse momento, a geração falha com "Nenhum
+  // frame base disponível" — daí o disparo em paralelo (sem await) ser uma
+  // condição de corrida, não só uma otimização de latência.
+  await sendActiveFrame();
 
   try {
-    await fetch(INGEST_URL, {
+    await fetch(apiUrl(INGEST_URL), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
