@@ -10,10 +10,10 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
+from server.config import GEMINI_API_KEY, OPENAI_API_KEY  # noqa: F401 (mantido p/ compat de import)
 from server.core import auth as auth_core
 from server.api.v1.api import api_router
 from server.api.v1.endpoints import auth, obs, webhooks, proxy as proxy_router, agent as agent_router
-from server.config import GEMINI_API_KEY, OPENAI_API_KEY  # noqa: F401 (mantido p/ compat de import)
 
 # Logging configuration
 logging.basicConfig(
