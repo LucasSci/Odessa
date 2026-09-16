@@ -80,6 +80,7 @@ describe('chat automation cloud API simulation', () => {
       .createHash('sha256')
       .update(adminPassword)
       .digest('hex');
+    process.env.ODESSA_SESSION_SECRET = 'test-session-secret';
     process.env.ODESSA_AGENT_TOKEN = agentToken;
     process.env.ODESSA_COOKIE_SECURE = 'false';
     cloudStore().__ODESSA_CLOUD_STORE = {
