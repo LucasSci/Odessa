@@ -55,14 +55,14 @@ VIAddVersionKey "LegalCopyright" "${APP_PUBLISHER}"
 !define MUI_UNWELCOMEFINISHPAGE_BITMAP_NOSTRETCH
 
 !define MUI_WELCOMEPAGE_TITLE "Bem-vindo(a) ao Odessa Studio"
-!define MUI_WELCOMEPAGE_TEXT "Este assistente vai instalar o Odessa Studio nesta maquina.$\n$\nTudo que o app precisa para rodar (backend, interface e o navegador Chromium usado pela integracao com o Tango) ja vem embutido no instalador -- nao precisa instalar Python, Node nem nenhuma outra dependencia de desenvolvedor.$\n$\nOllama (IA local) e OBS Studio (transmissao) sao aplicativos separados; se nao estiverem instalados, o proprio Odessa Studio vai abrir a pagina de download deles na primeira vez que voce rodar.$\n$\nClique em Avancar para continuar."
+!define MUI_WELCOMEPAGE_TEXT "Este assistente vai instalar (ou atualizar, se ja houver uma instalacao) o Odessa Studio nesta maquina.$\n$\nTudo que o app precisa para rodar (backend, interface e o navegador Chromium usado pela integracao com o Tango) ja vem embutido no instalador -- nao precisa instalar Python, Node nem nenhuma outra dependencia de desenvolvedor.$\n$\nSe voce ja tem o Odessa Studio instalado, seus dados (.env, sessao) sao preservados -- so os arquivos do programa sao atualizados.$\n$\nOllama (IA local) e OBS Studio (transmissao) sao aplicativos separados; se nao estiverem instalados, o proprio Odessa Studio vai abrir a pagina de download deles na primeira vez que voce rodar.$\n$\nClique em Avancar para continuar."
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 
 !define MUI_FINISHPAGE_TITLE "Instalacao concluida"
-!define MUI_FINISHPAGE_TEXT "O Odessa Studio foi instalado com sucesso.$\n$\nLembrete: o Ollama (IA local) e o OBS Studio (transmissao) sao instalados a parte -- o app verifica e abre a pagina de download deles automaticamente se faltar algum."
+!define MUI_FINISHPAGE_TEXT "O Odessa Studio foi instalado (ou atualizado) com sucesso.$\n$\nLembrete: o Ollama (IA local) e o OBS Studio (transmissao) sao instalados a parte -- o app verifica e abre a pagina de download deles automaticamente se faltar algum."
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_EXE_TARGET}"
 !define MUI_FINISHPAGE_RUN_TEXT "Abrir o Odessa Studio agora"
 !insertmacro MUI_PAGE_FINISH
@@ -71,6 +71,32 @@ VIAddVersionKey "LegalCopyright" "${APP_PUBLISHER}"
 !insertmacro MUI_UNPAGE_INSTFILES
 
 !insertmacro MUI_LANGUAGE "PortugueseBR"
+
+; Deteccao de instalacao existente: roda antes de qualquer pagina aparecer.
+; InstallDirRegKey ja pre-preenche o diretorio se achar a chave, mas isso
+; sozinho nao evita falha ao sobrescrever arquivos em uso -- se o usuario
+; roda o instalador de novo (ex.: apos uma atualizacao de codigo) com o app
+; ainda aberto, o File /r abaixo falha tentando sobrescrever DLLs/exe do
+; Python que o backend ja tem carregado.
+;
+; Encerra so o(s) processo(s) python.exe cujo caminho executavel esta DENTRO
+; desta instalacao (nunca um Python de outro programa ou do dev). Escreve um
+; .ps1 temporario em vez de tentar aninhar aspas powershell/cmd/nsis direto
+; na linha de comando -- essa combinacao ja causou bugs sutis de escaping
+; nesta mesma sessao (ver historico do build-runtime.ps1/em-dash).
+Function .onInit
+    ReadRegStr $0 HKCU "Software\OdessaStudio" "InstallDir"
+    StrCmp $0 "" done
+    IfFileExists "$0\uninstall.exe" 0 done
+        DetailPrint "Instalacao existente detectada em $0 -- encerrando processo em uso antes de atualizar..."
+        FileOpen $1 "$TEMP\odessa-stop-running.ps1" w
+        FileWrite $1 'Get-Process -Name python -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like "$0*" } | Stop-Process -Force -ErrorAction SilentlyContinue$\r$\n'
+        FileClose $1
+        nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -File "$TEMP\odessa-stop-running.ps1"'
+        Delete "$TEMP\odessa-stop-running.ps1"
+        Sleep 800
+    done:
+FunctionEnd
 
 Section "Instalar"
     SetOutPath "$INSTDIR"

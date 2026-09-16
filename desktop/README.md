@@ -61,6 +61,21 @@ ficam versionadas no repo; só é preciso rodar de novo se quiser mudar o visual
 .\desktop\generate-installer-art.ps1
 ```
 
+## Atualizar uma instalação existente
+
+Rodar o mesmo instalador de novo numa máquina que já tem o Odessa Studio
+**atualiza em vez de duplicar**: o `InstallDirRegKey` reaproveita a mesma
+pasta, e `File /r` sobrescreve só os arquivos do programa — nada em
+`$INSTDIR\.env` é tocado (segredos/sessão continuam os mesmos).
+
+Se o app estiver aberto no momento, o instalador detecta a instalação
+existente (`Function .onInit` em `odessa.nsi`) e encerra o processo Python
+rodando a partir daquela pasta especificamente (nunca um Python de outro
+programa) antes de copiar os arquivos novos — evita falha por DLL/exe em uso.
+Isso torna o ciclo "mudei o código → `.\desktop\build-installer.ps1
+-SkipRuntimeBuild` → rodar o instalador de novo" seguro mesmo com o app
+aberto.
+
 ## Assinatura do instalador
 
 O instalador é assinado com um certificado **autoassinado** próprio do
