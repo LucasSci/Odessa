@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from server.config import VIDEO_TRIGGER_COOLDOWN_MS
 from server.core.config_manager import _normalize_config, load_persona_config, save_persona_config
 from server.core.video_files import get_video_path
 
@@ -17,6 +18,12 @@ WORKFLOW_KEYS = {
     "mediaTracks",
     "transitions",
 }
+
+# Teto de gatilhos que o pipeline de video-gen pode criar sozinho por persona
+# (sem gate de aprovacao humana) -- mesmo espirito do MAX_TRAITS em
+# persona_selfconfig.py. Evita que uma live longa acumule dezenas de
+# gatilhos gerados; para no lugar de evictar/apagar conteudo ja existente.
+MAX_GENERATED_TRIGGERS = 30
 
 
 class WorkflowService:
@@ -419,12 +426,18 @@ class WorkflowService:
         video_path: Any,
         prompt: str = "",
         persona_id: str = "",
+        video_type: str | None = None,
+        interactions: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Registra um vídeo gerado no fluxo da persona ativa.
 
         Adiciona o vídeo a config["videos"] (group="generated"), cria um
         flowNode e uma flowConnection a partir do nó idle, e salva/atualiza os
-        serviços em runtime.
+        serviços em runtime. Quando `video_type`/`interactions` (o buffer de
+        chat que originou o vídeo) são informados, também tenta sintetizar um
+        gatilho de verdade pra essa conexão — sem isso o vídeo gerado nunca
+        seria reativado por uma futura mensagem/presente parecido, só por
+        reprodução manual.
         """
         config = load_persona_config()
         videos = config.get("videos", [])
@@ -467,6 +480,7 @@ class WorkflowService:
         config.setdefault("flowNodes", []).append(flow_node)
 
         # Conexão a partir do nó idle (se existir) para o nó gerado.
+        trigger = None
         if idle_node:
             connection = {
                 "id": f"flow-generated-{int(time.time() * 1000)}",
@@ -479,6 +493,16 @@ class WorkflowService:
                 "connectionSettings": {"transitionMs": 220, "fadeMode": "crossfade", "previewTailSec": 2.0, "previewHeadSec": 2.0},
                 "generated": True,
             }
+            trigger = self._synthesize_and_append_trigger(
+                config,
+                video_type=video_type,
+                interactions=interactions,
+                node_id=node_id,
+                video_id=video_id,
+                label=label,
+            )
+            if trigger:
+                connection["triggerId"] = trigger["id"]
             config.setdefault("flowConnections", []).append(connection)
 
         canvas_ids = config.get("flowCanvasVideoIds", [])
@@ -496,7 +520,86 @@ class WorkflowService:
             "videoId": video_id,
             "nodeId": node_id,
             "label": label,
+            "triggerId": trigger["id"] if trigger else "",
         }
+
+    def _synthesize_and_append_trigger(
+        self,
+        config: dict[str, Any],
+        *,
+        video_type: str | None,
+        interactions: list[dict[str, Any]] | None,
+        node_id: str,
+        video_id: str,
+        label: str,
+    ) -> dict[str, Any] | None:
+        """Tenta criar e anexar um TriggerEntry de verdade pro vídeo recém-
+        gerado, a partir do buffer de interações que o originou. Retorna None
+        (sem criar nada) quando não há sinal confiável, o teto de gatilhos
+        gerados já foi atingido, ou já existe um gatilho equivalente — nesses
+        casos a conexão fica com triggerId vazio, exatamente como hoje.
+        """
+        try:
+            from server.services.automation.trigger_synthesis import synthesize_trigger_condition
+
+            condition = synthesize_trigger_condition(video_type, interactions)
+        except Exception:  # noqa: BLE001
+            condition = None
+        if not condition:
+            return None
+
+        triggers = config.setdefault("triggers", [])
+        generated_count = sum(1 for t in triggers if t.get("generated"))
+        if generated_count >= MAX_GENERATED_TRIGGERS:
+            return None
+
+        # Anti-poluição: não empilha em cima de um gatilho (humano ou
+        # gerado) já existente com condição equivalente.
+        if condition["eventType"] == "gift":
+            gift_key = condition["conditions"]["giftKey"]
+            already_covered = any(
+                t.get("enabled")
+                and t.get("eventType") == "gift"
+                and (t.get("conditions") or {}).get("giftKey") == gift_key
+                for t in triggers
+            )
+            if already_covered:
+                return None
+        else:
+            keyword = condition["conditions"]["keyword"]
+            for t in triggers:
+                if not t.get("enabled") or t.get("eventType") != "comment":
+                    continue
+                existing_keyword = (t.get("conditions") or {}).get("keyword", "")
+                if existing_keyword and (keyword in existing_keyword or existing_keyword in keyword):
+                    return None
+
+        trigger_id = f"trigger-generated-{video_id}"
+        existing_ids = {t.get("id") for t in triggers}
+        if trigger_id in existing_ids:
+            trigger_id = f"{trigger_id}-{int(time.time() * 1000)}"
+
+        trigger = {
+            "id": trigger_id,
+            "name": f"Auto: {condition.get('label') or label}",
+            "enabled": True,
+            "eventType": condition["eventType"],
+            "conditions": condition["conditions"],
+            "actions": [
+                {
+                    "type": "play_video",
+                    "nodeId": node_id,
+                    "videoId": video_id,
+                    "returnToIdle": True,
+                }
+            ],
+            "priority": 0,
+            "cooldown_ms": VIDEO_TRIGGER_COOLDOWN_MS,
+            "generated": True,
+            "generatedAt": self._now(),
+        }
+        triggers.append(trigger)
+        return trigger
 
     def _refresh_runtime_config(self) -> None:
         try:

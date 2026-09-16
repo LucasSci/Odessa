@@ -108,6 +108,12 @@ class VideoGenService:
             "id": str(uuid.uuid4()),
             "promptId": prompt_record.get("id"),
             "prompt": prompt_record.get("prompt", ""),
+            # videoType/interactions: sinais do buffer que originou o prompt,
+            # repassados adiante so pra sintese de gatilho em _register_in_flow
+            # (ver server/services/automation/trigger_synthesis.py) -- sem
+            # isso o video gerado nao teria como ganhar um gatilho de verdade.
+            "videoType": prompt_record.get("videoType"),
+            "interactions": prompt_record.get("interactions") or [],
             "status": "queued",
             "framePath": str(base_image) if base_image else None,
             "referenceImagePaths": [str(p) for p in ref_images],
@@ -207,7 +213,14 @@ class VideoGenService:
                 output_path.unlink()
         except OSError:
             pass
-        self._register_in_flow(video_id, saved_path, item.get("prompt", ""), pid)
+        self._register_in_flow(
+            video_id,
+            saved_path,
+            item.get("prompt", ""),
+            pid,
+            video_type=item.get("videoType"),
+            interactions=item.get("interactions"),
+        )
         self._update_item(
             item["id"],
             {
@@ -220,7 +233,16 @@ class VideoGenService:
         )
         self._record_history(item, pid, ok=True, video_id=video_id, video_path=str(saved_path))
 
-    def _register_in_flow(self, video_id: str, video_path: Path, prompt: str, persona_id: str) -> None:
+    def _register_in_flow(
+        self,
+        video_id: str,
+        video_path: Path,
+        prompt: str,
+        persona_id: str,
+        *,
+        video_type: Optional[str] = None,
+        interactions: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
         try:
             from server.services.workflow_service import workflow_service
 
@@ -229,6 +251,8 @@ class VideoGenService:
                 video_path=video_path,
                 prompt=prompt,
                 persona_id=persona_id,
+                video_type=video_type,
+                interactions=interactions,
             )
         except Exception as exc:  # noqa: BLE001
             logger.error("Falha ao registrar vídeo gerado no fluxo: %s", exc)
