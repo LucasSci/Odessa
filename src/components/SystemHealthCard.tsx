@@ -1,6 +1,6 @@
 /**
  * SystemHealthCard — card de saúde do sistema com status de múltiplos serviços.
- * Usado em StagePanel e CaptureStudio para diagnóstico unificado.
+ * Usado em StagePanel para diagnóstico unificado.
  */
 import { cn } from '../lib/utils';
 

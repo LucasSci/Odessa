@@ -12,7 +12,7 @@
  * 4. Ver quais vídeos do roteiro já estão configurados para a persona ativa.
  * 5. Copiar o template do roteiro para criar vídeos de uma nova persona.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Brain,
   Check,
@@ -45,6 +45,7 @@ import {
 } from '../core/personaManager';
 import { saveAiConfig } from '../core/aiConfig';
 import PersonaVisualBoard from './PersonaVisualBoard';
+import PersonaAssetManager from './PersonaAssetManager';
 import TransmissionConfigPanel from './TransmissionConfigPanel';
 import { VIDEO_ROTEIRO } from '../core/videoRoteiro';
 
@@ -99,6 +100,12 @@ export function PersonasPanel() {
   const [personaConfig, setPersonaConfig] = useState<PersonaConfigData | null>(null);
   const [configLoading, setConfigLoading] = useState(false);
   const [showRoteiro, setShowRoteiro] = useState(true);
+  const detailRef = useRef<HTMLDivElement | null>(null);
+
+  const handleManage = useCallback((id: string) => {
+    setSelectedId(id);
+    detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -191,7 +198,7 @@ export function PersonasPanel() {
       )}
 
       {/* Painel Visual: rosto, cenário atual e peças do kit de cada persona */}
-      <PersonaVisualBoard />
+      <PersonaVisualBoard onManage={handleManage} />
 
       <div className="grid gap-4 lg:grid-cols-12">
         {/* ─── Lista de Personas ─── */}
@@ -209,7 +216,7 @@ export function PersonasPanel() {
         </div>
 
         {/* ─── Detalhe da Persona + Roteiro ─── */}
-        <div className="lg:col-span-8 space-y-4">
+        <div ref={detailRef} className="lg:col-span-8 space-y-4">
           {selectedPersona ? (
             <>
               <PersonaDetail
@@ -218,6 +225,14 @@ export function PersonasPanel() {
                 onActivate={() => handleActivate(selectedPersona.id)}
                 onChanged={refresh}
                 onError={setError}
+              />
+
+              {/* Assets visuais, templates de prompt e Content Studio da persona
+                  selecionada — antes só era alcançável em Configurações → Diretora
+                  IA & Persona → toggle "Assets visuais" (5 cliques, 4 níveis). */}
+              <PersonaAssetManager
+                personaId={selectedPersona.id}
+                personaName={selectedPersona.name}
               />
 
               {/* Configuração de transmissão única por persona */}

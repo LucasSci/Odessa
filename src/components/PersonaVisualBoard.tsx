@@ -24,7 +24,14 @@ const COLUMN_TITLE_CLS =
 const PLACEHOLDER_CLS =
   'flex aspect-[3/4] w-full items-center justify-center rounded-xl border border-dashed border-white/15 bg-black/20 px-2 text-center text-[10px] leading-tight text-slate-600';
 
-export default function PersonaVisualBoard() {
+export default function PersonaVisualBoard({
+  onManage,
+}: {
+  /** Chamado quando o usuário quer editar os assets desta persona — deve
+   * selecioná-la e rolar até o PersonaAssetManager, em vez de deixar o card
+   * como beco sem saída. */
+  onManage?: (personaId: string) => void;
+}) {
   const [personas, setPersonas] = useState<PersonaMeta[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,14 +63,20 @@ export default function PersonaVisualBoard() {
       )}
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         {personas.map((p) => (
-          <PersonaVisualCard key={p.id} persona={p} />
+          <PersonaVisualCard key={p.id} persona={p} onManage={onManage} />
         ))}
       </div>
     </div>
   );
 }
 
-function PersonaVisualCard({ persona }: { persona: PersonaMeta }) {
+function PersonaVisualCard({
+  persona,
+  onManage,
+}: {
+  persona: PersonaMeta;
+  onManage?: (personaId: string) => void;
+}) {
   const [assets, setAssets] = useState<PersonaAssets>(EMPTY_ASSETS);
   const [visual, setVisual] = useState<PersonaVisual>({
     activeScenarioId: null,
@@ -128,6 +141,15 @@ function PersonaVisualCard({ persona }: { persona: PersonaMeta }) {
       {/* Header: nome + seletor de cenário atual */}
       <div className="mb-3 flex items-center justify-between gap-2">
         <h4 className="truncate text-sm font-bold text-white">{persona.name}</h4>
+        {onManage && (
+          <button
+            type="button"
+            onClick={() => onManage(persona.id)}
+            className="shrink-0 text-[11px] font-medium text-sky-400 hover:text-sky-300"
+          >
+            Gerenciar →
+          </button>
+        )}
         {visual.scenarios.length > 0 ? (
           <select
             value={scenario?.id ?? ''}

@@ -40,7 +40,6 @@ import type { AuditTimelineEntry, AutopilotCycle, CapturedMessage } from './type
 import { Badge, Button, Card } from './components/ui';
 import { AiConfigPanel } from './components/AiConfigPanel';
 import { SettingsPanel } from './components/SettingsPanel';
-import PersonaSelector from './components/PersonaSelector';
 import TopPersonaSelector from './components/TopPersonaSelector';
 import { PersonasPanel } from './components/PersonasPanel';
 import { AdminPanel } from './components/AdminPanel';
@@ -351,7 +350,7 @@ function tabFromPanel(panel: AdvancedPanel): TabKey {
   if (panel === 'runtime') return 'flow';
   if (panel === 'settings') return 'settings';
   if (panel === 'canvas') return 'settings';
-  if (panel === 'persona') return 'settings';
+  if (panel === 'persona') return 'personas';
   return 'live';
 }
 
@@ -592,7 +591,6 @@ export default function OdessaLiveCenter({
       const target = tabFromPanel(requestedPanel);
       setActiveTab(target);
       if (requestedPanel === 'canvas') setSettingsSubTab('canvas');
-      else if (requestedPanel === 'persona') setSettingsSubTab('ai');
     }, 0);
     return () => window.clearTimeout(timer);
   }, [requestedPanel]);
@@ -1048,7 +1046,7 @@ export default function OdessaLiveCenter({
                 )}
               >
                 <Brain style={{ width: 13, height: 13 }} />
-                Diretora IA & Persona
+                Diretora IA
               </button>
               <button
                 onClick={() => setSettingsSubTab('canvas')}
@@ -1079,10 +1077,7 @@ export default function OdessaLiveCenter({
               )}
               {settingsSubTab === 'ai' && (
                 <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                  <PersonaSelector />
-                  <div className="mt-4">
-                    <AiConfigPanel />
-                  </div>
+                  <AiConfigPanel />
                 </div>
               )}
               {settingsSubTab === 'canvas' && (
