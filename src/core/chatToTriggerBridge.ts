@@ -25,11 +25,26 @@ function messageKey(msg: TangoChatMessage): string {
   return `${msg.username}|${msg.text}|${msg.timestamp ?? ''}`;
 }
 
+export interface RouteChatToTriggersOptions {
+  /**
+   * Quando false, o backend ainda alimenta o buffer de video-gen e tenta
+   * sintetizar gatilhos (process_raw_text roda isso incondicionalmente),
+   * mas NÃO executa ações "ao vivo" (OBS, webhook, TTS) via
+   * _execute_pending_actions. Usado pelo laboratório "Conversar" — permite
+   * testar a síntese de gatilho num ambiente seguro sem live/OBS/bridge.
+   * Sessões ao vivo continuam com o padrão (true).
+   */
+  execute?: boolean;
+}
+
 /**
  * Roteia uma mensagem do chat para o trigger engine do backend.
  * Não lança exceções: falhas de rede são silenciosas para não quebrar o chat.
  */
-export async function routeChatToTriggers(msg: TangoChatMessage): Promise<void> {
+export async function routeChatToTriggers(
+  msg: TangoChatMessage,
+  options: RouteChatToTriggersOptions = {},
+): Promise<void> {
   if (!msg || !msg.text) return;
 
   const key = messageKey(msg);
@@ -63,7 +78,7 @@ export async function routeChatToTriggers(msg: TangoChatMessage): Promise<void> 
         source: 'chat_api',
         kind: 'chat',
         metadata: { username: msg.username },
-        execute: true,
+        execute: options.execute ?? true,
       }),
     });
   } catch {

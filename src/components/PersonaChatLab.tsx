@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, MessageCircle, Send, Sparkles, User, Wand2 } from 'lucide-react';
 import { listPersonas, type PersonaMeta } from '../core/personaManager';
 import { generateTangoChatReply, type TangoChatMessage } from '../core/tangoAiChatService';
+import { routeChatToTriggers } from '../core/chatToTriggerBridge';
 import {
   applySelfConfig,
   buildSelfConfigPrompt,
@@ -91,6 +92,17 @@ export function PersonaChatLab() {
       ...current,
       [selectedId]: [...history, userMessage],
     }));
+
+    // Alimenta o mesmo pipeline de buffer/video-gen/síntese de gatilho que a
+    // live de verdade usa (execute:false evita ações "ao vivo" como OBS/
+    // webhook, mas o backend roda process_raw_text() incondicionalmente —
+    // buffer, geração de vídeo e o gatilho recém-sintetizado funcionam
+    // normalmente aqui). É o que torna a seção "fechar o ciclo do vídeo"
+    // testável no Laboratório sem precisar de uma live real.
+    void routeChatToTriggers(
+      { username: 'Voce', text, timestamp: userMessage.timestamp },
+      { execute: false },
+    );
 
     try {
       const systemPrompt = [
