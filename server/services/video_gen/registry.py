@@ -18,11 +18,16 @@ _PROVIDERS: Dict[str, Any] = {}
 
 
 def _load_providers() -> Dict[str, Any]:
-    from server.services.video_gen.providers import PlaceholderProvider, RouteLLMVideoProvider
+    from server.services.video_gen.providers import (
+        HiggsfieldVideoProvider,
+        PlaceholderProvider,
+        RouteLLMVideoProvider,
+    )
 
     return {
         "placeholder": PlaceholderProvider,
         "routellm": RouteLLMVideoProvider,
+        "higgsfield": HiggsfieldVideoProvider,
     }
 
 
