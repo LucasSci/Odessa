@@ -195,6 +195,16 @@ class TangoChatBridge:
         self._page_url: str = ""
         self._observer_reinject_task: asyncio.Task[None] | None = None
         self._observer_page: Page | None = None
+        # O bridge/start (autoconnect=True, o padrao) ja dispara um connect()
+        # interno; o wizard do frontend TAMBEM chama /connect logo em seguida,
+        # sem esperar o primeiro terminar (handleRunFullAutoSetup). Sem esse
+        # lock, as duas chamadas passavam pela checagem "ja esta conectado"
+        # antes de qualquer uma delas terminar, e podiam rodar concorrentes --
+        # a que terminasse por ultimo (normalmente STANDALONE, mais lenta que
+        # CDP) sobrescrevia silenciosamente a conexao da outra, entao o modo
+        # CDP que o usuario pediu explicitamente ("Acoplar a Aba Aberta") as
+        # vezes virava standalone sem nenhum erro visivel.
+        self._connect_lock: asyncio.Lock = asyncio.Lock()
 
     # == Conectar =====================================================
 
@@ -207,52 +217,57 @@ class TangoChatBridge:
           "cdp"        -> so CDP
           "standalone" -> so standalone
         """
-        if self._status == "connected":
-            log.warning("Ja esta conectado.")
-            return
+        async with self._connect_lock:
+            # Reconfere depois de adquirir o lock: se outra chamada concorrente
+            # (ex.: autoconnect do bridge/start + o /connect explicito do
+            # wizard) ja terminou de conectar enquanto esperavamos, nao ha o
+            # que fazer aqui.
+            if self._status == "connected":
+                log.warning("Ja esta conectado.")
+                return
 
-        self._status = "connecting"
-        self._error_message = ""
+            self._status = "connecting"
+            self._error_message = ""
 
-        try:
-            log.info("Iniciando Playwright ...")
-            self._playwright = await async_playwright().start()
+            try:
+                log.info("Iniciando Playwright ...")
+                self._playwright = await async_playwright().start()
 
-            # Tenta CDP primeiro (se nao forcou standalone)
-            cdp_ok = False
-            if force_mode != "standalone":
-                cdp_ok = await self._try_cdp()
+                # Tenta CDP primeiro (se nao forcou standalone)
+                cdp_ok = False
+                if force_mode != "standalone":
+                    cdp_ok = await self._try_cdp()
 
-            # Se CDP falhou e nao forcou CDP, tenta standalone
-            if not cdp_ok and force_mode != "cdp":
-                await self._try_standalone()
+                # Se CDP falhou e nao forcou CDP, tenta standalone
+                if not cdp_ok and force_mode != "cdp":
+                    await self._try_standalone()
 
-            if not self._page:
-                raise RuntimeError(
-                    "Nao conseguiu conectar por nenhum modo. "
-                    "Verifique se o Chrome tem CDP ativo ou se o "
-                    "Playwright Chromium esta instalado."
-                )
+                if not self._page:
+                    raise RuntimeError(
+                        "Nao conseguiu conectar por nenhum modo. "
+                        "Verifique se o Chrome tem CDP ativo ou se o "
+                        "Playwright Chromium esta instalado."
+                    )
 
-            self._page_url = self._page.url
-            log.info("Pagina conectada: %s (modo %s)", self._page_url, self._mode)
+                self._page_url = self._page.url
+                log.info("Pagina conectada: %s (modo %s)", self._page_url, self._mode)
 
-            # Injeta imediatamente um observer resiliente. O chat do Tango pode
-            # aparecer apenas depois do login/entrada na live; bloquear aqui por
-            # 30 segundos também impedia a UI de abrir o stream da tela.
-            self._watch_page_navigations()
-            await self._inject_observer()
+                # Injeta imediatamente um observer resiliente. O chat do Tango pode
+                # aparecer apenas depois do login/entrada na live; bloquear aqui por
+                # 30 segundos também impedia a UI de abrir o stream da tela.
+                self._watch_page_navigations()
+                await self._inject_observer()
 
-            self._status = "connected"
-            self._started_at = datetime.now(timezone.utc).isoformat()
-            log.info("Bridge conectada! Modo: %s | URL: %s", self._mode, self._page_url)
+                self._status = "connected"
+                self._started_at = datetime.now(timezone.utc).isoformat()
+                log.info("Bridge conectada! Modo: %s | URL: %s", self._mode, self._page_url)
 
-        except Exception as exc:
-            self._status = "error"
-            self._error_message = str(exc)
-            log.exception("Erro ao conectar:")
-            await self._cleanup()
-            raise
+            except Exception as exc:
+                self._status = "error"
+                self._error_message = str(exc)
+                log.exception("Erro ao conectar:")
+                await self._cleanup()
+                raise
 
     async def _try_cdp(self) -> bool:
         """Tenta conectar via CDP ao Chrome ja aberto."""
@@ -261,13 +276,27 @@ class TangoChatBridge:
             self._browser = await self._playwright.chromium.connect_over_cdp(
                 CDP_URL, timeout=8000
             )
-            self._page = await self._find_tango_page()
+
+            # O Chrome de depuracao acabou de ser lancado com a URL do Tango
+            # (ver launch_chrome_for_live em bridge_manager.py) e pode ainda
+            # estar navegando (aba em about:blank ou em redirecionamento) no
+            # instante exato em que o CDP conecta -- uma busca unica aqui
+            # falhava nesse caso, mesmo com o Chrome certo aberto, porque
+            # nenhuma pagina ainda batia com o padrao nem tinha uma URL "util"
+            # (about:blank e explicitamente ignorada em _find_tango_page).
+            # Tenta por alguns segundos antes de desistir.
+            for tentativa in range(10):
+                self._page = await self._find_tango_page()
+                if self._page:
+                    break
+                await asyncio.sleep(0.5)
+
             if self._page:
                 self._mode = "cdp"
                 log.info("CDP conectou! Aba do Tango encontrada.")
                 return True
             else:
-                log.warning("CDP conectou mas nenhuma aba do Tango encontrada.")
+                log.warning("CDP conectou mas nenhuma aba do Tango encontrada (apos varias tentativas).")
                 # Nao limpa browser CDP aqui — vamos tentar standalone
                 self._browser = None
                 return False
