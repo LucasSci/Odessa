@@ -9,9 +9,10 @@ Source no OBS.
 
 | Documento | Conteúdo |
 |---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Arquitetura do sistema, os 3 runtimes, fluxo de dados e decisões |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Arquitetura do sistema, os runtimes, fluxo de dados e decisões |
 | [SETUP.md](SETUP.md) | Setup e execução em desenvolvimento local |
-| [DEPLOY.md](DEPLOY.md) | Build e deploy na Hostinger |
+| [../desktop/README.md](../desktop/README.md) | Instalador desktop Windows — como gerar, assinar e distribuir |
+| [DEPLOY.md](DEPLOY.md) | Build e deploy na Hostinger — **legado, não usado atualmente** |
 | [API.md](API.md) | Referência dos endpoints da API (Python + Node) |
 | [OBS-TANGO.md](OBS-TANGO.md) | Configuração do OBS e da bridge do Tango |
 | [PERSONAS.md](PERSONAS.md) | Perfis de persona e conversa automática com IA |
@@ -38,8 +39,8 @@ Acesse o painel em `http://localhost:3000`.
 |---|---|
 | Frontend | React 19 + Vite + Tailwind CSS 4 + TypeScript |
 | Backend (dev/desktop) | Python FastAPI / uvicorn |
-| Backend (produção) | Node.js (`hostinger-server.mjs` + `api/`) |
+| Backend (produção web, legado) | Node.js (`hostinger-server.mjs` + `api/`) — Hostinger não está mais em uso |
 | Bridge do Tango | Python aiohttp (porta 7555) + Playwright/CDP |
-| IA generativa | RouteLLM da Abacus.AI (compatível com OpenAI) |
+| IA generativa | Ollama (local) / RouteLLM da Abacus.AI / Gemini / OpenAI |
 | Persistência | KV em disco (`~/odessa-data/`) + SQLite (`server/runtime/`) |
-| Hospedagem | Hostinger Business Web Hosting |
+| Distribuição | Instalador desktop Windows (`desktop/`) |

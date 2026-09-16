@@ -1,4 +1,9 @@
-# Deploy na Hostinger
+# Deploy na Hostinger (legado)
+
+> **Este documento é histórico.** A Hostinger não está mais em uso — a forma
+> atual de distribuir a Odessa é o [instalador desktop](../desktop/README.md)
+> (Windows). O conteúdo abaixo fica como referência caso o deploy web volte a
+> ser necessário no futuro.
 
 A Odessa roda na Hostinger como um Node.js Web App único:
 

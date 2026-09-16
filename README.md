@@ -39,13 +39,28 @@ vídeo.
 |---|---|
 | Frontend | React 19 + Vite + Tailwind CSS 4 + TypeScript |
 | Backend (dev/desktop) | Python FastAPI / uvicorn |
-| Backend (produção) | Node.js (`hostinger-server.mjs` + `api/`) |
+| Backend (produção web, legado) | Node.js (`hostinger-server.mjs` + `api/`) — Hostinger não está mais em uso |
 | Bridge do Tango | Python aiohttp (porta 7555) + Playwright/CDP |
-| IA generativa | RouteLLM da Abacus.AI (compatível com OpenAI) |
+| IA generativa | Ollama (local) / RouteLLM da Abacus.AI / Gemini / OpenAI |
 | Persistência | KV em disco (`~/odessa-data/`) + SQLite (`server/runtime/`) |
-| Hospedagem | Hostinger Business Web Hosting |
+| Distribuição | Instalador desktop Windows (`desktop/`) |
 
-## Início rápido
+## Aplicativo desktop (Windows)
+
+A forma atual de rodar a Odessa é o **instalador desktop** — um `.exe`
+autocontido que empacota o backend Python, o frontend e o runtime completo
+(interpretador + dependências + Chromium do Playwright). Quem instala não
+precisa ter Python, Node ou nada de dev na máquina.
+
+```powershell
+.\desktop\build-installer.ps1
+```
+
+Veja [desktop/README.md](desktop/README.md) para o passo a passo completo
+(como gerar, assinar e o que não vem empacotado — Ollama e OBS Studio são
+downloads separados).
+
+## Início rápido (desenvolvimento)
 
 ```powershell
 # 1. Setup (instala dependências, cria venv e .env)
@@ -63,9 +78,10 @@ A documentação completa está em [`docs/`](docs/README.md):
 
 | Documento | Conteúdo |
 |---|---|
-| [Arquitetura](docs/ARCHITECTURE.md) | Arquitetura, os 3 runtimes, fluxo de dados |
+| [Arquitetura](docs/ARCHITECTURE.md) | Arquitetura, os runtimes, fluxo de dados |
 | [Setup](docs/SETUP.md) | Setup e execução em desenvolvimento local |
-| [Deploy](docs/DEPLOY.md) | Build e deploy na Hostinger |
+| [Instalador desktop](desktop/README.md) | Como gerar/assinar o instalador Windows |
+| [Deploy (legado)](docs/DEPLOY.md) | Build e deploy na Hostinger — não usado atualmente |
 | [API](docs/API.md) | Referência dos endpoints |
 | [OBS + Tango](docs/OBS-TANGO.md) | Configuração do OBS e da bridge do Tango |
 | [Personas](docs/PERSONAS.md) | Perfis de persona e conversa com IA |
@@ -89,8 +105,9 @@ odessa/
 │   ├── core/               # auth, config_manager, persona_manager
 │   ├── services/           # AI, OCR, vídeo, automação, workflow
 │   └── data/               # personas.json, persona_config.json
-├── api/                    # Handlers Node de produção (Hostinger)
+├── api/                    # Handlers Node de produção web (Hostinger, legado)
 ├── tango_chat/             # Bridge do Tango (porta 7555)
+├── desktop/                # Instalador desktop Windows (build, assinatura, launcher)
 ├── scripts/                # Scripts utilitários (PowerShell, Python)
 ├── docs/                   # Documentação do projeto
 └── assets/                 # Branding e vídeos locais (dev)
@@ -117,8 +134,9 @@ npm run simulate:live # Simulação de live
 ## Observações
 
 - **Não suba `.env` nem arquivos com senhas** para o repositório.
-- **O processo Node.js na Hostinger não reinicia automaticamente** após deploy
-  estático. Mudanças de API só entram em vigor após reinício manual via hPanel.
+- **Hostinger não está mais em uso** — o backend Node de produção (`api/`,
+  `hostinger-server.mjs`) e [docs/DEPLOY.md](docs/DEPLOY.md) ficam como
+  referência histórica. A distribuição atual é o instalador desktop.
 - **Agendamentos rodam client-side** — a `PersonaOverlay.tsx` lê
   `public/odessa-schedules.json` e dispara os gatilhos sem depender do processo
   Node.js do servidor.

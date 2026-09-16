@@ -8,20 +8,22 @@ e em tempo real. O OBS aponta uma **Browser Source** para o overlay, e o Odessa
 gerencia qual vídeo tocar — incluindo looping do idle, transições suaves e
 retorno ao idle após cada reação.
 
-## Os 3 runtimes
+## Os runtimes
 
-O projeto tem **três formas de execução** que compartilham o mesmo frontend,
-mas usam backends diferentes:
+O projeto tem **formas de execução** que compartilham o mesmo frontend, mas
+usam backends diferentes:
 
 | Runtime | Backend | Uso |
 |---|---|---|
 | **Local dev** | Python FastAPI (`server/`) porta 8000 + Vite porta 3000 | Desenvolvimento |
-| **Produção (Hostinger)** | Node.js (`hostinger-server.mjs` + `api/[...path].js`) | Deploy web |
+| **Desktop (instalador Windows)** | Python FastAPI embutido (runtime próprio, ver `desktop/`) | Uso atual — distribuição para o usuário final |
+| **Produção web (Hostinger, legado)** | Node.js (`hostinger-server.mjs` + `api/[...path].js`) | Não usado atualmente — mantido como referência |
 
-> **Nota de arquitetura:** as features recentes (bridge do Tango, personas,
-> conversa com IA via RouteLLM) foram construídas **apenas no backend Python**.
-> O backend canônico recomendado é o **Python FastAPI**; o handler Node de
-> produção é legado e deve ser aposentado gradualmente.
+> **Nota de arquitetura:** todas as features (bridge do Tango, personas,
+> conversa com IA, geração de vídeo) são construídas **apenas no backend
+> Python**. O backend canônico é o **Python FastAPI** — é ele que roda tanto
+> em desenvolvimento quanto dentro do instalador desktop. O handler Node de
+> produção web é legado (Hostinger não está mais em uso).
 
 ## Fluxo de dados (chat → reação)
 
@@ -84,8 +86,9 @@ Odessa/
 │   ├── core/                 # auth, config_manager, persona_manager, database
 │   ├── services/             # ai, obs, tts, video, automation/, ocr/
 │   └── data/                 # personas.json, persona_config.json
-├── api/                      # Handlers Node de produção (Hostinger)
+├── api/                      # Handlers Node de produção web (Hostinger, legado)
 ├── tango_chat/               # Bridge do Tango (aiohttp porta 7555)
+├── desktop/                  # Instalador desktop Windows (build, assinatura, launcher)
 ├── scripts/                  # Scripts utilitários (PowerShell, Python)
 ├── docs/                     # Documentação do projeto
 ├── assets/                   # Branding e vídeos locais (dev)

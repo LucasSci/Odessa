@@ -5,6 +5,18 @@ Todas as mudanças relevantes do projeto Odessa.
 ## [1.1.0] — Em desenvolvimento
 
 ### Adicionado
+- **Instalador desktop (Windows)** — `OdessaStudioSetup.exe` autocontido:
+  empacota o backend Python, o frontend buildado e um runtime Python completo
+  (interpretador + dependências + Chromium do Playwright). Quem instala não
+  precisa de Python, Node ou dependências de dev. Interface do instalador em
+  Modern UI 2 do NSIS, assinado com certificado próprio do projeto. É a forma
+  atual de distribuir a Odessa (a Hostinger não está mais em uso).
+  (`desktop/`, ver `desktop/README.md`)
+- **Detecção explícita de idioma nas respostas do chat** — heurística leve
+  (sem dependências) para português/inglês/espanhol; quando detecta com
+  confiança, instrui a IA a responder OBRIGATORIAMENTE naquele idioma, em vez
+  de depender só do modelo local se autocorrigir.
+  (`src/core/tangoAiChatService.ts`)
 - **Laboratório local de conversa por persona** — nova aba no
   `OdessaLiveCenter` para testar personalidades e respostas da IA sem iniciar
   live, OBS, bridge ou OCR. Cada persona mantém seu próprio histórico de teste;
@@ -57,6 +69,35 @@ Todas as mudanças relevantes do projeto Odessa.
   respostas prontas locais. Agora usa a RouteLLM configurada.
 - Bridge do Tango apontando para site de teste (`pt.anotepad.com`) — corrigido
   para o Tango com seletores corretos.
+- Eco da própria fala e repetição de palavras nas respostas — o observer da
+  bridge não distinguia mensagem de espectador de mensagem que a própria
+  persona acabou de enviar; adicionada janela de supressão de auto-eco.
+  (`src/core/tangoChatSession.tsx`, `server/services/ai_service.py`)
+- **Chromium do instalador desktop não era encontrado em tempo de execução**
+  — faltava repassar `PLAYWRIGHT_BROWSERS_PATH=0` ao subir o backend
+  instalado; a bridge falhava ao abrir o navegador mesmo com o Chromium
+  corretamente empacotado. (`desktop/launcher/start-odessa.ps1`)
+- **Instalador assinado falhava com "Installer integrity check has failed"**
+  — assinar o `.exe` depois de compilado mudava seu tamanho e quebrava a
+  checagem de CRC interna do NSIS; desligada via `CRCCheck off` (a própria
+  assinatura Authenticode já garante a integridade). (`desktop/odessa.nsi`)
+- **Acoplamento via CDP ao Chrome real às vezes não encontrava a aba do
+  Tango** — a busca rodava uma única vez logo após conectar, sem esperar a
+  página terminar de carregar; e duas tentativas de conexão concorrentes
+  (autoconnect + acoplamento manual) podiam se sobrescrever silenciosamente.
+  (`tango_chat/tango_chat.py`)
+- **Causa raiz de "a bridge conecta mas o chat não aparece" no app
+  empacotado**: o caminho `/tango-bridge` (usado pelo frontend pra falar com
+  a bridge — conectar, enviar mensagem, e principalmente o stream de
+  mensagens em tempo real) só tinha proxy no servidor de desenvolvimento do
+  Vite; nunca existiu no build de produção. Adicionado proxy reverso real
+  (HTTP + WebSocket) em `server/main.py`.
+- IA sempre respondia em português, ignorando o idioma da mensagem do chat
+  — ver "Detecção explícita de idioma" em Adicionado, acima.
+- Removidos segredos padrão fixos no código (`ODESSA_SESSION_SECRET`,
+  `ODESSA_AGENT_TOKEN`) tanto no backend Python quanto no legado Node/Hostinger
+  — agora o backend recusa iniciar se não forem configurados via variável de
+  ambiente. (`server/core/auth.py`, `api/[...path].js`, `api/ai/decide.js`)
 
 ## [1.0.0] — Versão inicial
 
