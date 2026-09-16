@@ -75,7 +75,7 @@ export default function TopPersonaSelector({ onPersonaChanged }: Props) {
         )}
         title={active?.description || active?.name || 'Selecionar persona'}
       >
-        <Users style={{ width: 14, height: 14 }} className="text-violet-400" />
+        <Users style={{ width: 14, height: 14 }} className="text-sky-400" />
         <span className="max-w-[120px] truncate">{active?.name || activeId || '—'}</span>
         <ChevronDown
           style={{ width: 14, height: 14 }}
@@ -94,7 +94,7 @@ export default function TopPersonaSelector({ onPersonaChanged }: Props) {
               className={cn(
                 'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
                 p.id === activeId
-                  ? 'bg-violet-500/15 text-violet-200'
+                  ? 'bg-sky-500/15 text-sky-200'
                   : 'text-slate-300 hover:bg-white/[0.06]',
               )}
             >
@@ -104,7 +104,7 @@ export default function TopPersonaSelector({ onPersonaChanged }: Props) {
                   <span className="ml-1.5 text-xs text-slate-500">{p.description}</span>
                 )}
               </span>
-              {p.id === activeId && <Check style={{ width: 14, height: 14 }} className="text-violet-400" />}
+              {p.id === activeId && <Check style={{ width: 14, height: 14 }} className="text-sky-400" />}
             </button>
           ))}
         </div>

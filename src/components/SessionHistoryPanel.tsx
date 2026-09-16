@@ -129,7 +129,7 @@ export function SessionHistoryPanel({ active }: { active: boolean }) {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <History className="h-4 w-4 text-violet-400" />
+          <History className="h-4 w-4 text-sky-400" />
           <h3 className="text-sm font-bold text-white">Histórico da Live</h3>
           <span className="text-[11px] text-slate-500">({events.length} eventos)</span>
         </div>
@@ -144,7 +144,7 @@ export function SessionHistoryPanel({ active }: { active: boolean }) {
           <button
             onClick={() => void handleExport('json')}
             disabled={exporting !== null}
-            className="flex items-center gap-1 rounded-lg border border-violet-500/30 bg-violet-500/15 px-2.5 py-1.5 text-xs font-semibold text-violet-300 transition hover:bg-violet-500/25"
+            className="flex items-center gap-1 rounded-lg border border-sky-500/30 bg-sky-500/15 px-2.5 py-1.5 text-xs font-semibold text-sky-300 transition hover:bg-sky-500/25"
           >
             {exporting === 'json' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileJson className="h-3.5 w-3.5" />}
             Exportar JSON

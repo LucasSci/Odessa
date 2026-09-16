@@ -177,7 +177,7 @@ export function PersonasPanel() {
     <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
       {/* Header */}
       <div className="mb-5 rounded-2xl border border-white/10 bg-[#101114] p-5">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-violet-200/70">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-sky-200/70">
           <Users className="h-4 w-4" />
           Personas de IA
         </div>
@@ -248,7 +248,7 @@ export function PersonasPanel() {
                   className="flex w-full items-center justify-between"
                 >
                   <div className="flex items-center gap-2">
-                    <Clapperboard className="h-4 w-4 text-violet-400" />
+                    <Clapperboard className="h-4 w-4 text-sky-400" />
                     <h3 className="text-sm font-bold text-white">Roteiro de Vídeos</h3>
                     <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-slate-400">
                       {videoStats.total} vídeos
@@ -311,7 +311,7 @@ export function PersonasPanel() {
                                   <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">Prompt-base</span>
                                   <button
                                     onClick={() => copyToClipboard(cat.promptTemplate)}
-                                    className="flex items-center gap-1 text-[9px] text-violet-400 hover:text-violet-300"
+                                    className="flex items-center gap-1 text-[9px] text-sky-400 hover:text-sky-300"
                                   >
                                     <Copy className="h-2.5 w-2.5" /> Copiar
                                   </button>
@@ -327,14 +327,14 @@ export function PersonasPanel() {
                     )}
 
                     {/* Template copiável completo */}
-                    <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-3">
+                    <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-3">
                       <div className="flex items-center justify-between">
-                        <span className="flex items-center gap-1.5 text-xs font-bold text-violet-300">
+                        <span className="flex items-center gap-1.5 text-xs font-bold text-sky-300">
                           <Sparkles className="h-3.5 w-3.5" /> Template completo do roteiro
                         </span>
                         <button
                           onClick={() => copyToClipboard(buildFullTemplate(selectedPersona))}
-                          className="flex items-center gap-1 rounded-md bg-violet-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-violet-500"
+                          className="flex items-center gap-1 rounded-md bg-sky-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-sky-500"
                         >
                           <Copy className="h-3 w-3" /> Copiar roteiro
                         </button>
@@ -439,7 +439,7 @@ function PersonaList({
         <h3 className="text-sm font-semibold text-slate-200">Personas</h3>
         <button
           onClick={() => setShowCreate((v) => !v)}
-          className="flex items-center gap-1 rounded-lg bg-violet-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-violet-500"
+          className="flex items-center gap-1 rounded-lg bg-sky-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-sky-500"
         >
           <Plus className="h-3 w-3" /> Nova
         </button>
@@ -469,7 +469,7 @@ function PersonaList({
             <button
               onClick={handleCreate}
               disabled={creating || !newName.trim()}
-              className="h-8 flex-1 rounded-lg bg-violet-600 text-xs font-medium text-white hover:bg-violet-500 disabled:opacity-40"
+              className="h-8 flex-1 rounded-lg bg-sky-600 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-40"
             >
               {creating ? 'Criando...' : 'Criar'}
             </button>
@@ -495,17 +495,17 @@ function PersonaList({
               className={cn(
                 'group rounded-xl border transition-colors',
                 p.id === selectedId
-                  ? 'border-violet-500/50 bg-violet-500/10'
+                  ? 'border-sky-500/50 bg-sky-500/10'
                   : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]',
               )}
             >
               <div className="flex items-center gap-2.5 p-2.5">
                 {/* Avatar */}
-                <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg bg-violet-500/20">
+                <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg bg-sky-500/20">
                   {p.avatarUrl ? (
                     <img src={p.avatarUrl} alt={p.name} className="h-full w-full object-cover" />
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center text-xs font-bold text-violet-300">
+                    <div className="flex h-full w-full items-center justify-center text-xs font-bold text-sky-300">
                       {p.name.charAt(0).toUpperCase()}
                     </div>
                   )}
@@ -542,7 +542,7 @@ function PersonaList({
               {p.id !== activeId && (
                 <button
                   onClick={() => onActivate(p.id)}
-                  className="w-full border-t border-white/5 py-1.5 text-[10px] font-medium text-violet-400 hover:bg-violet-500/10"
+                  className="w-full border-t border-white/5 py-1.5 text-[10px] font-medium text-sky-400 hover:bg-sky-500/10"
                 >
                   Ativar esta persona
                 </button>
@@ -607,11 +607,11 @@ function PersonaDetail({
     <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-5">
       <div className="flex items-start gap-4">
         {/* Avatar */}
-        <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-violet-500/20">
+        <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-sky-500/20">
           {avatarUrl ? (
             <img src={avatarUrl} alt={name} className="h-full w-full object-cover" />
           ) : (
-            <div className="flex h-full w-full items-center justify-center text-xl font-bold text-violet-300">
+            <div className="flex h-full w-full items-center justify-center text-xl font-bold text-sky-300">
               {name.charAt(0).toUpperCase()}
             </div>
           )}
@@ -663,7 +663,7 @@ function PersonaDetail({
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="flex items-center gap-1 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-500 disabled:opacity-40"
+                className="flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-40"
               >
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                 Salvar
@@ -689,7 +689,7 @@ function PersonaDetail({
       {/* Personalidade */}
       <div className="mt-4">
         <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
-          <Brain className="h-3.5 w-3.5 text-violet-400" />
+          <Brain className="h-3.5 w-3.5 text-sky-400" />
           Personalidade / Inteligência da IA
         </div>
         <textarea

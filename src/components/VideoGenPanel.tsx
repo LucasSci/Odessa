@@ -85,7 +85,7 @@ export function VideoGenPanel({ className }: { className?: string }) {
     <div className={cn('flex flex-col gap-3 rounded-xl border border-white/10 bg-[#101114] p-4', className)}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Clapperboard className="h-4 w-4 text-violet-400" />
+          <Clapperboard className="h-4 w-4 text-sky-400" />
           <h3 className="text-sm font-semibold text-slate-200">Geração de Vídeo</h3>
         </div>
         <div className="flex items-center gap-2">
@@ -97,7 +97,7 @@ export function VideoGenPanel({ className }: { className?: string }) {
           <button
             onClick={handleGeneratePrompt}
             disabled={busy}
-            className="flex items-center gap-1 rounded-md bg-violet-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-violet-500 disabled:opacity-50"
+            className="flex items-center gap-1 rounded-md bg-sky-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-sky-500 disabled:opacity-50"
           >
             {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
             Gerar prompt
@@ -152,7 +152,7 @@ export function VideoGenPanel({ className }: { className?: string }) {
                         href={apiUrl(`/api/video-gen/video/${item.videoId}`)}
                         target="_blank"
                         rel="noreferrer"
-                        className="font-mono text-[10px] text-violet-400 hover:underline"
+                        className="font-mono text-[10px] text-sky-400 hover:underline"
                       >
                         {item.videoId}
                       </a>
@@ -201,7 +201,7 @@ export function VideoGenPanel({ className }: { className?: string }) {
                     <button
                       onClick={handleEnqueueNext}
                       disabled={busy}
-                      className="ml-auto flex items-center gap-1 rounded bg-violet-600/80 px-1.5 py-0.5 text-[10px] text-white hover:bg-violet-500 disabled:opacity-50"
+                      className="ml-auto flex items-center gap-1 rounded bg-sky-600/80 px-1.5 py-0.5 text-[10px] text-white hover:bg-sky-500 disabled:opacity-50"
                     >
                       <Play className="h-2.5 w-2.5" /> Gerar vídeo
                     </button>

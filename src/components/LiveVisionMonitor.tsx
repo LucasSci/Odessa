@@ -466,7 +466,7 @@ export function LiveVisionMonitor({ connected }: Props) {
         tabIndex={0}
         onKeyDown={handleKeyDown}
         className={cn(
-          'relative overflow-hidden rounded-2xl border border-white/10 bg-black/70 shadow-xl outline-none focus:ring-2 focus:ring-violet-500/40',
+          'relative overflow-hidden rounded-2xl border border-white/10 bg-black/70 shadow-xl outline-none focus:ring-2 focus:ring-sky-500/40',
           maximized && 'flex-1 min-h-0'
         )}
         style={{
@@ -513,7 +513,7 @@ export function LiveVisionMonitor({ connected }: Props) {
         {/* Conectando */}
         {connecting && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-            <Loader2 className="h-6 w-6 animate-spin text-violet-400" />
+            <Loader2 className="h-6 w-6 animate-spin text-sky-400" />
           </div>
         )}
 

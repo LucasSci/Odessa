@@ -301,11 +301,11 @@ export function BridgeConnectionGuide({
 
       {/* ── Alternativa: Painel Unificado sem bridge ── */}
       {!bridgeConnected && (
-        <div className="rounded-xl border border-violet-500/20 bg-violet-500/[0.06] p-4">
+        <div className="rounded-xl border border-sky-500/20 bg-sky-500/[0.06] p-4">
           <div className="flex items-start gap-2">
-            <Monitor className="h-4 w-4 shrink-0 text-violet-400 mt-0.5" />
+            <Monitor className="h-4 w-4 shrink-0 text-sky-400 mt-0.5" />
             <div className="flex-1">
-              <p className="text-xs font-semibold text-violet-200">
+              <p className="text-xs font-semibold text-sky-200">
                 Alternativa: Painel Unificado sem bridge
               </p>
               <p className="text-[11px] text-slate-300 leading-relaxed mt-1">
@@ -316,7 +316,7 @@ export function BridgeConnectionGuide({
               <Button
                 size="sm"
                 variant="primary"
-                className="mt-2.5 bg-violet-600 hover:bg-violet-500"
+                className="mt-2.5 bg-sky-600 hover:bg-sky-500"
                 onClick={onGoUnified}
               >
                 <ArrowRight className="h-3.5 w-3.5" />

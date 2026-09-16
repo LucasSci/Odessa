@@ -51,7 +51,7 @@ export default function PersonaVisualBoard({
 
   return (
     <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-5">
-      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-violet-200/70">
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-sky-200/70">
         🎞️ Painel Visual
       </div>
       <p className="mt-1 text-xs text-slate-400">
@@ -154,7 +154,7 @@ function PersonaVisualCard({
           <select
             value={scenario?.id ?? ''}
             onChange={(e) => void handleScenarioChange(e.target.value)}
-            className="h-8 max-w-[220px] rounded-lg border border-white/10 bg-white/[0.05] px-2 text-xs text-slate-200 outline-none focus:border-violet-500/50"
+            className="h-8 max-w-[220px] rounded-lg border border-white/10 bg-white/[0.05] px-2 text-xs text-slate-200 outline-none focus:border-sky-500/50"
             title="Cenário atual"
           >
             {visual.scenarios.map((s) => (
