@@ -35,7 +35,7 @@ import {
 import { cn } from './lib/utils';
 import type { AutopilotRuntimeState } from './core/useAutopilotRuntime';
 import type { CapturedMessage } from './types';
-import { Badge, Button, Card } from './components/ui';
+import { Badge, Button, Card, Tabs } from './components/ui';
 import { AiConfigPanel } from './components/AiConfigPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import TopPersonaSelector from './components/TopPersonaSelector';
@@ -384,7 +384,12 @@ export default function OdessaLiveCenter({
 
   useEffect(() => {
     onActiveTabChange?.(activeTab);
-  }, [activeTab, onActiveTabChange]);
+    // onActiveTabChange de propósito fora das deps: no App.tsx é uma arrow
+    // function inline, recriada a cada render — incluí-la aqui disparava o
+    // efeito (e o setState correspondente) em cascata a cada render do App,
+    // não só quando a aba realmente muda.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   const [settingsSubTab, setSettingsSubTab] = useState<'general' | 'ai' | 'canvas'>('general');
   const [flowSubTab, setFlowSubTab] = useState<'board' | 'logs'>('board');
@@ -881,26 +886,16 @@ export default function OdessaLiveCenter({
         {(activeTab === 'live' || activeTab === 'chat' || activeTab === 'home' || activeTab === 'stage') && (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex items-center justify-between border-b border-white/5 bg-black/40 px-4 py-1.5 text-xs">
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => setLiveMode('central')}
-                  className={cn('rounded-lg px-2.5 py-1 font-semibold transition', liveMode === 'central' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
-                >
-                  Central da Live
-                </button>
-                <button
-                  onClick={() => setLiveMode('stage')}
-                  className={cn('rounded-lg px-2.5 py-1 font-semibold transition', liveMode === 'stage' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
-                >
-                  Palco OBS
-                </button>
-                <button
-                  onClick={() => setLiveMode('overview')}
-                  className={cn('rounded-lg px-2.5 py-1 font-semibold transition', liveMode === 'overview' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
-                >
-                  Visão Geral
-                </button>
-              </div>
+              <Tabs
+                size="sm"
+                value={liveMode}
+                onChange={(id) => setLiveMode(id as 'central' | 'stage' | 'overview')}
+                items={[
+                  { id: 'central', label: 'Central da Live' },
+                  { id: 'stage', label: 'Palco OBS' },
+                  { id: 'overview', label: 'Visão Geral' },
+                ]}
+              />
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
@@ -953,18 +948,15 @@ export default function OdessaLiveCenter({
         {(activeTab === 'flow' || activeTab === 'logs') && (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex items-center gap-2 border-b border-white/5 bg-black/40 px-4 py-1.5 text-xs">
-              <button
-                onClick={() => setFlowSubTab('board')}
-                className={cn('rounded-lg px-2.5 py-1 font-semibold transition', flowSubTab === 'board' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
-              >
-                Fluxo Reativo
-              </button>
-              <button
-                onClick={() => setFlowSubTab('logs')}
-                className={cn('rounded-lg px-2.5 py-1 font-semibold transition', flowSubTab === 'logs' ? 'bg-white/15 text-white' : 'text-slate-400 hover:text-white')}
-              >
-                Logs de Automação
-              </button>
+              <Tabs
+                size="sm"
+                value={flowSubTab}
+                onChange={(id) => setFlowSubTab(id as 'board' | 'logs')}
+                items={[
+                  { id: 'board', label: 'Fluxo Reativo' },
+                  { id: 'logs', label: 'Logs de Automação' },
+                ]}
+              />
             </div>
             {flowSubTab === 'board' ? (
               <Suspense fallback={<PanelLoading label="Carregando fluxo reativo" />}>
@@ -1024,42 +1016,16 @@ export default function OdessaLiveCenter({
         {(activeTab === 'settings' || activeTab === 'ai' || activeTab === 'canvas') && (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex items-center gap-1.5 border-b border-white/5 bg-black/40 px-4 py-2 text-xs">
-              <button
-                onClick={() => setSettingsSubTab('general')}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition',
-                  settingsSubTab === 'general'
-                    ? 'bg-gradient-to-r from-sky-500/20 to-cyan-500/10 text-white shadow-[inset_0_0_0_1px_rgba(125,211,252,0.25)]'
-                    : 'text-slate-400 hover:text-white hover:bg-white/5',
-                )}
-              >
-                <Settings style={{ width: 13, height: 13 }} />
-                OBS & Webhooks
-              </button>
-              <button
-                onClick={() => setSettingsSubTab('ai')}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition',
-                  settingsSubTab === 'ai'
-                    ? 'bg-gradient-to-r from-sky-500/20 to-cyan-500/10 text-white shadow-[inset_0_0_0_1px_rgba(125,211,252,0.25)]'
-                    : 'text-slate-400 hover:text-white hover:bg-white/5',
-                )}
-              >
-                <Brain style={{ width: 13, height: 13 }} />
-                Diretora IA
-              </button>
-              <button
-                onClick={() => setSettingsSubTab('canvas')}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition',
-                  settingsSubTab === 'canvas'
-                    ? 'bg-gradient-to-r from-sky-500/20 to-cyan-500/10 text-white shadow-[inset_0_0_0_1px_rgba(125,211,252,0.25)]'
-                    : 'text-slate-400 hover:text-white hover:bg-white/5',
-                )}
-              >
-                <ClipboardCheck style={{ width: 13, height: 13 }} />
-                Mural de Planejamento
-              </button>
+              <Tabs
+                size="sm"
+                value={settingsSubTab}
+                onChange={(id) => setSettingsSubTab(id as 'general' | 'ai' | 'canvas')}
+                items={[
+                  { id: 'general', label: 'OBS & Webhooks', icon: <Settings style={{ width: 13, height: 13 }} /> },
+                  { id: 'ai', label: 'Diretora IA', icon: <Brain style={{ width: 13, height: 13 }} /> },
+                  { id: 'canvas', label: 'Mural de Planejamento', icon: <ClipboardCheck style={{ width: 13, height: 13 }} /> },
+                ]}
+              />
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto">

@@ -41,6 +41,48 @@ export function Button({
   );
 }
 
+/**
+ * Tabs — faixa de abas-pílula. Toda tela reinventava essa marcação na mão
+ * com estados ativos inconsistentes (violeta em algumas, azul/ciano em
+ * outras) — este é o único visual "oficial" de aba do app, espelhando o
+ * gradiente sky/cyan que já era usado em Configurações.
+ */
+export function Tabs({
+  items,
+  value,
+  onChange,
+  size = 'md',
+  className,
+}: {
+  items: Array<{ id: string; label: string; icon?: ReactNode }>;
+  value: string;
+  onChange: (id: string) => void;
+  size?: 'sm' | 'md';
+  className?: string;
+}) {
+  return (
+    <div className={cn('flex flex-wrap items-center gap-1.5', className)}>
+      {items.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          onClick={() => onChange(item.id)}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-lg font-semibold transition',
+            size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm',
+            value === item.id
+              ? 'bg-gradient-to-r from-sky-500/20 to-cyan-500/10 text-white shadow-[inset_0_0_0_1px_rgba(125,211,252,0.25)]'
+              : 'text-slate-400 hover:text-white hover:bg-white/5',
+          )}
+        >
+          {item.icon}
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div

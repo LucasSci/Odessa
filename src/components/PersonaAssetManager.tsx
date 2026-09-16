@@ -27,6 +27,7 @@ import {
 import { generateFromTemplate } from '../core/videoGenApi';
 import PersonaVisualManager from './PersonaVisualManager';
 import PersonaContentStudio from './PersonaContentStudio';
+import { Tabs } from './ui';
 
 type Props = {
   personaId: string;
@@ -207,52 +208,18 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
             Rostos, kits de roupas e cenários para produção automatizada de vídeos
           </p>
         </div>
-        <div className="flex gap-1 rounded-xl border border-white/10 bg-black/20 p-1">
-          <button
-            type="button"
-            onClick={() => setActiveTab('assets')}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              activeTab === 'assets'
-                ? 'bg-violet-600 text-white'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Imagens
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('visual')}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              activeTab === 'visual'
-                ? 'bg-violet-600 text-white'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Kits &amp; Cenários
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('templates')}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              activeTab === 'templates'
-                ? 'bg-violet-600 text-white'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Templates de Prompt
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('studio')}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              activeTab === 'studio'
-                ? 'bg-violet-600 text-white'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Content Studio
-          </button>
-        </div>
+        <Tabs
+          size="sm"
+          className="rounded-xl border border-white/10 bg-black/20 p-1"
+          value={activeTab}
+          onChange={(id) => setActiveTab(id as 'assets' | 'visual' | 'templates' | 'studio')}
+          items={[
+            { id: 'assets', label: 'Imagens' },
+            { id: 'visual', label: 'Kits & Cenários' },
+            { id: 'templates', label: 'Templates de Prompt' },
+            { id: 'studio', label: 'Content Studio' },
+          ]}
+        />
       </div>
 
       {error && (
@@ -274,7 +241,7 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
                   onClick={() => setActiveCategory(cat)}
                   className={`flex flex-1 items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors ${
                     activeCategory === cat
-                      ? 'border-violet-500/50 bg-violet-500/10 text-violet-200'
+                      ? 'border-sky-500/50 bg-sky-500/10 text-sky-200'
                       : 'border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]'
                   }`}
                 >
@@ -296,7 +263,7 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
 
             {/* Upload zone */}
             <div
-              className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 bg-white/[0.02] p-4 transition-colors hover:border-violet-500/30"
+              className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 bg-white/[0.02] p-4 transition-colors hover:border-sky-500/30"
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
@@ -321,7 +288,7 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
                 type="button"
                 onClick={() => fileInputRefs.current[activeCategory]?.click()}
                 disabled={uploading === activeCategory}
-                className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:opacity-40"
+                className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
               >
                 {uploading === activeCategory ? 'Enviando...' : '+ Adicionar imagem'}
               </button>
@@ -370,7 +337,7 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
                             setEditingLabel(asset.id);
                             setLabelDraft(asset.label);
                           }}
-                          className="flex-1 truncate text-left text-xs text-slate-300 hover:text-violet-300"
+                          className="flex-1 truncate text-left text-xs text-slate-300 hover:text-sky-300"
                           title={asset.label}
                         >
                           {asset.label}
@@ -420,7 +387,7 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
               ].map((ph) => (
                 <code
                   key={ph}
-                  className="rounded bg-violet-500/15 px-1.5 py-0.5 text-xs text-violet-300"
+                  className="rounded bg-sky-500/15 px-1.5 py-0.5 text-xs text-sky-300"
                 >
                   {ph}
                 </code>
@@ -484,7 +451,7 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
                       type="button"
                       onClick={() => void handleGenerate(vtype)}
                       disabled={generating !== null}
-                      className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-violet-500 disabled:opacity-40"
+                      className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
                     >
                       {generating === vtype ? 'Gerando...' : '🎬 Gerar vídeo'}
                     </button>
@@ -510,7 +477,7 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
               type="button"
               onClick={handleSaveTemplates}
               disabled={savingTemplates}
-              className="h-9 flex-1 rounded-xl bg-violet-600 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:opacity-40"
+              className="h-9 flex-1 rounded-xl bg-sky-600 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
             >
               {savingTemplates ? 'Salvando...' : 'Salvar templates'}
             </button>
