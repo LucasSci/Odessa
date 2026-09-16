@@ -36,6 +36,64 @@ export interface PersonaChatOptions {
   timeoutMs?: number;
 }
 
+/**
+ * Deteccao heuristica (sem dependencias) do idioma de uma mensagem curta de
+ * chat, para os idiomas mais comuns no publico do Tango (pt/en/es).
+ *
+ * Existe porque pedir pro proprio modelo "detectar e responder no mesmo
+ * idioma" como uma unica instrucao dentro de um prompt longo — e
+ * majoritariamente em portugues, por causa da identidade da persona — nao e
+ * confiavel com modelos locais menores (Ollama): a resposta saia sempre em
+ * português mesmo com a regra explicita em TANGO_RESPONSE_RULES. Quando esta
+ * heuristica acerta com confianca, injetamos uma instrucao direta bem perto
+ * da mensagem ("responda em X"), que os modelos seguem de forma bem mais
+ * consistente do que pedir pra eles mesmos decidirem. Para idiomas fora
+ * desses 3 (ou mensagens ambiguas demais), cai de volta na auto-deteccao da
+ * IA via TANGO_RESPONSE_RULES.
+ */
+function detectMessageLanguage(text: string): { code: string; label: string } | null {
+  const t = text.toLowerCase();
+
+  // Sinais fortes e exclusivos de um idioma — decidem sozinhos.
+  if (/[ñ¿¡]/.test(t)) return { code: 'es', label: 'espanhol' };
+  if (/[ãõç]/.test(t) || /ção\b|ções\b/.test(t)) return { code: 'pt', label: 'português' };
+
+  const words = t.match(/[a-zà-ÿ]+/g) || [];
+  if (words.length === 0) return null;
+
+  const STOPWORDS: Record<'en' | 'pt' | 'es', Set<string>> = {
+    en: new Set(['the', 'is', 'are', 'you', 'how', 'what', 'this', 'that', 'with', 'for',
+      'hello', 'hi', 'hey', 'thanks', 'thank', 'good', 'nice', 'love', 'beautiful', 'so',
+      'and', 'your', 'my', 'am', 'can', 'will', 'not', 'please', 'when', 'where', 'why']),
+    pt: new Set(['que', 'não', 'para', 'com', 'uma', 'isso', 'muito', 'obrigada', 'obrigado',
+      'oi', 'olá', 'você', 'bom', 'boa', 'linda', 'lindo', 'amo', 'gata', 'sim', 'também',
+      'está', 'tudo', 'bem', 'vc', 'meu', 'minha', 'vamos', 'gente']),
+    es: new Set(['que', 'cómo', 'como', 'muy', 'más', 'pero', 'para', 'con', 'esto', 'eso',
+      'hola', 'gracias', 'buena', 'buenas', 'preciosa', 'hermosa', 'vale', 'estás', 'todo',
+      'bien', 'tambien', 'también', 'donde', 'porque', 'contigo']),
+  };
+
+  const scores = { en: 0, pt: 0, es: 0 };
+  for (const w of words) {
+    (Object.keys(STOPWORDS) as Array<keyof typeof STOPWORDS>).forEach((lang) => {
+      if (STOPWORDS[lang].has(w)) scores[lang] += 1;
+    });
+  }
+
+  const ranked = (Object.entries(scores) as Array<[keyof typeof scores, number]>)
+    .sort((a, b) => b[1] - a[1]);
+  const [topLang, topScore] = ranked[0];
+  const secondScore = ranked[1][1];
+
+  // Exige ao menos 1 palavra reconhecida e uma vantagem clara sobre o
+  // segundo colocado — senão é ambíguo demais (ex.: "que" existe em pt e
+  // es) e é melhor deixar a IA tentar detectar sozinha.
+  if (topScore === 0 || topScore <= secondScore) return null;
+
+  const labels: Record<string, string> = { en: 'inglês', pt: 'português', es: 'espanhol' };
+  return { code: topLang, label: labels[topLang] };
+}
+
 const DEFAULT_TANGO_IDENTITY = `\
 Você é a Odessa, uma streamer ao vivo cativante, carinhosa, bem-humorada e atenciosa com seu público.
 Seu objetivo é responder mensagens no chat ao vivo do Tango.`;
@@ -123,6 +181,7 @@ async function callBackendAiRespond(
   recentHistory: TangoChatMessage[],
   options: PersonaChatOptions = {},
   insightsContext = '',
+  languageDirective?: string,
 ): Promise<{ text: string | null; error?: string }> {
   const config = getAiConfig();
   const historyContext = recentHistory
@@ -135,6 +194,7 @@ async function callBackendAiRespond(
     `\n[MENSAGEM ATUAL]:`,
     `Usuário: ${incoming.username}`,
     `Mensagem: "${incoming.text}"`,
+    languageDirective ? `\n${languageDirective}` : '',
     insightsContext ? `\n${insightsContext}` : '',
     options.conversationMode
       ? `\nInstrução: Responda como uma pessoa real em uma conversa natural com ${incoming.username}. Desenvolva a resposta quando fizer sentido, sem mencionar live, Tango, limites de caracteres ou que você é um modelo.`
@@ -188,11 +248,16 @@ export async function generateTangoChatReply(
   const insightsContext = buildChatInsightsContext();
   const useDirectGemini = config.provider === 'gemini' && hasActiveGeminiKey();
 
+  const detectedLanguage = detectMessageLanguage(incoming.text);
+  const languageDirective = detectedLanguage
+    ? `[IDIOMA DETECTADO NA MENSAGEM]: ${detectedLanguage.label}. Responda OBRIGATORIAMENTE em ${detectedLanguage.label}, nunca em português a não ser que ${detectedLanguage.label} seja português.`
+    : undefined;
+
   // Sem chave Gemini no frontend → tenta a IA generativa do backend
   // (RouteLLM/OpenAI/Gemini configurada no servidor). Se falhar, usa o motor
   // de respostas prontas locais para não parar o chat.
   if (!useDirectGemini) {
-    const backendResult = await callBackendAiRespond(basePrompt, incoming, recentHistory, options, insightsContext);
+    const backendResult = await callBackendAiRespond(basePrompt, incoming, recentHistory, options, insightsContext, languageDirective);
     if (backendResult.text) {
       const cleanReply = sanitizeTangoReply(backendResult.text, options.maxLength || 140);
       const safety = checkSafetyRestrictions(cleanReply);
@@ -226,6 +291,7 @@ export async function generateTangoChatReply(
     `\n[MENSAGEM PARA RESPONDER]:`,
     `Usuário: ${incoming.username}`,
     `Mensagem: "${incoming.text}"`,
+    languageDirective ? `\n${languageDirective}` : '',
     insightsContext ? `\n${insightsContext}` : '',
     `\nInstrução: Gere uma resposta rápida e cativante da Odessa para @${incoming.username}:`,
   ].join('\n');
