@@ -26,6 +26,7 @@ import {
 } from '../core/personaAssets';
 import { generateFromTemplate } from '../core/videoGenApi';
 import PersonaVisualManager from './PersonaVisualManager';
+import PersonaContentStudio from './PersonaContentStudio';
 
 type Props = {
   personaId: string;
@@ -76,7 +77,7 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState<AssetCategory | null>(null);
-  const [activeTab, setActiveTab] = useState<'assets' | 'visual' | 'templates'>('assets');
+  const [activeTab, setActiveTab] = useState<'assets' | 'visual' | 'templates' | 'studio'>('assets');
   const [activeCategory, setActiveCategory] = useState<AssetCategory>('faces');
   const [editingLabel, setEditingLabel] = useState<string | null>(null);
   const [labelDraft, setLabelDraft] = useState('');
@@ -239,6 +240,17 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
             }`}
           >
             Templates de Prompt
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('studio')}
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              activeTab === 'studio'
+                ? 'bg-violet-600 text-white'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Content Studio
           </button>
         </div>
       </div>
@@ -507,6 +519,11 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
             )}
           </div>
         </div>
+      )}
+
+      {/* ── Tab: Content Studio ── */}
+      {activeTab === 'studio' && (
+        <PersonaContentStudio personaId={personaId} personaName={personaName} />
       )}
     </div>
   );
