@@ -1,9 +1,12 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+import httpx
+import websockets
+from fastapi import FastAPI, HTTPException, Request, WebSocket
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -29,6 +32,16 @@ async def lifespan(app: FastAPI):
     logger.info("Odessa Backend v1.1.0 starting up...")
     logger.info("Modular API mounted at /api/v1")
     logger.info("Odessa Backend is ready.")
+
+    # Mantém o Ollama aquecido em segundo plano (ver ollama_keepalive_loop) —
+    # evita o cold-start de 15-35s na primeira resposta depois de um tempo
+    # sem mensagens no chat.
+    keepalive_task = None
+    try:
+        from server.services.ai_service import ollama_keepalive_loop
+        keepalive_task = asyncio.create_task(ollama_keepalive_loop())
+    except Exception as exc:
+        logger.warning("Erro ao iniciar keep-alive do Ollama: %s", exc)
 
     if os.getenv("ODESSA_AUTOSTART_BRIDGE", "0") == "1":
         try:
@@ -56,6 +69,9 @@ async def lifespan(app: FastAPI):
             logger.info("Bridge do Tango encerrada no shutdown.")
     except Exception as exc:
         logger.warning("Erro ao encerrar bridge no shutdown: %s", exc)
+
+    if keepalive_task is not None:
+        keepalive_task.cancel()
 
 
 app = FastAPI(
@@ -157,16 +173,131 @@ async def health_check():
     }
 
 
+def _bridge_port() -> int:
+    try:
+        from server.services.bridge_manager import load_bridge_config
+        return int(load_bridge_config().get("port", 7555))
+    except Exception:
+        return 7555
+
+
+_PROXY_DROP_REQUEST_HEADERS = {"host", "content-length", "connection", "transfer-encoding"}
+_PROXY_DROP_RESPONSE_HEADERS = {"content-length", "content-encoding", "transfer-encoding", "connection"}
+
+
+# O frontend fala com a bridge do Tango (tango_chat.py) atraves do caminho
+# relativo BRIDGE_URL='/tango-bridge' (ver src/core/tangoChatSession.tsx),
+# assumindo que existe um proxy reverso aqui para a porta real da bridge
+# (7555 por padrao). Em desenvolvimento isso vem do proxy do servidor de dev
+# do Vite (vite.config.ts) -- mas essa e uma feature SO do dev server, nunca
+# fez parte do build de producao (dist/). O instalador desktop sempre serviu
+# o build de producao, entao esse proxy NUNCA existiu ali: toda chamada
+# (conectar, enviar mensagem, e principalmente o stream SSE de /messages)
+# caia no catch-all do SPA abaixo (devolvia o proprio index.html) e falhava
+# silenciosamente. Por isso o diagnostico da bridge sempre reportava
+# "acoplado" (ele fala direto com o backend Python, sem passar por aqui) mas
+# o chat ao vivo nunca aparecia na tela -- um "falso positivo" real.
+@app.api_route("/tango-bridge/{path:path}", methods=["GET", "POST"], include_in_schema=False)
+async def proxy_tango_bridge(path: str, request: Request):
+    port = _bridge_port()
+    url = f"http://127.0.0.1:{port}/{path}"
+    body = await request.body()
+    client = httpx.AsyncClient(timeout=None)
+    req = client.build_request(
+        request.method,
+        url,
+        params=request.query_params,
+        headers=[(k, v) for k, v in request.headers.items() if k.lower() not in _PROXY_DROP_REQUEST_HEADERS],
+        content=body,
+    )
+    try:
+        upstream = await client.send(req, stream=True)
+    except httpx.ConnectError:
+        await client.aclose()
+        return JSONResponse({"error": "bridge_unreachable"}, status_code=502)
+
+    async def _stream():
+        try:
+            async for chunk in upstream.aiter_raw():
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    headers = {k: v for k, v in upstream.headers.items() if k.lower() not in _PROXY_DROP_RESPONSE_HEADERS}
+    return StreamingResponse(
+        _stream(),
+        status_code=upstream.status_code,
+        headers=headers,
+        media_type=upstream.headers.get("content-type"),
+    )
+
+
+@app.websocket("/tango-bridge/live")
+async def proxy_tango_bridge_live(websocket: WebSocket):
+    """Mesmo proxy acima, mas para o WebSocket de screencast (ver
+    LiveVisionMonitor.tsx) -- tambem inexistente em producao sem isso."""
+    port = _bridge_port()
+    await websocket.accept()
+    try:
+        async with websockets.connect(f"ws://127.0.0.1:{port}/live", max_size=None) as upstream:
+            async def client_to_upstream():
+                while True:
+                    msg = await websocket.receive()
+                    if msg["type"] == "websocket.disconnect":
+                        break
+                    if msg.get("text") is not None:
+                        await upstream.send(msg["text"])
+                    elif msg.get("bytes") is not None:
+                        await upstream.send(msg["bytes"])
+
+            async def upstream_to_client():
+                async for message in upstream:
+                    if isinstance(message, bytes):
+                        await websocket.send_bytes(message)
+                    else:
+                        await websocket.send_text(message)
+
+            done, pending = await asyncio.wait(
+                [asyncio.create_task(client_to_upstream()), asyncio.create_task(upstream_to_client())],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+    except Exception:
+        pass
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+
 dist_dir = Path(__file__).resolve().parents[1] / "dist"
 if dist_dir.exists():
     app.mount("/assets", StaticFiles(directory=dist_dir / "assets"), name="web-assets")
 
+    # index.html nunca pode ser cacheado pelo navegador: e ele quem referencia
+    # o bundle JS/CSS com hash do build atual (ex.: index-HGUFp36R.js). Sem
+    # este header, o navegador pode continuar servindo um index.html antigo
+    # do proprio cache (mesmo fechando e reabrindo a aba, sem um hard-refresh)
+    # e a pagina roda o codigo de uma versao anterior indefinidamente, mesmo
+    # apos deploys/atualizacoes -- foi exatamente isso que fez uma correcao
+    # parecer "nao aplicada" para o usuario. Os arquivos dentro de /assets/ sao
+    # o oposto: tem hash no nome, entao podem (e devem) ser cacheados para sempre.
+    _NO_CACHE_HEADERS = {"Cache-Control": "no-cache, no-store, must-revalidate"}
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_web_app(full_path: str):
         target = dist_dir / full_path
-        if full_path and target.is_file() and target.resolve().is_relative_to(dist_dir.resolve()):
+        if (
+            full_path
+            and full_path != "index.html"
+            and target.is_file()
+            and target.resolve().is_relative_to(dist_dir.resolve())
+        ):
             return FileResponse(target)
-        return FileResponse(dist_dir / "index.html")
+        return FileResponse(dist_dir / "index.html", headers=_NO_CACHE_HEADERS)
 
 if __name__ == "__main__":
     import uvicorn

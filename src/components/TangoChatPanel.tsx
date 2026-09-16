@@ -163,6 +163,7 @@ export function TangoChatPanel({
     replyQueue,
     setReplyQueue,
     generatingForId,
+    aiGenerationStartedAt,
     handleGenerateReplyForMessage,
     handleApproveReply,
     handleDiscardReply,
@@ -178,6 +179,22 @@ export function TangoChatPanel({
     sseState,
     sseAttempts,
   } = useTangoChatSession();
+
+  // ── Indicador de geração da IA (sem % real — o Ollama não expõe isso na
+  // chamada não-streaming — mas o tempo decorrido já mostra "está
+  // escrevendo" x "travou" na prática) ──
+  const [aiElapsedSeconds, setAiElapsedSeconds] = useState(0);
+  useEffect(() => {
+    if (!aiGenerationStartedAt) {
+      setAiElapsedSeconds(0);
+      return;
+    }
+    setAiElapsedSeconds(Math.floor((Date.now() - aiGenerationStartedAt) / 1000));
+    const id = window.setInterval(() => {
+      setAiElapsedSeconds(Math.floor((Date.now() - aiGenerationStartedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [aiGenerationStartedAt]);
 
   // ── Navegação & Modos ─────────────────────────────
   const [subTab, setSubTab] = useState<SubTab>('live');
@@ -400,6 +417,14 @@ export function TangoChatPanel({
   const handleSelectWizardPreset = async () => {
     const newConf: BridgeConfig = {
       ...bridgeConfig,
+      // Forcados (nao herdados do bridgeConfig atual): o wizard e especificamente
+      // o fluxo de "acoplar ao Chrome real" (CDP), entao nao faz sentido ele
+      // persistir "standalone" aqui. Sem isso, um valor "standalone" antigo
+      // (ex.: de uma aba do navegador aberta antes de uma correcao/reset da
+      // config) ficava se auto-perpetuando: toda vez que o wizard rodava de
+      // novo, ele resalvava o mesmo valor velho de volta no disco.
+      mode: '',
+      autoconnect: true,
       roomUrl: 'https://tango.me/stream/broadcast',
       selectors: {
         containerChat: '[data-testid="virtuoso-item-list"]',
@@ -750,6 +775,18 @@ export function TangoChatPanel({
             <ShieldCheck className="h-3.5 w-3.5" />
             {executionMode === 'real' ? 'Envio Real' : 'Dry-Run (Teste)'}
           </button>
+
+          {/* Indicador de "está escrevendo" — sem % real, mas mostra que a IA
+              está processando (e há quanto tempo), não só um spinner mudo */}
+          {aiGenerationStartedAt && (
+            <span
+              className="flex items-center gap-1.5 rounded-xl border border-violet-500/30 bg-violet-500/10 px-3 py-1.5 text-xs font-semibold text-violet-200"
+              title="A IA está gerando uma resposta agora"
+            >
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Escrevendo… {aiElapsedSeconds}s
+            </span>
+          )}
 
           {/* Botões de Ação do Processo */}
           {!processRunning ? (
