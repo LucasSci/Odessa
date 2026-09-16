@@ -417,6 +417,14 @@ export function TangoChatPanel({
   const handleSelectWizardPreset = async () => {
     const newConf: BridgeConfig = {
       ...bridgeConfig,
+      // Forcados (nao herdados do bridgeConfig atual): o wizard e especificamente
+      // o fluxo de "acoplar ao Chrome real" (CDP), entao nao faz sentido ele
+      // persistir "standalone" aqui. Sem isso, um valor "standalone" antigo
+      // (ex.: de uma aba do navegador aberta antes de uma correcao/reset da
+      // config) ficava se auto-perpetuando: toda vez que o wizard rodava de
+      // novo, ele resalvava o mesmo valor velho de volta no disco.
+      mode: '',
+      autoconnect: true,
       roomUrl: 'https://tango.me/stream/broadcast',
       selectors: {
         containerChat: '[data-testid="virtuoso-item-list"]',
