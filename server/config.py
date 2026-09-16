@@ -117,6 +117,23 @@ ODESSA_VIDEO_GEN_DIR = Path(os.getenv("ODESSA_VIDEO_GEN_DIR", RUNTIME_DIR / "vid
 # Tamanho máximo da fila de vídeos pendentes por persona.
 VIDEO_GEN_MAX_QUEUE = int(os.getenv("VIDEO_GEN_MAX_QUEUE", "8"))
 
+# ── Higgsfield (fotos/vídeos com personagem consistente via SoulId) ────────
+HIGGSFIELD_KEY_ID = os.getenv("HIGGSFIELD_KEY_ID", "").strip()
+HIGGSFIELD_KEY_SECRET = os.getenv("HIGGSFIELD_KEY_SECRET", "").strip()
+HIGGSFIELD_BASE_URL = os.getenv("HIGGSFIELD_BASE_URL", "https://api.higgsfield.ai").strip()
+HIGGSFIELD_POLL_INTERVAL_SEC = float(os.getenv("HIGGSFIELD_POLL_INTERVAL_SEC", "3"))
+HIGGSFIELD_POLL_TIMEOUT_SEC = float(os.getenv("HIGGSFIELD_POLL_TIMEOUT_SEC", "120"))
+
+# ── Geração de foto autônoma da persona (autoconfig via conversa) ──────────
+# Provedor: "higgsfield" (SoulId, consistência de personagem -- usado só se
+# HIGGSFIELD_KEY_ID estiver configurada) ou "gemini" (fallback, sempre
+# disponível se GEMINI_API_KEY estiver configurada).
+PHOTO_GEN_PROVIDER = os.getenv(
+    "PHOTO_GEN_PROVIDER", "higgsfield" if HIGGSFIELD_KEY_ID else "gemini"
+).strip().lower()
+PHOTO_GEN_COOLDOWN_MS = int(os.getenv("PHOTO_GEN_COOLDOWN_MS", "30000"))
+MAX_GENERATED_PHOTOS = int(os.getenv("MAX_GENERATED_PHOTOS", "20"))
+
 # Allowlist de hosts de webhook (sufixos; ex.: "hooks.n8n.cloud,hook.eu2.make.com").
 # Vazio = apenas o host de N8N_ACTION_WEBHOOK_URL (se houver) é permitido.
 WEBHOOK_ALLOWED_HOSTS = [

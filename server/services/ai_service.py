@@ -1,4 +1,6 @@
 import logging
+import mimetypes
+from pathlib import Path
 from typing import Any, Tuple, List, Optional
 from fastapi import HTTPException
 from openai import OpenAI
@@ -7,6 +9,7 @@ from google import genai
 from server.config import (
     OPENAI_API_KEY,
     GEMINI_API_KEY,
+    GEMINI_IMAGE_MODEL,
     ANTHROPIC_API_KEY,
     ANTHROPIC_MODEL,
     OPENAI_TEXT_MODEL,
@@ -78,6 +81,46 @@ class AIService:
         except httpx.HTTPStatusError as exc:
             detail = exc.response.text[:200] if exc.response is not None else str(exc)
             raise RuntimeError(f"Claude retornou HTTP {exc.response.status_code}: {detail}") from exc
+
+    def generate_gemini_image(
+        self,
+        prompt: str,
+        *,
+        reference_image_path: Path | None = None,
+    ) -> bytes:
+        """Gera uma imagem via Gemini (GEMINI_IMAGE_MODEL, ex.:
+        gemini-2.5-flash-image). Fallback do provedor Higgsfield (que tem
+        SoulId pra consistencia de personagem) pra quando so ha chave Gemini
+        configurada. Levanta RuntimeError se o cliente nao estiver
+        configurado ou a resposta nao trouxer nenhuma imagem.
+        """
+        if not self.gemini_client:
+            raise RuntimeError("GEMINI_API_KEY não está configurada no backend")
+
+        contents: list[Any] = []
+        if reference_image_path is not None and Path(reference_image_path).exists():
+            ref_path = Path(reference_image_path)
+            mime_type = mimetypes.guess_type(str(ref_path))[0] or "image/png"
+            contents.append(
+                {"inline_data": {"mime_type": mime_type, "data": ref_path.read_bytes()}}
+            )
+        contents.append(prompt)
+
+        result = self.gemini_client.models.generate_content(
+            model=GEMINI_IMAGE_MODEL,
+            contents=contents,
+            config={"response_modalities": ["IMAGE"]},
+        )
+
+        for candidate in getattr(result, "candidates", None) or []:
+            content = getattr(candidate, "content", None)
+            for part in getattr(content, "parts", None) or []:
+                inline_data = getattr(part, "inline_data", None)
+                data = getattr(inline_data, "data", None)
+                if data:
+                    return data
+
+        raise RuntimeError("Gemini não retornou nenhuma imagem")
 
     def generate_openai_text(
         self,

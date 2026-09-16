@@ -18,6 +18,13 @@ export type SelfConfigChanges = {
   avatarUrl?: string;
   face_id?: string;
   personality_add?: string;
+  /**
+   * Pedido de uma foto NOVA de si mesma (diferente de face_id, que só
+   * escolhe entre imagens já enviadas por um humano). Tratado à parte de
+   * applySelfConfig — ver requestSelfGeneratedPhoto — porque gerar uma
+   * imagem não é instantâneo e não pode travar a resposta do chat.
+   */
+  photo_prompt?: string;
 };
 
 export type SelfConfigFace = { id: string; label?: string };
@@ -40,11 +47,12 @@ export function buildSelfConfigPrompt(persona: PersonaMeta, faces: SelfConfigFac
 [AUTOCONFIGURAÇÃO — você pode se autoconfigurar pela conversa]
 Seu estado atual: nome "${persona.name}", descrição: ${persona.description || '(sem descrição)'}.
 Quando a pessoa pedir que você mude algo em si mesma (nome, descrição, imagem/avatar, jeito de ser) ou quando você perceber um traço duradouro sobre você nesta conversa, termine sua resposta normal com um bloco:
-<autoconfig>{"personality_add": "traço curto", "name": "novo nome", "description": "nova descrição", "face_id": "id da imagem"}</autoconfig>
+<autoconfig>{"personality_add": "traço curto", "name": "novo nome", "description": "nova descrição", "face_id": "id da imagem", "photo_prompt": "descrição curta de uma nova foto sua"}</autoconfig>
 Regras do bloco:
 - Todos os campos são opcionais; envie apenas os que mudarem. Se nada precisa mudar, NÃO inclua o bloco.
 - "personality_add": UM traço curto e permanente que você incorporou (nunca repita um traço que você já tem na sua personalidade).
 - "face_id": escolha SOMENTE entre as imagens abaixo; nunca invente um id.
+- "photo_prompt": use quando quiser uma foto NOVA de si mesma (diferente de face_id, que só escolhe entre as já existentes) — descreva em poucas palavras a cena/expressão/roupa da nova foto. A foto demora alguns segundos a minutos pra ficar pronta; não a mencione como se já existisse.
 - O bloco é removido da sua resposta visível, então fale normalmente antes dele.
 Imagens de rosto disponíveis:
 ${faceList}`;
@@ -67,7 +75,7 @@ export function parseAutoConfig(reply: string): { cleanText: string; changes: Se
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const changes: SelfConfigChanges = {};
-    for (const key of ['name', 'description', 'avatarUrl', 'face_id', 'personality_add'] as const) {
+    for (const key of ['name', 'description', 'avatarUrl', 'face_id', 'personality_add', 'photo_prompt'] as const) {
       const value = parsed[key];
       if (typeof value === 'string' && value.trim()) changes[key] = value.trim();
     }
@@ -110,6 +118,35 @@ export async function applySelfConfig(
   return { ok: Boolean(data.ok), applied: data.applied || [] };
 }
 
+export type GeneratePhotoResult = { ok: boolean; status: string; jobId?: string };
+
+/**
+ * Dispara a geração de uma foto nova da persona (Higgsfield/Gemini, ver
+ * server/api/v1/endpoints/persona_photogen.py). Fire-and-forget por design:
+ * o endpoint responde "queued" na hora e faz o trabalho de verdade numa
+ * thread em segundo plano — nunca aguarde este retorno antes de continuar o
+ * fluxo do chat. A foto pronta aparece depois via Content Studio/histórico
+ * de autoconfig, não por um retorno síncrono aqui.
+ */
+export async function requestSelfGeneratedPhoto(
+  personaId: string,
+  prompt: string,
+  source: 'conversation' | 'evolution' = 'conversation',
+): Promise<GeneratePhotoResult> {
+  try {
+    const res = await fetch(apiUrl(`/personas/${personaId}/selfconfig/generate-photo`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, source }),
+    });
+    if (!res.ok) return { ok: false, status: `http_${res.status}` };
+    const data = (await res.json()) as { ok?: boolean; status?: string; jobId?: string };
+    return { ok: Boolean(data.ok), status: data.status || 'unknown', jobId: data.jobId };
+  } catch {
+    return { ok: false, status: 'network_error' };
+  }
+}
+
 /**
  * Reflexão de evolução: pede à IA da persona que observe a conversa recente e
  * extraia traços duradouros que ela incorporou. Retorna as mudanças (ou null).
@@ -130,8 +167,11 @@ export async function reflectOnConversation(
 [REFLEXÃO DE EVOLUÇÃO]
 Releia a conversa abaixo e extraia UM traço de personalidade duradouro que você realmente incorporou
 (gosto, jeito de falar, opinião, humor, bordão). Ignore preferências temporárias ou pedidos que ainda
-não valem para sempre. Responda APENAS com um bloco:
-<autoconfig>{"personality_add": "traço curto em primeira pessoa"}</autoconfig>
+não valem para sempre. Se, e SOMENTE se, alguém pediu explicitamente por uma foto nova sua nesta
+conversa (ou você mesma sentiu vontade forte de mudar de visual), inclua também "photo_prompt" com
+uma descrição curta da nova foto — não invente isso sem um motivo real na conversa. Responda APENAS
+com um bloco:
+<autoconfig>{"personality_add": "traço curto em primeira pessoa", "photo_prompt": "descrição curta (opcional)"}</autoconfig>
 Se você não incorporou nada novo, responda apenas: <autoconfig>{}</autoconfig>`;
 
   try {

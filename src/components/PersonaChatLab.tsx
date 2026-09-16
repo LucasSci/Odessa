@@ -9,6 +9,7 @@ import {
   fetchFaces,
   parseAutoConfig,
   reflectOnConversation,
+  requestSelfGeneratedPhoto,
   type SelfConfigFace,
 } from '../core/personaSelfConfig';
 import { cn } from '../lib/utils';
@@ -148,6 +149,14 @@ export function PersonaChatLab() {
             }
           } catch {
             pushSystemMessage(selectedId, '⚠️ A autoconfiguração pedida pela persona falhou ao ser aplicada.');
+          }
+
+          // Pedido de foto nova: disparo assíncrono (não trava a resposta) —
+          // a foto some no Content Studio/histórico quando terminar, não por
+          // um retorno síncrono aqui.
+          if (changes.photo_prompt) {
+            pushSystemMessage(selectedId, `🎨 ${selectedPersona.name} está gerando uma foto nova de si mesma...`);
+            void requestSelfGeneratedPhoto(selectedId, changes.photo_prompt, 'conversation');
           }
         }
         // Evolução automática: a cada EVOLVE_EVERY respostas a persona reflete

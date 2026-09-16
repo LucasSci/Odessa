@@ -17,7 +17,8 @@ export type SessionEventType =
   | 'ai.reply'
   | 'ai.reply.sent'
   | 'message.sent'
-  | 'persona.selfconfig.applied';
+  | 'persona.selfconfig.applied'
+  | 'persona.selfconfig.photoRequested';
 
 export interface SessionEvent {
   id: string;

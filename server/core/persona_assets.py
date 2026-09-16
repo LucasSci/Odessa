@@ -79,8 +79,18 @@ def save_asset(
     data: bytes,
     filename: str,
     label: str = "",
+    *,
+    generated: bool = False,
+    source: Optional[str] = None,
+    prompt: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Salva uma imagem e registra os metadados no índice."""
+    """Salva uma imagem e registra os metadados no índice.
+
+    `generated`/`source`/`prompt` são opcionais e aditivos — usados pra
+    distinguir uma foto que a própria persona gerou (autoconfig via
+    conversa, ver persona_photogen.py) de um upload manual feito por um
+    humano no PersonaAssetManager, sem precisar de uma categoria nova.
+    """
     category = _validate_category(category)
     if len(data) > MAX_IMAGE_BYTES:
         raise ValueError(f"Imagem excede o limite de {MAX_IMAGE_BYTES // (1024 * 1024)} MB")
@@ -102,6 +112,12 @@ def save_asset(
         "category": category,
         "createdAt": _now(),
     }
+    if generated:
+        record["generated"] = True
+        if source:
+            record["source"] = source
+        if prompt:
+            record["prompt"] = prompt
 
     index = _ensure_default_persona(_load_index())
     assets = _get_persona_assets(index, persona_id)

@@ -44,7 +44,7 @@ import {
 } from './chatConversationGovernor';
 import { recordSessionEvent } from './sessionHistory';
 import { getActivePersona, type PersonaMeta } from './personaManager';
-import { reflectOnConversation, applySelfConfig } from './personaSelfConfig';
+import { reflectOnConversation, applySelfConfig, requestSelfGeneratedPhoto } from './personaSelfConfig';
 import type { CapturedMessage } from '../types';
 
 // ─── Config & Endpoints ──────────────────────────────────────────────
@@ -588,6 +588,15 @@ export function TangoChatSessionProvider({
             try {
               const changes = await reflectOnConversation(activePersona, [...unifiedMessages, msg].slice(-20));
               if (!changes) return;
+
+              // Pedido de foto nova (raro — só quando reflectOnConversation
+              // detecta um motivo real na conversa): disparo assíncrono, não
+              // trava o fluxo da live esperando a imagem terminar.
+              if (changes.photo_prompt) {
+                void requestSelfGeneratedPhoto(activePersona.id, changes.photo_prompt, 'conversation');
+                recordSessionEvent('persona.selfconfig.photoRequested', { prompt: changes.photo_prompt });
+              }
+
               const applyResult = await applySelfConfig(
                 activePersona.id,
                 changes,
