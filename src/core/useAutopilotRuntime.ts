@@ -166,6 +166,14 @@ export interface AutopilotRuntimeState {
 interface UseAutopilotRuntimeOptions {
   capturedText: CapturedMessage[];
   setCapturedText: Dispatch<SetStateAction<CapturedMessage[]>>;
+  /**
+   * Se a aba "Ao Vivo" está em tela agora. Usado só para gatear os pollings
+   * de OBS/catálogo/agente/vídeo/chat-automação (que só interessam nessa
+   * tela) — refreshHealth continua sem gate porque alimenta o indicador
+   * sempre visível no topo. Ignorado enquanto autopilotEnabled (a Diretora
+   * precisa do catálogo mesmo fora da aba, se uma live estiver rodando).
+   */
+  isLiveTabActive: boolean;
 }
 
 type StartOptions = {
@@ -314,6 +322,7 @@ function auditLogAction(label: string, result: string): AutopilotAction {
 export function useAutopilotRuntime({
   capturedText,
   setCapturedText,
+  isLiveTabActive,
 }: UseAutopilotRuntimeOptions): AutopilotRuntimeState {
   const [autopilotEnabled, setAutopilotEnabled] = useState(false);
   const [testMode, setTestMode] = useState(false);
@@ -620,27 +629,38 @@ export function useAutopilotRuntime({
     obsScenesRef.current = obsScenes;
   }, [obsScenes]);
 
+  // refreshHealth alimenta o indicador de status sempre visível no topo —
+  // continua rodando em qualquer aba, sem gate.
   useEffect(() => {
     const firstRun = window.setTimeout(refreshHealth, 0);
+    const interval = window.setInterval(refreshHealth, 15000);
+    return () => {
+      window.clearTimeout(firstRun);
+      window.clearInterval(interval);
+    };
+  }, [refreshHealth]);
+
+  // OBS/catálogo/agente/vídeo/chat-automação só interessam na aba "Ao Vivo"
+  // (ou enquanto a Diretora está rodando, mesmo fora da aba — ela precisa do
+  // catálogo pra continuar escolhendo ações numa live em andamento).
+  useEffect(() => {
+    if (!isLiveTabActive && !autopilotEnabled) return;
     const obsFirstRun = window.setTimeout(refreshObsScenes, 700);
     const catalogFirstRun = window.setTimeout(refreshCatalog, 300);
     const agentFirstRun = window.setTimeout(refreshAgentStatus, 1000);
     const videoFirstRun = window.setTimeout(refreshVideoMonitor, 1200);
     const chatAutomationFirstRun = window.setTimeout(refreshChatAutomationMonitor, 1500);
-    const interval = window.setInterval(refreshHealth, 15000);
     const obsInterval = window.setInterval(refreshObsScenes, 20000);
     const catalogInterval = window.setInterval(refreshCatalog, 30000);
     const agentInterval = window.setInterval(refreshAgentStatus, 10000);
     const videoInterval = window.setInterval(refreshVideoMonitor, 10000);
     const chatAutomationInterval = window.setInterval(refreshChatAutomationMonitor, 12000);
     return () => {
-      window.clearTimeout(firstRun);
       window.clearTimeout(obsFirstRun);
       window.clearTimeout(catalogFirstRun);
       window.clearTimeout(agentFirstRun);
       window.clearTimeout(videoFirstRun);
       window.clearTimeout(chatAutomationFirstRun);
-      window.clearInterval(interval);
       window.clearInterval(obsInterval);
       window.clearInterval(catalogInterval);
       window.clearInterval(agentInterval);
@@ -648,7 +668,8 @@ export function useAutopilotRuntime({
       window.clearInterval(chatAutomationInterval);
     };
   }, [
-    refreshHealth,
+    isLiveTabActive,
+    autopilotEnabled,
     refreshObsScenes,
     refreshCatalog,
     refreshAgentStatus,

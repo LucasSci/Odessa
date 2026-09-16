@@ -91,6 +91,7 @@ interface OdessaLiveCenterProps {
   liveStartError?: string | null;
   onLiveConfigOpenChange?: Dispatch<SetStateAction<boolean>>;
   onLiveConfigChange?: Dispatch<SetStateAction<LiveConfig>>;
+  onActiveTabChange?: (tab: TabKey) => void;
   onStartLive?: () => void | Promise<void>;
   onEndLive?: () => void;
   obsSettingsFromApp?: Record<string, unknown> | null;
@@ -373,12 +374,18 @@ export default function OdessaLiveCenter({
   liveStartError = null,
   onLiveConfigOpenChange,
   onLiveConfigChange,
+  onActiveTabChange,
   onStartLive,
   onEndLive,
   obsSettingsFromApp = null,
   onObsSettingsChanged,
 }: OdessaLiveCenterProps) {
   const [activeTab, setActiveTab] = useState<TabKey>(() => tabFromPanel(requestedPanel));
+
+  useEffect(() => {
+    onActiveTabChange?.(activeTab);
+  }, [activeTab, onActiveTabChange]);
+
   const [settingsSubTab, setSettingsSubTab] = useState<'general' | 'ai' | 'canvas'>('general');
   const [flowSubTab, setFlowSubTab] = useState<'board' | 'logs'>('board');
   const [liveMode, setLiveMode] = useState<'central' | 'stage' | 'overview'>('central');

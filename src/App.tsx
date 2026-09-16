@@ -153,7 +153,11 @@ export default function App() {
     });
   }, []);
 
-  const runtime = useAutopilotRuntime({ capturedText, setCapturedText });
+  // Só usado pra gatear pollings do autopilot runtime que só interessam na
+  // aba "Ao Vivo" (ver useAutopilotRuntime.ts) — atualizado via callback do
+  // OdessaLiveCenter sempre que o usuário troca de aba.
+  const [isLiveTabActive, setIsLiveTabActive] = useState(true);
+  const runtime = useAutopilotRuntime({ capturedText, setCapturedText, isLiveTabActive });
 
   useEffect(() => {
     try {
@@ -284,6 +288,7 @@ export default function App() {
         obsSettingsFromApp={obsSettings}
         onLiveConfigOpenChange={setLiveConfigOpen}
         onLiveConfigChange={setLiveConfig}
+        onActiveTabChange={(tab) => setIsLiveTabActive(tab === 'live')}
         onStartLive={startLiveWithConfig}
         onEndLive={() => {
           window.dispatchEvent(new CustomEvent('odessa:end-live'));
