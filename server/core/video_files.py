@@ -89,7 +89,7 @@ def get_video_path(video_id: str) -> Optional[Path]:
 
     for pattern in search_patterns:
         video_file = video_dir / pattern
-        if video_file.exists():
+        if video_file.exists() and video_file.resolve().is_relative_to(video_dir.resolve()):
             return video_file
 
     return None
