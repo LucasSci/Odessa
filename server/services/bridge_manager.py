@@ -209,6 +209,19 @@ class BridgeProcessManager:
         # de uma execução anterior), reflete a realidade da conectividade.
         bridge_status = self._probe_bridge(port)
         bridge_reachable = bridge_status is not None
+
+        if self._adopted and not bridge_reachable:
+            # O processo adotado (que nao temos um handle Popen dele, so
+            # sabiamos que algo respondia na porta) morreu ou foi encerrado
+            # externamente. Sem isso, self._adopted ficava True para sempre
+            # depois da primeira adocao -- o painel continuava mostrando
+            # "bridge ativa" mesmo com o processo morto, e um /bridge/start
+            # seguinte tambem achava que ja tinha algo rodando e nao subia
+            # um processo novo. Limpa para refletir a realidade e permitir
+            # que o proximo start funcione de verdade.
+            self._adopted = False
+            self._started_at = None
+
         process_running = self.is_running or self._adopted
 
         return {
