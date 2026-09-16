@@ -20,6 +20,17 @@ InstallDirRegKey HKCU "Software\OdessaStudio" "InstallDir"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 
+; O instalador e assinado (signtool) DEPOIS de compilado, em build-installer.ps1.
+; A assinatura Authenticode e anexada ao final do arquivo, o que muda o
+; tamanho total e quebra a checagem de CRC interna do proprio NSIS (calculada
+; sobre o arquivo original, sem a assinatura) -- o instalador assinado
+; passava a falhar com "Installer integrity check has failed" mesmo estando
+; intacto. A propria assinatura Authenticode ja garante a integridade do
+; arquivo (o Windows recusa uma assinatura cujo hash nao bate mais), entao
+; desligar a checagem redundante do NSIS aqui e seguro e e a pratica padrao
+; para instaladores NSIS assinados apos a compilacao.
+CRCCheck off
+
 VIProductVersion "${APP_VERSION_FULL}"
 VIAddVersionKey "ProductName" "${APP_NAME}"
 VIAddVersionKey "CompanyName" "${APP_PUBLISHER}"
