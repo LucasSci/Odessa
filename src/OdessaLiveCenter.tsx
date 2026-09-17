@@ -414,7 +414,8 @@ export default function OdessaLiveCenter({
         availableVideos: data?.videos?.map((video) => video.id),
       });
       if (!data?.videos?.length) {
-        console.warn('[VIDEO_ERROR] no_videos_found_in_library');
+        // Persona nova/vazia é normal, não um erro — não poluir o console.
+        console.debug('[VIDEO_DEBUG] no_videos_found_in_library');
       }
       setConfigError(null);
     } catch (err) {
@@ -643,7 +644,9 @@ export default function OdessaLiveCenter({
       refreshVideoState();
       return { ok: true, video };
     } catch (err) {
-      console.error('[VIDEO_ERROR] playback_failed', err);
+      // Falha já tratada acima (retorno { ok: false }) — o chamador decide o
+      // que fazer, então isto não é uma quebra não-tratada.
+      console.warn('[VIDEO_WARN] playback_failed', err);
       return { ok: false, reason: 'exception' };
     }
   };
@@ -1562,6 +1565,15 @@ export function ContinuityPlayer({
     (slot: 0 | 1, slotClip: VideoClip, autoplay: boolean) => {
       const element = refs[slot].current;
       if (!element) return;
+      // videoId obsoleto (vídeo removido da Biblioteca, config desatualizada
+      // etc.) nunca deve gerar uma requisição de rede — o backend devolveria
+      // 404 e o navegador logaria isso por conta própria, sem o app poder
+      // evitar. Recusar aqui evita tanto o erro de rede quanto o log.
+      const knownVideo = videos.some((v) => v.id === slotClip.videoId);
+      if (!knownVideo) {
+        console.debug('[VIDEO_DEBUG] skip_unknown_video_id', { videoId: slotClip.videoId, slot });
+        return;
+      }
       const alreadyLoaded = clipKey(slotClipRef.current[slot]) === clipKey(slotClip);
       if (!alreadyLoaded) {
         slotClipRef.current[slot] = slotClip;
@@ -1589,7 +1601,7 @@ export function ContinuityPlayer({
       if (element.readyState >= 1) ready();
       else element.addEventListener('loadedmetadata', ready, { once: true });
     },
-    [activateSlot, primeElement, refs],
+    [activateSlot, primeElement, refs, videos],
   );
 
   // Instant hard-cut to a slot whose clip is already buffered. No fade.
@@ -1731,6 +1743,15 @@ export function ContinuityPlayer({
           onTimeUpdate={(event) => handleProgress(index as 0 | 1, event.currentTarget)}
           onEnded={(event) => {
             if (!event.currentTarget.loop) handleClipEnd(slotClipRef.current[index]);
+          }}
+          onError={() => {
+            // O erro nativo já foi suprimido do console pelo guard em
+            // loadSlot pra IDs desconhecidos; isto cobre o caso de um ID
+            // válido cujo arquivo sumiu do disco no backend.
+            console.debug('[VIDEO_DEBUG] video_element_error', {
+              slot: index,
+              clip: slotClipRef.current[index]?.videoId,
+            });
           }}
           className={cn(
             'absolute inset-0 h-full w-full',
@@ -2168,6 +2189,7 @@ function VideoLibraryPanel({
                 preload="metadata"
                 className="h-full w-full object-contain"
                 src={apiUrl(`/api/video/play/${video.id}`)}
+                onError={() => console.debug('[VIDEO_DEBUG] thumbnail_error', { videoId: video.id })}
               />
             </div>
             <div className="p-4">

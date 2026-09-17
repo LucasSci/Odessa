@@ -512,6 +512,7 @@ export function useAutopilotRuntime({
   const refreshAgentStatus = useCallback(async () => {
     try {
       const response = await fetch(apiUrl('/agent/status'));
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = (await response.json().catch(() => ({}))) as AgentBridgeStatus;
       const ready = data.ok === true && data.localAgent?.online === true;
       setLocalAgentReady(ready);
