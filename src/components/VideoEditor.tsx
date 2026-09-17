@@ -27,8 +27,6 @@ interface VideoEditorProps {
   videoId: string;
   label?: string;
   onClose?: () => void;
-  /** Embutido na página (Palco) em vez de modal sobreposto. */
-  embedded?: boolean;
 }
 
 type DragTarget = { index: number; edge: 'start' | 'end' } | null;
@@ -40,7 +38,7 @@ function fmt(t: number): string {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
-export default function VideoEditor({ videoId, label, onClose, embedded = false }: VideoEditorProps) {
+export default function VideoEditor({ videoId, label, onClose }: VideoEditorProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
 
@@ -251,21 +249,19 @@ export default function VideoEditor({ videoId, label, onClose, embedded = false 
 
   return (
     <div
-      className={embedded ? 'flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0b0d10]' : 'fixed inset-0 z-50 flex flex-col bg-[#050608]/95 p-3 lg:p-5'}
-      style={embedded ? undefined : { backdropFilter: 'blur(4px)' }}
+      className="fixed inset-0 z-50 flex flex-col bg-[#050608]/95 p-3 lg:p-5"
+      style={{ backdropFilter: 'blur(4px)' }}
     >
-      <div className={embedded ? 'contents' : 'mx-auto flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0b0d10]'}>
+      <div className="mx-auto flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0b0d10]">
         {/* Header */}
         <div className="flex items-center gap-2 border-b border-white/10 px-5 py-3">
           <Scissors className="h-4 w-4 text-[var(--violet,#8b7cf6)]" />
           <span className="text-sm font-semibold text-white">Editar vídeo</span>
           <span className="truncate text-xs text-slate-500">— {label || videoId}</span>
-          {!embedded && (
-            <button onClick={() => onClose?.()} className="ml-auto text-slate-400 hover:text-white" aria-label="Fechar"><X className="h-5 w-5" /></button>
-          )}
+          <button onClick={() => onClose?.()} className="ml-auto text-slate-400 hover:text-white" aria-label="Fechar"><X className="h-5 w-5" /></button>
         </div>
 
-        <div className={embedded ? 'p-5 space-y-4' : 'min-h-0 flex-1 overflow-y-auto p-5 space-y-4'}>
+        <div className="min-h-0 flex-1 overflow-y-auto p-5 space-y-4">
           {/* Preview */}
           <div className="relative mx-auto w-full max-w-md overflow-hidden rounded-xl border border-white/10 bg-black" style={{ aspectRatio: '16 / 9' }}>
             {blobSrc && (
@@ -436,9 +432,7 @@ export default function VideoEditor({ videoId, label, onClose, embedded = false 
         <div className="flex items-center gap-2 border-t border-white/10 px-5 py-3">
           <Button variant="primary" size="sm" onClick={handleSave}><Save className="h-3.5 w-3.5 mr-1" />{saved ? 'Salvo!' : 'Salvar edição'}</Button>
           <Button variant="secondary" size="sm" onClick={playPreview} disabled={segments.length === 0}><Play className="h-3.5 w-3.5 mr-1" />Prévia dos cortes</Button>
-          {!embedded && (
-            <button onClick={() => onClose?.()} className="ml-auto text-[11px] text-slate-500 hover:text-slate-300">Fechar</button>
-          )}
+          <button onClick={() => onClose?.()} className="ml-auto text-[11px] text-slate-500 hover:text-slate-300">Fechar</button>
         </div>
       </div>
     </div>

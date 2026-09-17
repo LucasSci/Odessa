@@ -398,6 +398,14 @@ export default function OdessaLiveCenter({
   const [settingsSubTab, setSettingsSubTab] = useState<'general' | 'ai' | 'canvas'>('general');
   const [flowSubTab, setFlowSubTab] = useState<'board' | 'logs'>('board');
   const [liveMode, setLiveMode] = useState<'central' | 'stage' | 'overview'>('central');
+  // Editor de vídeo canônico (Fase 5b) — um único modal, aberto de qualquer
+  // aba (Palco ou Biblioteca), em vez de duas instâncias/UIs separadas.
+  const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
+  const [editingVideoLabel, setEditingVideoLabel] = useState<string | undefined>(undefined);
+  const openVideoEditor = useCallback((videoId: string, label?: string) => {
+    setEditingVideoId(videoId);
+    setEditingVideoLabel(label);
+  }, []);
   const [config, setConfig] = useState<PersonaConfig | null>(null);
   const [videoState, setVideoState] = useState<VideoState | null>(null);
   const [, setConfigError] = useState<string | null>(null);
@@ -924,6 +932,7 @@ export default function OdessaLiveCenter({
                   obsSettingsFromApp={obsSettingsFromApp}
                   onRefresh={refreshVideoState}
                   onPlayVideoById={playVideoById}
+                  onOpenEditor={openVideoEditor}
                 />
               )}
               {liveMode === 'overview' && (
@@ -948,7 +957,9 @@ export default function OdessaLiveCenter({
         )}
 
         {/* 2. BIBLIOTECA */}
-        {activeTab === 'library' && <VideoLibraryPanel config={config} onChanged={loadConfig} />}
+        {activeTab === 'library' && (
+          <VideoLibraryPanel config={config} onChanged={loadConfig} onOpenEditor={openVideoEditor} />
+        )}
 
         {/* 3. AUTOMAÇÕES (Fluxo Reativo + Logs) */}
         {(activeTab === 'flow' || activeTab === 'logs') && (
@@ -1065,6 +1076,17 @@ export default function OdessaLiveCenter({
 
       </section>
       </div>
+
+      {/* Editor de vídeo canônico (Fase 5b) — aberto do Palco ou da Biblioteca */}
+      {editingVideoId && (
+        <Suspense fallback={null}>
+          <VideoEditor
+            videoId={editingVideoId}
+            label={editingVideoLabel}
+            onClose={() => setEditingVideoId(null)}
+          />
+        </Suspense>
+      )}
     </main>
   );
 }
@@ -1788,6 +1810,7 @@ function StagePanel({
   obsSettingsFromApp,
   onRefresh,
   onPlayVideoById,
+  onOpenEditor,
 }: {
   runtime: AutopilotRuntimeState;
   capturedText: CapturedMessage[];
@@ -1796,6 +1819,7 @@ function StagePanel({
   obsSettingsFromApp?: Record<string, unknown> | null;
   onRefresh: () => void;
   onPlayVideoById: (videoId: string, reason?: string) => Promise<unknown>;
+  onOpenEditor: (videoId: string, label?: string) => void;
 }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [triggering, setTriggering] = useState(false);
@@ -1957,14 +1981,26 @@ function StagePanel({
         </div>
       </div>
 
-      {/* Editor de cortes — embutido na página (sem modal) */}
-      {activeClip?.videoId ? (
-        <Suspense fallback={<div className="odessa-panel-surface p-4 text-xs text-slate-500">Carregando editor…</div>}>
-          <VideoEditor embedded key={activeClip.videoId} videoId={activeClip.videoId} label={activeClipLabel} />
-        </Suspense>
-      ) : (
-        <div className="odessa-panel-surface p-4 text-xs text-slate-500">Coloque um vídeo no ar para editar os cortes aqui.</div>
-      )}
+      {/* Editor de cortes — abre o editor canônico (Fase 5b: mesmo modal da Biblioteca) */}
+      <div className="odessa-panel-surface flex items-center justify-between gap-3 p-4">
+        {activeClip?.videoId ? (
+          <>
+            <div className="text-xs text-slate-400">
+              Editar cortes, áudio e transição de <span className="text-slate-200">{activeClipLabel}</span>
+            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => onOpenEditor(activeClip.videoId, activeClipLabel)}
+            >
+              <Scissors className="h-3.5 w-3.5" />
+              Abrir editor completo
+            </Button>
+          </>
+        ) : (
+          <div className="text-xs text-slate-500">Coloque um vídeo no ar para editar os cortes aqui.</div>
+        )}
+      </div>
     </div>
   );
 
@@ -1973,9 +2009,11 @@ function StagePanel({
 function VideoLibraryPanel({
   config,
   onChanged,
+  onOpenEditor,
 }: {
   config: PersonaConfig | null;
   onChanged: () => void;
+  onOpenEditor: (videoId: string, label?: string) => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -1983,9 +2021,7 @@ function VideoLibraryPanel({
   const [uploadBatch, setUploadBatch] = useState<
     Array<{ name: string; status: 'pending' | 'uploading' | 'done' | 'error'; error?: string }>
   >([]);
-  const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
   const videos = config?.videos || [];
-  const editingVideo = videos.find((v) => v.id === editingVideoId) || null;
 
   // Filtro por persona (ativa/todas) e por categoria (roteiro de vídeos). O
   // modo padrão ("ativa") continua usando exatamente `config.videos` de
@@ -2321,7 +2357,7 @@ function VideoLibraryPanel({
                     <Play className="h-3.5 w-3.5" />
                     Preview
                   </Button>
-                  <Button size="sm" variant="secondary" onClick={() => setEditingVideoId(video.id)}>
+                  <Button size="sm" variant="secondary" onClick={() => onOpenEditor(video.id, videoLabel(video))}>
                     <Scissors className="h-3.5 w-3.5" />
                     Editar
                   </Button>
@@ -2349,15 +2385,6 @@ function VideoLibraryPanel({
           );
         })}
       </div>
-      {editingVideo && (
-        <Suspense fallback={null}>
-          <VideoEditor
-            videoId={editingVideo.id}
-            label={videoLabel(editingVideo)}
-            onClose={() => setEditingVideoId(null)}
-          />
-        </Suspense>
-      )}
     </div>
   );
 }
