@@ -80,13 +80,15 @@ function writeAll(map: Record<string, Partial<VideoEdit>>): void {
   }
 }
 
+// Sem sort por startSec: a ordem do array É a ordem de reprodução (Fase 5c —
+// reordenar segmentos livremente). Um sort aqui desfaria silenciosamente
+// qualquer reordenação do usuário no próximo save/load.
 function sanitizeSegments(raw: unknown): VideoSegment[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((s): s is VideoSegment => Boolean(s) && typeof s === 'object')
     .map((s) => ({ startSec: Math.max(0, Number(s.startSec) || 0), endSec: Math.max(0, Number(s.endSec) || 0) }))
-    .filter((s) => s.endSec > s.startSec)
-    .sort((a, b) => a.startSec - b.startSec);
+    .filter((s) => s.endSec > s.startSec);
 }
 
 function normalize(videoId: string, raw: Partial<VideoEdit>): VideoEdit {
@@ -149,8 +151,11 @@ export function applyVideoEdit<T extends EditableClip>(clip: T): T {
   const next: T = { ...clip };
   if (edit.segments.length > 0) {
     next.segments = edit.segments;
-    next.startSec = edit.segments[0].startSec;
-    next.endSec = edit.segments[edit.segments.length - 1].endSec;
+    // Com reordenação livre (Fase 5c), segments[0]/[last] não são mais
+    // necessariamente o início/fim cronológico do clipe — precisa do min/max
+    // real sobre todos os segmentos (usado por clipKey/identidade de clipe).
+    next.startSec = Math.min(...edit.segments.map((s) => s.startSec));
+    next.endSec = Math.max(...edit.segments.map((s) => s.endSec));
   }
   if (edit.transitionMs) next.transitionMs = edit.transitionMs;
   next.audio = {

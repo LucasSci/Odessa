@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Scissors, Plus, Trash2, Play, Pause, Volume2, X, Save, Activity, Music, Loader2,
-  ZoomIn, ZoomOut, ChevronsLeft, ChevronLeft, ChevronRight, Undo2, Redo2,
+  ZoomIn, ZoomOut, ChevronsLeft, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Undo2, Redo2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from './ui';
@@ -165,9 +165,22 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
   const canUndo = editState.index > 0;
   const canRedo = editState.index < editState.stack.length - 1;
 
+  // Sem sort por startSec: a ordem do array É a ordem de reprodução (Fase 5c
+  // — reordenar segmentos livremente). markIn/markOut/addSegment continuam
+  // anexando no fim do array (abaixo), então a ordem de criação se mantém
+  // até o usuário mover algo com os botões ↑/↓ da lista.
   const updateSegments = useCallback((next: VideoSegment[]) => {
-    applyEdit((e) => ({ ...e, segments: [...next].sort((a, b) => a.startSec - b.startSec) }));
+    applyEdit((e) => ({ ...e, segments: [...next] }));
   }, [applyEdit]);
+
+  const moveSegment = useCallback((index: number, dir: -1 | 1) => {
+    const target = index + dir;
+    if (target < 0 || target >= segments.length) return;
+    const next = segments.slice();
+    [next[index], next[target]] = [next[target], next[index]];
+    updateSegments(next);
+    setSelectedSeg(target);
+  }, [segments, updateSegments]);
 
   // silent=true (drag em andamento): atualiza sem empilhar histórico.
   const patchSegment = useCallback((index: number, patch: Partial<VideoSegment>, opts?: { silent?: boolean }) => {
@@ -504,6 +517,9 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
             {/* lista de segmentos com campos numéricos exatos */}
             {segments.length > 0 && (
               <div className="space-y-1 pt-1">
+                <p className="text-[10px] text-slate-600">
+                  A ordem da lista abaixo é a ordem de reprodução — use ↑/↓ pra reordenar os cortes.
+                </p>
                 {segments.map((seg, i) => (
                   <div
                     key={i}
@@ -511,6 +527,24 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
                     className={cn('flex flex-wrap items-center gap-2 rounded-lg border px-2 py-1.5 text-[11px]', selectedSeg === i ? 'border-[var(--gold,#7dd3fc)]/40 bg-white/[0.03]' : 'border-white/8')}
                   >
                     <span className="font-mono text-slate-400">#{i + 1}</span>
+                    <span className="flex flex-col">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); moveSegment(i, -1); }}
+                        disabled={i === 0}
+                        title="Mover pra cima (reordena a reprodução)"
+                        className="text-slate-500 hover:text-slate-200 disabled:opacity-30 disabled:hover:text-slate-500"
+                      >
+                        <ChevronUp className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); moveSegment(i, 1); }}
+                        disabled={i === segments.length - 1}
+                        title="Mover pra baixo (reordena a reprodução)"
+                        className="text-slate-500 hover:text-slate-200 disabled:opacity-30 disabled:hover:text-slate-500"
+                      >
+                        <ChevronDown className="h-3 w-3" />
+                      </button>
+                    </span>
                     <label className="flex items-center gap-1 text-slate-500">início
                       <input type="number" step={0.05} min={0} max={duration || undefined} value={seg.startSec}
                         onChange={(e) => patchSegment(i, { startSec: Number(e.target.value) })}
