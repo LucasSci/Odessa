@@ -58,16 +58,20 @@ function suppressProxyErrors(proxy: { on: (event: string, handler: (...args: unk
   // ECONNREFUSED/ENOTFOUND messages during API reloads — we handle it ourselves.
   (proxy as unknown as { removeAllListeners: (e: string) => void }).removeAllListeners('error');
   proxy.on('error', (_err: unknown, _req: unknown, res: unknown) => {
+    const target = res as {
+      writeHead?: (statusCode: number, headers?: Record<string, string>) => void;
+      end?: (body?: string) => void;
+      headersSent?: boolean;
+      destroy?: () => void;
+    };
     // HTTP proxy: respond with 502 instead of crashing
-    if (res && typeof (res as { writeHead?: Function }).writeHead === 'function' && !(res as { headersSent?: boolean }).headersSent) {
-      (res as { writeHead: Function }).writeHead(502, { 'Content-Type': 'application/json' });
-      (res as { end: Function }).end(JSON.stringify({ detail: 'Backend temporarily unavailable' }));
+    if (target?.writeHead && !target.headersSent) {
+      target.writeHead(502, { 'Content-Type': 'application/json' });
+      target.end?.(JSON.stringify({ detail: 'Backend temporarily unavailable' }));
       return;
     }
     // WebSocket proxy (tango-bridge): destroy the socket silently
-    if (res && typeof (res as { destroy?: Function }).destroy === 'function') {
-      (res as { destroy: Function }).destroy();
-    }
+    target?.destroy?.();
   });
 }
 

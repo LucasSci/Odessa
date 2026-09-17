@@ -42,6 +42,7 @@ import type {
   LiveEventKind,
   PersonaDecision,
   PersonaTool,
+  ToolCapability,
 } from '../types';
 
 interface N8NHealth {
@@ -920,7 +921,7 @@ export function useAutopilotRuntime({
       setTools((current) => {
         let next = current;
         for (const p of opts.toolPatches || []) {
-          next = updateToolRegistry(next, p.capability as any, p.patch as any);
+          next = updateToolRegistry(next, p.capability as ToolCapability, p.patch);
         }
         return next;
       });

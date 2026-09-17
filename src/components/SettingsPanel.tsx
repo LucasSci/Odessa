@@ -506,7 +506,7 @@ export function SettingsPanel({
       void loadWebhooks();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [loadObsSettings, loadWebhooks]);
+  }, [loadObsProfiles, loadObsSettings, loadWebhooks]);
 
   useEffect(() => {
     window.localStorage.setItem(WORKSPACE_SETTINGS_KEY, JSON.stringify(workspace));

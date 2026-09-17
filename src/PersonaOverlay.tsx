@@ -455,7 +455,7 @@ export default function PersonaOverlay() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [checkAndFireSchedules, currentKey, fetchVideoState, transitionToClip]);
+  }, [advanceAndRefresh, checkAndFireSchedules, currentKey, fetchVideoState, transitionToClip]);
 
   const handleProgress = (slotClip: VideoClip | null, element: HTMLVideoElement) => {
     if (!slotClip?.endSec) return;

@@ -48,6 +48,11 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 function eventSummary(e: SessionEvent): string {
+  // `data` tem formato diferente por tipo de evento (chat/gift/trigger/vídeo/IA)
+  // — any é intencional aqui: é só pra montar uma linha de texto de histórico,
+  // trocar por `unknown` exigiria checagem manual em ~15 acessos sem nenhum
+  // ganho real (o peor caso já é só "undefined" aparecer no texto).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d = e.data as Record<string, any>;
   switch (e.type) {
     case 'chat.received':
@@ -56,6 +61,7 @@ function eventSummary(e: SessionEvent): string {
       return `${d.sender ?? 'desconhecido'} enviou ${d.giftName ?? 'presente'}${d.quantity && d.quantity > 1 ? ` x${d.quantity}` : ''}`;
     case 'trigger.fired': {
       const matches = Array.isArray(d.matches) ? d.matches : [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const names = matches.map((m: any) => m.name ?? m.triggerName ?? m.id).filter(Boolean);
       return `Evento ${d.eventKind ?? ''} → ${names.join(', ') || 'sem gatilho'}`;
     }
