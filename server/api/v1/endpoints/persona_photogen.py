@@ -31,6 +31,18 @@ MAX_HISTORY = 50
 _last_generation_at: Dict[str, float] = {}
 _cooldown_lock = threading.Lock()
 
+# Estado de job em memória — só pra o frontend mostrar progresso (etapa +
+# tempo decorrido) enquanto a geração roda em background. Some se o processo
+# reiniciar; o frontend trata um jobId desconhecido como "sem info", não erro.
+_jobs: Dict[str, Dict[str, Any]] = {}
+_jobs_lock = threading.Lock()
+
+
+def _job_set(job_id: str, **fields: Any) -> None:
+    with _jobs_lock:
+        job = _jobs.setdefault(job_id, {})
+        job.update(fields)
+
 
 class GeneratePhotoRequest(BaseModel):
     prompt: str
@@ -88,11 +100,13 @@ def _generate_image_bytes(persona_id: str, prompt: str) -> tuple[bytes, str]:
 
 
 def _generate_photo_background(persona_id: str, prompt: str, job_id: str) -> None:
+    _job_set(job_id, status="generating", startedAt=persona_manager._now())
     try:
         image_bytes, provider_used = _generate_image_bytes(persona_id, prompt)
     except Exception as exc:  # noqa: BLE001
         logger.warning("[photogen] falha ao gerar foto para %s: %s", persona_id, exc)
         _append_history(persona_id, applied=[f"geração de foto falhou: {exc}"])
+        _job_set(job_id, status="error", finishedAt=persona_manager._now(), error=str(exc))
         return
 
     try:
@@ -109,6 +123,7 @@ def _generate_photo_background(persona_id: str, prompt: str, job_id: str) -> Non
     except Exception as exc:  # noqa: BLE001
         logger.warning("[photogen] falha ao salvar foto gerada para %s: %s", persona_id, exc)
         _append_history(persona_id, applied=[f"foto gerada mas falhou ao salvar: {exc}"])
+        _job_set(job_id, status="error", finishedAt=persona_manager._now(), error=str(exc))
         return
 
     index = persona_manager._ensure_default_persona(persona_manager._load_index())
@@ -127,6 +142,7 @@ def _generate_photo_background(persona_id: str, prompt: str, job_id: str) -> Non
         del history[:-MAX_HISTORY]
         persona_manager._save_index(index)
     logger.info("[photogen] foto gerada para %s via %s (asset=%s)", persona_id, provider_used, asset["id"])
+    _job_set(job_id, status="done", finishedAt=persona_manager._now(), assetId=asset["id"])
 
 
 @router.post("/{persona_id}/selfconfig/generate-photo")
@@ -155,6 +171,7 @@ def generate_photo(persona_id: str, request: GeneratePhotoRequest):
         _last_generation_at[persona_id] = now_ms
 
     job_id = uuid.uuid4().hex[:12]
+    _job_set(job_id, personaId=persona_id, status="queued", queuedAt=persona_manager._now())
     thread = threading.Thread(
         target=_generate_photo_background,
         args=(persona_id, prompt, job_id),
@@ -163,3 +180,15 @@ def generate_photo(persona_id: str, request: GeneratePhotoRequest):
     )
     thread.start()
     return {"ok": True, "status": "queued", "jobId": job_id}
+
+
+@router.get("/{persona_id}/selfconfig/photo-status/{job_id}")
+def get_photo_status(persona_id: str, job_id: str):
+    """Estado de progresso de um job de geração de foto (ver módulo _jobs).
+    404 se o job não existir — processo reiniciado ou jobId antigo; o
+    frontend trata isso como "desconhecido", não como falha."""
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+    if job is None or job.get("personaId") != persona_id:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' não encontrado")
+    return job

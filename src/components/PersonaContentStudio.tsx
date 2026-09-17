@@ -17,7 +17,19 @@ import {
   type PersonaContentItem,
   type PersonaContentState,
 } from '../core/personaContentApi';
+import { fetchPhotoJobStatus } from '../core/personaSelfConfig';
+import { fetchQueue, type VideoGenQueueItem } from '../core/videoGenApi';
+import { GenerationProgressCard, type GenerationStage } from './GenerationProgressCard';
 import { Tabs } from './ui';
+
+const JOB_POLL_MS = 2000;
+
+function queueStatusToStage(status: VideoGenQueueItem['status']): GenerationStage {
+  if (status === 'generating') return 'gerando';
+  if (status === 'done') return 'pronto';
+  if (status === 'error') return 'erro';
+  return 'queued';
+}
 
 type Props = {
   personaId: string;
@@ -54,6 +66,17 @@ export default function PersonaContentStudio({ personaId, personaName }: Props) 
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [generateMsg, setGenerateMsg] = useState<string | null>(null);
 
+  // Job em andamento (foto via /selfconfig/photo-status, vídeo via a fila do
+  // video-gen) — null quando não há geração ativa pra acompanhar.
+  const [photoJobId, setPhotoJobId] = useState<string | null>(null);
+  const [photoJobStage, setPhotoJobStage] = useState<GenerationStage>('queued');
+  const [photoJobStartedAt, setPhotoJobStartedAt] = useState<string | null>(null);
+  const [photoJobError, setPhotoJobError] = useState<string | null>(null);
+  const [videoQueueItemId, setVideoQueueItemId] = useState<string | null>(null);
+  const [videoQueueStage, setVideoQueueStage] = useState<GenerationStage>('queued');
+  const [videoQueueStartedAt, setVideoQueueStartedAt] = useState<string | null>(null);
+  const [videoQueueError, setVideoQueueError] = useState<string | null>(null);
+
   // loading começa true (useState(true) abaixo) só pra cobrir a primeira
   // carga — trocas de persona depois disso mostram o conteúdo antigo por um
   // instante em vez de piscar o spinner de novo (evita setState síncrono
@@ -76,6 +99,80 @@ export default function PersonaContentStudio({ personaId, personaName }: Props) 
     return () => window.clearInterval(interval);
   }, [refresh]);
 
+  // Acompanha o job de geração de foto até done/error, então avisa a lista
+  // de conteúdo (refresh) e some com o card depois de um instante. Auto-
+  // agendado (setTimeout recursivo) em vez de setInterval — para de bater no
+  // endpoint assim que chega num estado terminal, sem precisar de um efeito
+  // separado só pra isso.
+  useEffect(() => {
+    if (!photoJobId) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    const poll = async () => {
+      const status = await fetchPhotoJobStatus(personaId, photoJobId);
+      if (cancelled) return;
+      if (!status) {
+        setPhotoJobId(null);
+        return;
+      }
+      const stage = queueStatusToStage(status.status);
+      setPhotoJobStage(stage);
+      setPhotoJobStartedAt(status.startedAt || status.queuedAt || null);
+      setPhotoJobError(status.error || null);
+      if (stage === 'pronto' || stage === 'erro') {
+        void refresh();
+        timer = window.setTimeout(() => {
+          if (!cancelled) setPhotoJobId(null);
+        }, 4000);
+        return;
+      }
+      timer = window.setTimeout(poll, JOB_POLL_MS);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [photoJobId, personaId, refresh]);
+
+  // Mesmo padrão do efeito acima, pro item da fila de video-gen.
+  useEffect(() => {
+    if (!videoQueueItemId) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    const poll = async () => {
+      let item: VideoGenQueueItem | undefined;
+      try {
+        const queue = await fetchQueue(personaId);
+        item = queue.find((q) => q.id === videoQueueItemId);
+      } catch {
+        item = undefined;
+      }
+      if (cancelled) return;
+      if (!item) {
+        setVideoQueueItemId(null);
+        return;
+      }
+      const stage = queueStatusToStage(item.status);
+      setVideoQueueStage(stage);
+      setVideoQueueStartedAt(item.createdAt || null);
+      setVideoQueueError(item.error || null);
+      if (stage === 'pronto' || stage === 'erro') {
+        void refresh();
+        timer = window.setTimeout(() => {
+          if (!cancelled) setVideoQueueItemId(null);
+        }, 4000);
+        return;
+      }
+      timer = window.setTimeout(poll, JOB_POLL_MS);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [videoQueueItemId, personaId, refresh]);
+
   const handleGeneratePhoto = async () => {
     const prompt = photoPrompt.trim();
     if (!prompt || generatingPhoto) return;
@@ -84,8 +181,14 @@ export default function PersonaContentStudio({ personaId, personaName }: Props) 
     try {
       const result = await generatePersonaPhoto(personaId, prompt);
       if (result.ok) {
-        setGenerateMsg('🎨 Geração de foto iniciada — aparece em Organizar quando terminar (pode levar de segundos a minutos).');
+        setGenerateMsg('🎨 Geração de foto iniciada — acompanhe o progresso abaixo.');
         setPhotoPrompt('');
+        if (result.jobId) {
+          setPhotoJobError(null);
+          setPhotoJobStage('queued');
+          setPhotoJobStartedAt(new Date().toISOString());
+          setPhotoJobId(result.jobId);
+        }
       } else if (result.status === 'cooldown') {
         setGenerateMsg('⏳ Aguarde um pouco antes de gerar outra foto (cooldown ativo).');
       } else if (result.status === 'max_reached') {
@@ -107,10 +210,24 @@ export default function PersonaContentStudio({ personaId, personaName }: Props) 
       const result = await generatePersonaVideo(personaId, { prompt });
       setGenerateMsg(
         result.ok
-          ? '🎬 Geração de vídeo enfileirada — acompanhe o progresso na aba Ao Vivo (Video Gen) ou aqui em Organizar.'
+          ? '🎬 Geração de vídeo enfileirada — acompanhe o progresso abaixo.'
           : '⚠️ Não foi possível enfileirar a geração de vídeo.',
       );
-      if (result.ok) setVideoPrompt('');
+      if (result.ok) {
+        setVideoPrompt('');
+        if (result.item) {
+          setVideoQueueError(null);
+          setVideoQueueStage(queueStatusToStage(result.item.status));
+          setVideoQueueStartedAt(result.item.createdAt || new Date().toISOString());
+          setVideoQueueItemId(result.item.id);
+        }
+      }
+    } catch (err) {
+      // enqueueGeneration/generateFromTemplate lançam em qualquer resposta
+      // não-2xx (ex.: fila cheia) em vez de devolver {ok:false} — sem este
+      // catch, isso vira uma rejeição de promise não tratada.
+      const detail = err instanceof Error ? err.message : 'erro desconhecido';
+      setGenerateMsg(`⚠️ Não foi possível enfileirar a geração de vídeo (${detail}).`);
     } finally {
       setGeneratingVideo(false);
     }
@@ -227,6 +344,14 @@ export default function PersonaContentStudio({ personaId, personaName }: Props) 
                   {generatingPhoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
                   Gerar foto
                 </button>
+                {photoJobId && (
+                  <GenerationProgressCard
+                    className="mt-2"
+                    stage={photoJobStage}
+                    startedAt={photoJobStartedAt}
+                    errorMessage={photoJobError}
+                  />
+                )}
               </div>
 
               <div className="rounded-xl border border-white/10 bg-black/20 p-3">
@@ -252,6 +377,14 @@ export default function PersonaContentStudio({ personaId, personaName }: Props) 
                   {generatingVideo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
                   Gerar vídeo
                 </button>
+                {videoQueueItemId && (
+                  <GenerationProgressCard
+                    className="mt-2"
+                    stage={videoQueueStage}
+                    startedAt={videoQueueStartedAt}
+                    errorMessage={videoQueueError}
+                  />
+                )}
               </div>
 
               {generateMsg && (

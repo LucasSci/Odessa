@@ -147,6 +147,31 @@ export async function requestSelfGeneratedPhoto(
   }
 }
 
+export type PhotoJobStatus = {
+  status: 'queued' | 'generating' | 'done' | 'error';
+  queuedAt?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  error?: string;
+  assetId?: string;
+};
+
+/**
+ * Consulta o progresso de um job de geração de foto (ver _jobs em
+ * persona_photogen.py). 404 = job desconhecido (processo reiniciado ou
+ * jobId antigo) — devolve null em vez de lançar, o chamador trata como
+ * "sem info", não como falha.
+ */
+export async function fetchPhotoJobStatus(personaId: string, jobId: string): Promise<PhotoJobStatus | null> {
+  try {
+    const res = await fetch(apiUrl(`/personas/${personaId}/selfconfig/photo-status/${jobId}`));
+    if (!res.ok) return null;
+    return (await res.json()) as PhotoJobStatus;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Reflexão de evolução: pede à IA da persona que observe a conversa recente e
  * extraia traços duradouros que ela incorporou. Retorna as mudanças (ou null).

@@ -14,9 +14,18 @@ import {
   generatePrompt,
   enqueueGeneration,
   type VideoGenState,
+  type VideoGenQueueItem,
 } from '../core/videoGenApi';
+import { GenerationProgressCard, type GenerationStage } from './GenerationProgressCard';
 
 const POLL_MS = 3000;
+
+function queueStatusToStage(status: VideoGenQueueItem['status']): GenerationStage {
+  if (status === 'generating') return 'gerando';
+  if (status === 'done') return 'pronto';
+  if (status === 'error') return 'erro';
+  return 'queued';
+}
 
 const STATUS_STYLES: Record<string, { label: string; cls: string }> = {
   queued: { label: 'NA FILA', cls: 'bg-sky-500/10 text-sky-400 border-sky-500/30' },
@@ -126,11 +135,13 @@ export function VideoGenPanel({ className }: { className?: string }) {
             <Play className="h-3 w-3" /> Próximo vídeo a gerar
           </div>
           <p className="line-clamp-2 text-xs text-slate-300">{nextToGenerate.prompt}</p>
-          <div className="mt-1 flex items-center gap-2">
-            <StatusPill status={nextToGenerate.status} />
-            {nextToGenerate.videoId && (
-              <span className="font-mono text-[10px] text-slate-500">{nextToGenerate.videoId}</span>
-            )}
+          <div className="mt-1.5">
+            <GenerationProgressCard
+              stage={queueStatusToStage(nextToGenerate.status)}
+              startedAt={nextToGenerate.createdAt}
+              errorMessage={nextToGenerate.error}
+              label={nextToGenerate.videoId || undefined}
+            />
           </div>
         </div>
       )}
