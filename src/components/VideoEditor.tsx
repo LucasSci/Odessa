@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Scissors, Plus, Trash2, Play, Pause, Volume2, X, Save, Activity, Music, Loader2,
-  ZoomIn, ZoomOut, ChevronsLeft,
+  ZoomIn, ZoomOut, ChevronsLeft, Undo2, Redo2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from './ui';
@@ -38,11 +38,24 @@ function fmt(t: number): string {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
+// Desfazer/Refazer (Fase 5a) — pilha de snapshots só da sessão do componente
+// (não persiste). Limite alto o bastante pra uma sessão de edição inteira
+// sem crescer sem limite.
+const HISTORY_LIMIT = 100;
+
 export default function VideoEditor({ videoId, label, onClose }: VideoEditorProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
 
-  const [edit, setEdit] = useState<VideoEdit>(() => getVideoEdit(videoId) ?? defaultVideoEdit(videoId));
+  // edit + pilha de desfazer/refazer num único state — um updater PURO e
+  // atômico. Nested setState-dentro-de-setState (a versão anterior) quebra
+  // sob StrictMode: React invoca updaters duas vezes em dev pra detectar
+  // efeitos colaterais, e isso duplicava entradas no histórico.
+  const [editState, setEditState] = useState<{ edit: VideoEdit; stack: VideoEdit[]; index: number }>(() => {
+    const initial = getVideoEdit(videoId) ?? defaultVideoEdit(videoId);
+    return { edit: initial, stack: [initial], index: 0 };
+  });
+  const edit = editState.edit;
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -100,12 +113,61 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
     return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
   }, [src]);
 
-  const updateSegments = useCallback((next: VideoSegment[]) => {
-    setEdit((e) => ({ ...e, segments: [...next].sort((a, b) => a.startSec - b.startSec) }));
+  // Aplica uma mudança CONFIRMADA (empilha no histórico) num único setState
+  // puro. Operações contínuas (arrastar handle na timeline) usam setEditSilent
+  // e só empilham uma vez, no pointerup — ver o efeito de drag abaixo —
+  // senão cada pointermove criaria uma entrada, inundando a pilha.
+  const applyEdit = useCallback((updater: (e: VideoEdit) => VideoEdit) => {
+    setEditState((s) => {
+      const next = updater(s.edit);
+      const stack = s.stack.slice(0, s.index + 1);
+      stack.push(next);
+      while (stack.length > HISTORY_LIMIT) stack.shift();
+      return { edit: next, stack, index: stack.length - 1 };
+    });
   }, []);
 
-  const patchSegment = useCallback((index: number, patch: Partial<VideoSegment>) => {
-    setEdit((e) => {
+  // Atualiza `edit` sem tocar no histórico (drag em andamento).
+  const setEditSilent = useCallback((updater: (e: VideoEdit) => VideoEdit) => {
+    setEditState((s) => ({ ...s, edit: updater(s.edit) }));
+  }, []);
+
+  // Empilha o estado ATUAL de `edit` como uma nova entrada (fim do drag).
+  const commitSilentEdit = useCallback(() => {
+    setEditState((s) => {
+      const stack = s.stack.slice(0, s.index + 1);
+      stack.push(s.edit);
+      while (stack.length > HISTORY_LIMIT) stack.shift();
+      return { edit: s.edit, stack, index: stack.length - 1 };
+    });
+  }, []);
+
+  const undo = useCallback(() => {
+    setEditState((s) => {
+      if (s.index <= 0) return s;
+      const nextIndex = s.index - 1;
+      return { edit: s.stack[nextIndex], stack: s.stack, index: nextIndex };
+    });
+  }, []);
+
+  const redo = useCallback(() => {
+    setEditState((s) => {
+      if (s.index >= s.stack.length - 1) return s;
+      const nextIndex = s.index + 1;
+      return { edit: s.stack[nextIndex], stack: s.stack, index: nextIndex };
+    });
+  }, []);
+
+  const canUndo = editState.index > 0;
+  const canRedo = editState.index < editState.stack.length - 1;
+
+  const updateSegments = useCallback((next: VideoSegment[]) => {
+    applyEdit((e) => ({ ...e, segments: [...next].sort((a, b) => a.startSec - b.startSec) }));
+  }, [applyEdit]);
+
+  // silent=true (drag em andamento): atualiza sem empilhar histórico.
+  const patchSegment = useCallback((index: number, patch: Partial<VideoSegment>, opts?: { silent?: boolean }) => {
+    const updater = (e: VideoEdit): VideoEdit => {
       const segs = e.segments.slice();
       const seg = segs[index];
       if (!seg) return e;
@@ -117,8 +179,10 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
       }
       segs[index] = { startSec, endSec };
       return { ...e, segments: segs };
-    });
-  }, [duration]);
+    };
+    if (opts?.silent) setEditSilent(updater);
+    else applyEdit(updater);
+  }, [duration, applyEdit, setEditSilent]);
 
   // ── tempo <-> pixel (na faixa interna, considerando scroll) ──────────────────
   const pxToTime = useCallback((clientX: number) => {
@@ -159,18 +223,23 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
     setSelectedSeg(next.length - 1);
   }, [currentTime, selectedSeg, segments, patchSegment, updateSegments]);
 
-  // Arrasto dos handles (espaço em px com zoom/scroll).
+  // Arrasto dos handles (espaço em px com zoom/scroll). Silencioso durante o
+  // movimento — só empilha UMA entrada de histórico no pointerup, senão cada
+  // pointermove criaria uma entrada de desfazer.
   useEffect(() => {
     if (!drag) return;
     const onMove = (ev: PointerEvent) => {
       const t = pxToTime(ev.clientX);
-      patchSegment(drag.index, drag.edge === 'start' ? { startSec: t } : { endSec: t });
+      patchSegment(drag.index, drag.edge === 'start' ? { startSec: t } : { endSec: t }, { silent: true });
     };
-    const onUp = () => setDrag(null);
+    const onUp = () => {
+      setDrag(null);
+      commitSilentEdit();
+    };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
-  }, [drag, pxToTime, patchSegment]);
+  }, [drag, pxToTime, patchSegment, commitSilentEdit]);
 
   // ── transporte / playhead ────────────────────────────────────────────────────
   const seekTo = useCallback((t: number) => {
@@ -226,17 +295,24 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
 
   const onPickAudio = useCallback(async (file: File | undefined) => {
     if (!file) return; setAudioError('');
-    try { const url = await fileToDataUrl(file); setEdit((e) => ({ ...e, trackUrl: url, audioMode: 'track' })); }
+    try { const url = await fileToDataUrl(file); applyEdit((e) => ({ ...e, trackUrl: url, audioMode: 'track' })); }
     catch (err) { setAudioError(err instanceof Error ? err.message : 'Falha ao carregar áudio'); }
-  }, []);
+  }, [applyEdit]);
 
   const handleSave = useCallback(() => { saveVideoEdit(edit); setSaved(true); setTimeout(() => setSaved(false), 1800); }, [edit]);
 
-  // Atalhos de teclado (setas = passo, i/o = marcar, espaço = play).
+  // Atalhos de teclado (setas = passo, i/o = marcar, espaço = play, Ctrl+Z /
+  // Ctrl+Shift+Z = desfazer/refazer — Cmd no Mac).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
       if (e.key === 'ArrowLeft') { e.preventDefault(); step(e.shiftKey ? -1 : -0.1); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); step(e.shiftKey ? 1 : 0.1); }
       else if (e.key === 'i' || e.key === 'I') { e.preventDefault(); markIn(); }
@@ -245,7 +321,7 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [step, markIn, markOut, togglePlay]);
+  }, [step, markIn, markOut, togglePlay, undo, redo]);
 
   return (
     <div
@@ -395,7 +471,7 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
               <div className="flex items-center gap-2"><Volume2 className="h-3.5 w-3.5 text-sky-400" /><span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Áudio</span></div>
               <div className="flex flex-wrap gap-1">
                 {(['muted', 'original', 'track'] as AudioMode[]).map((m) => (
-                  <button key={m} onClick={() => setEdit((e) => ({ ...e, audioMode: m }))}
+                  <button key={m} onClick={() => applyEdit((e) => ({ ...e, audioMode: m }))}
                     className={cn('rounded-lg border px-2.5 py-1 text-[11px] transition', edit.audioMode === m ? 'border-sky-500/50 bg-sky-500/15 text-sky-300' : 'border-white/8 text-slate-500 hover:text-slate-300')}>
                     {m === 'muted' ? 'Mudo' : m === 'original' ? 'Original' : 'Trilha'}
                   </button>
@@ -403,15 +479,15 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
               </div>
               <div className="space-y-1">
                 <div className="flex items-center justify-between"><span className="text-[10px] text-slate-500">Volume</span><span className="font-mono text-[10px] text-sky-300">{Math.round(edit.volume * 100)}%</span></div>
-                <input type="range" min={0} max={1} step={0.05} value={edit.volume} onChange={(e) => setEdit((ed) => ({ ...ed, volume: Number(e.target.value) }))} className="w-full accent-sky-500" />
+                <input type="range" min={0} max={1} step={0.05} value={edit.volume} onChange={(e) => applyEdit((ed) => ({ ...ed, volume: Number(e.target.value) }))} className="w-full accent-sky-500" />
               </div>
               {edit.audioMode === 'track' && (
                 <div className="space-y-2 rounded-lg border border-white/8 p-2">
                   <div className="flex items-center gap-2 text-[10px] text-slate-500"><Music className="h-3 w-3" /> Trilha / efeito sonoro</div>
                   <input type="file" accept="audio/*" onChange={(e) => void onPickAudio(e.target.files?.[0])} className="block w-full text-[10px] text-slate-400 file:mr-2 file:rounded file:border-0 file:bg-sky-500/20 file:px-2 file:py-1 file:text-sky-300" />
-                  <input type="text" placeholder="ou cole uma URL de áudio (https://…)" value={edit.trackUrl && !edit.trackUrl.startsWith('data:') ? edit.trackUrl : ''} onChange={(e) => setEdit((ed) => ({ ...ed, trackUrl: e.target.value || undefined }))} className="w-full rounded-lg border border-white/8 bg-[#0b0d10] px-2 py-1 text-[11px] text-slate-300 focus:border-sky-500/40 focus:outline-none" />
-                  {edit.trackUrl && (<div className="flex items-center justify-between text-[10px] text-emerald-400"><span>{edit.trackUrl.startsWith('data:') ? 'áudio carregado ✓' : 'URL definida ✓'}</span><button onClick={() => setEdit((ed) => ({ ...ed, trackUrl: undefined }))} className="text-slate-600 hover:text-red-400">remover</button></div>)}
-                  <label className="flex items-center gap-2 text-[11px] text-slate-400"><input type="checkbox" checked={Boolean(edit.trackLoop)} onChange={(e) => setEdit((ed) => ({ ...ed, trackLoop: e.target.checked }))} />repetir (loop)</label>
+                  <input type="text" placeholder="ou cole uma URL de áudio (https://…)" value={edit.trackUrl && !edit.trackUrl.startsWith('data:') ? edit.trackUrl : ''} onChange={(e) => applyEdit((ed) => ({ ...ed, trackUrl: e.target.value || undefined }))} className="w-full rounded-lg border border-white/8 bg-[#0b0d10] px-2 py-1 text-[11px] text-slate-300 focus:border-sky-500/40 focus:outline-none" />
+                  {edit.trackUrl && (<div className="flex items-center justify-between text-[10px] text-emerald-400"><span>{edit.trackUrl.startsWith('data:') ? 'áudio carregado ✓' : 'URL definida ✓'}</span><button onClick={() => applyEdit((ed) => ({ ...ed, trackUrl: undefined }))} className="text-slate-600 hover:text-red-400">remover</button></div>)}
+                  <label className="flex items-center gap-2 text-[11px] text-slate-400"><input type="checkbox" checked={Boolean(edit.trackLoop)} onChange={(e) => applyEdit((ed) => ({ ...ed, trackLoop: e.target.checked }))} />repetir (loop)</label>
                   {audioError && <p className="text-[10px] text-red-400">{audioError}</p>}
                 </div>
               )}
@@ -421,7 +497,7 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
               <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Transição (ao entrar)</span>
               <div className="space-y-1">
                 <div className="flex items-center justify-between"><span className="text-[10px] text-slate-500">Duração</span><span className="font-mono text-[10px] text-sky-300">{edit.transitionMs}ms</span></div>
-                <input type="range" min={0} max={2000} step={20} value={edit.transitionMs} onChange={(e) => setEdit((ed) => ({ ...ed, transitionMs: Number(e.target.value) }))} className="w-full accent-sky-500" />
+                <input type="range" min={0} max={2000} step={20} value={edit.transitionMs} onChange={(e) => applyEdit((ed) => ({ ...ed, transitionMs: Number(e.target.value) }))} className="w-full accent-sky-500" />
               </div>
               <p className="text-[10px] text-slate-600">Atalhos: ← → (passo), Shift+← → (1s), I (início), O (fim), espaço (play). As edições valem sempre que o vídeo tocar.</p>
             </div>
@@ -432,6 +508,8 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
         <div className="flex items-center gap-2 border-t border-white/10 px-5 py-3">
           <Button variant="primary" size="sm" onClick={handleSave}><Save className="h-3.5 w-3.5 mr-1" />{saved ? 'Salvo!' : 'Salvar edição'}</Button>
           <Button variant="secondary" size="sm" onClick={playPreview} disabled={segments.length === 0}><Play className="h-3.5 w-3.5 mr-1" />Prévia dos cortes</Button>
+          <Button variant="secondary" size="sm" onClick={undo} disabled={!canUndo} title="Desfazer (Ctrl+Z)"><Undo2 className="h-3.5 w-3.5" /></Button>
+          <Button variant="secondary" size="sm" onClick={redo} disabled={!canRedo} title="Refazer (Ctrl+Shift+Z)"><Redo2 className="h-3.5 w-3.5" /></Button>
           <button onClick={() => onClose?.()} className="ml-auto text-[11px] text-slate-500 hover:text-slate-300">Fechar</button>
         </div>
       </div>
