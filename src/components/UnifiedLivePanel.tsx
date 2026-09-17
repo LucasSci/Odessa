@@ -32,7 +32,7 @@ import { VideoGenPanel } from './VideoGenPanel';
 import type { TangoChatMessage } from '../core/tangoAiChatService';
 import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
 import type { CapturedMessage } from '../types';
-import type { AutonomyMode, ExecutionMode, TangoReplyItem } from './TangoChatPanel';
+import type { TangoReplyItem } from './TangoChatPanel';
 
 export type VideoStateLite = {
   current_video_id?: string;
@@ -47,16 +47,11 @@ export interface UnifiedLivePanelProps {
   capturedText: CapturedMessage[];
   runtime: AutopilotRuntimeState;
   videoState: VideoStateLite | null;
-  onStartLive?: () => void | Promise<void>;
   bridgeConnected: boolean;
 
   // ── Chat state & callbacks (gerenciados pelo TangoChatPanel) ──
   messages: TangoChatMessage[];
   replyQueue: TangoReplyItem[];
-  autonomyMode: AutonomyMode;
-  executionMode: ExecutionMode;
-  onSetAutonomy: (mode: AutonomyMode) => void;
-  onSetExecution: (mode: ExecutionMode) => void;
   generatingForId: string | null;
   cooldownRemaining: number;
   cannedResponses: string[];
@@ -81,14 +76,9 @@ export interface UnifiedLivePanelProps {
 export function UnifiedLivePanel({
   runtime,
   videoState,
-  onStartLive,
   bridgeConnected,
   messages,
   replyQueue,
-  autonomyMode,
-  executionMode,
-  onSetAutonomy,
-  onSetExecution,
   generatingForId,
   cooldownRemaining,
   cannedResponses,

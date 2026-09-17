@@ -20,7 +20,6 @@ import {
   renderTemplate,
   assetUrl,
   type AssetCategory,
-  type PersonaAsset,
   type PersonaAssets,
   type VideoTemplates,
 } from '../core/personaAssets';

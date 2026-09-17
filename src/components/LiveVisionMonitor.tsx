@@ -19,12 +19,9 @@ import {
   Delete,
   Eye,
   ExternalLink,
-  Keyboard,
   Loader2,
   Maximize2,
   Minimize2,
-  MousePointerClick,
-  Navigation,
   Radio,
   RefreshCw,
   Send,
@@ -72,21 +69,18 @@ export function LiveVisionMonitor({ connected }: Props) {
   const [live, setLive] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [wsAttempts, setWsAttempts] = useState(0);
-  const [frameCount, setFrameCount] = useState(0);
-  const frameCountRef = useRef(0);
-  const [fps, setFps] = useState(0);
-  const [pageUrl, setPageUrl] = useState('');
   const [pageMeta, setPageMeta] = useState<{ w: number; h: number } | null>(null);
   const [typeText, setTypeText] = useState('');
   const [gotoUrl, setGotoUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [lastClick, setLastClick] = useState<{ x: number; y: number } | null>(null);
-  const [actionLog, setActionLog] = useState<string[]>([]);
   const [maximized, setMaximized] = useState(false);
 
+  // Log de ações pra depuração — nada na UI exibe isso hoje, então usar
+  // console em vez de estado React evita acumular um valor que nunca é lido.
   const logAction = useCallback((line: string) => {
     const stamp = new Date().toLocaleTimeString('pt-BR');
-    setActionLog((prev) => [`[${stamp}] ${line}`, ...prev].slice(0, 12));
+    console.debug(`[LiveVisionMonitor] [${stamp}] ${line}`);
   }, []);
 
   const sendWs = useCallback((msg: Record<string, unknown>) => {
@@ -137,17 +131,7 @@ export function LiveVisionMonitor({ connected }: Props) {
 
     let cancelled = false;
     let retryTimer: number | undefined;
-    let fpsCounter = 0;
     let attempt = 0;
-
-    // Medidor de FPS
-    const fpsTimer = window.setInterval(() => {
-      if (!cancelled) {
-        setFps(fpsCounter);
-        setFrameCount(frameCountRef.current);
-        fpsCounter = 0;
-      }
-    }, 1000);
 
     const openWs = () => {
       if (cancelled) return;
@@ -186,8 +170,6 @@ export function LiveVisionMonitor({ connected }: Props) {
             const ctx = canvas.getContext('2d');
             if (ctx) ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
             bmp.close();
-            fpsCounter++;
-            frameCountRef.current++;
           } catch {
             /* frame corrompido — ignora */
           }
@@ -209,7 +191,6 @@ export function LiveVisionMonitor({ connected }: Props) {
           viewportRef.current = { w, h };
           setPageMeta({ w, h });
           if (data.url) {
-            setPageUrl(data.url as string);
             setGotoUrl(data.url as string);
           }
         } else if (type === 'error') {
@@ -247,7 +228,6 @@ export function LiveVisionMonitor({ connected }: Props) {
     return () => {
       cancelled = true;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
-      window.clearInterval(fpsTimer);
       wsRef.current?.close();
       wsRef.current = null;
       setLive(false);
@@ -391,7 +371,6 @@ export function LiveVisionMonitor({ connected }: Props) {
           setPageMeta({ w: data.w, h: data.h });
         }
         if (data.url) {
-          setPageUrl(data.url);
           setGotoUrl(data.url);
         }
       }

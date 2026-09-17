@@ -15,14 +15,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Brain,
-  Check,
   ChevronDown,
   ChevronRight,
   Copy,
-  Image as ImageIcon,
   Loader2,
   Plus,
-  RefreshCw,
   Sparkles,
   Trash2,
   Users,
@@ -32,7 +29,6 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { apiUrl } from '../lib/api';
 import {
   listPersonas,
   setActivePersona,

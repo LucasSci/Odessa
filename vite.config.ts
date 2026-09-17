@@ -57,7 +57,7 @@ function suppressProxyErrors(proxy: { on: (event: string, handler: (...args: unk
   // Remove Vite's default 'error' listener so it doesn't log scary
   // ECONNREFUSED/ENOTFOUND messages during API reloads — we handle it ourselves.
   (proxy as unknown as { removeAllListeners: (e: string) => void }).removeAllListeners('error');
-  proxy.on('error', (err: Error, _req: unknown, res: unknown) => {
+  proxy.on('error', (_err: unknown, _req: unknown, res: unknown) => {
     // HTTP proxy: respond with 502 instead of crashing
     if (res && typeof (res as { writeHead?: Function }).writeHead === 'function' && !(res as { headersSent?: boolean }).headersSent) {
       (res as { writeHead: Function }).writeHead(502, { 'Content-Type': 'application/json' });

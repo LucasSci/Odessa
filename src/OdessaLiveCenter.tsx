@@ -904,7 +904,6 @@ export default function OdessaLiveCenter({
                   capturedText={capturedText}
                   runtime={runtime}
                   videoState={videoState}
-                  onStartLive={onStartLive}
                   onEndLive={onEndLive}
                   obsSettings={obsSettingsFromApp}
                 />

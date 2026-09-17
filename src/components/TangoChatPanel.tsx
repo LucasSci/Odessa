@@ -34,7 +34,6 @@ import {
   Settings,
   ShieldAlert,
   ShieldCheck,
-  Pause,
   Sparkles,
   Square,
   Terminal,
@@ -71,7 +70,6 @@ import { SessionHistoryPanel } from './SessionHistoryPanel';
 import { recordSessionEvent } from '../core/sessionHistory';
 import { TangoChatFeed } from './TangoChatFeed';
 import { UnifiedLivePanel, type VideoStateLite } from './UnifiedLivePanel';
-import { AiConfigPanel } from './AiConfigPanel';
 import { BridgeConnectionGuide } from './BridgeConnectionGuide';
 import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
 import type { CapturedMessage } from '../types';
@@ -122,8 +120,6 @@ export type TangoChatPanelProps = {
   runtime?: AutopilotRuntimeState;
   /** Estado atual do vídeo (vindo do backend) — exibido no palco do Painel Unificado. */
   videoState?: VideoStateLite | null;
-  /** Callback para iniciar a live (configura OBS + automação + captura). */
-  onStartLive?: () => void | Promise<void>;
   /** Callback para encerrar a live no OBS. */
   onEndLive?: () => void | Promise<void>;
   /** Configurações de conexão com o OBS WebSocket. */
@@ -134,7 +130,6 @@ export function TangoChatPanel({
   capturedText: odessaCapturedText,
   runtime: odessaRuntime,
   videoState: odessaVideoState,
-  onStartLive: odessaStartLive,
   onEndLive,
   obsSettings,
 }: TangoChatPanelProps = {}) {
@@ -229,7 +224,6 @@ export function TangoChatPanel({
   const [shortcutFeedback, setShortcutFeedback] = useState<string | null>(null);
   // ── Wizard State ──────────────────────────────────
   const [wizardStep, setWizardStep] = useState<number>(1);
-  const [wizardTargetKind] = useState<'tango'>('tango');
   const [wizardTestSending, setWizardTestSending] = useState(false);
   const [wizardTestResult, setWizardTestResult] = useState<string | null>(null);
   const [wizardAiSimulating, setWizardAiSimulating] = useState(false);
@@ -1413,14 +1407,9 @@ export function TangoChatPanel({
                   capturedText={odessaCapturedText || []}
                   runtime={odessaRuntime}
                   videoState={odessaVideoState || null}
-                  onStartLive={odessaStartLive}
                   bridgeConnected={bridgeConnected}
                   messages={messages}
                   replyQueue={replyQueue}
-                  autonomyMode={autonomyMode}
-                  executionMode={executionMode}
-                  onSetAutonomy={setAutonomyMode}
-                  onSetExecution={setExecutionMode}
                   generatingForId={generatingForId}
                   cooldownRemaining={cooldownRemaining}
                   cannedResponses={cannedResponses}

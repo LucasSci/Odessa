@@ -219,16 +219,20 @@ export function TangoChatFeed({
                       ? 'opacity-0 group-hover:opacity-100 p-1'
                       : 'px-2 py-1 text-[11px] font-medium opacity-90 hover:opacity-100'
                   )}
-                  disabled={generatingForId === (msg.timestamp || msg.text)}
+                  disabled={generatingForId === (msg.timestamp || msg.text) || cooldownRemaining > 0}
                   onClick={() => onGenerateReply(msg)}
-                  title="Gerar sugestão de resposta com IA"
+                  title={
+                    cooldownRemaining > 0
+                      ? `Aguarde ${cooldownRemaining}s (cooldown de resposta)`
+                      : 'Gerar sugestão de resposta com IA'
+                  }
                 >
                   {generatingForId === (msg.timestamp || msg.text) ? (
                     <Loader2 className="h-3 w-3 animate-spin" />
                   ) : (
                     <Sparkles className="h-3 w-3" />
                   )}
-                  {!compact && 'Responder IA'}
+                  {!compact && (cooldownRemaining > 0 ? `${cooldownRemaining}s` : 'Responder IA')}
                 </button>
               </div>
             ))

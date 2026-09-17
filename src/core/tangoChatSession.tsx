@@ -244,10 +244,14 @@ export function useTangoChatSession(): TangoChatSessionValue {
 }
 
 export function TangoChatSessionProvider({
-  capturedText,
   children,
 }: {
-  /** Eventos capturados pelo runtime do Odessa (OCR, manual, etc.). */
+  /**
+   * Eventos capturados pelo runtime do Odessa (OCR, manual, etc.) — aceito
+   * por compatibilidade com quem chama este provider, mas não consumido
+   * aqui: esta sessão trata só das mensagens do Tango Chat em si (bridge/SSE),
+   * não do runtime de captura do Odessa.
+   */
   capturedText?: CapturedMessage[];
   children: ReactNode;
 }) {
