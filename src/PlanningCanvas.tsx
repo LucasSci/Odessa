@@ -373,6 +373,20 @@ const nodeTypes = {
   section: SectionNode,
 };
 
+// Objetos estáveis passados pro <ReactFlow> — se fossem literais inline no
+// JSX, uma nova referência a cada render faz o React Flow tratar como "a
+// config mudou" e reagir internamente (ex.: re-fit), o que causa outro
+// render, outro objeto novo, outra reação — loop de "Maximum update depth
+// exceeded". Precisam viver fora do componente (ou em useMemo) por isso.
+const FIT_VIEW_OPTIONS = { padding: 0.3 };
+const PRO_OPTIONS = { hideAttribution: true };
+const SNAP_GRID: [number, number] = [20, 20];
+const DEFAULT_EDGE_OPTIONS = {
+  type: 'default',
+  animated: false,
+  style: { stroke: 'rgba(255,255,255,0.2)', strokeWidth: 2 },
+};
+
 // ─── Toolbar ──────────────────────────────────────────────────────
 
 function CanvasToolbar({
@@ -887,21 +901,17 @@ function PlanningCanvasInner() {
         onSelectionChange={onSelectionChange}
         onNodeContextMenu={onNodeContextMenu}
         fitView={nodes.length > 0}
-        fitViewOptions={{ padding: 0.3 }}
+        fitViewOptions={FIT_VIEW_OPTIONS}
         minZoom={0.1}
         maxZoom={3}
         snapToGrid
-        snapGrid={[20, 20]}
+        snapGrid={SNAP_GRID}
         deleteKeyCode={null} // We handle delete ourselves
         multiSelectionKeyCode="Shift"
         panOnScroll
         selectionOnDrag
-        proOptions={{ hideAttribution: true }}
-        defaultEdgeOptions={{
-          type: 'default',
-          animated: false,
-          style: { stroke: 'rgba(255,255,255,0.2)', strokeWidth: 2 },
-        }}
+        proOptions={PRO_OPTIONS}
+        defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(255,255,255,0.05)" />
         <Controls
