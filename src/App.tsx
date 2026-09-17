@@ -55,7 +55,7 @@ const LIVE_CONFIG_KEY = 'odessa:live-config:v1';
 
 function getPanelFromHash(): AdvancedPanel {
   if (window.location.hash === '#capture') return 'settings';
-  if (window.location.hash === '#persona') return 'overview';
+  if (window.location.hash === '#persona') return 'persona';
   if (window.location.hash === '#content') return 'content';
   if (window.location.hash === '#runtime') return 'runtime';
   if (window.location.hash === '#settings') return 'settings';
