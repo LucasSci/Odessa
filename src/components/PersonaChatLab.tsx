@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, MessageCircle, Send, Sparkles, User, Wand2 } from 'lucide-react';
+import { Bot, Check, MessageCircle, Send, Sparkles, User, Wand2, X } from 'lucide-react';
 import { listPersonas, type PersonaMeta } from '../core/personaManager';
 import { generateTangoChatReply, type TangoChatMessage } from '../core/tangoAiChatService';
 import { routeChatToTriggers } from '../core/chatToTriggerBridge';
@@ -10,8 +10,11 @@ import {
   parseAutoConfig,
   reflectOnConversation,
   requestSelfGeneratedPhoto,
+  summarizeSelfConfigChanges,
+  type PendingSelfConfigChange,
   type SelfConfigFace,
 } from '../core/personaSelfConfig';
+import { recordSessionEvent } from '../core/sessionHistory';
 import { cn } from '../lib/utils';
 
 type LabMessage = TangoChatMessage & { role: 'user' | 'assistant' | 'system'; pending?: boolean };
@@ -30,6 +33,10 @@ export function PersonaChatLab() {
   const [error, setError] = useState<string | null>(null);
   const [autoConfig, setAutoConfig] = useState(true);
   const [facesByPersona, setFacesByPersona] = useState<Record<string, SelfConfigFace[]>>({});
+  // Aprovação obrigatória (Área 4): a persona PROPÕE uma autoconfiguração,
+  // mas só é aplicada se o operador aceitar aqui. Um pendente por persona —
+  // bloqueia novas mensagens até ser resolvido (aceito ou rejeitado).
+  const [pendingByPersona, setPendingByPersona] = useState<Record<string, PendingSelfConfigChange | null>>({});
   const assistantCountRef = useRef(0);
   const reflectingRef = useRef(false);
 
@@ -74,10 +81,11 @@ export function PersonaChatLab() {
     [personas, selectedId],
   );
   const messages = selectedId ? messagesByPersona[selectedId] || [] : [];
+  const pending = selectedId ? pendingByPersona[selectedId] || null : null;
 
   const sendMessage = async () => {
     const text = draft.trim();
-    if (!text || !selectedPersona || sending) return;
+    if (!text || !selectedPersona || sending || pending) return;
 
     const userMessage: LabMessage = {
       role: 'user',
@@ -139,38 +147,56 @@ export function PersonaChatLab() {
       if (!result.ok) {
         setError(result.blockedReason || result.reason || 'A resposta foi bloqueada.');
       } else {
-        // A persona pediu para mudar a si mesma → aplica no backend.
+        // A persona pediu para mudar a si mesma → PROPÕE, não aplica direto
+        // (Área 4: aprovação obrigatória). O operador aceita/rejeita no card
+        // que aparece no fluxo de mensagens.
         if (changes) {
-          try {
-            const applied = await applySelfConfig(selectedId, changes, 'conversation');
-            if (applied.applied.length) {
-              pushSystemMessage(selectedId, `🛠️ ${selectedPersona.name} se autoconfigurou: ${applied.applied.join('; ')}`);
-              refreshPersonas();
-            }
-          } catch {
-            pushSystemMessage(selectedId, '⚠️ A autoconfiguração pedida pela persona falhou ao ser aplicada.');
-          }
-
-          // Pedido de foto nova: disparo assíncrono (não trava a resposta) —
-          // a foto some no Content Studio/histórico quando terminar, não por
-          // um retorno síncrono aqui.
-          if (changes.photo_prompt) {
-            pushSystemMessage(selectedId, `🎨 ${selectedPersona.name} está gerando uma foto nova de si mesma...`);
-            void requestSelfGeneratedPhoto(selectedId, changes.photo_prompt, 'conversation');
-          }
+          const proposal: PendingSelfConfigChange = {
+            id: `selfconfig-${Date.now()}`,
+            personaId: selectedId,
+            changes,
+            source: 'conversation',
+            proposedAt: new Date().toISOString(),
+            summary: summarizeSelfConfigChanges(changes),
+          };
+          setPendingByPersona((current) => ({ ...current, [selectedId]: proposal }));
+          pushSystemMessage(selectedId, `🛠️ ${selectedPersona.name} propôs uma mudança em si mesma — revise abaixo.`);
+          recordSessionEvent('persona.selfconfig.proposed', {
+            personaId: selectedId,
+            summary: proposal.summary,
+            source: 'conversation',
+          });
         }
         // Evolução automática: a cada EVOLVE_EVERY respostas a persona reflete
-        // sobre a conversa e incorpora traços duradouros.
+        // sobre a conversa. O traço incorporado também vira proposta, não
+        // aplica sozinho — só pula se já existir um pendente pra não empilhar.
         assistantCountRef.current += 1;
-        if (autoConfig && assistantCountRef.current % EVOLVE_EVERY === 0 && !reflectingRef.current) {
+        if (autoConfig && assistantCountRef.current % EVOLVE_EVERY === 0 && !reflectingRef.current && !pendingByPersona[selectedId]) {
           reflectingRef.current = true;
           void reflectOnConversation(selectedPersona, [...history, userMessage, assistantMessage])
-            .then(async (evolved) => {
+            .then((evolved) => {
               if (!evolved) return;
-              const applied = await applySelfConfig(selectedId, evolved, 'evolution', 'reflexão automática');
-              if (applied.applied.length) {
-                pushSystemMessage(selectedId, `🧬 ${selectedPersona.name} evoluiu sozinha: ${applied.applied.join('; ')}`);
-                refreshPersonas();
+              const proposal: PendingSelfConfigChange = {
+                id: `selfconfig-evolve-${Date.now()}`,
+                personaId: selectedId,
+                changes: evolved,
+                source: 'evolution',
+                proposedAt: new Date().toISOString(),
+                summary: summarizeSelfConfigChanges(evolved),
+              };
+              let created = false;
+              setPendingByPersona((current) => {
+                if (current[selectedId]) return current;
+                created = true;
+                return { ...current, [selectedId]: proposal };
+              });
+              if (created) {
+                pushSystemMessage(selectedId, `🧬 ${selectedPersona.name} quer incorporar algo que percebeu na conversa — revise abaixo.`);
+                recordSessionEvent('persona.selfconfig.proposed', {
+                  personaId: selectedId,
+                  summary: proposal.summary,
+                  source: 'evolution',
+                });
               }
             })
             .catch(() => { /* evolução é best-effort */ })
@@ -188,6 +214,44 @@ export function PersonaChatLab() {
     if (!selectedId) return;
     setMessagesByPersona((current) => ({ ...current, [selectedId]: [] }));
     setError(null);
+  };
+
+  const acceptPending = async () => {
+    if (!pending || !selectedPersona) return;
+    const change = pending;
+    setPendingByPersona((current) => ({ ...current, [change.personaId]: null }));
+    try {
+      const applied = await applySelfConfig(change.personaId, change.changes, change.source);
+      if (applied.applied.length) {
+        pushSystemMessage(change.personaId, `✅ Aplicado: ${applied.applied.join('; ')}`);
+        refreshPersonas();
+      }
+      // Pedido de foto nova: disparo assíncrono (não trava a UI) — a foto
+      // some no Content Studio/histórico quando terminar.
+      if (change.changes.photo_prompt) {
+        pushSystemMessage(change.personaId, `🎨 ${selectedPersona.name} está gerando uma foto nova de si mesma...`);
+        void requestSelfGeneratedPhoto(change.personaId, change.changes.photo_prompt, change.source);
+      }
+      recordSessionEvent('persona.selfconfig.applied', {
+        personaId: change.personaId,
+        applied: applied.applied,
+        source: change.source,
+      });
+    } catch {
+      pushSystemMessage(change.personaId, '⚠️ Falha ao aplicar a mudança aprovada.');
+    }
+  };
+
+  const rejectPending = () => {
+    if (!pending) return;
+    const change = pending;
+    setPendingByPersona((current) => ({ ...current, [change.personaId]: null }));
+    pushSystemMessage(change.personaId, '🚫 Mudança proposta foi rejeitada — nada foi alterado.');
+    recordSessionEvent('persona.selfconfig.rejected', {
+      personaId: change.personaId,
+      summary: change.summary,
+      source: change.source,
+    });
   };
 
   return (
@@ -284,6 +348,34 @@ export function PersonaChatLab() {
               )
             )}
             {sending && <div className="text-xs text-slate-500">{selectedPersona?.name} está pensando...</div>}
+            {pending && (
+              <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-3">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-300">
+                  <Wand2 className="h-3.5 w-3.5" />
+                  {pending.source === 'evolution' ? 'Evolução automática — aprovação necessária' : 'Autoconfiguração proposta'}
+                </div>
+                <p className="mt-1.5 text-sm text-amber-100">{pending.summary}</p>
+                <p className="mt-1 text-[11px] text-amber-300/70">
+                  Nenhuma mensagem nova pode ser enviada enquanto esta proposta não for revisada.
+                </p>
+                <div className="mt-2.5 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void acceptPending()}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-black transition hover:bg-emerald-400"
+                  >
+                    <Check className="h-3.5 w-3.5" /> Aceitar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={rejectPending}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-white/10"
+                  >
+                    <X className="h-3.5 w-3.5" /> Rejeitar
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="border-t border-white/10 p-3">
@@ -292,11 +384,11 @@ export function PersonaChatLab() {
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={(event) => { if (event.key === 'Enter') void sendMessage(); }}
-                disabled={!selectedPersona || sending}
-                placeholder="Escreva uma mensagem de teste..."
+                disabled={!selectedPersona || sending || Boolean(pending)}
+                placeholder={pending ? 'Revise a proposta acima antes de continuar...' : 'Escreva uma mensagem de teste...'}
                 className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-emerald-400/50 disabled:opacity-50"
               />
-              <button type="button" onClick={() => void sendMessage()} disabled={!draft.trim() || !selectedPersona || sending} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-black transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40">
+              <button type="button" onClick={() => void sendMessage()} disabled={!draft.trim() || !selectedPersona || sending || Boolean(pending)} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-black transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40">
                 <Send className="h-4 w-4" /> Enviar
               </button>
             </div>

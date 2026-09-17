@@ -33,6 +33,10 @@ const TYPE_LABELS: Record<string, string> = {
   'ai.reply': 'Resposta IA',
   'ai.reply.sent': 'Resposta IA enviada',
   'message.sent': 'Mensagem enviada',
+  'persona.selfconfig.proposed': 'Autoconfig proposta',
+  'persona.selfconfig.applied': 'Autoconfig aplicada',
+  'persona.selfconfig.rejected': 'Autoconfig rejeitada',
+  'persona.selfconfig.photoRequested': 'Foto nova solicitada',
 };
 
 const TYPE_COLORS: Record<string, string> = {
@@ -45,6 +49,10 @@ const TYPE_COLORS: Record<string, string> = {
   'ai.reply': 'bg-fuchsia-500/20 text-fuchsia-300',
   'ai.reply.sent': 'bg-emerald-500/20 text-emerald-300',
   'message.sent': 'bg-cyan-500/20 text-cyan-300',
+  'persona.selfconfig.proposed': 'bg-amber-500/20 text-amber-300',
+  'persona.selfconfig.applied': 'bg-emerald-500/20 text-emerald-300',
+  'persona.selfconfig.rejected': 'bg-red-500/20 text-red-300',
+  'persona.selfconfig.photoRequested': 'bg-fuchsia-500/20 text-fuchsia-300',
 };
 
 function eventSummary(e: SessionEvent): string {
@@ -73,6 +81,16 @@ function eventSummary(e: SessionEvent): string {
       return `${d.username ?? 'desconhecido'} → ${d.reply ?? ''}`;
     case 'message.sent':
       return d.text ?? '';
+    case 'persona.selfconfig.proposed':
+      return `${d.summary ?? ''} (${d.source === 'evolution' ? 'evolução automática' : 'conversa'})`;
+    case 'persona.selfconfig.applied': {
+      const applied = Array.isArray(d.applied) ? d.applied : [];
+      return applied.length ? applied.join('; ') : 'sem mudanças aplicadas';
+    }
+    case 'persona.selfconfig.rejected':
+      return `${d.summary ?? ''} (${d.source === 'evolution' ? 'evolução automática' : 'conversa'})`;
+    case 'persona.selfconfig.photoRequested':
+      return d.prompt ?? '';
     default:
       return JSON.stringify(d);
   }

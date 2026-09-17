@@ -31,6 +31,32 @@ export type SelfConfigFace = { id: string; label?: string };
 
 export type ApplyResult = { ok: boolean; applied: string[] };
 
+/**
+ * Mudança proposta pela persona (via conversa ou reflexão de evolução) que
+ * ainda não foi aplicada — aguardando aprovação do operador (Área 4:
+ * aprovação obrigatória em vez de aplicação automática e silenciosa).
+ */
+export type PendingSelfConfigChange = {
+  id: string;
+  personaId: string;
+  changes: SelfConfigChanges;
+  source: 'conversation' | 'evolution';
+  proposedAt: string;
+  /** Resumo legível de humano das mudanças, pro card de aprovação. */
+  summary: string;
+};
+
+/** Resumo legível de humano de SelfConfigChanges (pro card de aprovação). */
+export function summarizeSelfConfigChanges(changes: SelfConfigChanges): string {
+  const parts: string[] = [];
+  if (changes.name) parts.push(`nome → "${changes.name}"`);
+  if (changes.description) parts.push(`descrição → "${changes.description}"`);
+  if (changes.personality_add) parts.push(`+ traço de personalidade: "${changes.personality_add}"`);
+  if (changes.face_id) parts.push('trocar avatar por imagem já enviada');
+  if (changes.photo_prompt) parts.push(`gerar foto nova: "${changes.photo_prompt}"`);
+  return parts.length ? parts.join('; ') : 'nenhuma mudança concreta identificada';
+}
+
 const AUTOCONFIG_TAG = /<autoconfig>([\s\S]*?)<\/autoconfig>/i;
 
 /**
