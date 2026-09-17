@@ -64,7 +64,7 @@ export function LoadingState({
         className
       )}
     >
-      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-500/10 border border-violet-500/20 text-violet-400 mb-3 animate-pulse">
+      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-500/10 border border-sky-500/20 text-sky-400 mb-3 animate-pulse">
         <Loader2 className="h-5 w-5 animate-spin" />
       </div>
       <h4 className="text-sm font-semibold text-slate-300">{message}</h4>
