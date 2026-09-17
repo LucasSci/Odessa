@@ -46,7 +46,7 @@ export function AiConfigPanel() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Brain className="h-4 w-4 text-violet-400" />
+          <Brain className="h-4 w-4 text-sky-400" />
           <h3 className="text-xs font-bold uppercase tracking-widest text-slate-300">
             Configuração da IA
           </h3>
@@ -69,7 +69,7 @@ export function AiConfigPanel() {
           {/* ── 1. Personalidade e Prompt ── */}
           <div>
             <div className="mb-2 flex items-center gap-1.5">
-              <Sparkles className="h-3.5 w-3.5 text-violet-400" />
+              <Sparkles className="h-3.5 w-3.5 text-sky-400" />
               <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
                 Personalidade e Prompt
               </span>
@@ -78,11 +78,11 @@ export function AiConfigPanel() {
               value={config.systemPrompt}
               onChange={(e) => update({ systemPrompt: e.target.value })}
               placeholder="Deixe vazio para usar o prompt padrão da Odessa…"
-              className="h-28 w-full resize-y rounded-xl border border-white/10 bg-black/40 p-3 text-xs text-slate-200 placeholder:text-slate-600 focus:border-violet-500/40 focus:outline-none"
+              className="h-28 w-full resize-y rounded-xl border border-white/10 bg-black/40 p-3 text-xs text-slate-200 placeholder:text-slate-600 focus:border-sky-500/40 focus:outline-none"
             />
             <button
               onClick={() => update({ systemPrompt: '' })}
-              className="mt-1.5 flex items-center gap-1 text-[10px] text-slate-500 transition hover:text-violet-300"
+              className="mt-1.5 flex items-center gap-1 text-[10px] text-slate-500 transition hover:text-sky-300"
             >
               <RotateCcw className="h-3 w-3" />
               Restaurar prompt padrão
@@ -134,7 +134,7 @@ export function AiConfigPanel() {
                 type="checkbox"
                 checked={config.autoChatReplyEnabled}
                 onChange={(e) => update({ autoChatReplyEnabled: e.target.checked })}
-                className="h-4 w-4 accent-violet-500"
+                className="h-4 w-4 accent-sky-500"
               />
               <span className="text-xs text-slate-300">
                 Resposta automática no chat ativa
@@ -163,7 +163,7 @@ export function AiConfigPanel() {
                       className={cn(
                         'flex-1 rounded-lg border px-3 py-1.5 text-xs font-semibold transition',
                         config.provider === p
-                          ? 'border-violet-500/40 bg-violet-500/10 text-violet-300'
+                          ? 'border-sky-500/40 bg-sky-500/10 text-sky-300'
                           : 'border-white/10 bg-black/40 text-slate-500 hover:text-slate-300',
                       )}
                     >

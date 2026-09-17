@@ -120,7 +120,7 @@ export function TangoChatFeed({
       {/* Cabeçalho */}
       <div className={cn('flex items-center justify-between border-b border-white/8 px-4 bg-black/30', compact ? 'py-2' : 'py-3')}>
         <div className="flex items-center gap-2">
-          {!compact && <MessageCircle className="h-4 w-4 text-violet-400" />}
+          {!compact && <MessageCircle className="h-4 w-4 text-sky-400" />}
           <span className="text-xs font-bold uppercase tracking-widest text-slate-300">Chat</span>
           <Badge variant="default" className="text-[10px]">
             {messages.length}
@@ -149,7 +149,7 @@ export function TangoChatFeed({
               )}
               {replyQueueCount > 0 && onViewReplies && (
                 <button
-                  className="flex items-center gap-1 text-[11px] font-semibold text-violet-300 bg-violet-500/10 px-2 py-0.5 rounded border border-violet-500/20 hover:bg-violet-500/20 transition"
+                  className="flex items-center gap-1 text-[11px] font-semibold text-sky-300 bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/20 hover:bg-sky-500/20 transition"
                   onClick={onViewReplies}
                   title="Ver fila de respostas da IA"
                 >
@@ -196,12 +196,12 @@ export function TangoChatFeed({
                   'group flex items-start justify-between gap-2 transition',
                   compact
                     ? 'py-1'
-                    : 'rounded-xl border border-white/5 bg-white/[0.02] p-2.5 hover:border-violet-500/30 hover:bg-violet-500/[0.04]'
+                    : 'rounded-xl border border-white/5 bg-white/[0.02] p-2.5 hover:border-sky-500/30 hover:bg-sky-500/[0.04]'
                 )}
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5 mb-0.5">
-                    <span className="text-xs font-bold text-violet-300">@{msg.username}</span>
+                    <span className="text-xs font-bold text-sky-300">@{msg.username}</span>
                     {!compact && (
                       <span className="text-[10px] font-mono text-slate-500">
                         {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('pt-BR') : ''}
@@ -214,7 +214,7 @@ export function TangoChatFeed({
                 {/* Botão Responder com IA */}
                 <button
                   className={cn(
-                    'shrink-0 flex items-center gap-1 rounded-lg border border-violet-500/30 bg-violet-500/10 text-violet-300 transition hover:bg-violet-500/20 disabled:opacity-50',
+                    'shrink-0 flex items-center gap-1 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sky-300 transition hover:bg-sky-500/20 disabled:opacity-50',
                     compact
                       ? 'opacity-0 group-hover:opacity-100 p-1'
                       : 'px-2 py-1 text-[11px] font-medium opacity-90 hover:opacity-100'
@@ -241,7 +241,7 @@ export function TangoChatFeed({
           <button
             type="button"
             onClick={scrollToBottom}
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 rounded-full bg-violet-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-lg shadow-violet-600/40 hover:bg-violet-500 transition"
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 rounded-full bg-sky-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-lg shadow-sky-600/40 hover:bg-sky-500 transition"
           >
             <ChevronDown className="h-3.5 w-3.5" />
             Novas mensagens ({unreadCount}) ↓
@@ -257,14 +257,14 @@ export function TangoChatFeed({
           {cannedResponses.slice(0, 4).map((canned, i) => (
             <button
               key={i}
-              className="shrink-0 rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-0.5 text-[11px] text-slate-300 hover:border-violet-500/40 hover:bg-violet-500/10 hover:text-white transition"
+              className="shrink-0 rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-0.5 text-[11px] text-slate-300 hover:border-sky-500/40 hover:bg-sky-500/10 hover:text-white transition"
               onClick={() => onPickCanned(canned)}
             >
               {canned}
             </button>
           ))}
           <button
-            className="shrink-0 flex items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-violet-300 hover:bg-violet-500/20 transition"
+            className="shrink-0 flex items-center gap-1 rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-sky-300 hover:bg-sky-500/20 transition"
             disabled={generatingProactive}
             onClick={() => onGenerateProactive()}
             title="Gera uma frase proativa da Odessa para o chat"
@@ -280,7 +280,7 @@ export function TangoChatFeed({
           <input
             type="text"
             className={cn(
-              'flex-1 rounded-xl border border-white/10 bg-white/[0.05] text-white placeholder-slate-500 outline-none focus:border-violet-500/60 focus:ring-1 focus:ring-violet-500/30',
+              'flex-1 rounded-xl border border-white/10 bg-white/[0.05] text-white placeholder-slate-500 outline-none focus:border-sky-500/60 focus:ring-1 focus:ring-sky-500/30',
               compact ? 'h-8 px-3 text-xs' : 'h-10 px-3.5 text-sm'
             )}
             placeholder={bridgeConnected ? 'Mensagem…' : 'Conecte a bridge para enviar'}

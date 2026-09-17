@@ -17,6 +17,7 @@ import {
   type PersonaContentItem,
   type PersonaContentState,
 } from '../core/personaContentApi';
+import { Tabs } from './ui';
 
 type Props = {
   personaId: string;
@@ -132,35 +133,17 @@ export default function PersonaContentStudio({ personaId, personaName }: Props) 
             Organize, gere e veja de forma geral todo o conteúdo desta persona
           </p>
         </div>
-        <div className="flex gap-1 rounded-xl border border-white/10 bg-black/20 p-1">
-          <button
-            type="button"
-            onClick={() => setSubTab('organize')}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              subTab === 'organize' ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Images className="h-3.5 w-3.5" /> Organizar
-          </button>
-          <button
-            type="button"
-            onClick={() => setSubTab('generate')}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              subTab === 'generate' ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Wand2 className="h-3.5 w-3.5" /> Gerar
-          </button>
-          <button
-            type="button"
-            onClick={() => setSubTab('overview')}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              subTab === 'overview' ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <LayoutGrid className="h-3.5 w-3.5" /> Visualizar
-          </button>
-        </div>
+        <Tabs
+          size="sm"
+          className="rounded-xl border border-white/10 bg-black/20 p-1"
+          value={subTab}
+          onChange={(id) => setSubTab(id as SubTab)}
+          items={[
+            { id: 'organize', label: 'Organizar', icon: <Images className="h-3.5 w-3.5" /> },
+            { id: 'generate', label: 'Gerar', icon: <Wand2 className="h-3.5 w-3.5" /> },
+            { id: 'overview', label: 'Visualizar', icon: <LayoutGrid className="h-3.5 w-3.5" /> },
+          ]}
+        />
       </div>
 
       {error && (
@@ -223,7 +206,7 @@ export default function PersonaContentStudio({ personaId, personaName }: Props) 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                 <h4 className="flex items-center gap-1.5 text-xs font-semibold text-slate-200">
-                  <Sparkles className="h-3.5 w-3.5 text-violet-400" /> Nova foto
+                  <Sparkles className="h-3.5 w-3.5 text-sky-400" /> Nova foto
                 </h4>
                 <p className="mt-1 text-[11px] text-slate-500">
                   Usa o rosto principal já cadastrado como referência de personagem (Higgsfield SoulId, com fallback pro Gemini).
@@ -239,7 +222,7 @@ export default function PersonaContentStudio({ personaId, personaName }: Props) 
                   type="button"
                   onClick={() => void handleGeneratePhoto()}
                   disabled={!photoPrompt.trim() || generatingPhoto}
-                  className="mt-2 flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+                  className="mt-2 flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
                 >
                   {generatingPhoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
                   Gerar foto

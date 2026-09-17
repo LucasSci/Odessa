@@ -694,7 +694,7 @@ export function TangoChatPanel({
       {/* ── 1. Barra de Controle Superior (Cockpit Bar) ─────────────── */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#090a0d] p-4 shadow-xl">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/10 text-violet-300 border border-violet-500/20">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/10 text-sky-300 border border-sky-500/20">
             <Radio className="h-4 w-4" />
           </div>
           <div>
@@ -742,7 +742,7 @@ export function TangoChatPanel({
           <div className="flex items-center rounded-xl border border-white/10 bg-black/40 p-1">
             {[
               { id: 'off' as AutonomyMode, label: 'IA Off', icon: <X className="h-3 w-3" /> },
-              { id: 'assistido' as AutonomyMode, label: 'Assistido', icon: <Sparkles className="h-3 w-3 text-violet-400" /> },
+              { id: 'assistido' as AutonomyMode, label: 'Assistido', icon: <Sparkles className="h-3 w-3 text-sky-400" /> },
               { id: 'auto' as AutonomyMode, label: 'Autônomo', icon: <Bot className="h-3 w-3 text-emerald-400" /> },
             ].map((m) => (
               <button
@@ -780,7 +780,7 @@ export function TangoChatPanel({
               está processando (e há quanto tempo), não só um spinner mudo */}
           {aiGenerationStartedAt && (
             <span
-              className="flex items-center gap-1.5 rounded-xl border border-violet-500/30 bg-violet-500/10 px-3 py-1.5 text-xs font-semibold text-violet-200"
+              className="flex items-center gap-1.5 rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-200"
               title="A IA está gerando uma resposta agora"
             >
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -890,7 +890,7 @@ export function TangoChatPanel({
                   className={cn(
                     'h-7 px-3 rounded-lg text-xs font-bold transition flex items-center gap-1.5',
                     wizardStep === step
-                      ? 'bg-violet-600 text-white shadow-md'
+                      ? 'bg-sky-600 text-white shadow-md'
                       : wizardStep > step
                         ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                         : 'bg-white/5 text-slate-500 hover:text-slate-300'
@@ -951,7 +951,7 @@ export function TangoChatPanel({
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-violet-500/60 bg-violet-500/10 ring-1 ring-violet-500/30 p-4">
+              <div className="rounded-2xl border border-sky-500/60 bg-sky-500/10 ring-1 ring-sky-500/30 p-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-bold text-white flex items-center gap-1.5">
                     🎙️ Tango Live
@@ -1005,7 +1005,7 @@ export function TangoChatPanel({
                   <Button
                     size="sm"
                     variant="primary"
-                    className="bg-violet-600 hover:bg-violet-500 text-white font-semibold"
+                    className="bg-sky-600 hover:bg-sky-500 text-white font-semibold"
                     disabled={launchingChrome}
                     onClick={() => void handleLaunchChrome()}
                   >
@@ -1189,7 +1189,7 @@ export function TangoChatPanel({
                 {/* Teste 2: Resposta Automática da IA */}
                 <div className="rounded-xl border border-white/10 bg-black/40 p-4 space-y-3">
                   <div className="flex items-center gap-2">
-                    <Bot className="h-4 w-4 text-violet-400" />
+                    <Bot className="h-4 w-4 text-sky-400" />
                     <span className="text-xs font-bold text-white">Teste 2: Geração & Envio da IA</span>
                   </div>
                   <p className="text-xs text-slate-400">
@@ -1198,7 +1198,7 @@ export function TangoChatPanel({
                   <Button
                     size="sm"
                     variant="primary"
-                    className="w-full bg-violet-600 hover:bg-violet-500 text-white font-semibold"
+                    className="w-full bg-sky-600 hover:bg-sky-500 text-white font-semibold"
                     disabled={wizardAiSimulating}
                     onClick={() => void handleRunWizardAiSimulation()}
                   >
@@ -1210,7 +1210,7 @@ export function TangoChatPanel({
 
               {/* Resultado do Teste */}
               {wizardTestResult && (
-                <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 p-3 text-xs text-slate-200 whitespace-pre-line leading-relaxed">
+                <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-xs text-slate-200 whitespace-pre-line leading-relaxed">
                   {wizardTestResult}
                 </div>
               )}
@@ -1272,7 +1272,7 @@ export function TangoChatPanel({
                   <div className="rounded-2xl border border-white/10 bg-[#0c0e12] overflow-hidden shadow-lg flex flex-col h-[520px]">
                     <div className="flex items-center justify-between border-b border-white/8 px-4 py-3 bg-black/30">
                       <div className="flex items-center gap-2">
-                        <Sparkles className="h-4 w-4 text-violet-400" />
+                        <Sparkles className="h-4 w-4 text-sky-400" />
                         <span className="text-xs font-bold uppercase tracking-widest text-slate-300">Inbox Respostas IA</span>
                       </div>
                       <Badge variant={replyQueue.length > 0 ? 'lavender' : 'default'} className="text-[10px]">
@@ -1303,11 +1303,11 @@ export function TangoChatPanel({
                               item.status === 'sent' && 'border-emerald-500/30 bg-emerald-500/5',
                               item.status === 'sending' && 'border-sky-500/30 bg-sky-500/5 animate-pulse',
                               item.status === 'blocked' && 'border-red-500/30 bg-red-500/5',
-                              item.status === 'draft' && 'border-violet-500/30 bg-violet-500/5'
+                              item.status === 'draft' && 'border-sky-500/30 bg-sky-500/5'
                             )}
                           >
                             <div className="flex items-center justify-between text-[11px]">
-                              <span className="font-bold text-violet-300 truncate">
+                              <span className="font-bold text-sky-300 truncate">
                                 Para: @{item.sourceMessage.username}
                               </span>
                               <span className="text-[10px] text-slate-500 shrink-0">
@@ -1321,7 +1321,7 @@ export function TangoChatPanel({
                             {editingItemId === item.id ? (
                               <div className="space-y-1.5 pt-1">
                                 <textarea
-                                  className="w-full h-16 rounded-lg border border-white/20 bg-black/40 p-2 text-xs text-white outline-none focus:border-violet-500"
+                                  className="w-full h-16 rounded-lg border border-white/20 bg-black/40 p-2 text-xs text-white outline-none focus:border-sky-500"
                                   value={editingText}
                                   onChange={(e) => setEditingText(e.target.value)}
                                 />
@@ -1486,14 +1486,14 @@ export function TangoChatPanel({
           {/* Personalidade da Odessa */}
           <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-5 space-y-4">
             <div className="flex items-center gap-2">
-              <Bot className="h-5 w-5 text-violet-400" />
+              <Bot className="h-5 w-5 text-sky-400" />
               <h3 className="text-sm font-bold text-white">Personalidade no Chat (System Prompt)</h3>
             </div>
             <p className="text-xs text-slate-400">
               Instruções que moldam como a Odessa responde no chat da stream.
             </p>
             <textarea
-              className="h-64 w-full rounded-xl border border-white/10 bg-black/40 p-3 font-mono text-xs text-slate-200 outline-none focus:border-violet-500 leading-relaxed"
+              className="h-64 w-full rounded-xl border border-white/10 bg-black/40 p-3 font-mono text-xs text-slate-200 outline-none focus:border-sky-500 leading-relaxed"
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
               placeholder="Digite o prompt de personalidade..."
@@ -1590,7 +1590,7 @@ export function TangoChatPanel({
                   className={cn(
                     'rounded-xl border p-3.5 text-left transition',
                     bridgeConfig.mode === opt.value
-                      ? 'border-violet-500/60 bg-violet-500/10'
+                      ? 'border-sky-500/60 bg-sky-500/10'
                       : 'border-white/8 bg-black/20 hover:border-white/20'
                   )}
                   onClick={() => {
@@ -1612,7 +1612,7 @@ export function TangoChatPanel({
               </label>
               <input
                 type="text"
-                className="h-9 w-full rounded-lg border border-white/10 bg-black/40 px-3 text-xs text-white placeholder-slate-600 outline-none focus:border-violet-500"
+                className="h-9 w-full rounded-lg border border-white/10 bg-black/40 px-3 text-xs text-white placeholder-slate-600 outline-none focus:border-sky-500"
                 value={bridgeConfig.roomUrl}
                 onChange={(e) => {
                   setBridgeConfig((prev) => ({ ...prev, roomUrl: e.target.value }));
@@ -1627,7 +1627,7 @@ export function TangoChatPanel({
               </label>
               <input
                 type="number"
-                className="h-9 w-full rounded-lg border border-white/10 bg-black/40 px-3 text-xs text-white outline-none focus:border-violet-500"
+                className="h-9 w-full rounded-lg border border-white/10 bg-black/40 px-3 text-xs text-white outline-none focus:border-sky-500"
                 value={bridgeConfig.port}
                 onChange={(e) => {
                   setBridgeConfig((prev) => ({ ...prev, port: Number(e.target.value) || 7555 }));
@@ -1746,7 +1746,7 @@ export function TangoChatPanel({
               ) : (
                 insights.topTopics.map(([topic, counter], i) => (
                   <div key={i} className="flex justify-between items-center bg-white/[0.02] p-2 rounded-lg text-xs">
-                    <span className="font-semibold text-violet-300">#{topic}</span>
+                    <span className="font-semibold text-sky-300">#{topic}</span>
                     <Badge variant="default" className="text-[10px]">{counter.count}x</Badge>
                   </div>
                 ))

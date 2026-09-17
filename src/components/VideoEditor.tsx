@@ -292,7 +292,7 @@ export default function VideoEditor({ videoId, label, onClose, embedded = false 
             <button className="rounded-lg bg-[var(--violet,#8b7cf6)] px-3 py-1.5 text-white" onClick={togglePlay}>{playing && !previewing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}</button>
             <button className="rounded-lg border border-white/8 px-2.5 py-1.5 text-[11px] text-slate-300 hover:bg-white/5" onClick={() => step(0.1)}>+0,1s</button>
             <button className="rounded-lg border border-white/8 px-2.5 py-1.5 text-[11px] text-slate-300 hover:bg-white/5" onClick={() => step(1)}>+1s</button>
-            <span className="ml-1 font-mono text-[12px] text-violet-300">{fmt(currentTime)}<span className="text-slate-600"> / {fmt(duration)}</span></span>
+            <span className="ml-1 font-mono text-[12px] text-sky-300">{fmt(currentTime)}<span className="text-slate-600"> / {fmt(duration)}</span></span>
             <div className="ml-auto flex items-center gap-2">
               <button className="flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-500/20" onClick={markIn} title="Marcar início no tempo atual (tecla I)">⟦ Marcar início</button>
               <button className="flex items-center gap-1 rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-rose-300 hover:bg-rose-500/20" onClick={markOut} title="Marcar fim no tempo atual (tecla O)">Marcar fim ⟧</button>
@@ -377,12 +377,12 @@ export default function VideoEditor({ videoId, label, onClose, embedded = false 
                     <label className="flex items-center gap-1 text-slate-500">início
                       <input type="number" step={0.05} min={0} max={duration || undefined} value={seg.startSec}
                         onChange={(e) => patchSegment(i, { startSec: Number(e.target.value) })}
-                        className="w-20 rounded border border-white/10 bg-[#0b0d10] px-1.5 py-1 font-mono text-slate-200 focus:border-violet-500/40 focus:outline-none" />
+                        className="w-20 rounded border border-white/10 bg-[#0b0d10] px-1.5 py-1 font-mono text-slate-200 focus:border-sky-500/40 focus:outline-none" />
                     </label>
                     <label className="flex items-center gap-1 text-slate-500">fim
                       <input type="number" step={0.05} min={0} max={duration || undefined} value={seg.endSec}
                         onChange={(e) => patchSegment(i, { endSec: Number(e.target.value) })}
-                        className="w-20 rounded border border-white/10 bg-[#0b0d10] px-1.5 py-1 font-mono text-slate-200 focus:border-violet-500/40 focus:outline-none" />
+                        className="w-20 rounded border border-white/10 bg-[#0b0d10] px-1.5 py-1 font-mono text-slate-200 focus:border-sky-500/40 focus:outline-none" />
                     </label>
                     <span className="text-slate-600">({fmt(seg.endSec - seg.startSec)})</span>
                     <button onClick={(e) => { e.stopPropagation(); seekTo(seg.startSec); }} className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-white/5">ir</button>
@@ -400,20 +400,20 @@ export default function VideoEditor({ videoId, label, onClose, embedded = false 
               <div className="flex flex-wrap gap-1">
                 {(['muted', 'original', 'track'] as AudioMode[]).map((m) => (
                   <button key={m} onClick={() => setEdit((e) => ({ ...e, audioMode: m }))}
-                    className={cn('rounded-lg border px-2.5 py-1 text-[11px] transition', edit.audioMode === m ? 'border-violet-500/50 bg-violet-500/15 text-violet-300' : 'border-white/8 text-slate-500 hover:text-slate-300')}>
+                    className={cn('rounded-lg border px-2.5 py-1 text-[11px] transition', edit.audioMode === m ? 'border-sky-500/50 bg-sky-500/15 text-sky-300' : 'border-white/8 text-slate-500 hover:text-slate-300')}>
                     {m === 'muted' ? 'Mudo' : m === 'original' ? 'Original' : 'Trilha'}
                   </button>
                 ))}
               </div>
               <div className="space-y-1">
-                <div className="flex items-center justify-between"><span className="text-[10px] text-slate-500">Volume</span><span className="font-mono text-[10px] text-violet-300">{Math.round(edit.volume * 100)}%</span></div>
-                <input type="range" min={0} max={1} step={0.05} value={edit.volume} onChange={(e) => setEdit((ed) => ({ ...ed, volume: Number(e.target.value) }))} className="w-full accent-violet-500" />
+                <div className="flex items-center justify-between"><span className="text-[10px] text-slate-500">Volume</span><span className="font-mono text-[10px] text-sky-300">{Math.round(edit.volume * 100)}%</span></div>
+                <input type="range" min={0} max={1} step={0.05} value={edit.volume} onChange={(e) => setEdit((ed) => ({ ...ed, volume: Number(e.target.value) }))} className="w-full accent-sky-500" />
               </div>
               {edit.audioMode === 'track' && (
                 <div className="space-y-2 rounded-lg border border-white/8 p-2">
                   <div className="flex items-center gap-2 text-[10px] text-slate-500"><Music className="h-3 w-3" /> Trilha / efeito sonoro</div>
-                  <input type="file" accept="audio/*" onChange={(e) => void onPickAudio(e.target.files?.[0])} className="block w-full text-[10px] text-slate-400 file:mr-2 file:rounded file:border-0 file:bg-violet-500/20 file:px-2 file:py-1 file:text-violet-300" />
-                  <input type="text" placeholder="ou cole uma URL de áudio (https://…)" value={edit.trackUrl && !edit.trackUrl.startsWith('data:') ? edit.trackUrl : ''} onChange={(e) => setEdit((ed) => ({ ...ed, trackUrl: e.target.value || undefined }))} className="w-full rounded-lg border border-white/8 bg-[#0b0d10] px-2 py-1 text-[11px] text-slate-300 focus:border-violet-500/40 focus:outline-none" />
+                  <input type="file" accept="audio/*" onChange={(e) => void onPickAudio(e.target.files?.[0])} className="block w-full text-[10px] text-slate-400 file:mr-2 file:rounded file:border-0 file:bg-sky-500/20 file:px-2 file:py-1 file:text-sky-300" />
+                  <input type="text" placeholder="ou cole uma URL de áudio (https://…)" value={edit.trackUrl && !edit.trackUrl.startsWith('data:') ? edit.trackUrl : ''} onChange={(e) => setEdit((ed) => ({ ...ed, trackUrl: e.target.value || undefined }))} className="w-full rounded-lg border border-white/8 bg-[#0b0d10] px-2 py-1 text-[11px] text-slate-300 focus:border-sky-500/40 focus:outline-none" />
                   {edit.trackUrl && (<div className="flex items-center justify-between text-[10px] text-emerald-400"><span>{edit.trackUrl.startsWith('data:') ? 'áudio carregado ✓' : 'URL definida ✓'}</span><button onClick={() => setEdit((ed) => ({ ...ed, trackUrl: undefined }))} className="text-slate-600 hover:text-red-400">remover</button></div>)}
                   <label className="flex items-center gap-2 text-[11px] text-slate-400"><input type="checkbox" checked={Boolean(edit.trackLoop)} onChange={(e) => setEdit((ed) => ({ ...ed, trackLoop: e.target.checked }))} />repetir (loop)</label>
                   {audioError && <p className="text-[10px] text-red-400">{audioError}</p>}
@@ -424,8 +424,8 @@ export default function VideoEditor({ videoId, label, onClose, embedded = false 
             <div className="rounded-xl border border-white/10 bg-[#07080a] p-3 space-y-3">
               <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Transição (ao entrar)</span>
               <div className="space-y-1">
-                <div className="flex items-center justify-between"><span className="text-[10px] text-slate-500">Duração</span><span className="font-mono text-[10px] text-violet-300">{edit.transitionMs}ms</span></div>
-                <input type="range" min={0} max={2000} step={20} value={edit.transitionMs} onChange={(e) => setEdit((ed) => ({ ...ed, transitionMs: Number(e.target.value) }))} className="w-full accent-violet-500" />
+                <div className="flex items-center justify-between"><span className="text-[10px] text-slate-500">Duração</span><span className="font-mono text-[10px] text-sky-300">{edit.transitionMs}ms</span></div>
+                <input type="range" min={0} max={2000} step={20} value={edit.transitionMs} onChange={(e) => setEdit((ed) => ({ ...ed, transitionMs: Number(e.target.value) }))} className="w-full accent-sky-500" />
               </div>
               <p className="text-[10px] text-slate-600">Atalhos: ← → (passo), Shift+← → (1s), I (início), O (fim), espaço (play). As edições valem sempre que o vídeo tocar.</p>
             </div>

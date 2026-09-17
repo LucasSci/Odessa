@@ -141,11 +141,11 @@ export function UnifiedLivePanel({
           <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-5 shadow-lg">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <Brain className="h-4 w-4 text-violet-400" />
+                <Brain className="h-4 w-4 text-sky-400" />
                 <h3 className="text-xs font-bold uppercase tracking-widest text-slate-300">Decisão da Diretora IA</h3>
               </div>
               {runtime.isProcessing && (
-                <span className="flex items-center gap-1 text-[11px] text-violet-300">
+                <span className="flex items-center gap-1 text-[11px] text-sky-300">
                   <Loader2 className="h-3 w-3 animate-spin" /> Processando...
                 </span>
               )}
@@ -220,16 +220,16 @@ export function UnifiedLivePanel({
 
           {/* Fila de Respostas IA (compacta) */}
           {pendingReplies.length > 0 && (
-            <div className="rounded-2xl border border-violet-500/20 bg-[#0c0e12] p-4 shadow-lg">
+            <div className="rounded-2xl border border-sky-500/20 bg-[#0c0e12] p-4 shadow-lg">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-violet-400" />
+                  <Sparkles className="h-4 w-4 text-sky-400" />
                   <h3 className="text-xs font-bold uppercase tracking-widest text-slate-300">
                     Respostas IA ({pendingReplies.length})
                   </h3>
                 </div>
                 <button
-                  className="text-[11px] font-semibold text-violet-300 hover:text-violet-200"
+                  className="text-[11px] font-semibold text-sky-300 hover:text-sky-200"
                   onClick={onViewReplies}
                 >
                   Ver tudo →
@@ -248,7 +248,7 @@ export function UnifiedLivePanel({
                     )}
                   >
                     <div className="flex items-start justify-between gap-2 mb-1.5">
-                      <span className="text-[10px] font-bold text-violet-300 truncate">
+                      <span className="text-[10px] font-bold text-sky-300 truncate">
                         @{item.sourceMessage.username}
                       </span>
                       <span

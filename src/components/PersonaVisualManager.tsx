@@ -24,9 +24,9 @@ type Props = {
 };
 
 const INPUT_CLS =
-  'h-9 flex-1 rounded-xl border border-white/10 bg-white/[0.045] px-2 text-sm text-slate-200 placeholder:text-slate-500 outline-none focus:border-violet-500/50';
+  'h-9 flex-1 rounded-xl border border-white/10 bg-white/[0.045] px-2 text-sm text-slate-200 placeholder:text-slate-500 outline-none focus:border-sky-500/50';
 const SELECT_CLS =
-  'h-9 flex-1 rounded-xl border border-white/10 bg-white/[0.045] px-2 text-sm text-slate-200 outline-none focus:border-violet-500/50';
+  'h-9 flex-1 rounded-xl border border-white/10 bg-white/[0.045] px-2 text-sm text-slate-200 outline-none focus:border-sky-500/50';
 
 export default function PersonaVisualManager({ personaId, assets }: Props) {
   const [visual, setVisual] = useState<PersonaVisual>({ wardrobeKits: [], scenarios: [] });
@@ -205,7 +205,7 @@ export default function PersonaVisualManager({ personaId, assets }: Props) {
                 type="button"
                 onClick={() => void handleCreateKit()}
                 disabled={busy || !kitName.trim() || selectedPieces.length === 0}
-                className="rounded-xl bg-violet-600 px-4 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:opacity-40"
+                className="rounded-xl bg-sky-600 px-4 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
               >
                 Criar kit
               </button>
@@ -221,7 +221,7 @@ export default function PersonaVisualManager({ personaId, assets }: Props) {
                     title={piece.label}
                     className={`relative overflow-hidden rounded-lg border transition-all ${
                       selected
-                        ? 'border-violet-500 ring-2 ring-violet-500/40'
+                        ? 'border-sky-500 ring-2 ring-sky-500/40'
                         : 'border-white/10 opacity-70 hover:opacity-100'
                     }`}
                   >
@@ -231,7 +231,7 @@ export default function PersonaVisualManager({ personaId, assets }: Props) {
                       className="aspect-square h-full w-full object-cover"
                     />
                     {selected && (
-                      <span className="absolute right-1 top-1 rounded-full bg-violet-600 px-1 text-[10px] leading-4 text-white">
+                      <span className="absolute right-1 top-1 rounded-full bg-sky-600 px-1 text-[10px] leading-4 text-white">
                         ✓
                       </span>
                     )}
@@ -362,7 +362,7 @@ export default function PersonaVisualManager({ personaId, assets }: Props) {
               type="button"
               onClick={() => void handleCreateScenario()}
               disabled={busy || !scenarioName.trim()}
-              className="rounded-xl bg-violet-600 px-4 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:opacity-40"
+              className="rounded-xl bg-sky-600 px-4 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
             >
               Criar cenário
             </button>
