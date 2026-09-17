@@ -1,11 +1,15 @@
 /**
- * VideoEditor — editor de vídeo por clipe (Fase 4, v2 — corte preciso).
+ * VideoEditor — editor de vídeo por clipe, canônico (Fase 5b: um único
+ * modal, aberto do Palco ou da Biblioteca).
  *
  * Edição de verdade: múltiplos segmentos (cortar trechos do meio), com
  *  - marcar início/fim no playhead (frame onde o vídeo está parado),
  *  - campos numéricos por segmento (tempo exato, passo 0,05s),
  *  - timeline com ZOOM + rolagem (precisão em vídeos longos),
- *  - passos finos no playhead (−1s / −0,1s / +0,1s / +1s) e clique p/ posicionar,
+ *  - passos finos no playhead (−1s / −0,1s / +0,1s / +1s), navegação
+ *    frame-a-frame (Alt+←/→, fps estimado no cliente — ver Fase 5d) e
+ *    clique p/ posicionar,
+ *  - desfazer/refazer (Ctrl+Z / Ctrl+Shift+Z — Fase 5a),
  *  - volume, modo de áudio, trilha/efeito sonoro e transição.
  * Salva em videoEdits (localStorage). O player ao vivo honra via applyVideoEdit.
  */
@@ -13,7 +17,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Scissors, Plus, Trash2, Play, Pause, Volume2, X, Save, Activity, Music, Loader2,
-  ZoomIn, ZoomOut, ChevronsLeft, Undo2, Redo2,
+  ZoomIn, ZoomOut, ChevronsLeft, ChevronLeft, ChevronRight, Undo2, Redo2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from './ui';
@@ -254,6 +258,62 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
     setPreviewing(false);
   }, [duration]);
 
+  // ── navegação por frame (Fase 5d) ────────────────────────────────────────────
+  // Sem ffmpeg/ffprobe garantido no backend (dependência opcional em outro
+  // lugar do projeto), então o fps é estimado no CLIENTE via
+  // requestVideoFrameCallback (Chrome/Edge) durante a reprodução — medindo o
+  // intervalo real entre frames decodificados. Sem suporte no navegador
+  // (Firefox/Safari), degrada graciosamente pro chute de 30fps.
+  const [fps, setFps] = useState(30);
+  const fpsSamplesRef = useRef<number[]>([]);
+  const lastFrameMediaTimeRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const v = videoRef.current as (HTMLVideoElement & {
+      requestVideoFrameCallback?: (cb: (now: number, metadata: { mediaTime: number }) => void) => number;
+      cancelVideoFrameCallback?: (handle: number) => void;
+    }) | null;
+    if (!v || !blobSrc || typeof v.requestVideoFrameCallback !== 'function') return;
+
+    let handle: number | null = null;
+    let cancelled = false;
+    const onFrame = (_now: number, metadata: { mediaTime: number }) => {
+      if (cancelled) return;
+      const last = lastFrameMediaTimeRef.current;
+      if (last !== null) {
+        const delta = metadata.mediaTime - last;
+        // Ignora deltas de seek/pausa (negativos, zero, ou grandes demais
+        // pra serem um frame real) — só conta cadência de reprodução normal.
+        if (delta > 0.005 && delta < 0.5) {
+          const samples = fpsSamplesRef.current;
+          samples.push(1 / delta);
+          if (samples.length > 30) samples.shift();
+          if (samples.length >= 8) {
+            const sorted = [...samples].sort((a, b) => a - b);
+            const median = sorted[Math.floor(sorted.length / 2)];
+            setFps((prev) => {
+              const rounded = clamp(Math.round(median * 100) / 100, 1, 120);
+              return Math.abs(prev - rounded) > 0.4 ? rounded : prev;
+            });
+          }
+        }
+      }
+      lastFrameMediaTimeRef.current = metadata.mediaTime;
+      handle = v.requestVideoFrameCallback!(onFrame);
+    };
+    handle = v.requestVideoFrameCallback(onFrame);
+    return () => {
+      cancelled = true;
+      if (handle !== null) v.cancelVideoFrameCallback?.(handle);
+      lastFrameMediaTimeRef.current = null;
+      fpsSamplesRef.current = [];
+    };
+  }, [blobSrc]);
+
+  const stepFrame = useCallback((dir: 1 | -1) => {
+    step(dir * (1 / (fps || 30)));
+  }, [step, fps]);
+
   const onTimeUpdate = useCallback(() => {
     const v = videoRef.current; if (!v) return;
     setCurrentTime(v.currentTime);
@@ -301,8 +361,9 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
 
   const handleSave = useCallback(() => { saveVideoEdit(edit); setSaved(true); setTimeout(() => setSaved(false), 1800); }, [edit]);
 
-  // Atalhos de teclado (setas = passo, i/o = marcar, espaço = play, Ctrl+Z /
-  // Ctrl+Shift+Z = desfazer/refazer — Cmd no Mac).
+  // Atalhos de teclado (setas = passo, Alt+setas = frame a frame, i/o =
+  // marcar, espaço = play, Ctrl+Z / Ctrl+Shift+Z = desfazer/refazer — Cmd no
+  // Mac). Alt+seta não colide com Shift+seta (1s) já mapeado.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -313,7 +374,9 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
         else undo();
         return;
       }
-      if (e.key === 'ArrowLeft') { e.preventDefault(); step(e.shiftKey ? -1 : -0.1); }
+      if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-1); }
+      else if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); stepFrame(1); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); step(e.shiftKey ? -1 : -0.1); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); step(e.shiftKey ? 1 : 0.1); }
       else if (e.key === 'i' || e.key === 'I') { e.preventDefault(); markIn(); }
       else if (e.key === 'o' || e.key === 'O') { e.preventDefault(); markOut(); }
@@ -321,7 +384,7 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [step, markIn, markOut, togglePlay, undo, redo]);
+  }, [step, stepFrame, markIn, markOut, togglePlay, undo, redo]);
 
   return (
     <div
@@ -361,10 +424,12 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
             <button className="rounded-lg border border-white/8 px-2 py-1.5 text-[11px] text-slate-300 hover:bg-white/5" onClick={() => seekTo(0)} title="Início"><ChevronsLeft className="h-3.5 w-3.5" /></button>
             <button className="rounded-lg border border-white/8 px-2.5 py-1.5 text-[11px] text-slate-300 hover:bg-white/5" onClick={() => step(-1)}>−1s</button>
             <button className="rounded-lg border border-white/8 px-2.5 py-1.5 text-[11px] text-slate-300 hover:bg-white/5" onClick={() => step(-0.1)}>−0,1s</button>
+            <button className="rounded-lg border border-white/8 px-2 py-1.5 text-slate-300 hover:bg-white/5" onClick={() => stepFrame(-1)} title="Frame anterior (Alt+←)"><ChevronLeft className="h-3.5 w-3.5" /></button>
             <button className="rounded-lg bg-[var(--violet,#8b7cf6)] px-3 py-1.5 text-white" onClick={togglePlay}>{playing && !previewing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}</button>
+            <button className="rounded-lg border border-white/8 px-2 py-1.5 text-slate-300 hover:bg-white/5" onClick={() => stepFrame(1)} title="Próximo frame (Alt+→)"><ChevronRight className="h-3.5 w-3.5" /></button>
             <button className="rounded-lg border border-white/8 px-2.5 py-1.5 text-[11px] text-slate-300 hover:bg-white/5" onClick={() => step(0.1)}>+0,1s</button>
             <button className="rounded-lg border border-white/8 px-2.5 py-1.5 text-[11px] text-slate-300 hover:bg-white/5" onClick={() => step(1)}>+1s</button>
-            <span className="ml-1 font-mono text-[12px] text-sky-300">{fmt(currentTime)}<span className="text-slate-600"> / {fmt(duration)}</span></span>
+            <span className="ml-1 font-mono text-[12px] text-sky-300">{fmt(currentTime)}<span className="text-slate-600"> / {fmt(duration)} · {Math.round(fps)}fps</span></span>
             <div className="ml-auto flex items-center gap-2">
               <button className="flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-500/20" onClick={markIn} title="Marcar início no tempo atual (tecla I)">⟦ Marcar início</button>
               <button className="flex items-center gap-1 rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-rose-300 hover:bg-rose-500/20" onClick={markOut} title="Marcar fim no tempo atual (tecla O)">Marcar fim ⟧</button>
