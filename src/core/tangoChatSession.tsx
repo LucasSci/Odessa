@@ -44,7 +44,13 @@ import {
 } from './chatConversationGovernor';
 import { recordSessionEvent } from './sessionHistory';
 import { getActivePersona, type PersonaMeta } from './personaManager';
-import { reflectOnConversation, applySelfConfig, requestSelfGeneratedPhoto } from './personaSelfConfig';
+import {
+  reflectOnConversation,
+  applySelfConfig,
+  requestSelfGeneratedPhoto,
+  summarizeSelfConfigChanges,
+  type PendingSelfConfigChange,
+} from './personaSelfConfig';
 import type { CapturedMessage } from '../types';
 
 // ─── Config & Endpoints ──────────────────────────────────────────────
@@ -219,6 +225,10 @@ export type TangoChatSessionValue = {
   handleDiscardReply: (id: string) => void;
   handleRegenerateReply: (item: TangoReplyItem) => Promise<void>;
   executeSendMessage: (text: string) => Promise<boolean>;
+  // Autoconfigurações pendentes de aprovação (Área 4)
+  pendingSelfConfig: PendingSelfConfigChange[];
+  approveSelfConfig: (id: string) => Promise<void>;
+  rejectSelfConfig: (id: string) => void;
   // Modos de operação
   autonomyMode: AutonomyMode;
   setAutonomyMode: Dispatch<SetStateAction<AutonomyMode>>;
@@ -270,6 +280,11 @@ export function TangoChatSessionProvider({
   // ── Chat & Mensagens ──────────────────────────────
   const [messages, setMessages] = useState<TangoChatMessage[]>([]);
   const [replyQueue, setReplyQueue] = useState<TangoReplyItem[]>([]);
+  // Fila de autoconfigurações propostas pela persona (Área 4: aprovação
+  // obrigatória). NUNCA bloqueia o chat — o envio de resposta já terminou
+  // quando algo chega aqui (ver o bloco de reflexão de evolução abaixo);
+  // só fica pendente até o operador aceitar/rejeitar pela UI.
+  const [pendingSelfConfig, setPendingSelfConfig] = useState<PendingSelfConfigChange[]>([]);
   // O observer de DOM da bridge (tango_chat.py) não distingue "mensagem de um
   // espectador" de "mensagem que a própria Barbara acabou de enviar" — ele
   // simplesmente captura qualquer texto novo que aparece no chat. Sem isso, a
@@ -583,9 +598,11 @@ export function TangoChatSessionProvider({
         });
 
         // Aprendizado automático: a cada N respostas autônomas enviadas de
-        // verdade, a persona reflete sobre a conversa recente e pode
-        // incorporar um traço duradouro (mesmo protocolo do PersonaChatLab,
-        // agora também alimentado pela conversa real e ao vivo do Tango).
+        // verdade, a persona reflete sobre a conversa recente e pode propor
+        // um traço duradouro (mesmo protocolo do PersonaChatLab). Área 4:
+        // isto só ENFILEIRA — não aplica nada sozinho. O envio da resposta
+        // acima (executeSendMessage) já terminou, então enfileirar aqui não
+        // atrasa a live em nada; o operador aprova/rejeita quando puder.
         autonomousReplyCountRef.current += 1;
         if (activePersona && autonomousReplyCountRef.current % AUTO_LEARN_EVERY_N_REPLIES === 0) {
           void (async () => {
@@ -593,33 +610,22 @@ export function TangoChatSessionProvider({
               const changes = await reflectOnConversation(activePersona, [...unifiedMessages, msg].slice(-20));
               if (!changes) return;
 
-              // Pedido de foto nova (raro — só quando reflectOnConversation
-              // detecta um motivo real na conversa): disparo assíncrono, não
-              // trava o fluxo da live esperando a imagem terminar.
-              if (changes.photo_prompt) {
-                void requestSelfGeneratedPhoto(activePersona.id, changes.photo_prompt, 'conversation');
-                recordSessionEvent('persona.selfconfig.photoRequested', { prompt: changes.photo_prompt });
-              }
-
-              const applyResult = await applySelfConfig(
-                activePersona.id,
+              const proposal: PendingSelfConfigChange = {
+                id: `selfconfig-${Date.now()}`,
+                personaId: activePersona.id,
                 changes,
-                'conversation',
-                'Aprendizado automático da conversa ao vivo do Tango',
-              );
-              if (applyResult.ok && applyResult.applied.length) {
-                recordSessionEvent('persona.selfconfig.applied', { applied: applyResult.applied, source: 'tango-auto' });
-                // Recarrega a persona (e o prompt em uso) com a personalidade
-                // já evoluída, para que a PRÓXIMA resposta já reflita o que
-                // acabou de ser aprendido nesta mesma sessão.
-                const { persona: refreshed } = await getActivePersona();
-                setActivePersona(refreshed);
-                if (!getAiConfig().systemPrompt?.trim() && refreshed.personality?.trim()) {
-                  setAiPrompt(refreshed.personality.trim());
-                }
-              }
+                source: 'conversation',
+                proposedAt: new Date().toISOString(),
+                summary: summarizeSelfConfigChanges(changes),
+              };
+              setPendingSelfConfig((current) => [...current, proposal].slice(-20));
+              recordSessionEvent('persona.selfconfig.proposed', {
+                personaId: activePersona.id,
+                summary: proposal.summary,
+                source: 'conversation',
+              });
             } catch {
-              // Melhor esforço — a conversa continua normalmente sem o aprendizado desta rodada.
+              // Melhor esforço — a conversa continua normalmente sem a proposta desta rodada.
             }
           })();
         }
@@ -664,6 +670,63 @@ export function TangoChatSessionProvider({
   const handleDiscardReply = useCallback((id: string) => {
     setReplyQueue((prev) => prev.filter((i) => i.id !== id));
   }, []);
+
+  // Área 4: aprovar/rejeitar uma autoconfiguração proposta pela persona.
+  // Só aqui (após aceite explícito) applySelfConfig/requestSelfGeneratedPhoto
+  // são chamados de verdade — nunca no momento em que a mudança é proposta.
+  const approveSelfConfig = useCallback(
+    async (id: string) => {
+      const item = pendingSelfConfig.find((p) => p.id === id);
+      if (!item) return;
+      setPendingSelfConfig((current) => current.filter((p) => p.id !== id));
+      try {
+        const applyResult = await applySelfConfig(item.personaId, item.changes, item.source);
+        if (applyResult.ok && applyResult.applied.length) {
+          recordSessionEvent('persona.selfconfig.applied', {
+            personaId: item.personaId,
+            applied: applyResult.applied,
+            source: item.source,
+          });
+          // Recarrega a persona (e o prompt em uso) com a personalidade já
+          // aprovada, pra que a PRÓXIMA resposta já reflita a mudança.
+          if (activePersona && activePersona.id === item.personaId) {
+            const { persona: refreshed } = await getActivePersona();
+            setActivePersona(refreshed);
+            if (!getAiConfig().systemPrompt?.trim() && refreshed.personality?.trim()) {
+              setAiPrompt(refreshed.personality.trim());
+            }
+          }
+        }
+        // Pedido de foto nova: disparo assíncrono (não trava a UI) — a foto
+        // some no Content Studio/histórico quando terminar.
+        if (item.changes.photo_prompt) {
+          void requestSelfGeneratedPhoto(item.personaId, item.changes.photo_prompt, item.source);
+          recordSessionEvent('persona.selfconfig.photoRequested', {
+            prompt: item.changes.photo_prompt,
+            personaId: item.personaId,
+          });
+        }
+      } catch {
+        // Melhor esforço — o operador pode notar pelo histórico que não pegou.
+      }
+    },
+    [pendingSelfConfig, activePersona],
+  );
+
+  const rejectSelfConfig = useCallback(
+    (id: string) => {
+      const item = pendingSelfConfig.find((p) => p.id === id);
+      setPendingSelfConfig((current) => current.filter((p) => p.id !== id));
+      if (item) {
+        recordSessionEvent('persona.selfconfig.rejected', {
+          personaId: item.personaId,
+          summary: item.summary,
+          source: item.source,
+        });
+      }
+    },
+    [pendingSelfConfig],
+  );
 
   const handleRegenerateReply = useCallback(
     async (item: TangoReplyItem) => {
@@ -917,6 +980,9 @@ export function TangoChatSessionProvider({
     handleDiscardReply,
     handleRegenerateReply,
     executeSendMessage,
+    pendingSelfConfig,
+    approveSelfConfig,
+    rejectSelfConfig,
     autonomyMode,
     setAutonomyMode,
     executionMode,

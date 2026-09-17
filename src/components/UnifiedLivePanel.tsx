@@ -15,13 +15,15 @@
  * respostas que podem ser aprovadas ou enviadas automaticamente.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Brain,
   Check,
   Loader2,
   Sparkles,
   Trash2,
+  Wand2,
+  X,
 } from 'lucide-react';
 import { Badge, Button } from './ui';
 import { cn } from '../lib/utils';
@@ -29,6 +31,7 @@ import { TangoChatFeed } from './TangoChatFeed';
 import { LiveVisionMonitor } from './LiveVisionMonitor';
 import { AiConfigPanel } from './AiConfigPanel';
 import { VideoGenPanel } from './VideoGenPanel';
+import { useTangoChatSession } from '../core/tangoChatSession';
 import type { TangoChatMessage } from '../core/tangoAiChatService';
 import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
 import type { CapturedMessage } from '../types';
@@ -98,6 +101,11 @@ export function UnifiedLivePanel({
   onToggleChatCompact,
 }: UnifiedLivePanelProps) {
   const isLive = runtime.autopilotEnabled;
+  // Área 4: fila de autoconfigurações da persona pendentes de aprovação —
+  // vem do contexto (o provider já embrulha o app inteiro), não como prop,
+  // já que é ortogonal ao fluxo de chat que este painel já recebe por props.
+  const { pendingSelfConfig, approveSelfConfig, rejectSelfConfig } = useTangoChatSession();
+  const [selfConfigExpanded, setSelfConfigExpanded] = useState(false);
 
   // O painel ao vivo mostra apenas mensagens recebidas pela bridge nesta sessão.
   // OCR e eventos de teste pertencem ao runtime, não ao chat do Tango.
@@ -125,7 +133,51 @@ export function UnifiedLivePanel({
             <span className="text-slate-500">Vídeo: <span className="text-slate-200 font-semibold">{videoState?.currentClip?.label || videoState?.current_video_id || '—'}</span></span>
             <span className="text-slate-500">Fila: <span className="text-slate-200 font-semibold">{videoState?.queue_len ?? 0}</span></span>
             <span className="text-slate-500">Ciclos: <span className="text-slate-200 font-semibold">{runtime.completedCycles}</span></span>
+            {pendingSelfConfig.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelfConfigExpanded((v) => !v)}
+                title="A persona propôs mudanças em si mesma — revise antes de aplicar"
+                className="ml-auto flex items-center gap-1 rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300 hover:bg-amber-400/20"
+              >
+                <Wand2 className="h-3 w-3" /> {pendingSelfConfig.length} autoconfig{pendingSelfConfig.length > 1 ? 's' : ''} pendente{pendingSelfConfig.length > 1 ? 's' : ''}
+              </button>
+            )}
           </div>
+
+          {/* Fila de autoconfigurações pendentes (Área 4) */}
+          {pendingSelfConfig.length > 0 && selfConfigExpanded && (
+            <div className="space-y-2 rounded-2xl border border-amber-400/20 bg-amber-400/5 p-3">
+              {pendingSelfConfig.map((item) => (
+                <div key={item.id} className="flex items-start justify-between gap-3 rounded-xl bg-black/20 p-2.5">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-300/80">
+                      {item.source === 'evolution' ? 'Evolução automática' : 'Proposta pela conversa'}
+                    </div>
+                    <p className="mt-0.5 text-xs text-slate-200">{item.summary}</p>
+                  </div>
+                  <div className="flex shrink-0 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => void approveSelfConfig(item.id)}
+                      title="Aceitar"
+                      className="rounded-lg bg-emerald-500 p-1.5 text-black hover:bg-emerald-400"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => rejectSelfConfig(item.id)}
+                      title="Rejeitar"
+                      className="rounded-lg border border-white/15 p-1.5 text-slate-300 hover:bg-white/10"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Card da Decisão da IA (Diretora) */}
           <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-5 shadow-lg">
