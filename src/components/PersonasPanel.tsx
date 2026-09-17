@@ -43,7 +43,7 @@ import { saveAiConfig } from '../core/aiConfig';
 import PersonaVisualBoard from './PersonaVisualBoard';
 import PersonaAssetManager from './PersonaAssetManager';
 import TransmissionConfigPanel from './TransmissionConfigPanel';
-import { VIDEO_ROTEIRO } from '../core/videoRoteiro';
+import { VIDEO_ROTEIRO, categorizeVideo } from '../core/videoRoteiro';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -59,16 +59,6 @@ type PersonaConfigData = {
   idleVideoId?: string;
   triggers?: Array<{ id: string; name: string; enabled: boolean; eventType: string }>;
 };
-
-function categorizeVideo(video: VideoEntry): string | null {
-  const id = (video.id || '').toUpperCase();
-  for (const cat of VIDEO_ROTEIRO) {
-    if (id.includes(cat.prefix)) return cat.key;
-  }
-  // Heuristic: loop videos without a prefix are likely idle
-  if (video.loop) return 'idle';
-  return null;
-}
 
 function copyToClipboard(text: string) {
   try {

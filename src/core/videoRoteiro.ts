@@ -65,3 +65,14 @@ export const VIDEO_ROTEIRO: VideoCategory[] = [
       'Duração média (5-10s). Expressão: [EXPRESSÃO].',
   },
 ];
+
+/** Infere a categoria de um vídeo pelo prefixo do ID (ex.: 01_GATILHO_...). */
+export function categorizeVideo(video: { id?: string; loop?: boolean }): string | null {
+  const id = (video.id || '').toUpperCase();
+  for (const cat of VIDEO_ROTEIRO) {
+    if (id.includes(cat.prefix)) return cat.key;
+  }
+  // Heurística: vídeos em loop sem prefixo reconhecido são provavelmente idle.
+  if (video.loop) return 'idle';
+  return null;
+}

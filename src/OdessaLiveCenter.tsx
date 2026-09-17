@@ -26,7 +26,8 @@ import {
 import { emitEvent } from './core/eventBus';
 import { registerFrameCapture, unregisterFrameCapture, captureVideoFrame } from './core/frameCapture';
 import { apiUrl } from './lib/api';
-import { getPersonaTransmission } from './core/personaManager';
+import { getPersonaTransmission, listPersonas } from './core/personaManager';
+import { VIDEO_ROTEIRO, categorizeVideo } from './core/videoRoteiro';
 import {
   routeSetupLiveScene,
   routeStartTransmission,
@@ -124,6 +125,9 @@ type VideoEntry = {
   src?: string;
   url?: string;
   title?: string;
+  /** Só presente quando o vídeo vem de GET /video/library (modo "todas as personas"). */
+  personaId?: string;
+  personaName?: string;
 };
 
 type PlaybackSettings = {
@@ -1983,6 +1987,43 @@ function VideoLibraryPanel({
   const videos = config?.videos || [];
   const editingVideo = videos.find((v) => v.id === editingVideoId) || null;
 
+  // Filtro por persona (ativa/todas) e por categoria (roteiro de vídeos). O
+  // modo padrão ("ativa") continua usando exatamente `config.videos` de
+  // hoje — só "todas" busca o agregador novo, pra não arriscar regressão.
+  const [personaFilter, setPersonaFilter] = useState<'active' | 'all'>('active');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [activePersonaId, setActivePersonaId] = useState<string | null>(null);
+  const [libraryVideos, setLibraryVideos] = useState<VideoEntry[]>([]);
+  const [libraryLoading, setLibraryLoading] = useState(false);
+
+  useEffect(() => {
+    listPersonas()
+      .then((res) => setActivePersonaId(res.activePersonaId))
+      .catch(() => undefined);
+  }, []);
+
+  const refreshLibrary = useCallback(async () => {
+    setLibraryLoading(true);
+    try {
+      const res = await fetch(apiUrl('/video/library'));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as { videos?: VideoEntry[] };
+      setLibraryVideos(Array.isArray(data.videos) ? data.videos : []);
+    } catch {
+      setLibraryVideos([]);
+    } finally {
+      setLibraryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (personaFilter === 'all') void refreshLibrary();
+  }, [personaFilter, refreshLibrary]);
+
+  const sourceVideos = personaFilter === 'all' ? libraryVideos : videos;
+  const displayedVideos =
+    categoryFilter === 'all' ? sourceVideos : sourceVideos.filter((v) => categorizeVideo(v) === categoryFilter);
+
   const uploadSummary = useMemo(
     () =>
       uploadBatch.reduce(
@@ -2054,6 +2095,7 @@ function VideoLibraryPanel({
       }
       setUploadProgress(100);
       onChanged();
+      if (personaFilter === 'all') void refreshLibrary();
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = '';
@@ -2071,6 +2113,7 @@ function VideoLibraryPanel({
   const archiveVideo = async (videoId: string) => {
     await fetch(apiUrl(`/video/${encodeURIComponent(videoId)}/archive`), { method: 'POST' }).catch(() => undefined);
     onChanged();
+    if (personaFilter === 'all') void refreshLibrary();
   };
 
   const setIdle = async (videoId: string) => {
@@ -2090,6 +2133,7 @@ function VideoLibraryPanel({
       body: JSON.stringify(nextConfig),
     });
     onChanged();
+    if (personaFilter === 'all') void refreshLibrary();
   };
 
   return (
@@ -2119,6 +2163,53 @@ function VideoLibraryPanel({
             <Upload className="h-4 w-4" />
             Adicionar videos
           </Button>
+        </div>
+      </div>
+
+      <div className="mb-5 flex flex-col gap-3 rounded-[28px] border border-white/10 bg-[#101114] p-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-center gap-2">
+          <Users className="h-3.5 w-3.5 text-[var(--t3)]" />
+          <Tabs
+            size="sm"
+            value={personaFilter}
+            onChange={(id) => setPersonaFilter(id as 'active' | 'all')}
+            items={[
+              { id: 'active', label: 'Persona ativa' },
+              { id: 'all', label: 'Todas as personas' },
+            ]}
+          />
+          {personaFilter === 'all' && libraryLoading && (
+            <span className="text-[11px] text-[var(--t3)]">Carregando...</span>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setCategoryFilter('all')}
+            className={cn(
+              'rounded-full border px-2.5 py-1 text-[11px] font-semibold transition',
+              categoryFilter === 'all'
+                ? 'border-sky-300/40 bg-sky-300/15 text-sky-200'
+                : 'border-white/10 text-[var(--t3)] hover:text-white',
+            )}
+          >
+            Todas categorias
+          </button>
+          {VIDEO_ROTEIRO.map((cat) => (
+            <button
+              key={cat.key}
+              type="button"
+              onClick={() => setCategoryFilter(cat.key)}
+              className={cn(
+                'rounded-full border px-2.5 py-1 text-[11px] font-semibold transition',
+                categoryFilter === cat.key
+                  ? 'border-sky-300/40 bg-sky-300/15 text-sky-200'
+                  : 'border-white/10 text-[var(--t3)] hover:text-white',
+              )}
+            >
+              {cat.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -2171,57 +2262,92 @@ function VideoLibraryPanel({
         </div>
       ) : null}
 
-      {videos.length === 0 && (
+      {displayedVideos.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Film className="mb-4 h-12 w-12 text-[var(--t3)]" />
-          <p className="text-sm font-semibold text-[var(--t1)]">Nenhum video na biblioteca</p>
-          <p className="mt-1 text-xs text-[var(--t3)]">Clique em "Adicionar videos" para fazer upload</p>
+          <p className="text-sm font-semibold text-[var(--t1)]">Nenhum video encontrado</p>
+          <p className="mt-1 text-xs text-[var(--t3)]">
+            {personaFilter === 'all' || categoryFilter !== 'all'
+              ? 'Ajuste os filtros de persona/categoria acima.'
+              : 'Clique em "Adicionar videos" para fazer upload'}
+          </p>
         </div>
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-        {videos.map((video) => (
-          <Card key={video.id} className="overflow-hidden bg-[#101114]">
-            <div className="aspect-video bg-black">
-              <video
-                muted
-                playsInline
-                preload="metadata"
-                className="h-full w-full object-contain"
-                src={apiUrl(`/api/video/play/${video.id}`)}
-                onError={() => console.debug('[VIDEO_DEBUG] thumbnail_error', { videoId: video.id })}
-              />
-            </div>
-            <div className="p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold">{videoLabel(video)}</div>
-                  <div className="truncate text-xs text-[var(--t3)]">{video.group || video.id}</div>
+        {displayedVideos.map((video) => {
+          // No modo "todas as personas", Preview/Idle/Excluir escrevem no
+          // config da PERSONA ATIVA — errado pra um vídeo de outra persona.
+          // "Editar" fica sempre liberado: é 100% localStorage, sem essa
+          // amarração (ver videoEdits.ts).
+          const isForeign =
+            personaFilter === 'all' && Boolean(video.personaId) && video.personaId !== activePersonaId;
+          return (
+            <Card key={`${video.personaId || 'active'}-${video.id}`} className="overflow-hidden bg-[#101114]">
+              <div className="aspect-video bg-black">
+                <video
+                  muted
+                  playsInline
+                  preload="metadata"
+                  className="h-full w-full object-contain"
+                  src={apiUrl(`/api/video/play/${video.id}`)}
+                  onError={() => console.debug('[VIDEO_DEBUG] thumbnail_error', { videoId: video.id })}
+                />
+              </div>
+              <div className="p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold">{videoLabel(video)}</div>
+                    <div className="truncate text-xs text-[var(--t3)]">{video.group || video.id}</div>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    {video.loop && <Badge variant="gold">Idle</Badge>}
+                    {personaFilter === 'all' && video.personaName && (
+                      <Badge variant={isForeign ? 'default' : 'success'}>{video.personaName}</Badge>
+                    )}
+                  </div>
                 </div>
-                {video.loop && <Badge variant="gold">Idle</Badge>}
+                <div className="mt-3 line-clamp-2 text-xs text-[var(--t3)]">
+                  {video.description || 'Video registrado na Odessa.'}
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={isForeign}
+                    title={isForeign ? 'Só disponível pra persona ativa' : undefined}
+                    onClick={() => forceVideo(video.id)}
+                  >
+                    <Play className="h-3.5 w-3.5" />
+                    Preview
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => setEditingVideoId(video.id)}>
+                    <Scissors className="h-3.5 w-3.5" />
+                    Editar
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={isForeign}
+                    title={isForeign ? 'Só disponível pra persona ativa' : undefined}
+                    onClick={() => setIdle(video.id)}
+                  >
+                    Idle
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    disabled={isForeign}
+                    title={isForeign ? 'Só disponível pra persona ativa' : undefined}
+                    onClick={() => archiveVideo(video.id)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
-              <div className="mt-3 line-clamp-2 text-xs text-[var(--t3)]">
-                {video.description || 'Video registrado na Odessa.'}
-              </div>
-              <div className="mt-4 flex gap-2">
-                <Button size="sm" variant="secondary" onClick={() => forceVideo(video.id)}>
-                  <Play className="h-3.5 w-3.5" />
-                  Preview
-                </Button>
-                <Button size="sm" variant="secondary" onClick={() => setEditingVideoId(video.id)}>
-                  <Scissors className="h-3.5 w-3.5" />
-                  Editar
-                </Button>
-                <Button size="sm" variant="secondary" onClick={() => setIdle(video.id)}>
-                  Idle
-                </Button>
-                <Button size="sm" variant="danger" onClick={() => archiveVideo(video.id)}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </div>
-          </Card>
-        ))}
+            </Card>
+          );
+        })}
       </div>
       {editingVideo && (
         <Suspense fallback={null}>

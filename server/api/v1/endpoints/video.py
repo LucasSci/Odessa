@@ -398,6 +398,30 @@ async def get_config():
 
     return config
 
+@router.get("/library")
+async def get_video_library():
+    """Agrega os vídeos de TODAS as personas, carimbando personaId/personaName
+    em cada um. Usado só pelo filtro "todas as personas" da Biblioteca — o
+    modo padrão ("persona ativa") continua em GET /config, sem passar por
+    aqui, pra não arriscar regressão no comportamento de hoje."""
+    from server.core import persona_manager
+    from server.api.v1.endpoints.personas import _read_persona_config_raw
+
+    videos: list[dict] = []
+    for persona in persona_manager.list_personas():
+        persona_id = persona.get("id")
+        if not persona_id:
+            continue
+        raw = _read_persona_config_raw(persona_id)
+        for video in raw.get("videos", []) or []:
+            videos.append({
+                **video,
+                "personaId": persona_id,
+                "personaName": persona.get("name") or persona_id,
+            })
+    return {"videos": videos}
+
+
 @router.post("/config")
 async def update_config(config: dict):
     """Update persona video configuration"""
