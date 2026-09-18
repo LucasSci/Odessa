@@ -88,6 +88,71 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 Depois dos dois passos, `.\desktop\build-installer.ps1` deve rodar
 normalmente.
 
+### Erro `npm run build falhou (codigo 1)`
+
+O PowerShell só repassa o código de saída — o erro real do `npm`/`vite`
+aparece **acima** dessa exceção no terminal. A causa mais comum, pra quem
+baixou o `.zip` em vez de clonar com git, é nunca ter rodado
+`npm install`: sem isso `node_modules/` não existe e o build falha na
+hora. Resolve com:
+
+```powershell
+npm install
+```
+
+E depois rode `.\desktop\build-installer.ps1 -SkipRuntimeBuild` de novo
+(usa `-SkipRuntimeBuild` se o runtime Python já tiver sido baixado numa
+tentativa anterior). Se `npm install` já tinha sido feito e o erro
+persistir, o texto acima da exceção (o erro de verdade do vite) é
+necessário pra diagnosticar — não dá pra saber só pelo código de saída.
+
+### Erro `makensis.exe nao encontrado`
+
+O NSIS (compilador do instalador) não é embutido no repo — precisa
+instalar uma vez na máquina que vai gerar o `.exe` (não em quem só vai
+instalar o app depois):
+
+```powershell
+winget install NSIS.NSIS
+```
+
+Depois de instalar, **feche e abra o PowerShell de novo** — o `winget`
+adiciona o NSIS ao PATH, mas a sessão de terminal já aberta não vê essa
+mudança até reiniciar. Só então rode `.\desktop\build-installer.ps1`
+outra vez.
+
+### `Remove-Item` falha com "não foi possível localizar uma parte do caminho"
+
+Erro típico:
+
+```
+Remove-Item : Não é possível remover o item ...\stage\python\Lib\site-
+packages\playwright\driver\package.local-browsers\chromium_headless_shell-
+1243\...\PrivacySandboxAttestationsPreloaded\privacy-sandbox-attestations.dat:
+Não foi possível localizar uma parte do caminho '...'.
+```
+
+É o limite de ~260 caracteres de caminho do Windows, não um arquivo
+faltando de verdade — o Playwright empacota o Chromium com pastas bem
+profundas, e some isso a um caminho de projeto já longo (comum em
+`Downloads\Odessa-main (1)\Odessa-main\...`) e passa do limite.
+
+**Mais simples**: mover a pasta do projeto pra um caminho curto, perto da
+raiz do disco:
+
+```powershell
+Move-Item "C:\caminho\longo\Odessa-main (1)\Odessa-main" "C:\Odessa"
+cd C:\Odessa
+.\desktop\build-installer.ps1 -SkipRuntimeBuild
+```
+
+**Alternativa** (mantém o caminho atual, mas precisa de PowerShell como
+Administrador e possivelmente reiniciar o Windows):
+
+```powershell
+New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+```
+
 ## Visual do instalador
 
 As telas usam a Modern UI 2 do NSIS com duas imagens próprias em
