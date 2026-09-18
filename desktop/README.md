@@ -48,6 +48,46 @@ parte lenta):
 .\desktop\build-installer.ps1 -SkipRuntimeBuild
 ```
 
+### Erro "arquivo não está assinado digitalmente" / `UnauthorizedAccess`
+
+Se rodar `.\build-installer.ps1` (ou qualquer `.ps1` deste projeto) der um
+erro assim:
+
+```
+.\build-installer.ps1 não pode ser carregado. O arquivo ... não está
+assinado digitalmente. Não é possível executar este script no sistema
+atual. ... CategoryInfo : ErrodeSegurança ... FullyQualifiedErrorId :
+UnauthorizedAccess
+```
+
+Não é um bug do script — é o Windows bloqueando scripts baixados da
+internet. Quando você baixa o `.zip` do GitHub (botão "Code → Download
+ZIP") e extrai, o Windows marca cada arquivo como "de origem
+desconhecida" (Mark of the Web), e o PowerShell recusa rodar `.ps1` não
+assinado vindo dessa marca — mesmo que o conteúdo seja o mesmo do repo.
+
+**Resolve em dois passos**, no PowerShell, dentro da pasta onde extraiu o
+projeto (ajuste o caminho pro seu):
+
+```powershell
+Get-ChildItem -Path "C:\caminho\onde\voce\extraiu\Odessa-main" -Recurse | Unblock-File
+```
+
+Isso remove a marca de "bloqueado" de todos os arquivos da pasta extraída
+— seguro, já que você mesmo baixou o `.zip` e confia no conteúdo.
+
+Se o mesmo erro aparecer de novo depois disso, sua política de execução
+do PowerShell está mais restritiva (`Restricted`). Rode isto **antes** de
+chamar o script — só afeta a sessão atual do terminal, não muda nada
+permanente no sistema:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+```
+
+Depois dos dois passos, `.\desktop\build-installer.ps1` deve rodar
+normalmente.
+
 ## Visual do instalador
 
 As telas usam a Modern UI 2 do NSIS com duas imagens próprias em
