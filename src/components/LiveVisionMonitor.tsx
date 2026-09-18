@@ -399,7 +399,11 @@ export function LiveVisionMonitor({ connected }: Props) {
             )}
           >
             <span className={cn('h-1.5 w-1.5 rounded-full', live ? 'bg-emerald-400 animate-ping' : 'bg-slate-500')} />
-            {live ? 'Ao Vivo' : connecting ? (wsAttempts > 0 ? 'Reconectando…' : 'Conectando…') : 'Desconectado'}
+            {/* "Tela:" prefixado de propósito — este pill é sobre o espelho de
+                tela (WebSocket de screencast) especificamente, um sinal
+                diferente do status geral da bridge mostrado no cockpit acima
+                (a bridge pode estar conectada com a tela ainda reconectando). */}
+            Tela: {live ? 'Ao vivo' : connecting ? (wsAttempts > 0 ? 'Reconectando…' : 'Conectando…') : 'Desconectada'}
           </span>
           {connecting && wsAttempts > 0 && (
             <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-400">
@@ -473,8 +477,8 @@ export function LiveVisionMonitor({ connected }: Props) {
             <Eye className="h-12 w-12 text-slate-700 mb-3" />
             <p className="text-sm font-semibold text-slate-400">Nenhuma página conectada</p>
             <p className="text-xs text-slate-600 mt-1 max-w-sm">
-              Inicie a bridge e acople à aba da live na aba <strong>Cockpit</strong> ou no
-              <strong> Assistente</strong>. O compartilhamento de tela ao vivo aparece aqui.
+              Inicie a bridge acima (aba <strong>Ao Vivo</strong>) ou siga o passo a passo em
+              <strong> Configuração Automática</strong>. O compartilhamento de tela ao vivo aparece aqui.
             </p>
           </div>
         )}

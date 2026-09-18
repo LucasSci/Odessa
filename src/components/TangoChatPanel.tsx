@@ -24,7 +24,6 @@ import {
   Edit3,
   ExternalLink,
   Eye,
-  History,
   Loader2,
   Play,
   Radio,
@@ -66,7 +65,6 @@ import {
   type BridgeConfig,
 } from '../core/tangoChatSession';
 import { LiveVisionMonitor } from './LiveVisionMonitor';
-import { SessionHistoryPanel } from './SessionHistoryPanel';
 import { recordSessionEvent } from '../core/sessionHistory';
 import { TangoChatFeed } from './TangoChatFeed';
 import { UnifiedLivePanel, type VideoStateLite } from './UnifiedLivePanel';
@@ -101,7 +99,7 @@ type ChromeStatus = {
   tangoTabFound: boolean;
 };
 
-type SubTab = 'live' | 'setup' | 'config' | 'diagnostics' | 'history';
+type SubTab = 'live' | 'setup' | 'config' | 'diagnostics';
 
 const DEFAULT_CANNED_RESPONSES = [
   'Obrigada pelo carinho, amores! 💕',
@@ -847,8 +845,7 @@ export function TangoChatPanel({
           { id: 'live' as SubTab, label: 'Ao Vivo', icon: <Tv className="h-3.5 w-3.5 text-emerald-400" /> },
           { id: 'setup' as SubTab, label: 'Configuração Automática', icon: <Sparkles className="h-3.5 w-3.5 text-amber-400" /> },
           { id: 'config' as SubTab, label: 'Configurações', icon: <Settings className="h-3.5 w-3.5" /> },
-          { id: 'diagnostics' as SubTab, label: 'Diagnóstico', icon: <Terminal className="h-3.5 w-3.5" /> },
-          { id: 'history' as SubTab, label: 'Histórico', icon: <History className="h-3.5 w-3.5" /> },
+          { id: 'diagnostics' as SubTab, label: 'Diagnóstico da Bridge', icon: <Terminal className="h-3.5 w-3.5" /> },
         ].map((t) => (
           <button
             key={t.id}
@@ -1433,8 +1430,8 @@ export function TangoChatPanel({
                   <Tv className="h-12 w-12 text-slate-700 mb-4" />
                   <p className="text-sm font-semibold text-slate-400">Painel Unificado indisponível</p>
                   <p className="text-xs text-slate-600 mt-1 max-w-md">
-                    O runtime do Odessa não está conectado a este painel. Navegue pela aba "Início" no menu lateral
-                    para usar o painel principal, ou conecte a bridge na aba "Cockpit".
+                    O runtime do Odessa não está conectado a este painel. Volte pra aba "Ao Vivo" no menu lateral,
+                    ou inicie a bridge acima pra habilitar o Cockpit.
                   </p>
                 </div>
               )}
@@ -1479,7 +1476,9 @@ export function TangoChatPanel({
               <h3 className="text-sm font-bold text-white">Personalidade no Chat (System Prompt)</h3>
             </div>
             <p className="text-xs text-slate-400">
-              Instruções que moldam como a Odessa responde no chat da stream.
+              Instruções que moldam como a Odessa responde no chat da stream. Mesmos campos da
+              aba <strong>Configurações</strong> do menu principal — editar aqui ou lá afeta a mesma
+              configuração; esta tela existe pra não precisar sair do Cockpit durante a live.
             </p>
             <textarea
               className="h-64 w-full rounded-xl border border-white/10 bg-black/40 p-3 font-mono text-xs text-slate-200 outline-none focus:border-sky-500 leading-relaxed"
@@ -1851,8 +1850,6 @@ export function TangoChatPanel({
         </div>
       )}
 
-      {/* ── ABA: HISTÓRICO ──────────────────────────────────────────── */}
-      {subTab === 'history' && <SessionHistoryPanel active={subTab === 'history'} />}
     </div>
   );
 }
