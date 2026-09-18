@@ -21,6 +21,21 @@ if (-not (Test-Path (Join-Path $pyDir "python.exe"))) {
 }
 
 if (-not $SkipFrontendBuild) {
+    if (-not (Test-Path (Join-Path $root "node_modules"))) {
+        Write-Host "node_modules nao encontrado -- rodando npm install..." -ForegroundColor Yellow
+        Push-Location $root
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            cmd /c "npm install"
+            $installExit = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $prevEap
+            Pop-Location
+        }
+        if ($installExit -ne 0) { throw "npm install falhou (codigo $installExit)." }
+    }
+
     Write-Host "Buildando o frontend (npm run build)..." -ForegroundColor Cyan
     Push-Location $root
     # npm/vite escrevem avisos benignos no stderr; com ErrorActionPreference=Stop
@@ -44,7 +59,21 @@ if (-not (Test-Path (Join-Path $distDir "index.html"))) {
 }
 
 Write-Host "Limpando pasta de staging anterior..." -ForegroundColor Cyan
-if (Test-Path $stageDir) { Remove-Item -Recurse -Force $stageDir }
+if (Test-Path $stageDir) {
+    # Remove-Item -Recurse falha com "nao foi possivel localizar uma parte
+    # do caminho" em builds anteriores com arquivos do Chromium empacotado
+    # (caminhos bem profundos) -- e o limite classico de ~260 caracteres do
+    # Windows, nao um arquivo faltando de verdade. robocopy /MIR usa APIs
+    # nativas que nao tem esse limite, entao espelha uma pasta vazia por
+    # cima (esvazia $stageDir sem apagar a pasta em si) e so depois remove
+    # a pasta ja vazia -- isso funciona mesmo sem long paths habilitado.
+    $emptyDir = Join-Path ([System.IO.Path]::GetTempPath()) ("odessa-empty-" + [guid]::NewGuid())
+    New-Item -ItemType Directory -Force -Path $emptyDir | Out-Null
+    robocopy $emptyDir $stageDir /MIR /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "robocopy falhou limpando $stageDir (codigo $LASTEXITCODE)." }
+    Remove-Item -Force $emptyDir -ErrorAction SilentlyContinue
+    Remove-Item -Force $stageDir -ErrorAction SilentlyContinue
+}
 New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
 
 function Copy-Tree($from, $to, [string[]]$excludeDirs = @()) {

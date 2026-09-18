@@ -43,7 +43,25 @@ $makensis = @(
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 
 if (-not $makensis) {
-    throw "makensis.exe nao encontrado. Instale o NSIS (winget install NSIS.NSIS) antes de rodar este script."
+    Write-Host "`nNSIS nao encontrado -- instalando via winget (NSIS.NSIS)..." -ForegroundColor Yellow
+    $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
+    if (-not $wingetCmd) {
+        throw "makensis.exe nao encontrado e winget nao esta disponivel nesta maquina. Instale o NSIS manualmente em https://nsis.sourceforge.io/Download e rode este script de novo."
+    }
+    & winget install --id NSIS.NSIS --accept-source-agreements --accept-package-agreements -e
+    if ($LASTEXITCODE -ne 0) {
+        throw "winget install NSIS.NSIS falhou (codigo $LASTEXITCODE). Instale manualmente (https://nsis.sourceforge.io/Download) e rode este script de novo."
+    }
+    # Nao depende de PATH (winget as vezes so atualiza o PATH numa sessao
+    # nova do terminal) -- confere direto nos caminhos de instalacao padrao.
+    $makensis = @(
+        "C:\Program Files (x86)\NSIS\makensis.exe",
+        "C:\Program Files\NSIS\makensis.exe"
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $makensis) {
+        throw "NSIS foi instalado pelo winget, mas makensis.exe nao apareceu nos caminhos esperados. Reabra o PowerShell (para pegar o PATH atualizado) e rode este script de novo."
+    }
+    Write-Host "NSIS instalado com sucesso." -ForegroundColor Green
 }
 
 Write-Host "`nCompilando o instalador com NSIS..." -ForegroundColor Cyan

@@ -17,9 +17,22 @@ navegador (uma única vez por instalação — não fica repetindo a cada abertu
 ## Como gerar o instalador
 
 Pré-requisitos no ambiente de build (não no ambiente de destino):
-- NSIS (`winget install NSIS.NSIS`)
-- Node/npm e o `venv` de dev já configurados (para rodar `npm run build`)
-- Acesso à internet (baixa o Python embeddable, pip install, `playwright install chromium`)
+- NSIS — instalado automaticamente pelo próprio script via `winget` se
+  não estiver presente (não precisa instalar antes)
+- Node/npm (o script roda `npm install` sozinho se `node_modules/` não
+  existir) e o `venv` de dev já configurado
+- Acesso à internet (baixa o Python embeddable, pip install,
+  `playwright install chromium`, e o NSIS se faltar)
+
+Se baixou o projeto como `.zip` do GitHub em vez de `git clone`, use o
+wrapper `.cmd` (evita o bloqueio de assinatura do PowerShell — ver
+"Troubleshooting" abaixo):
+
+```powershell
+.\desktop\build-installer.cmd
+```
+
+Ou, se já tiver desbloqueado os arquivos / clonado com git:
 
 ```powershell
 .\desktop\build-installer.ps1
@@ -66,78 +79,75 @@ ZIP") e extrai, o Windows marca cada arquivo como "de origem
 desconhecida" (Mark of the Web), e o PowerShell recusa rodar `.ps1` não
 assinado vindo dessa marca — mesmo que o conteúdo seja o mesmo do repo.
 
-**Resolve em dois passos**, no PowerShell, dentro da pasta onde extraiu o
-projeto (ajuste o caminho pro seu):
+**Mais simples**: rode `build-installer.cmd` em vez de `build-installer.ps1`
+(dois cliques no Explorer, ou pelo terminal):
+
+```powershell
+.\desktop\build-installer.cmd
+```
+
+`.cmd` não tem essa restrição de assinatura — ele só chama o `.ps1` de
+dentro com `-ExecutionPolicy Bypass`, sem precisar desbloquear nada
+manualmente nem mudar configuração alguma do sistema.
+
+**Alternativa manual** (se preferir continuar chamando o `.ps1` direto),
+no PowerShell, dentro da pasta onde extraiu o projeto (ajuste o caminho
+pro seu):
 
 ```powershell
 Get-ChildItem -Path "C:\caminho\onde\voce\extraiu\Odessa-main" -Recurse | Unblock-File
 ```
 
 Isso remove a marca de "bloqueado" de todos os arquivos da pasta extraída
-— seguro, já que você mesmo baixou o `.zip` e confia no conteúdo.
-
-Se o mesmo erro aparecer de novo depois disso, sua política de execução
-do PowerShell está mais restritiva (`Restricted`). Rode isto **antes** de
-chamar o script — só afeta a sessão atual do terminal, não muda nada
-permanente no sistema:
+— seguro, já que você mesmo baixou o `.zip` e confia no conteúdo. Se o
+mesmo erro aparecer de novo depois disso, sua política de execução do
+PowerShell está mais restritiva (`Restricted`); rode isto **antes** de
+chamar o script (só afeta a sessão atual do terminal):
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 ```
 
-Depois dos dois passos, `.\desktop\build-installer.ps1` deve rodar
-normalmente.
-
 ### Erro `npm run build falhou (codigo 1)`
 
-O PowerShell só repassa o código de saída — o erro real do `npm`/`vite`
-aparece **acima** dessa exceção no terminal. A causa mais comum, pra quem
-baixou o `.zip` em vez de clonar com git, é nunca ter rodado
-`npm install`: sem isso `node_modules/` não existe e o build falha na
-hora. Resolve com:
-
-```powershell
-npm install
-```
-
-E depois rode `.\desktop\build-installer.ps1 -SkipRuntimeBuild` de novo
-(usa `-SkipRuntimeBuild` se o runtime Python já tiver sido baixado numa
-tentativa anterior). Se `npm install` já tinha sido feito e o erro
-persistir, o texto acima da exceção (o erro de verdade do vite) é
-necessário pra diagnosticar — não dá pra saber só pelo código de saída.
+Desde que `stage.ps1` passou a checar `node_modules/` automaticamente e
+rodar `npm install` sozinho quando falta, esse erro só deve acontecer se
+o `npm install` automático também falhar — nesse caso ele já apareceu
+**acima** da exceção no terminal, com o motivo real (rede, versão do
+Node, etc.). Resolvendo o que aparecer lá e rodando o script de novo
+deve bastar. Se o problema persistir mesmo com `node_modules/` presente,
+o erro real do `vite`/`npm run build` também aparece acima da exceção —
+não dá pra diagnosticar só pelo código de saída.
 
 ### Erro `makensis.exe nao encontrado`
 
-O NSIS (compilador do instalador) não é embutido no repo — precisa
-instalar uma vez na máquina que vai gerar o `.exe` (não em quem só vai
-instalar o app depois):
+Desde a versão atual, `build-installer.ps1` detecta a ausência do NSIS e
+roda `winget install NSIS.NSIS` automaticamente antes de compilar — não
+precisa mais instalar manualmente nem reabrir o PowerShell (o script
+confere os caminhos de instalação padrão direto, sem depender do PATH
+atualizar na sessão já aberta).
+
+Esse erro só deve aparecer se a instalação automática falhar (ex.: sem
+`winget` disponível, sem internet, ou a licença do pacote não pôde ser
+aceita automaticamente). Nesse caso, instale manualmente:
 
 ```powershell
 winget install NSIS.NSIS
 ```
 
-Depois de instalar, **feche e abra o PowerShell de novo** — o `winget`
-adiciona o NSIS ao PATH, mas a sessão de terminal já aberta não vê essa
-mudança até reiniciar. Só então rode `.\desktop\build-installer.ps1`
-outra vez.
+e reabra o PowerShell antes de rodar `.\desktop\build-installer.ps1` de
+novo.
 
 ### `Remove-Item` falha com "não foi possível localizar uma parte do caminho"
 
-Erro típico:
+Esse erro (limite de ~260 caracteres de caminho do Windows, ligado às
+pastas bem profundas do Chromium empacotado pelo Playwright) não deve
+mais aparecer — `stage.ps1` agora limpa a pasta de staging anterior via
+`robocopy /MIR` (que usa APIs nativas sem esse limite) em vez de
+`Remove-Item -Recurse`.
 
-```
-Remove-Item : Não é possível remover o item ...\stage\python\Lib\site-
-packages\playwright\driver\package.local-browsers\chromium_headless_shell-
-1243\...\PrivacySandboxAttestationsPreloaded\privacy-sandbox-attestations.dat:
-Não foi possível localizar uma parte do caminho '...'.
-```
-
-É o limite de ~260 caracteres de caminho do Windows, não um arquivo
-faltando de verdade — o Playwright empacota o Chromium com pastas bem
-profundas, e some isso a um caminho de projeto já longo (comum em
-`Downloads\Odessa-main (1)\Odessa-main\...`) e passa do limite.
-
-**Mais simples**: mover a pasta do projeto pra um caminho curto, perto da
+Se ainda assim aparecer em algum outro passo do build, o mais simples
+continua sendo mover a pasta do projeto pra um caminho curto, perto da
 raiz do disco:
 
 ```powershell
