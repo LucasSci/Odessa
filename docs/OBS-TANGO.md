@@ -40,9 +40,12 @@ vivo e transmite a tela via CDP. Ela expõe um servidor aiohttp na porta 7555.
 
 ### Auto-início
 
-A bridge **inicia automaticamente** quando o backend sobe (controlado por
-`ODESSA_AUTOSTART_BRIDGE`, default `1`). Desative com `ODESSA_AUTOSTART_BRIDGE=0`
-em ambientes sem Chromium/desktop (ex.: nuvem).
+A bridge pode iniciar automaticamente quando o backend sobe, controlado por
+`ODESSA_AUTOSTART_BRIDGE` — mas o **default real é `0` (desligado)**
+(`server/main.py`). Ative com `ODESSA_AUTOSTART_BRIDGE=1` no `.env` se quiser
+que ela suba sozinha; em ambientes sem Chromium/desktop (ex.: nuvem), deixe
+desligado (o padrão) e inicie manualmente pela UI só quando o Chrome com
+`--remote-debugging-port` já estiver de pé.
 
 ### Configuração
 

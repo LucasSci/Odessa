@@ -145,6 +145,12 @@ export async function fetchQueue(personaId?: string): Promise<VideoGenQueueItem[
   return data.queue;
 }
 
+/** Remove da fila os itens já concluídos/com erro — não mexe no que ainda está ativo. */
+export async function clearFinishedQueue(personaId?: string): Promise<{ ok: boolean; removed: number }> {
+  const qs = personaId ? `?personaId=${encodeURIComponent(personaId)}` : '';
+  return request<{ ok: boolean; removed: number }>(`/api/video-gen/queue/clear-finished${qs}`, { method: 'POST' });
+}
+
 export async function fetchPrompts(personaId?: string): Promise<VideoGenPrompt[]> {
   const qs = personaId ? `?personaId=${encodeURIComponent(personaId)}` : '';
   const data = await request<{ prompts: VideoGenPrompt[] }>(`/api/video-gen/prompts${qs}`);

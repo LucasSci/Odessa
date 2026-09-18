@@ -158,6 +158,13 @@ async def get_queue(personaId: Optional[str] = None):
     return {"queue": get_video_gen_service().get_queue(personaId)}
 
 
+@router.post("/queue/clear-finished")
+async def clear_finished_queue(personaId: Optional[str] = None):
+    """Remove da fila os itens já concluídos ou com erro (o histórico
+    completo continua em /history) — usado pelo botão "Limpar" da UI."""
+    return get_video_gen_service().clear_finished(personaId)
+
+
 @router.get("/history")
 async def get_history(personaId: Optional[str] = None):
     """Retorna o histórico de gerações."""

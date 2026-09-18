@@ -222,6 +222,15 @@ class BridgeProcessManager:
             self._adopted = False
             self._started_at = None
 
+        if self._process is not None and not self.is_running:
+            # O processo que NÓS mesmos iniciamos (self._process não é None)
+            # morreu sozinho (crash, erro de import etc.) sem passar por
+            # stop() — sem isto, startedAt/pid ficavam "fantasmas" indicando
+            # uma bridge de pé mesmo com processRunning:false, confundindo
+            # o diagnóstico de por que ela caiu.
+            self._process = None
+            self._started_at = None
+
         process_running = self.is_running or self._adopted
 
         return {

@@ -6,13 +6,14 @@
  * (frames) usadas como base.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Clapperboard, Image as ImageIcon, Loader2, MessageSquare, Play, Sparkles, Wand2 } from 'lucide-react';
+import { Clapperboard, Image as ImageIcon, Loader2, MessageSquare, Play, Sparkles, Trash2, Wand2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { apiUrl } from '../lib/api';
 import {
   fetchVideoGenState,
   generatePrompt,
   enqueueGeneration,
+  clearFinishedQueue,
   type VideoGenState,
   type VideoGenQueueItem,
 } from '../core/videoGenApi';
@@ -87,6 +88,19 @@ export function VideoGenPanel({ className }: { className?: string }) {
     }
   };
 
+  const finishedCount = state?.queue.filter((q) => q.status === 'done' || q.status === 'error').length || 0;
+  const handleClearFinished = async () => {
+    setBusy(true);
+    try {
+      await clearFinishedQueue();
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Falha ao limpar a fila');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const nextPrompt = state?.prompts[state?.prompts.length - 1];
   const nextToGenerate = state?.queue.find((q) => q.status === 'queued' || q.status === 'generating');
 
@@ -147,11 +161,26 @@ export function VideoGenPanel({ className }: { className?: string }) {
       )}
 
       {/* Fila de vídeos */}
-      <Section title="Fila de vídeos" icon={<Clapperboard className="h-3 w-3" />}>
+      <Section
+        title="Fila de vídeos"
+        icon={<Clapperboard className="h-3 w-3" />}
+        action={
+          finishedCount > 0 ? (
+            <button
+              onClick={() => void handleClearFinished()}
+              disabled={busy}
+              title="Remove só os itens concluídos/com erro — o que ainda está gerando continua"
+              className="flex items-center gap-1 text-slate-500 hover:text-slate-300 disabled:opacity-50"
+            >
+              <Trash2 className="h-3 w-3" /> Limpar ({finishedCount})
+            </button>
+          ) : undefined
+        }
+      >
         {!state || state.queue.length === 0 ? (
           <p className="text-xs text-slate-600">Fila vazia.</p>
         ) : (
-          <ul className="flex flex-col gap-1.5">
+          <ul className="flex max-h-40 flex-col gap-1.5 overflow-y-auto">
             {state.queue.map((item) => (
               <li key={item.id} className="flex items-start justify-between gap-2 rounded-md bg-white/5 p-1.5">
                 <div className="min-w-0">
@@ -263,12 +292,23 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
-function Section({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
+function Section({
+  title,
+  icon,
+  action,
+  children,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
         {icon}
         {title}
+        {action && <span className="ml-auto normal-case tracking-normal">{action}</span>}
       </div>
       {children}
     </div>

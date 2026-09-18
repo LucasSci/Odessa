@@ -131,6 +131,18 @@ class VideoGenService:
     def get_queue(self, persona_id: Optional[str] = None) -> List[Dict[str, Any]]:
         return storage.get_queue(persona_id)
 
+    def clear_finished(self, persona_id: Optional[str] = None) -> Dict[str, Any]:
+        """Remove da fila os itens já num estado terminal (done/error) — pra
+        limpar registros presos de antes desta correção (a fila costumava
+        acumular erro pra sempre, veja _remove_from_queue) sem afetar nada
+        que ainda esteja em andamento (queued/generating)."""
+        pid = persona_id or storage.get_active_persona_id()
+        queue = storage.get_queue(pid)
+        remaining = [item for item in queue if item.get("status") not in ("done", "error")]
+        removed = len(queue) - len(remaining)
+        storage.save_queue(remaining, pid)
+        return {"ok": True, "removed": removed}
+
     # ── Processamento assíncrono ────────────────────────────────────────────
     def _start_processing(self, persona_id: Optional[str] = None) -> None:
         with self._lock:
@@ -172,6 +184,16 @@ class VideoGenService:
                 item.update(patch)
                 item["updatedAt"] = _now()
                 break
+        storage.save_queue(queue, pid)
+
+    def _remove_from_queue(self, item_id: str, persona_id: Optional[str] = None) -> None:
+        """Tira um item da fila ATIVA depois que ele chega num estado
+        terminal (done/error) e já foi gravado em history.json. Sem isso, a
+        fila (limitada a VIDEO_GEN_MAX_QUEUE) acumula erros pra sempre — a UI
+        fica poluída de cards "ERRO" antigos e, pior, trava QUALQUER geração
+        nova assim que as vagas enchem de itens mortos."""
+        pid = persona_id or storage.get_active_persona_id()
+        queue = [item for item in storage.get_queue(pid) if item.get("id") != item_id]
         storage.save_queue(queue, pid)
 
     def _process_item(self, item: Dict[str, Any], persona_id: Optional[str] = None) -> None:
