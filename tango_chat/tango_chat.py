@@ -487,6 +487,11 @@ class TangoChatBridge:
             const lastContentByElement = new WeakMap();
             const recentKeys = new Map();
 
+            // Placeholders de UI do próprio Tango que aparecem no lugar do
+            // texto da mensagem por um instante (não são conteúdo de chat de
+            // verdade) — ver o uso em extractMessage() abaixo.
+            const PLACEHOLDER_TEXT_RE = /^(a\\s+traduzir|traduciendo|translating)\\.{{0,3}}$/i;
+
             function firstMatch(root, primary, fallbacks) {{
                 if (primary) {{
                     try {{
@@ -527,6 +532,16 @@ class TangoChatBridge:
                 const username = usernameEl?.textContent?.trim() || 'Espectador';
                 const text = textEl?.textContent?.trim() || '';
                 if (!text) return null;
+
+                // O próprio Tango mostra um texto PROVISÓRIO (ex.: "A traduzir...")
+                // no mesmo elemento da mensagem enquanto a tradução automática
+                // carrega, antes de trocar pelo texto final — sem este filtro,
+                // esse placeholder virava uma "mensagem" fantasma no feed (não
+                // sabemos o idioma da conta de quem está transmitindo, então
+                // cobrimos pt/en/es; o texto final chega numa mutação seguinte
+                // e é capturado normalmente, já que o dedup abaixo só é setado
+                // quando chegamos aqui).
+                if (PLACEHOLDER_TEXT_RE.test(text)) return null;
 
                 const key = `${{username}}::${{text}}`;
                 if (lastContentByElement.get(msgEl) === key) return null;
