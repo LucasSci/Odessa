@@ -554,7 +554,20 @@ export function TangoChatSessionProvider({
         cooldownMs: config.chatReplyCooldownMs || 15_000,
         maxPerMinute: config.chatReplyMaxPerMinute || 4,
       });
-      if (!decision.allowed) return;
+      if (!decision.allowed) {
+        // Visibilidade: sem isto, uma mensagem real ficava sem resposta em
+        // silêncio (cooldown/limite/repetida) sem nenhum rastro de por quê —
+        // só registra os motivos "de verdade" (não os triviais de validação
+        // de entrada, que são ruído: mensagem vazia ou curta demais).
+        if (decision.reason && decision.reason !== 'empty_message' && decision.reason !== 'too_short') {
+          recordSessionEvent('ai.reply.skipped', {
+            username: msg.username,
+            text: msg.text,
+            reason: decision.reason,
+          });
+        }
+        return;
+      }
 
       setGeneratingForId(msg.timestamp || msg.text);
       setAiGenerationStartedAt(Date.now());

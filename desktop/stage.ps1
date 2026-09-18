@@ -57,7 +57,14 @@ function Copy-Tree($from, $to, [string[]]$excludeDirs = @()) {
 }
 
 Write-Host "Copiando backend (server/)..." -ForegroundColor Cyan
-Copy-Tree (Join-Path $root "server") (Join-Path $stageDir "server") @("__pycache__")
+# server/runtime e' estado de SESSAO (videos gerados, fila, historico, logs)
+# que o app recria sozinho na primeira execucao -- nao e' codigo, e copia-lo
+# (a) ia inflar o instalador com o conteudo da instalacao de quem builda, e
+# (b) trava o robocopy se o backend de dev estiver rodando e escrevendo
+# nesses mesmos arquivos ao vivo (visto na pratica: robocopy ficou parado
+# por 30+ min tentando ler um arquivo bloqueado). .pytest_cache tambem nao
+# e' necessario num runtime empacotado.
+Copy-Tree (Join-Path $root "server") (Join-Path $stageDir "server") @("__pycache__", "runtime", ".pytest_cache")
 Get-ChildItem -Path (Join-Path $stageDir "server") -Recurse -Filter "__pycache__" -Directory | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "Copiando bridge do Tango (tango_chat/)..." -ForegroundColor Cyan

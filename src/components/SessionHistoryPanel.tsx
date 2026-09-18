@@ -32,6 +32,7 @@ const TYPE_LABELS: Record<string, string> = {
   'video.generated': 'Vídeo gerado',
   'ai.reply': 'Resposta IA',
   'ai.reply.sent': 'Resposta IA enviada',
+  'ai.reply.skipped': 'Resposta pulada (cooldown/limite)',
   'message.sent': 'Mensagem enviada',
   'persona.selfconfig.proposed': 'Autoconfig proposta',
   'persona.selfconfig.applied': 'Autoconfig aplicada',
@@ -48,12 +49,25 @@ const TYPE_COLORS: Record<string, string> = {
   'video.generated': 'bg-emerald-500/20 text-emerald-300',
   'ai.reply': 'bg-fuchsia-500/20 text-fuchsia-300',
   'ai.reply.sent': 'bg-emerald-500/20 text-emerald-300',
+  'ai.reply.skipped': 'bg-amber-500/20 text-amber-300',
   'message.sent': 'bg-cyan-500/20 text-cyan-300',
   'persona.selfconfig.proposed': 'bg-amber-500/20 text-amber-300',
   'persona.selfconfig.applied': 'bg-emerald-500/20 text-emerald-300',
   'persona.selfconfig.rejected': 'bg-red-500/20 text-red-300',
   'persona.selfconfig.photoRequested': 'bg-fuchsia-500/20 text-fuchsia-300',
 };
+
+/** Traduz o `reason` de shouldReplyToMessage (chatConversationGovernor.ts) pra algo legível. */
+function skipReasonLabel(reason: string): string {
+  if (reason === 'max_per_minute') return 'limite de respostas por minuto atingido';
+  if (reason === 'repeated_message') return 'mensagem repetida (ignorada)';
+  const cooldownMatch = reason.match(/^(global|user)_cooldown_(\d+)s$/);
+  if (cooldownMatch) {
+    const [, scope, seconds] = cooldownMatch;
+    return `cooldown ${scope === 'global' ? 'geral' : 'do usuário'} (${seconds}s restantes)`;
+  }
+  return reason;
+}
 
 function eventSummary(e: SessionEvent): string {
   // `data` tem formato diferente por tipo de evento (chat/gift/trigger/vídeo/IA)
@@ -79,6 +93,8 @@ function eventSummary(e: SessionEvent): string {
       return `${d.username ?? 'desconhecido'} → ${d.reply ?? ''}`;
     case 'ai.reply.sent':
       return `${d.username ?? 'desconhecido'} → ${d.reply ?? ''}`;
+    case 'ai.reply.skipped':
+      return `${d.username ?? 'desconhecido'}: "${d.text ?? ''}" — ${skipReasonLabel(String(d.reason ?? ''))}`;
     case 'message.sent':
       return d.text ?? '';
     case 'persona.selfconfig.proposed':

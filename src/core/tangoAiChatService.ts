@@ -21,6 +21,16 @@ export interface TangoChatMessage {
   timestamp?: string;
 }
 
+/**
+ * Quantas mensagens recentes entram no prompt como contexto da conversa.
+ * Era 12 — curto demais pra uma live que dura horas, a persona "esquecia"
+ * o que tinha acabado de ser falado. 40 ainda é um recorte (não é possível
+ * mandar a live inteira em todo prompt sem explodir custo/latência — isso
+ * exigiria um resumo contínuo da sessão, que é um projeto separado), mas
+ * cobre uma janela bem mais realista de conversa recente.
+ */
+const CHAT_HISTORY_WINDOW = 40;
+
 export interface GeneratedReplyResult {
   ok: boolean;
   reply: string;
@@ -185,7 +195,7 @@ async function callBackendAiRespond(
 ): Promise<{ text: string | null; error?: string }> {
   const config = getAiConfig();
   const historyContext = recentHistory
-    .slice(-12)
+    .slice(-CHAT_HISTORY_WINDOW)
     .map((msg) => `${msg.username}: ${msg.text}`)
     .join('\n');
   const userPrompt = [
@@ -281,7 +291,7 @@ export async function generateTangoChatReply(
   }
 
   const historyContext = recentHistory
-    .slice(-12)
+    .slice(-CHAT_HISTORY_WINDOW)
     .map((msg) => `${msg.username}: ${msg.text}`)
     .join('\n');
 

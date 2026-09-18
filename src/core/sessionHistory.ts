@@ -16,6 +16,7 @@ export type SessionEventType =
   | 'video.generated'
   | 'ai.reply'
   | 'ai.reply.sent'
+  | 'ai.reply.skipped'
   | 'message.sent'
   | 'persona.selfconfig.applied'
   | 'persona.selfconfig.photoRequested'
