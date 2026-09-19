@@ -19,6 +19,7 @@ import csv
 import io
 import json
 import logging
+import re
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -28,6 +29,12 @@ from typing import Any, Dict, List, Optional
 from server.config import RUNTIME_DIR
 
 logger = logging.getLogger("odessa.session_history")
+
+SESSION_ID_RE = re.compile(r"^session_\d{8}_\d{6}$")
+
+
+def is_valid_session_id(value: object) -> bool:
+    return isinstance(value, str) and SESSION_ID_RE.fullmatch(value) is not None
 
 # Tipos de evento aceitos pelo serviço (usado para validar registros externos).
 EVENT_TYPES = {
@@ -179,6 +186,10 @@ class SessionHistoryService:
                 self._update_sessions_index()
 
     def _session_file(self, session_id: str) -> Path:
+        # O id vem da query string em alguns endpoints: sem esta checagem,
+        # "../../data/logs/execution" sairia da pasta e leria outros .jsonl.
+        if not is_valid_session_id(session_id):
+            raise ValueError(f"sessionId inválido: {session_id!r}")
         return self.dir / f"{session_id}.jsonl"
 
     def _update_sessions_index(self, session_id: Optional[str] = None) -> None:
@@ -213,7 +224,10 @@ class SessionHistoryService:
         cached = self._event_counts.get(session_id)
         if cached is not None:
             return cached
-        path = self._session_file(session_id)
+        try:
+            path = self._session_file(session_id)
+        except ValueError:
+            return 0
         if not path.exists():
             return 0
         try:
@@ -226,7 +240,10 @@ class SessionHistoryService:
     # ── Leitura ────────────────────────────────────────────────────────────
 
     def _read_events(self, session_id: str) -> List[Dict[str, Any]]:
-        path = self._session_file(session_id)
+        try:
+            path = self._session_file(session_id)
+        except ValueError:
+            return []
         if not path.exists():
             return []
         events: List[Dict[str, Any]] = []

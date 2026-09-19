@@ -17,6 +17,7 @@ from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 log = logging.getLogger("odessa.bridge")
 
@@ -311,8 +312,41 @@ def find_chrome_executable() -> str | None:
     return None
 
 
+def validate_chrome_target(url: Any, port: Any) -> tuple[str, int]:
+    """Valida url/porta que vão para a linha de comando do Chrome.
+
+    Sem isso, um `url` como `--renderer-cmd-prefix=<comando>` seria lido pelo
+    Chrome como FLAG e executaria um programa; num atalho .lnk o mesmo valor
+    ficaria gravado. Só aceita http(s) com host, sem espaços/aspas/controle e
+    sem começar com "-". Levanta ValueError com mensagem para o usuário.
+    """
+    if not isinstance(url, str) or not url.strip():
+        raise ValueError("URL da live vazia.")
+    candidate = url.strip()
+    if candidate.startswith("-"):
+        raise ValueError("URL inválida.")
+    if any(ch.isspace() or ch in "\"'`^<>|" or ord(ch) < 32 for ch in candidate):
+        raise ValueError("URL contém caracteres não permitidos.")
+    parsed = urlparse(candidate)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("Use uma URL http(s) completa (ex.: https://tango.me/...).")
+
+    try:
+        port_num = int(port)
+    except (TypeError, ValueError):
+        raise ValueError("Porta inválida.") from None
+    if not 1024 <= port_num <= 65535:
+        raise ValueError("A porta deve estar entre 1024 e 65535.")
+    return candidate, port_num
+
+
 async def launch_chrome_for_live(url: str = "https://tango.me/stream/broadcast", port: int = 9222) -> dict[str, Any]:
     """Abre o Google Chrome real com porta de depuração remota e URL da live."""
+    try:
+        url, port = validate_chrome_target(url, port)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+
     chrome_path = find_chrome_executable()
     if not chrome_path:
         return {"ok": False, "error": "Google Chrome não encontrado no sistema."}
@@ -332,6 +366,7 @@ async def launch_chrome_for_live(url: str = "https://tango.me/stream/broadcast",
         f"--user-data-dir={debug_profile_dir}",
         "--no-first-run",
         "--no-default-browser-check",
+        "--",  # o que vem depois é sempre URL, nunca flag
         url,
     ]
 
@@ -386,6 +421,11 @@ async def get_chrome_debug_tabs(port: int = 9222) -> dict[str, Any]:
 
 def create_desktop_shortcut(url: str = "https://tango.me/stream/broadcast", port: int = 9222) -> dict[str, Any]:
     """Cria um atalho no Desktop do Windows para abrir o Chrome da Live com 1 clique."""
+    try:
+        url, port = validate_chrome_target(url, port)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+
     chrome_path = find_chrome_executable()
     if not chrome_path:
         return {"ok": False, "error": "Google Chrome não encontrado."}
@@ -401,7 +441,7 @@ def create_desktop_shortcut(url: str = "https://tango.me/stream/broadcast", port
     debug_profile_dir.mkdir(parents=True, exist_ok=True)
     # Mesmo motivo do launch_chrome_for_live: sem --user-data-dir dedicado,
     # o Chrome ignora --remote-debugging-port silenciosamente no perfil padrão.
-    arguments = f'--remote-debugging-port={port} --user-data-dir="{debug_profile_dir}" "{url}"'
+    arguments = f'--remote-debugging-port={port} --user-data-dir="{debug_profile_dir}" -- "{url}"'
 
     ps_script = """
     $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json

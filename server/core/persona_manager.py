@@ -30,8 +30,15 @@ def _empty_index() -> Dict[str, Any]:
     return {"activePersonaId": DEFAULT_PERSONA_ID, "personas": []}
 
 
+PERSONA_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+
+
+class InvalidPersonaId(ValueError):
+    """id de persona fora do padrão (vira parte do nome do arquivo de config)."""
+
+
 def _slugify(value: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
+    slug = re.sub(r"[^a-z0-9]+", "-", value.strip().lower())[:40].strip("-")
     return slug or "persona"
 
 
@@ -131,6 +138,9 @@ def set_active_persona(persona_id: str) -> bool:
 def create_persona(meta: Dict[str, Any]) -> Dict[str, Any]:
     index = _ensure_default_persona(_load_index())
     persona_id = str(meta.get("id") or "").strip() or _slugify(meta.get("name") or "persona")
+    # O id entra no nome do arquivo (persona_<id>.json): "../x" escreveria fora de data/.
+    if not PERSONA_ID_RE.fullmatch(persona_id):
+        raise InvalidPersonaId("id inválido: use 1-40 letras minúsculas, números, '-' ou '_'")
     if any(p.get("id") == persona_id for p in index.get("personas", [])):
         raise ValueError(f"Persona '{persona_id}' já existe")
     config_path = f"persona_{persona_id}.json"

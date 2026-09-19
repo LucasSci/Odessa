@@ -3,9 +3,14 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel
 
-from server.services.session_history import EVENT_TYPES
+from server.services.session_history import EVENT_TYPES, is_valid_session_id
 
 router = APIRouter(tags=["session-history"])
+
+
+def _require_valid_session_id(session_id: Optional[str]) -> None:
+    if session_id is not None and not is_valid_session_id(session_id):
+        raise HTTPException(status_code=400, detail="sessionId inválido")
 
 
 def get_session_history_service():
@@ -27,6 +32,7 @@ def list_session_history(
     offset: int = Query(default=0, ge=0),
 ):
     """Lista os eventos do histórico (sessão ativa por padrão)."""
+    _require_valid_session_id(sessionId)
     service = get_session_history_service()
     events = service.list_events(
         session_id=sessionId,
@@ -53,6 +59,7 @@ def export_session_history(
     sessionId: Optional[str] = Query(default=None),
 ):
     """Exporta o histórico em JSON ou CSV (download)."""
+    _require_valid_session_id(sessionId)
     service = get_session_history_service()
     sid = sessionId or service.session_id
     if format == "csv":

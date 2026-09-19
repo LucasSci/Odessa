@@ -157,6 +157,8 @@ async def create_persona(request: PersonaCreateRequest):
     """Cria uma nova persona com config vazia."""
     try:
         persona = persona_manager.create_persona(request.model_dump())
+    except persona_manager.InvalidPersonaId as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     return {"ok": True, "persona": persona}
