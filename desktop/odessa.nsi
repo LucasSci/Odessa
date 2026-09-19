@@ -84,23 +84,52 @@ VIAddVersionKey "LegalCopyright" "${APP_PUBLISHER}"
 ; .ps1 temporario em vez de tentar aninhar aspas powershell/cmd/nsis direto
 ; na linha de comando -- essa combinacao ja causou bugs sutis de escaping
 ; nesta mesma sessao (ver historico do build-runtime.ps1/em-dash).
+;
+; IMPORTANTE: este instalador e 32-bit, entao o powershell que ele dispara
+; tambem e 32-bit -- e Get-Process(...).Path de um processo 64-bit vem VAZIO
+; nesse caso (o filtro nunca casava e o backend antigo seguia rodando, com
+; exit code 0 escondendo a falha). Get-CimInstance Win32_Process enxerga os
+; dois. O delimitador do texto e crase porque ele contem aspas simples e duplas.
+!macro StopInstalledBackend DIR
+    FileOpen $1 "$TEMP\odessa-stop-running.ps1" w
+    FileWrite $1 `Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" | Where-Object { $$_.ExecutablePath -like "${DIR}*" } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }$\r$\n`
+    FileClose $1
+    nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -File "$TEMP\odessa-stop-running.ps1"'
+    Delete "$TEMP\odessa-stop-running.ps1"
+    Sleep 1500
+!macroend
+
 Function .onInit
     ReadRegStr $0 HKCU "Software\OdessaStudio" "InstallDir"
     StrCmp $0 "" done
     IfFileExists "$0\uninstall.exe" 0 done
         DetailPrint "Instalacao existente detectada em $0 -- encerrando processo em uso antes de atualizar..."
-        FileOpen $1 "$TEMP\odessa-stop-running.ps1" w
-        FileWrite $1 'Get-Process -Name python -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like "$0*" } | Stop-Process -Force -ErrorAction SilentlyContinue$\r$\n'
-        FileClose $1
-        nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -File "$TEMP\odessa-stop-running.ps1"'
-        Delete "$TEMP\odessa-stop-running.ps1"
-        Sleep 800
+        !insertmacro StopInstalledBackend "$0"
     done:
 FunctionEnd
 
 Section "Instalar"
+    ; Atualizacao: guarda server\data (personas, configs, edicoes de video --
+    ; dados do USUARIO nesta maquina) antes de copiar os arquivos do programa e
+    ; devolve depois. O stage traz os dados-padrao do repo, que so devem valer
+    ; numa instalacao nova. robocopy sai com codigo != 0 mesmo em sucesso.
+    StrCpy $R0 "$TEMP\odessa-userdata-bak"
+    RMDir /r "$R0"
+    StrCpy $R1 "0"
+    IfFileExists "$INSTDIR\server\data\*.*" 0 skip_backup
+        DetailPrint "Preservando dados do usuario (server\data)..."
+        nsExec::ExecToLog 'robocopy "$INSTDIR\server\data" "$R0" /E /R:1 /W:1 /NFL /NDL /NJH /NJS'
+        StrCpy $R1 "1"
+    skip_backup:
+
     SetOutPath "$INSTDIR"
     File /r "${STAGE_DIR}\*.*"
+
+    StrCmp $R1 "1" 0 skip_restore
+        DetailPrint "Restaurando dados do usuario..."
+        nsExec::ExecToLog 'robocopy "$R0" "$INSTDIR\server\data" /E /R:1 /W:1 /NFL /NDL /NJH /NJS'
+        RMDir /r "$R0"
+    skip_restore:
 
     CreateDirectory "$SMPROGRAMS\Odessa Studio"
     CreateShortcut "$SMPROGRAMS\Odessa Studio\Odessa Studio.lnk" "$INSTDIR\${APP_EXE_TARGET}" "" "$INSTDIR\favicon.ico" 0 SW_SHOWNORMAL "" "Abrir o Odessa Studio"
@@ -120,8 +149,9 @@ SectionEnd
 
 Section "Uninstall"
     ; Encerra o backend se estiver rodando, para nao deixar processo orfao
-    ; nem travar a remocao de arquivos em uso.
-    nsExec::ExecToLog 'taskkill /F /FI "IMAGENAME eq python.exe" /FI "WINDOWTITLE eq *server.main*"'
+    ; nem travar a remocao de arquivos em uso. (O taskkill por WINDOWTITLE que
+    ; ficava aqui nunca casava: o backend roda oculto, sem janela.)
+    !insertmacro StopInstalledBackend "$INSTDIR"
 
     Delete "$SMPROGRAMS\Odessa Studio\Odessa Studio.lnk"
     Delete "$SMPROGRAMS\Odessa Studio\Desinstalar.lnk"
