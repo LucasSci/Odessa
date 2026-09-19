@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Scissors, Plus, Trash2, Play, Pause, Volume2, X, Save, Music, Loader2, Copy, Magnet,
   ZoomIn, ZoomOut, ChevronsLeft, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Undo2, Redo2,
-  SplitSquareHorizontal, Keyboard,
+  SplitSquareHorizontal, Keyboard, History, RotateCcw,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from './ui';
@@ -26,7 +26,8 @@ import { useFilmstrip } from './editor/useFilmstrip';
 import { apiUrl } from '../lib/api';
 import {
   getVideoEdit, defaultVideoEdit, persistVideoEdit, fileToDataUrl,
-  type VideoEdit, type VideoSegment, type AudioMode,
+  saveEditDraft, loadEditDraft, clearEditDraft, fetchVideoEditHistory, editFromVersion, describeEdit,
+  type VideoEdit, type VideoSegment, type AudioMode, type VideoEditVersion,
 } from '../core/videoEdits';
 import {
   MAX_SPEED, MIN_SPEED, clampSpeed, duplicateSegment, playbackSeconds, snapCandidates, snapTime, splitAt,
@@ -104,6 +105,33 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
   const segments = edit.segments;
   const frames = useFilmstrip(blobSrc, duration);
   const dirty = JSON.stringify(edit) !== savedJson;
+
+  // ── rascunho (autosave) ──────────────────────────────────────────────────────
+  // Só um rascunho local: NÃO vai ao ar. "Salvar" é que publica para Palco/OBS.
+  const [pendingDraft, setPendingDraft] = useState<VideoEdit | null>(() => {
+    const draft = loadEditDraft(videoId);
+    return draft && JSON.stringify(draft) !== JSON.stringify(editState.edit) ? draft : null;
+  });
+  const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
+  const [versions, setVersions] = useState<VideoEditVersion[] | null>(null);
+  const [loadingVersions, setLoadingVersions] = useState(false);
+
+  useEffect(() => {
+    if (pendingDraft) return; // não sobrescreve o rascunho antes de o usuário decidir
+    if (!dirty) { clearEditDraft(videoId); setDraftSavedAt(null); return; }
+    const timer = window.setTimeout(() => {
+      if (saveEditDraft(edit)) setDraftSavedAt(new Date());
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [edit, dirty, pendingDraft, videoId]);
+
+  const refreshVersions = useCallback(async () => {
+    setLoadingVersions(true);
+    setVersions(await fetchVideoEditHistory(videoId));
+    setLoadingVersions(false);
+  }, [videoId]);
+
+  useEffect(() => { void refreshVersions(); }, [refreshVersions]);
 
   // Alguns MP4 transmitidos só informam a duração no evento durationchange (às
   // vezes como Infinity até tocar). Trata ambos os eventos e força resolução.
@@ -434,9 +462,22 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
     const json = JSON.stringify(edit);
     const synced = await persistVideoEdit(edit);
     setSavedJson(json);
-    if (synced) toast.success('Edição salva. Palco e OBS já usam os novos cortes.');
-    else toast.warning('Salva só neste navegador: o servidor não respondeu, então o OBS não verá a edição. Salve de novo quando o backend voltar.');
-  }, [edit, toast]);
+    clearEditDraft(videoId);
+    setDraftSavedAt(null);
+    if (synced) {
+      toast.success('Edição salva. Palco e OBS já usam os novos cortes.');
+      void refreshVersions();
+    } else toast.warning('Salva só neste navegador: o servidor não respondeu, então o OBS não verá a edição. Salve de novo quando o backend voltar.');
+  }, [edit, toast, videoId, refreshVersions]);
+
+  const restoreVersion = useCallback((version: VideoEditVersion) => {
+    const restored = editFromVersion(videoId, version);
+    applyEdit(() => restored);
+    setSelectedSeg(null);
+    toast.info(version.edit.trackDropped
+      ? 'Versão carregada no editor (a trilha embutida não é guardada nas versões). Clique em Salvar para aplicar.'
+      : 'Versão carregada no editor. Clique em Salvar para aplicar.');
+  }, [videoId, applyEdit, toast]);
 
   const requestClose = useCallback(() => {
     if (dirty && !window.confirm('Há alterações não salvas. Fechar mesmo assim?')) return;
@@ -480,6 +521,11 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
         <span className="text-sm font-semibold text-[var(--t1)]">Editor</span>
         <span className="min-w-0 truncate text-xs text-[var(--t3)]">— {label || videoId}</span>
         {dirty && <span className="rounded-full bg-amber-400/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-300">não salvo</span>}
+        {dirty && draftSavedAt && (
+          <span className="hidden text-[10px] text-[var(--t3)] sm:inline" title="Rascunho guardado neste navegador. Só 'Salvar' aplica no Palco e no OBS.">
+            rascunho guardado {draftSavedAt.toLocaleTimeString('pt-BR')}
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-1.5">
           <Button size="sm" variant="secondary" onClick={undo} disabled={!canUndo} title="Desfazer (Ctrl+Z)" aria-label="Desfazer"><Undo2 className="h-3.5 w-3.5" /></Button>
           <Button size="sm" variant="secondary" onClick={redo} disabled={!canRedo} title="Refazer (Ctrl+Shift+Z)" aria-label="Refazer"><Redo2 className="h-3.5 w-3.5" /></Button>
@@ -489,6 +535,17 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
           <button type="button" onClick={requestClose} className="rounded-lg p-2 text-[var(--t3)] transition hover:bg-[var(--bg3)] hover:text-[var(--t1)]" aria-label="Fechar editor"><X className="h-4 w-4" /></button>
         </div>
       </header>
+
+      {pendingDraft && (
+        <div role="alert" className="flex flex-wrap items-center gap-2 border-b border-amber-400/30 bg-amber-400/10 px-4 py-2 text-xs text-amber-200">
+          <History className="h-3.5 w-3.5" />
+          <span>Há um rascunho não salvo deste clip ({describeEdit(pendingDraft)}).</span>
+          <div className="ml-auto flex gap-1.5">
+            <button className={chip} onClick={() => { applyEdit(() => pendingDraft); setPendingDraft(null); }}>Restaurar rascunho</button>
+            <button className={chip} onClick={() => { clearEditDraft(videoId); setPendingDraft(null); }}>Descartar</button>
+          </div>
+        </div>
+      )}
 
       {/* Prévia + inspetor */}
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -626,6 +683,30 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
             <div className="flex items-center justify-between"><span className="text-[10px] text-[var(--t3)]">Crossfade</span><span className="font-mono text-[10px] text-[var(--sky)]">{edit.transitionMs}ms</span></div>
             <input type="range" min={0} max={2000} step={20} value={edit.transitionMs} aria-label="Duração do crossfade" onChange={(e) => applyEdit((ed) => ({ ...ed, transitionMs: Number(e.target.value) }))} className="w-full accent-[var(--sky)]" />
             <p className="text-[10px] text-[var(--t3)]">Vale no Palco. As edições valem sempre que o vídeo tocar ali.</p>
+          </section>
+
+          <section aria-label="Versões" className="space-y-2 rounded-xl border border-[var(--border2)] bg-[var(--bg)] p-3">
+            <div className="flex items-center justify-between">
+              <h3 className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--t3)]"><History className="h-3.5 w-3.5" />Versões</h3>
+              {loadingVersions && <Loader2 className="h-3 w-3 animate-spin text-[var(--t3)]" />}
+            </div>
+            {versions === null && !loadingVersions && <p className="text-[10px] text-[var(--t3)]">Histórico indisponível: o servidor não respondeu.</p>}
+            {versions !== null && versions.length === 0 && <p className="text-[10px] text-[var(--t3)]">Cada vez que você salva, uma versão fica guardada aqui (as últimas 20).</p>}
+            <ol className="space-y-1.5">
+              {(versions ?? []).map((version, i) => (
+                <li key={`${version.savedAt}-${i}`} className="flex items-center gap-2 rounded-lg border border-[var(--border2)] bg-[var(--bg3)]/50 px-2 py-1.5 text-[11px]">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[var(--t1)]">
+                      {new Date(version.savedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                      {version.action === 'delete' && <span className="ml-1.5 text-red-300">(removida)</span>}
+                      {i === 0 && version.action === 'save' && <span className="ml-1.5 text-[var(--sky)]">(atual)</span>}
+                    </div>
+                    <div className="truncate text-[10px] text-[var(--t3)]">{describeEdit(version.edit)}</div>
+                  </div>
+                  <button className={chip} onClick={() => restoreVersion(version)} title="Carregar esta versão no editor"><RotateCcw className="h-3 w-3" />Restaurar</button>
+                </li>
+              ))}
+            </ol>
           </section>
         </aside>
       </div>

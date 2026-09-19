@@ -210,6 +210,79 @@ export async function syncVideoEditsFromServer(): Promise<number | null> {
   return Object.keys(remote).length;
 }
 
+// ── Rascunho (autosave do editor) ────────────────────────────────────────────
+// O autosave NÃO aplica a edição ao ar: só guarda um rascunho neste navegador,
+// para o trabalho não se perder se a aba fechar. "Salvar" continua sendo o que
+// publica para o Palco e o OBS.
+
+const DRAFT_PREFIX = 'odessa:video-edit-draft:v1:';
+
+export function saveEditDraft(edit: VideoEdit): boolean {
+  if (!canUseStorage()) return false;
+  try {
+    window.localStorage.setItem(DRAFT_PREFIX + edit.videoId, JSON.stringify(edit));
+    return true;
+  } catch {
+    return false; // cheio (ex.: trilha embutida grande) — o autosave só perde o rascunho
+  }
+}
+
+export function loadEditDraft(videoId: string): VideoEdit | null {
+  if (!canUseStorage()) return null;
+  try {
+    const raw = window.localStorage.getItem(DRAFT_PREFIX + videoId);
+    return raw ? normalize(videoId, JSON.parse(raw) as Partial<VideoEdit>) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearEditDraft(videoId: string): void {
+  if (!canUseStorage()) return;
+  try {
+    window.localStorage.removeItem(DRAFT_PREFIX + videoId);
+  } catch {
+    /* ignore */
+  }
+}
+
+// ── Histórico de versões (servidor) ──────────────────────────────────────────
+
+export interface VideoEditVersion {
+  savedAt: string;
+  action: 'save' | 'delete';
+  edit: Partial<Omit<VideoEdit, 'trackUrl'>> & { trackUrl?: string | null; trackDropped?: boolean };
+}
+
+/** Versões salvas do clip (mais nova primeiro), ou null se o servidor não respondeu. */
+export async function fetchVideoEditHistory(videoId: string): Promise<VideoEditVersion[] | null> {
+  try {
+    const res = await fetch(apiUrl(`/api/video/${encodeURIComponent(videoId)}/edit/history`));
+    if (!res.ok) return null;
+    const body = (await res.json()) as { versions?: VideoEditVersion[] };
+    return Array.isArray(body.versions) ? body.versions : [];
+  } catch {
+    return null;
+  }
+}
+
+/** Converte uma versão do histórico numa edição normalizada, pronta para carregar no editor. */
+export function editFromVersion(videoId: string, version: VideoEditVersion): VideoEdit {
+  const { trackUrl, trackDropped: _dropped, ...rest } = version.edit;
+  return normalize(videoId, { ...rest, trackUrl: trackUrl ?? undefined });
+}
+
+/** Resumo curto de uma edição, para listas (ex.: "2 cortes · 1 acelerado · áudio original 50%"). */
+export function describeEdit(edit: Pick<Partial<VideoEdit>, 'segments' | 'audioMode' | 'volume'>): string {
+  const segs = Array.isArray(edit.segments) ? edit.segments : [];
+  const parts: string[] = [segs.length > 0 ? `${segs.length} ${segs.length === 1 ? 'corte' : 'cortes'}` : 'vídeo inteiro'];
+  const changedSpeed = segs.filter((s) => s.speed && s.speed !== 1).length;
+  if (changedSpeed > 0) parts.push(`${changedSpeed} com velocidade`);
+  if (edit.audioMode === 'original') parts.push(`áudio original ${Math.round((edit.volume ?? 1) * 100)}%`);
+  else if (edit.audioMode === 'track') parts.push('trilha');
+  return parts.join(' · ');
+}
+
 /** True se o vídeo tem qualquer edição não-trivial salva (para badge na UI). */
 export function hasVideoEdit(videoId: string): boolean {
   const e = getVideoEdit(videoId);

@@ -45,6 +45,7 @@ import { publishProgress } from './core/playback/progressStore';
 import { ClipDeck, deckOrder, groupDeckVideos } from './components/stage/ClipDeck';
 import { ClipProgress } from './components/stage/ClipProgress';
 import { EventRadio } from './components/stage/EventRadio';
+import { ContentHub } from './components/library/ContentHub';
 import { SignalStrip, type Signal } from './components/stage/SignalStrip';
 import { AiConfigPanel } from './components/AiConfigPanel';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -952,7 +953,7 @@ export default function OdessaLiveCenter({
 
         {/* 2. BIBLIOTECA */}
         {activeTab === 'library' && (
-          <VideoLibraryPanel config={config} onChanged={loadConfig} onOpenEditor={openVideoEditor} />
+          <VideoLibraryPanel config={config} onChanged={loadConfig} onOpenEditor={openVideoEditor} onGenerate={() => setActiveTab('personas')} />
         )}
 
         {/* 3. AUTOMAÇÕES (Fluxo Reativo + Logs) */}
@@ -2023,10 +2024,12 @@ function VideoLibraryPanel({
   config,
   onChanged,
   onOpenEditor,
+  onGenerate,
 }: {
   config: PersonaConfig | null;
   onChanged: () => void;
   onOpenEditor: (videoId: string, label?: string) => void;
+  onGenerate?: () => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -2070,6 +2073,10 @@ function VideoLibraryPanel({
   }, [personaFilter, refreshLibrary]);
 
   const sourceVideos = personaFilter === 'all' ? libraryVideos : videos;
+  const hubVideos = useMemo(
+    () => sourceVideos.map((v) => ({ id: v.id, label: videoLabel(v), loop: v.loop })),
+    [sourceVideos],
+  );
   const displayedVideos =
     categoryFilter === 'all' ? sourceVideos : sourceVideos.filter((v) => categorizeVideo(v) === categoryFilter);
 
@@ -2215,6 +2222,14 @@ function VideoLibraryPanel({
         </div>
       </div>
 
+      <ContentHub
+        videos={hubVideos}
+        activeCategory={categoryFilter}
+        onSelectCategory={setCategoryFilter}
+        onOpenEditor={onOpenEditor}
+        onGenerate={onGenerate}
+      />
+
       <div className="mb-5 flex flex-col gap-3 rounded-[28px] border border-white/10 bg-[#101114] p-4 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-2">
           <Users className="h-3.5 w-3.5 text-[var(--t3)]" />
@@ -2351,6 +2366,7 @@ function VideoLibraryPanel({
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
                     {video.loop && <Badge variant="gold">Idle</Badge>}
+                    {hasVideoEdit(video.id) && <Badge variant="success">Editado</Badge>}
                     {personaFilter === 'all' && video.personaName && (
                       <Badge variant={isForeign ? 'default' : 'success'}>{video.personaName}</Badge>
                     )}

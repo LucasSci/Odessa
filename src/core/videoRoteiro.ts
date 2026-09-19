@@ -66,6 +66,36 @@ export const VIDEO_ROTEIRO: VideoCategory[] = [
   },
 ];
 
+export interface CategoryCoverage {
+  key: string;
+  label: string;
+  count: number;
+  recommended: number;
+  /** Quantos clips ainda faltam para chegar ao recomendado (0 se já atingiu). */
+  missing: number;
+}
+
+/** Quantos clips a biblioteca tem em cada categoria do roteiro, contra o recomendado. */
+export function computeCoverage(videos: Array<{ id?: string; loop?: boolean }>): {
+  categories: CategoryCoverage[];
+  uncategorized: number;
+} {
+  const counts = new Map<string, number>();
+  let uncategorized = 0;
+  for (const video of videos) {
+    const key = categorizeVideo(video);
+    if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
+    else uncategorized++;
+  }
+  return {
+    categories: VIDEO_ROTEIRO.map((cat) => {
+      const count = counts.get(cat.key) ?? 0;
+      return { key: cat.key, label: cat.label, count, recommended: cat.recommendedCount, missing: Math.max(0, cat.recommendedCount - count) };
+    }),
+    uncategorized,
+  };
+}
+
 /** Infere a categoria de um vídeo pelo prefixo do ID (ex.: 01_GATILHO_...). */
 export function categorizeVideo(video: { id?: string; loop?: boolean }): string | null {
   const id = (video.id || '').toUpperCase();

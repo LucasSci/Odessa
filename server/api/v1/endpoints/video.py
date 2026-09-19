@@ -114,6 +114,14 @@ async def save_video_edit(video_id: str, edit: dict):
     return {"edit": get_video_edit_store().put(video_id, edit)}
 
 
+@router.get("/{video_id}/edit/history")
+async def video_edit_history(video_id: str):
+    """Versões salvas do clip (mais nova primeiro), para o editor restaurar."""
+    if not valid_video_id(video_id):
+        raise HTTPException(status_code=400, detail="videoId inválido")
+    return {"versions": get_video_edit_store().history(video_id)}
+
+
 @router.delete("/{video_id}/edit")
 async def delete_video_edit(video_id: str):
     if not valid_video_id(video_id):

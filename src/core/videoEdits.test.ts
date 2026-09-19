@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   applyVideoEdit,
+  clearEditDraft,
   defaultVideoEdit,
+  describeEdit,
+  editFromVersion,
+  fetchVideoEditHistory,
   getVideoEdit,
+  loadEditDraft,
+  saveEditDraft,
   hasVideoEdit,
   loadVideoEdits,
   persistVideoEdit,
@@ -127,6 +133,59 @@ describe('videoEdits', () => {
       mockFetch(() => new Response('erro', { status: 500 }));
       expect(await syncVideoEditsFromServer()).toBeNull();
       expect(getVideoEdit('v1')?.volume).toBe(0.4);
+    });
+  });
+
+  describe('rascunho e histórico', () => {
+    it('salva, carrega normalizado e limpa o rascunho sem tocar na edição salva', () => {
+      saveVideoEdit({ ...defaultVideoEdit('v1'), volume: 0.8 });
+      expect(loadEditDraft('v1')).toBeNull();
+      saveEditDraft({ ...defaultVideoEdit('v1'), volume: 5, segments: [{ startSec: 1, endSec: 2, speed: 2 }] });
+      const draft = loadEditDraft('v1');
+      expect(draft?.volume).toBe(1);
+      expect(draft?.segments).toEqual([{ startSec: 1, endSec: 2, speed: 2 }]);
+      expect(getVideoEdit('v1')?.volume).toBe(0.8);
+      clearEditDraft('v1');
+      expect(loadEditDraft('v1')).toBeNull();
+    });
+
+    it('rascunho corrompido vira null', () => {
+      window.localStorage.setItem('odessa:video-edit-draft:v1:v1', '{ruim');
+      expect(loadEditDraft('v1')).toBeNull();
+    });
+
+    it('editFromVersion converte trackUrl nulo em ausente e normaliza', () => {
+      const e = editFromVersion('v1', {
+        savedAt: '2026-09-19T10:00:00+00:00',
+        action: 'save',
+        edit: { audioMode: 'track', volume: 0.5, trackUrl: null, trackDropped: true, segments: [{ startSec: 0, endSec: 3 }] },
+      });
+      expect(e.trackUrl).toBeUndefined();
+      expect(e.audioMode).toBe('track');
+      expect(e.videoId).toBe('v1');
+      expect(e.segments).toHaveLength(1);
+    });
+
+    it('fetchVideoEditHistory devolve versões, ou null se o servidor falha', async () => {
+      const original = globalThis.fetch;
+      try {
+        globalThis.fetch = (async () => new Response(JSON.stringify({ versions: [{ savedAt: 'x', action: 'save', edit: {} }] }), { status: 200 })) as typeof fetch;
+        expect(await fetchVideoEditHistory('v1')).toHaveLength(1);
+        globalThis.fetch = (async () => new Response('erro', { status: 500 })) as typeof fetch;
+        expect(await fetchVideoEditHistory('v1')).toBeNull();
+      } finally {
+        globalThis.fetch = original;
+      }
+    });
+
+    it('describeEdit resume cortes, velocidade e áudio', () => {
+      expect(describeEdit({})).toBe('vídeo inteiro');
+      expect(describeEdit({
+        segments: [{ startSec: 0, endSec: 1, speed: 2 }, { startSec: 2, endSec: 3 }],
+        audioMode: 'original',
+        volume: 0.5,
+      })).toBe('2 cortes · 1 com velocidade · áudio original 50%');
+      expect(describeEdit({ segments: [{ startSec: 0, endSec: 1 }], audioMode: 'track' })).toBe('1 corte · trilha');
     });
   });
 

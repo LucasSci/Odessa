@@ -10,6 +10,7 @@ import logging
 import os
 import tempfile
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -22,6 +23,7 @@ MAX_SPEED = 4.0
 MAX_TRANSITION_MS = 4000
 MAX_TRACK_URL_CHARS = 2_000_000
 MAX_VIDEO_ID_CHARS = 200
+MAX_HISTORY = 20
 VALID_AUDIO_MODES = {"muted", "original", "track"}
 
 
@@ -76,6 +78,7 @@ def valid_video_id(video_id: Any) -> bool:
 class VideoEditStore:
     def __init__(self, path: Path = DEFAULT_PATH):
         self._path = Path(path)
+        self._history_path = self._path.with_name(self._path.stem + "_history.json")
         self._lock = threading.Lock()
         self._cache: Optional[tuple] = None
 
@@ -103,12 +106,16 @@ class VideoEditStore:
         return dict(parsed)
 
     def _write(self, data: Dict[str, Dict[str, Any]]) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=str(self._path.parent), suffix=".tmp")
+        self._write_json(self._path, data)
+
+    @staticmethod
+    def _write_json(path: Path, data: Any) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 json.dump(data, handle, ensure_ascii=False)
-            os.replace(tmp, self._path)
+            os.replace(tmp, path)
         except BaseException:
             try:
                 os.unlink(tmp)
@@ -124,12 +131,44 @@ class VideoEditStore:
         with self._lock:
             return self._read().get(video_id)
 
+    # ── histórico de versões ────────────────────────────────────────────────
+    def _read_history(self) -> Dict[str, list]:
+        try:
+            raw = json.loads(self._history_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as exc:
+            logger.warning("[video_edits] histórico ilegível, ignorando: %s", exc)
+            return {}
+        return raw if isinstance(raw, dict) else {}
+
+    def _record_history(self, video_id: str, edit: Dict[str, Any], action: str) -> None:
+        history = self._read_history()
+        entries = history.get(video_id) if isinstance(history.get(video_id), list) else []
+        stored = dict(edit)
+        # Trilha embutida (data URL) pode ter ~1,6MB: não multiplica isso por 20 versões.
+        if isinstance(stored.get("trackUrl"), str) and stored["trackUrl"].startswith("data:"):
+            stored["trackUrl"] = None
+            stored["trackDropped"] = True
+        entries.append({"savedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"), "action": action, "edit": stored})
+        history[video_id] = entries[-MAX_HISTORY:]
+        self._write_json(self._history_path, history)
+
+    def history(self, video_id: str) -> list:
+        """Versões salvas deste clip, da mais nova para a mais antiga."""
+        with self._lock:
+            entries = self._read_history().get(video_id)
+        return list(reversed(entries)) if isinstance(entries, list) else []
+
     def put(self, video_id: str, raw: Any) -> Dict[str, Any]:
         edit = sanitize_edit(video_id, raw)
         with self._lock:
             data = self._read()
+            if data.get(video_id) == edit:
+                return edit  # nada mudou: não regrava nem polui o histórico
             data[video_id] = edit
             self._write(data)
+            self._record_history(video_id, edit, "save")
         return edit
 
     def delete(self, video_id: str) -> bool:
@@ -137,8 +176,9 @@ class VideoEditStore:
             data = self._read()
             if video_id not in data:
                 return False
-            del data[video_id]
+            previous = data.pop(video_id)
             self._write(data)
+            self._record_history(video_id, previous, "delete")
             return True
 
     def apply_to_clip(self, clip: Dict[str, Any]) -> Dict[str, Any]:
