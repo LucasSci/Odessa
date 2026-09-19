@@ -2215,7 +2215,15 @@ function VideoLibraryPanel({
           resolve();
           return;
         }
-        reject(new Error(`HTTP ${xhr.status}`));
+        // O servidor explica o motivo (formato, tamanho, arquivo inválido) em `detail`.
+        let detail = '';
+        try {
+          const parsed = JSON.parse(xhr.responseText) as { detail?: unknown };
+          if (typeof parsed.detail === 'string') detail = parsed.detail;
+        } catch {
+          /* corpo não é JSON */
+        }
+        reject(new Error(detail || `HTTP ${xhr.status}`));
       };
       xhr.onerror = () => reject(new Error('Falha de rede'));
       xhr.send(body);

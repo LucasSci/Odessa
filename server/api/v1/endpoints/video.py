@@ -1,5 +1,7 @@
 import logging
 import os
+import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, File
@@ -11,6 +13,14 @@ from server.core.config_manager import load_persona_config, save_persona_config
 from server.services.video_edit_store import get_video_edit_store, valid_video_id
 
 logger = logging.getLogger("odessa.routes.video")
+
+UPLOAD_ALLOWED_SUFFIXES = {".mp4", ".webm"}
+UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+def looks_like_video(head: bytes) -> bool:
+    """Assinatura de MP4/MOV (`ftyp` no byte 4) ou de WebM/Matroska (EBML)."""
+    return head[4:8] == b"ftyp" or head[:4] == b"\x1a\x45\xdf\xa3"
 
 router = APIRouter(tags=["video"])
 
@@ -472,44 +482,60 @@ async def upload_video(file: UploadFile = File(...)):
         # Fallback to assets/videos in the project root
         video_dir = Path(__file__).resolve().parents[4] / "assets" / "videos"
 
+    original_name = Path(file.filename or "upload.mp4").name
+    suffix = Path(original_name).suffix.lower()
+    if suffix not in UPLOAD_ALLOWED_SUFFIXES:
+        # Antes qualquer extensão era aceita e gravada como veio (ou renomeada
+        # para .mp4 sem conferir): agora só .mp4/.webm.
+        raise HTTPException(status_code=400, detail="Formato não suportado: envie um arquivo .mp4 ou .webm.")
+
     try:
         video_dir.mkdir(parents=True, exist_ok=True)
-        original_name = Path(file.filename or "upload.mp4").name
-        original_suffix = Path(original_name).suffix.lower()
-        suffix = original_suffix if original_suffix in {".mp4", ".webm"} else ".mp4"
-        file_path = video_dir / original_name
+        # Grava num arquivo temporário na mesma pasta e só troca de nome no fim:
+        # um upload interrompido/inválido nunca deixa lixo com nome de vídeo.
+        tmp_path = video_dir / f".upload-{uuid.uuid4().hex}.tmp"
+        try:
+            size = 0
+            head = b""
+            with open(tmp_path, "wb") as buffer:
+                await file.seek(0)
+                # Em pedaços: ler tudo de uma vez carregava até 256 MB na memória.
+                while True:
+                    chunk = await file.read(UPLOAD_CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    if size > VIDEO_UPLOAD_MAX_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"Arquivo excede o limite de {VIDEO_UPLOAD_MAX_BYTES // (1024 * 1024)} MB",
+                        )
+                    if len(head) < 16:
+                        head += chunk[: 16 - len(head)]
+                    buffer.write(chunk)
+            if size == 0:
+                raise HTTPException(status_code=400, detail="Arquivo vazio.")
+            if not looks_like_video(head):
+                raise HTTPException(status_code=400, detail="O conteúdo não parece um vídeo MP4/WebM válido.")
 
-        logger.info(f"Saving uploaded file to: {file_path}")
-
-        # Reset file pointer just in case
-        await file.seek(0)
-        content = await file.read(VIDEO_UPLOAD_MAX_BYTES + 1)
-        if len(content) > VIDEO_UPLOAD_MAX_BYTES:
-            raise HTTPException(
-                status_code=413,
-                detail=f"Arquivo excede o limite de {VIDEO_UPLOAD_MAX_BYTES // (1024 * 1024)} MB",
-            )
-
-        with open(file_path, "wb") as buffer:
-            buffer.write(content)
-
-        # If it doesn't follow the pattern, we'll use the filename as ID (sanitized)
-        video_id = None
-        if original_name.startswith("video_") and suffix in {".mp4", ".webm"}:
-            video_id = Path(original_name).stem.replace("video_", "")
-        else:
-            # Use filename without extension as ID, but prefix with video_ for consistency on disk
-            clean_name = "".join(c for c in Path(original_name).stem if c.isalnum() or c in ('_', '-'))
-            video_id = clean_name or f"upload_{int(os.path.getmtime(file_path))}"
-            # If we renamed it on disk to follow our pattern:
-            new_filename = f"video_{video_id}{suffix}"
-            new_path = video_dir / new_filename
-            if file_path != new_path:
-                if new_path.exists():
-                    os.remove(new_path)
-                os.rename(file_path, new_path)
-                file_path = new_path
-                logger.info(f"Renamed {file.filename} to {new_filename} for system compatibility")
+            # If it doesn't follow the pattern, we'll use the filename as ID (sanitized)
+            if original_name.startswith("video_"):
+                video_id = Path(original_name).stem.replace("video_", "")
+                final_name = original_name
+            else:
+                # Use filename without extension as ID, but prefix with video_ for consistency on disk
+                clean_name = "".join(c for c in Path(original_name).stem if c.isalnum() or c in ('_', '-'))
+                video_id = clean_name or f"upload_{int(time.time())}"
+                final_name = f"video_{video_id}{suffix}"
+            file_path = video_dir / final_name
+            os.replace(tmp_path, file_path)
+            logger.info(f"Saved upload {file.filename} as {final_name}")
+        finally:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
 
         # 3. Auto-register in config if not present
         config = load_persona_config()
@@ -541,15 +567,18 @@ async def upload_video(file: UploadFile = File(...)):
             logger.info(f"Auto-registered new video {video_id} in config")
 
         logger.info(f"Upload successful: {file.filename} (Final ID: {video_id})")
+        # Sem o caminho absoluto no retorno (o frontend só usa o status).
         return {
             "status": "success",
             "filename": file.filename,
             "id": video_id,
-            "path": str(file_path)
         }
+    except HTTPException:
+        raise
     except Exception as e:
+        # O detalhe (com caminhos do disco) fica só no log do servidor.
         logger.error(f"Upload failed for {file.filename}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Falha ao salvar o vídeo.")
 
 @router.delete("/{video_id}")
 async def delete_video(video_id: str):
