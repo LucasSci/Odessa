@@ -196,9 +196,9 @@ class VideoEditStore:
             out["endSec"] = max(s["endSec"] for s in edit["segments"])
             playback["startSec"] = out["startSec"]
             playback["endSec"] = out["endSec"]
-        if edit["transitionMs"]:
-            out["transitionMs"] = edit["transitionMs"]
-            playback["transitionMs"] = edit["transitionMs"]
+        # A edição sempre carrega uma transição (0 = corte seco é válido).
+        out["transitionMs"] = edit["transitionMs"]
+        playback["transitionMs"] = edit["transitionMs"]
         if playback:
             out["playback"] = playback
         out["audio"] = {

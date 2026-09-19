@@ -3,7 +3,7 @@ import random
 import time
 from typing import Any, Dict, List, Optional
 
-from server.core.config_manager import load_persona_config
+from server.core.config_manager import load_persona_config, parse_transition_ms
 from server.core.video_logic import SCENARIO_SEQUENCES
 from server.services.video_edit_store import get_video_edit_store
 
@@ -45,8 +45,7 @@ class VideoService:
             end_sec = max(0.0, float(raw_end) or 0)
             if end_sec <= start_sec:
                 end_sec = None
-        transition_ms = int(data.get("transitionMs", 220) or 220)
-        transition_ms = max(0, min(2000, transition_ms))
+        transition_ms = parse_transition_ms(data.get("transitionMs"))
         return {"startSec": start_sec, "endSec": end_sec, "transitionMs": transition_ms}
 
     def _audio(self, audio: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

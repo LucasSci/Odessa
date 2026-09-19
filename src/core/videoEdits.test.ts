@@ -75,6 +75,12 @@ describe('videoEdits', () => {
     expect(out.audio?.mode).toBe('muted');
   });
 
+  it('transição 0 (corte seco) é respeitada e não vira o padrão do clip', () => {
+    saveVideoEdit({ ...defaultVideoEdit('v1'), transitionMs: 0 });
+    expect(getVideoEdit('v1')?.transitionMs).toBe(0);
+    expect(applyVideoEdit(clip()).transitionMs).toBe(0);
+  });
+
   it('remove a edição', () => {
     saveVideoEdit({ ...defaultVideoEdit('v1'), volume: 0.5 });
     removeVideoEdit('v1');

@@ -307,7 +307,8 @@ export function applyVideoEdit<T extends EditableClip>(clip: T): T {
     next.startSec = Math.min(...edit.segments.map((s) => s.startSec));
     next.endSec = Math.max(...edit.segments.map((s) => s.endSec));
   }
-  if (edit.transitionMs) next.transitionMs = edit.transitionMs;
+  // 0 é válido (corte seco): a edição sempre traz a transição escolhida.
+  next.transitionMs = edit.transitionMs;
   next.audio = {
     ...(clip.audio || {}),
     mode: edit.audioMode,

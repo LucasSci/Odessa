@@ -32,6 +32,25 @@ def _empty_config() -> Dict[str, Any]:
         "videoTemplates": {},
     }
 
+DEFAULT_TRANSITION_MS = 220
+MAX_TRANSITION_MS = 2000
+
+
+def parse_transition_ms(value: Any, default: int = DEFAULT_TRANSITION_MS) -> int:
+    """Duração da transição em ms, limitada a 0..2000.
+
+    0 é um valor VÁLIDO (corte seco). O padrão só vale quando o campo está
+    ausente ou inválido — `int(x or 220)` tratava 0 como "sem valor" e o
+    convertia silenciosamente em 220.
+    """
+    if value is None or value == "":
+        return default
+    try:
+        return max(0, min(MAX_TRANSITION_MS, int(float(value))))
+    except (TypeError, ValueError):
+        return default
+
+
 def _playback_settings(value: Any = None) -> Dict[str, Any]:
     data = value if isinstance(value, dict) else {}
     start_sec = max(0.0, float(data.get("startSec", 0) or 0))
@@ -41,8 +60,7 @@ def _playback_settings(value: Any = None) -> Dict[str, Any]:
         end_sec = max(0.0, float(raw_end) or 0)
         if end_sec <= start_sec:
             end_sec = None
-    transition_ms = int(data.get("transitionMs", 220) or 220)
-    transition_ms = max(0, min(2000, transition_ms))
+    transition_ms = parse_transition_ms(data.get("transitionMs"))
     return {"startSec": start_sec, "endSec": end_sec, "transitionMs": transition_ms}
 
 
@@ -68,10 +86,7 @@ def _connection_settings(value: Any = None) -> Dict[str, Any]:
     fade_mode = str(data.get("fadeMode", "crossfade") or "crossfade").strip().lower()
     if fade_mode not in {"cut", "fade", "crossfade"}:
         fade_mode = "crossfade"
-    try:
-        transition_ms = int(data.get("transitionMs", 220) or 220)
-    except (TypeError, ValueError):
-        transition_ms = 220
+    transition_ms = parse_transition_ms(data.get("transitionMs"))
     try:
         preview_tail = float(data.get("previewTailSec", 2) or 2)
     except (TypeError, ValueError):
@@ -81,7 +96,7 @@ def _connection_settings(value: Any = None) -> Dict[str, Any]:
     except (TypeError, ValueError):
         preview_head = 2.0
     return {
-        "transitionMs": max(0, min(2000, transition_ms)),
+        "transitionMs": transition_ms,
         "fadeMode": fade_mode,
         "previewTailSec": max(0.5, min(8.0, preview_tail)),
         "previewHeadSec": max(0.5, min(8.0, preview_head)),

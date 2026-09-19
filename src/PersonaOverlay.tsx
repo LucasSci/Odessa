@@ -404,7 +404,7 @@ export default function PersonaOverlay() {
         }
         setActiveSlot(nextSlot);
         setCurrentKey(key);
-        window.setTimeout(() => setIsTransitioning(false), Math.max(60, clip.transitionMs || 220));
+        window.setTimeout(() => setIsTransitioning(false), Math.max(60, clip.transitionMs ?? 220));
       };
 
       if (nextElement.readyState >= 1) {
