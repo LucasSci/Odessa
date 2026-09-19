@@ -40,7 +40,7 @@ import type { AutopilotRuntimeState } from './core/useAutopilotRuntime';
 import type { CapturedMessage } from './types';
 import { Badge, Button, Card, ConfirmButton, Tabs } from './components/ui';
 import { useToast } from './components/Toast';
-import { clampFadeMs, clipProgress, effectiveSegments, segmentSpeed } from './core/playback/clipTimeline';
+import { clampFadeMs, clipProgress, effectiveSegments, nextSegmentStep, segmentSpeed } from './core/playback/clipTimeline';
 import { publishProgress } from './core/playback/progressStore';
 import { ClipDeck, deckOrder, groupDeckVideos } from './components/stage/ClipDeck';
 import { ClipProgress } from './components/stage/ClipProgress';
@@ -56,7 +56,7 @@ import { TangoChatPanel } from './components/TangoChatPanel';
 import { SessionHistoryPanel } from './components/SessionHistoryPanel';
 import VideoEditor from './components/VideoEditor';
 
-import { applyVideoEdit, getVideoEdit, hasVideoEdit, saveVideoEdit, defaultVideoEdit, type VideoSegment } from './core/videoEdits';
+import { applyVideoEdit, getVideoEdit, hasVideoEdit, persistVideoEditDebounced, syncVideoEditsFromServer, defaultVideoEdit, type VideoSegment } from './core/videoEdits';
 import { getAiConfig, hasActiveGeminiKey, type AiAutonomyLevel } from './core/aiConfig';
 
 const ReactiveFlowBoard = lazy(() => import('./ReactiveFlowBoard'));
@@ -405,6 +405,11 @@ export default function OdessaLiveCenter({
   const [settingsSubTab, setSettingsSubTab] = useState<'general' | 'ai' | 'canvas'>('general');
   const [flowSubTab, setFlowSubTab] = useState<'board' | 'logs'>('board');
   const [liveMode, setLiveMode] = useState<'central' | 'stage'>('stage');
+  // Traz as edições do servidor (fonte da verdade, lida também pelo overlay do
+  // OBS) e migra as que só existiam neste navegador.
+  useEffect(() => {
+    void syncVideoEditsFromServer();
+  }, []);
   // Editor de vídeo canônico (Fase 5b) — um único modal, aberto de qualquer
   // aba (Palco ou Biblioteca), em vez de duas instâncias/UIs separadas.
   const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
@@ -1556,20 +1561,17 @@ export function ContinuityPlayer({
     }
     const segs = effectiveSegments(slotClip);
     if (!segs.length) return; // vídeo inteiro → encerra pelo evento 'ended' nativo
-    let idx = slotSegmentRef.current[slot];
-    if (idx >= segs.length) idx = segs.length - 1;
-    const seg = segs[idx];
-    if (element.currentTime < seg.endSec) return;
-    if (idx + 1 < segs.length) {
+    const step = nextSegmentStep(segs, slotSegmentRef.current[slot], element.currentTime);
+    if (step.action === 'jump') {
       // Próximo corte: pula para o início do segmento seguinte (mesma fonte).
-      slotSegmentRef.current[slot] = idx + 1;
-      element.playbackRate = segmentSpeed(segs[idx + 1]);
+      slotSegmentRef.current[slot] = step.index;
+      element.playbackRate = step.speed;
       try {
-        element.currentTime = segs[idx + 1].startSec;
+        element.currentTime = step.startSec;
       } catch {
         /* seek pode falhar momentaneamente — re-tenta no próximo timeupdate */
       }
-    } else {
+    } else if (step.action === 'end') {
       handleClipEnd(slotClip); // último segmento → cut p/ próximo clipe + avança fluxo
     }
   };
@@ -1955,7 +1957,7 @@ function StagePanel({
                 onChange={(e) => {
                   if (!activeClip?.videoId) return;
                   const cur = getVideoEdit(activeClip.videoId) ?? defaultVideoEdit(activeClip.videoId);
-                  saveVideoEdit({ ...cur, volume: Number(e.target.value) / 100 });
+                  persistVideoEditDebounced({ ...cur, volume: Number(e.target.value) / 100 });
                   onRefresh();
                 }}
                 className="flex-1 accent-[var(--sky)]"

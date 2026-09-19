@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from server.core.config_manager import load_persona_config
 from server.core.video_logic import SCENARIO_SEQUENCES
+from server.services.video_edit_store import get_video_edit_store
 
 logger = logging.getLogger("odessa.video")
 
@@ -66,7 +67,7 @@ class VideoService:
 
     def _clip_from_node(self, node: Dict[str, Any], return_to_idle: bool = True) -> Dict[str, Any]:
         playback = self._playback(node.get("playback"))
-        return {
+        return get_video_edit_store().apply_to_clip({
             "nodeId": node.get("nodeId"),
             "videoId": node.get("videoId"),
             "label": node.get("label") or self._video_label(node.get("videoId", "")),
@@ -77,11 +78,11 @@ class VideoService:
             "playback": playback,
             "audio": self._audio(node.get("audio")),
             "missingFile": bool(self._video_entry(node.get("videoId", "")).get("missingFile")),
-        }
+        })
 
     def _clip_from_video_id(self, video_id: str, return_to_idle: bool = True) -> Dict[str, Any]:
         clean_id = str(video_id or "").replace("video_", "").replace(".mp4", "").strip()
-        return {
+        return get_video_edit_store().apply_to_clip({
             "nodeId": None,
             "videoId": clean_id,
             "label": self._video_label(clean_id),
@@ -92,7 +93,7 @@ class VideoService:
             "playback": {"startSec": 0.0, "endSec": None, "transitionMs": 220},
             "audio": {"mode": "muted", "volume": 1.0, "trackId": "", "trackUrl": ""},
             "missingFile": bool(self._video_entry(clean_id).get("missingFile")),
-        }
+        })
 
     def _idle_clip(self) -> Optional[Dict[str, Any]]:
         idle_id = self._idle_video_id()
@@ -176,7 +177,9 @@ class VideoService:
             "update_ts": self.last_state_update,
             "start_ts": self.current_video_start_ts,
             "server_time": time.time(),
-            "currentClip": self.current_clip,
+            # Reaplica a edição a cada leitura: o clip atual foi montado antes de
+            # uma eventual edição salva depois, e o overlay precisa vê-la já.
+            "currentClip": get_video_edit_store().apply_to_clip(self.current_clip) if self.current_clip else None,
             "upcoming": self._upcoming_for_clip(self.current_clip),
             "activeNodeId": (self.current_clip or {}).get("nodeId"),
             "activeConnectionId": self._active_connection_id(),

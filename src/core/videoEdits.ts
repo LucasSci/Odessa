@@ -10,6 +10,7 @@
  * o player ao vivo honrar os cortes/volume/som SEM mudar o servidor.
  */
 
+import { apiUrl } from '../lib/api';
 import { clampSpeed } from './videoEditOps';
 
 const STORAGE_KEY = 'odessa:video-edits:v1';
@@ -140,6 +141,73 @@ export function removeVideoEdit(videoId: string): void {
     delete all[videoId];
     writeAll(all);
   }
+}
+
+// ── Sincronização com o servidor ─────────────────────────────────────────────
+// O localStorage é só um cache síncrono (a UI lê de forma síncrona em vários
+// lugares). A fonte da verdade é o servidor: é dele que o overlay do OBS —
+// outro navegador — recebe cortes/velocidade/áudio dentro do clip.
+
+async function putRemote(edit: VideoEdit): Promise<boolean> {
+  try {
+    const res = await fetch(apiUrl(`/api/video/${encodeURIComponent(edit.videoId)}/edit`), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(edit),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Salva local e no servidor. Devolve false se o servidor não confirmou (o local fica salvo). */
+export async function persistVideoEdit(edit: VideoEdit): Promise<boolean> {
+  saveVideoEdit(edit);
+  return putRemote(edit);
+}
+
+const pendingPushes = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** Igual a persistVideoEdit, mas agrupa rajadas (ex.: arrastar um slider) numa única requisição. */
+export function persistVideoEditDebounced(edit: VideoEdit, delayMs = 400): void {
+  saveVideoEdit(edit);
+  const pending = pendingPushes.get(edit.videoId);
+  if (pending) clearTimeout(pending);
+  pendingPushes.set(
+    edit.videoId,
+    setTimeout(() => {
+      pendingPushes.delete(edit.videoId);
+      void putRemote(edit);
+    }, delayMs),
+  );
+}
+
+/**
+ * Puxa as edições do servidor para o cache local (servidor vence em conflito)
+ * e envia ao servidor as que só existiam neste navegador (migração única).
+ * Devolve quantas edições vieram do servidor, ou null se ele estava fora do ar.
+ */
+export async function syncVideoEditsFromServer(): Promise<number | null> {
+  let remote: Record<string, Partial<VideoEdit>>;
+  try {
+    const res = await fetch(apiUrl('/api/video/edits'));
+    if (!res.ok) return null;
+    const body = (await res.json()) as { edits?: Record<string, Partial<VideoEdit>> };
+    remote = body.edits && typeof body.edits === 'object' ? body.edits : {};
+  } catch {
+    return null;
+  }
+
+  const local = readAll();
+  const merged: Record<string, Partial<VideoEdit>> = { ...local };
+  for (const [id, edit] of Object.entries(remote)) merged[id] = normalize(id, edit || {});
+  writeAll(merged);
+
+  for (const [id, edit] of Object.entries(local)) {
+    if (!(id in remote)) void putRemote(normalize(id, edit || {}));
+  }
+  return Object.keys(remote).length;
 }
 
 /** True se o vídeo tem qualquer edição não-trivial salva (para badge na UI). */

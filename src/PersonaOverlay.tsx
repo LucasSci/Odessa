@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiUrl } from './lib/api';
 import { cn } from './lib/utils';
 import { preloadVideos, videoSrcFor, videoVersion } from './lib/videoPreload';
+import { nextSegmentStep, segmentSpeed } from './core/playback/clipTimeline';
 
 // Build-time injected by odessaSchedulePlugin in vite.config.ts.
 // On the Hostinger server this is populated from the KV store at build time.
@@ -26,10 +27,13 @@ type VideoClip = {
   transitionMs: number;
   returnToIdle?: boolean;
   loop?: boolean;
+  /** Cortes salvos no editor (vêm do servidor); a ordem do array é a ordem de reprodução. */
+  segments?: Array<{ startSec: number; endSec: number; speed?: number }>;
   audio?: {
     mode?: 'muted' | 'original' | 'track';
     volume?: number;
     trackUrl?: string;
+    trackLoop?: boolean;
   };
 };
 
@@ -65,6 +69,8 @@ function clipKey(clip: VideoClip | null | undefined) {
     clip.startSec || 0,
     clip.endSec ?? 'end',
     clip.transitionMs || 0,
+    // Uma edição salva (cortes/velocidade) muda a chave e recarrega o clip no ar.
+    (clip.segments || []).map((s) => `${s.startSec}-${s.endSec}x${s.speed ?? 1}`).join(','),
     // Include loop so the client re-transitions when the server breaks the idle
     // loop (trigger queued) — without this the video.loop attribute never updates
     // and handleEnded never fires, so triggers stay stuck in the queue forever.
@@ -88,6 +94,8 @@ export default function PersonaOverlay() {
   const refs = useMemo(() => [videoRefA, videoRefB] as const, []);
   const activeSlotRef = useRef<0 | 1>(0);
   const endedRef = useRef('');
+  // Índice do corte em reprodução em cada slot (clips com edição salva).
+  const segmentIndexRef = useRef<[number, number]>([0, 0]);
   // Versão (uploadedAt) do vídeo atualmente no ar — pra detectar quando o
   // operador troca o conteúdo do vídeo que já está tocando e recarregar.
   const playedVersionRef = useRef('');
@@ -331,12 +339,19 @@ export default function PersonaOverlay() {
       nextElement.loop = shouldLoopClip(clip);
       nextElement.muted = (clip.audio?.mode || 'muted') !== 'original';
       nextElement.volume = Math.max(0, Math.min(1, clip.audio?.volume ?? 1));
+      const cuts = clip.segments && clip.segments.length > 0 ? clip.segments : null;
+      segmentIndexRef.current[nextSlot] = 0;
+      nextElement.playbackRate = segmentSpeed(cuts?.[0]);
 
       const play = async () => {
         const elapsed =
           state?.server_time && state?.start_ts ? Math.max(0, state.server_time - state.start_ts) : 0;
-        const startSec = Math.max(0, clip.startSec || 0);
+        const startSec = Math.max(0, cuts ? cuts[0].startSec : clip.startSec || 0);
         const endSec = clip.endSec ?? Number.POSITIVE_INFINITY;
+        // Com cortes, "já acabou?" é medido em tempo de relógio (velocidade por corte).
+        const cutsClockSec = cuts
+          ? cuts.reduce((sum, s) => sum + Math.max(0, s.endSec - s.startSec) / segmentSpeed(s), 0)
+          : 0;
         const duration = Number.isFinite(nextElement.duration) ? nextElement.duration : 0;
         const loopDuration = Math.max(0, Math.min(endSec, duration || endSec) - startSec);
         const naturalEndSec = Number.isFinite(endSec) ? endSec : duration;
@@ -346,7 +361,10 @@ export default function PersonaOverlay() {
         // returnToIdle === false is the reliable idle identifier (reactions have true).
         const isIdleLoopBreak = !shouldLoopClip(clip) && clip.returnToIdle === false && duration > 0;
         const effectiveElapsed = isIdleLoopBreak && loopDuration > 0 ? elapsed % loopDuration : elapsed;
-        if (!shouldLoopClip(clip) && naturalEndSec > 0 && startSec + effectiveElapsed >= naturalEndSec - 0.1) {
+        const alreadyOver = cuts
+          ? effectiveElapsed >= cutsClockSec - 0.1
+          : naturalEndSec > 0 && startSec + effectiveElapsed >= naturalEndSec - 0.1;
+        if (!shouldLoopClip(clip) && alreadyOver) {
           setIsTransitioning(false);
           await advanceAndRefresh(clip);
           return;
@@ -375,6 +393,7 @@ export default function PersonaOverlay() {
         if (audioElement) {
           if (clip.audio?.mode === 'track' && clip.audio.trackUrl) {
             audioElement.src = clip.audio.trackUrl;
+            audioElement.loop = Boolean(clip.audio.trackLoop);
             audioElement.volume = Math.max(0, Math.min(1, clip.audio.volume ?? 1));
             audioElement.currentTime = 0;
             await audioElement.play().catch(() => undefined);
@@ -457,7 +476,27 @@ export default function PersonaOverlay() {
     };
   }, [advanceAndRefresh, checkAndFireSchedules, currentKey, fetchVideoState, transitionToClip]);
 
-  const handleProgress = (slotClip: VideoClip | null, element: HTMLVideoElement) => {
+  const handleProgress = (index: 0 | 1, slotClip: VideoClip | null, element: HTMLVideoElement) => {
+    const cuts = slotClip?.segments && slotClip.segments.length > 0 ? slotClip.segments : null;
+    if (slotClip && cuts) {
+      const step = nextSegmentStep(cuts, segmentIndexRef.current[index], element.currentTime);
+      if (step.action === 'jump') {
+        segmentIndexRef.current[index] = step.index;
+        element.playbackRate = step.speed;
+        try {
+          element.currentTime = step.startSec;
+        } catch {
+          // seek pode falhar por um instante no OBS — tenta de novo no próximo timeupdate
+        }
+      } else if (step.action === 'end') {
+        const cutsKey = clipKey(slotClip);
+        if (endedRef.current !== cutsKey) {
+          endedRef.current = cutsKey;
+          void advanceAndRefresh(slotClip);
+        }
+      }
+      return;
+    }
     if (!slotClip?.endSec) return;
     const key = clipKey(slotClip);
     if (element.currentTime >= slotClip.endSec && endedRef.current !== key) {
@@ -489,7 +528,7 @@ export default function PersonaOverlay() {
           preload="auto"
           loop={shouldLoopClip(slotClip)}
           src={slotClip ? videoSrcFor(slotClip.videoId) : undefined}
-          onTimeUpdate={(event) => handleProgress(slotClip, event.currentTarget)}
+          onTimeUpdate={(event) => handleProgress(index as 0 | 1, slotClip, event.currentTarget)}
           onEnded={() => handleEnded(slotClip)}
           className={cn(
             'absolute inset-0 w-full origin-top object-contain transition-opacity',

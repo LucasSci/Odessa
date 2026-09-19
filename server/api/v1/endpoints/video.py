@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from server.core.video_files import list_available_videos, get_video_path, get_video_directory
 from server.config import VIDEO_UPLOAD_MAX_BYTES
 from server.core.config_manager import load_persona_config, save_persona_config
+from server.services.video_edit_store import get_video_edit_store, valid_video_id
 
 logger = logging.getLogger("odessa.routes.video")
 
@@ -98,6 +99,26 @@ async def get_available_videos():
         "videos": videos,
         "total": len(videos),
     }
+
+
+@router.get("/edits")
+async def list_video_edits():
+    """Todas as edições salvas (cortes, velocidade, áudio, transição), por videoId."""
+    return {"edits": get_video_edit_store().all()}
+
+
+@router.put("/{video_id}/edit")
+async def save_video_edit(video_id: str, edit: dict):
+    if not valid_video_id(video_id):
+        raise HTTPException(status_code=400, detail="videoId inválido")
+    return {"edit": get_video_edit_store().put(video_id, edit)}
+
+
+@router.delete("/{video_id}/edit")
+async def delete_video_edit(video_id: str):
+    if not valid_video_id(video_id):
+        raise HTTPException(status_code=400, detail="videoId inválido")
+    return {"removed": get_video_edit_store().delete(video_id)}
 
 
 @router.get("/trash")

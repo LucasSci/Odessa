@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clampFadeMs, clipProgress, effectiveSegments, MAX_FADE_MS } from './clipTimeline';
+import { clampFadeMs, clipProgress, effectiveSegments, MAX_FADE_MS, nextSegmentStep } from './clipTimeline';
 
 describe('effectiveSegments', () => {
   it('prioriza segments explícitos, na ordem dada', () => {
@@ -14,6 +14,27 @@ describe('effectiveSegments', () => {
   it('devolve [] para vídeo inteiro ou clip nulo', () => {
     expect(effectiveSegments({ startSec: 0, endSec: null })).toEqual([]);
     expect(effectiveSegments(null)).toEqual([]);
+  });
+});
+
+describe('nextSegmentStep', () => {
+  const segs = [{ startSec: 1, endSec: 3 }, { startSec: 8, endSec: 9, speed: 2 }];
+
+  it('fica no corte enquanto não chegou ao fim dele', () => {
+    expect(nextSegmentStep(segs, 0, 2.9)).toEqual({ action: 'stay' });
+  });
+
+  it('pula para o próximo corte com a velocidade dele', () => {
+    expect(nextSegmentStep(segs, 0, 3)).toEqual({ action: 'jump', index: 1, startSec: 8, speed: 2 });
+  });
+
+  it('termina quando o último corte acaba', () => {
+    expect(nextSegmentStep(segs, 1, 9.01)).toEqual({ action: 'end' });
+  });
+
+  it('corrige índice fora do intervalo e lida com lista vazia', () => {
+    expect(nextSegmentStep(segs, 99, 9.5)).toEqual({ action: 'end' });
+    expect(nextSegmentStep([], 0, 5)).toEqual({ action: 'stay' });
   });
 });
 

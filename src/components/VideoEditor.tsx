@@ -25,7 +25,7 @@ import { Timeline } from './editor/Timeline';
 import { useFilmstrip } from './editor/useFilmstrip';
 import { apiUrl } from '../lib/api';
 import {
-  getVideoEdit, defaultVideoEdit, saveVideoEdit, fileToDataUrl,
+  getVideoEdit, defaultVideoEdit, persistVideoEdit, fileToDataUrl,
   type VideoEdit, type VideoSegment, type AudioMode,
 } from '../core/videoEdits';
 import {
@@ -430,10 +430,12 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
     catch (err) { setAudioError(err instanceof Error ? err.message : 'Falha ao carregar áudio'); }
   }, [applyEdit]);
 
-  const handleSave = useCallback(() => {
-    saveVideoEdit(edit);
-    setSavedJson(JSON.stringify(edit));
-    toast.success('Edição salva. O Palco já usa os novos cortes.');
+  const handleSave = useCallback(async () => {
+    const json = JSON.stringify(edit);
+    const synced = await persistVideoEdit(edit);
+    setSavedJson(json);
+    if (synced) toast.success('Edição salva. Palco e OBS já usam os novos cortes.');
+    else toast.warning('Salva só neste navegador: o servidor não respondeu, então o OBS não verá a edição. Salve de novo quando o backend voltar.');
   }, [edit, toast]);
 
   const requestClose = useCallback(() => {
@@ -482,7 +484,7 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
           <Button size="sm" variant="secondary" onClick={undo} disabled={!canUndo} title="Desfazer (Ctrl+Z)" aria-label="Desfazer"><Undo2 className="h-3.5 w-3.5" /></Button>
           <Button size="sm" variant="secondary" onClick={redo} disabled={!canRedo} title="Refazer (Ctrl+Shift+Z)" aria-label="Refazer"><Redo2 className="h-3.5 w-3.5" /></Button>
           <Button size="sm" variant="secondary" onClick={playPreview} disabled={segments.length === 0}><Play className="h-3.5 w-3.5" />Prévia dos cortes</Button>
-          <Button size="sm" variant="primary" onClick={handleSave}><Save className="h-3.5 w-3.5" />Salvar</Button>
+          <Button size="sm" variant="primary" onClick={() => void handleSave()}><Save className="h-3.5 w-3.5" />Salvar</Button>
           <button type="button" onClick={() => setShowHelp((v) => !v)} className="rounded-lg p-2 text-[var(--t3)] transition hover:bg-[var(--bg3)] hover:text-[var(--t1)]" aria-label="Atalhos de teclado" title="Atalhos (?)"><Keyboard className="h-4 w-4" /></button>
           <button type="button" onClick={requestClose} className="rounded-lg p-2 text-[var(--t3)] transition hover:bg-[var(--bg3)] hover:text-[var(--t1)]" aria-label="Fechar editor"><X className="h-4 w-4" /></button>
         </div>

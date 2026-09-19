@@ -38,6 +38,31 @@ export function clampFadeMs(value: unknown): number {
   return Math.min(MAX_FADE_MS, Math.round(n));
 }
 
+export type SegmentStep =
+  | { action: 'stay' }
+  | { action: 'jump'; index: number; startSec: number; speed: number }
+  | { action: 'end' };
+
+/**
+ * O que o player faz a cada timeupdate de um clip com cortes: continuar no
+ * corte atual, pular para o início do próximo (com a velocidade dele) ou
+ * terminar o clip quando o último corte acabou.
+ */
+export function nextSegmentStep(
+  segments: TimelineSegment[],
+  segmentIndex: number,
+  currentSec: number,
+): SegmentStep {
+  if (segments.length === 0) return { action: 'stay' };
+  const idx = Math.max(0, Math.min(segments.length - 1, segmentIndex));
+  if (currentSec < segments[idx].endSec) return { action: 'stay' };
+  if (idx + 1 < segments.length) {
+    const next = segments[idx + 1];
+    return { action: 'jump', index: idx + 1, startSec: next.startSec, speed: segmentSpeed(next) };
+  }
+  return { action: 'end' };
+}
+
 export interface ClipProgress {
   elapsedSec: number;
   totalSec: number;
