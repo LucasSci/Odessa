@@ -28,6 +28,46 @@ TANGO_CHAT_SCRIPT = Path(__file__).resolve().parent.parent.parent / "tango_chat"
 
 MAX_LOG_LINES = 500
 
+# Token compartilhado com o tango_chat.py (ver tango_chat/bridge_guard.py).
+# Persistido em disco: o bridge_manager "adota" uma bridge órfã de uma execução
+# anterior do backend, e ela só continua acessível se o token sobreviver ao
+# reinício. TANGO_BRIDGE_TOKEN no ambiente tem prioridade (ex.: docker-compose).
+BRIDGE_TOKEN_HEADER = "X-Bridge-Token"
+_BRIDGE_TOKEN_FILE = "bridge.token"
+_token_cache: dict[Path, str] = {}
+
+
+def get_bridge_token() -> str:
+    import os
+    import secrets
+
+    explicit = os.environ.get("TANGO_BRIDGE_TOKEN", "").strip()
+    if explicit:
+        return explicit
+    path = RUNTIME_DIR / _BRIDGE_TOKEN_FILE
+    cached = _token_cache.get(path)
+    if cached:
+        return cached
+    try:
+        token = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        token = ""
+    if len(token) < 24:
+        token = secrets.token_urlsafe(32)
+        RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(token, encoding="utf-8")
+        try:
+            path.chmod(0o600)  # sem efeito no Windows; protege em Linux/Mac
+        except OSError:
+            pass
+    _token_cache[path] = token
+    return token
+
+
+def bridge_auth_headers() -> dict[str, str]:
+    return {BRIDGE_TOKEN_HEADER: get_bridge_token()}
+
+
 
 def _default_config() -> dict[str, Any]:
     return {
@@ -70,7 +110,7 @@ class BridgeProcessManager:
         try:
             import urllib.request
             url = f"http://127.0.0.1:{port}/status"
-            req = urllib.request.Request(url, method="GET")
+            req = urllib.request.Request(url, method="GET", headers=bridge_auth_headers())
             with urllib.request.urlopen(req, timeout=2) as resp:
                 return json.loads(resp.read().decode())
         except Exception:
@@ -138,6 +178,8 @@ class BridgeProcessManager:
                 env_overrides["TANGO_ROOM_URL"] = effective_config["roomUrl"]
             if effective_config.get("port"):
                 env_overrides["TANGO_BRIDGE_PORT"] = str(effective_config["port"])
+        # Sempre, mesmo sem config: sem o token a bridge nasceria aberta.
+        env_overrides["TANGO_BRIDGE_TOKEN"] = get_bridge_token()
 
         import os
         env = {**os.environ, **env_overrides}

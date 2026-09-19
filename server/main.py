@@ -202,6 +202,21 @@ def _bridge_port() -> int:
 _PROXY_DROP_REQUEST_HEADERS = {"host", "content-length", "connection", "transfer-encoding"}
 _PROXY_DROP_RESPONSE_HEADERS = {"content-length", "content-encoding", "transfer-encoding", "connection"}
 
+# Chamada servidor→bridge: não repassa o que identifica o NAVEGADOR (a bridge
+# trata Origin como sinal de CSRF; cookie/authorization são do Odessa, não dela)
+# e adiciona o token que só o backend conhece.
+_BRIDGE_DROP_REQUEST_HEADERS = _PROXY_DROP_REQUEST_HEADERS | {
+    "origin", "referer", "cookie", "authorization", "x-bridge-token",
+}
+
+
+def bridge_forward_headers(request_headers, token: str) -> list[tuple[str, str]]:
+    from server.services.bridge_manager import BRIDGE_TOKEN_HEADER
+
+    forwarded = [(k, v) for k, v in request_headers if k.lower() not in _BRIDGE_DROP_REQUEST_HEADERS]
+    forwarded.append((BRIDGE_TOKEN_HEADER, token))
+    return forwarded
+
 
 # O frontend fala com a bridge do Tango (tango_chat.py) atraves do caminho
 # relativo BRIDGE_URL='/tango-bridge' (ver src/core/tangoChatSession.tsx),
@@ -217,6 +232,8 @@ _PROXY_DROP_RESPONSE_HEADERS = {"content-length", "content-encoding", "transfer-
 # o chat ao vivo nunca aparecia na tela -- um "falso positivo" real.
 @app.api_route("/tango-bridge/{path:path}", methods=["GET", "POST"], include_in_schema=False)
 async def proxy_tango_bridge(path: str, request: Request):
+    from server.services.bridge_manager import get_bridge_token
+
     port = _bridge_port()
     url = f"http://127.0.0.1:{port}/{path}"
     body = await request.body()
@@ -225,7 +242,7 @@ async def proxy_tango_bridge(path: str, request: Request):
         request.method,
         url,
         params=request.query_params,
-        headers=[(k, v) for k, v in request.headers.items() if k.lower() not in _PROXY_DROP_REQUEST_HEADERS],
+        headers=bridge_forward_headers(request.headers.items(), get_bridge_token()),
         content=body,
     )
     try:
@@ -255,10 +272,25 @@ async def proxy_tango_bridge(path: str, request: Request):
 async def proxy_tango_bridge_live(websocket: WebSocket):
     """Mesmo proxy acima, mas para o WebSocket de screencast (ver
     LiveVisionMonitor.tsx) -- tambem inexistente em producao sem isso."""
+    from server.services.bridge_manager import BRIDGE_TOKEN_HEADER, get_bridge_token
+
+    # O middleware HTTP não cobre WebSocket: sem esta checagem, qualquer site
+    # aberto no navegador poderia abrir ws://localhost:8000/tango-bridge/live e
+    # dirigir o Chromium logado (clique/teclado/navegação) pela bridge.
+    host = websocket.headers.get("host")
+    origin = websocket.headers.get("origin")
+    if not _request_guard.host_ok(host) or not _request_guard.origin_ok(origin, host):
+        await websocket.close(code=1008)
+        return
+
     port = _bridge_port()
     await websocket.accept()
     try:
-        async with websockets.connect(f"ws://127.0.0.1:{port}/live", max_size=None) as upstream:
+        async with websockets.connect(
+            f"ws://127.0.0.1:{port}/live",
+            max_size=None,
+            additional_headers={BRIDGE_TOKEN_HEADER: get_bridge_token()},
+        ) as upstream:
             async def client_to_upstream():
                 while True:
                     msg = await websocket.receive()

@@ -77,9 +77,12 @@ function suppressProxyErrors(proxy: { on: (event: string, handler: (...args: unk
 
 export default defineConfig(() => {
   const apiTarget = process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8000';
-  // Tango bridge (tango_chat.py) — runs as a subprocess of the API. In local dev
-  // it's on localhost:7555; in the container it's on the `api` service at port 7555.
-  const bridgeTarget = process.env.VITE_BRIDGE_PROXY_TARGET || 'http://127.0.0.1:7555';
+  // Tango bridge (tango_chat.py). A bridge exige um token que só o backend
+  // conhece, então em dev o Vite NÃO fala mais direto com a porta 7555: manda
+  // /tango-bridge/* para o backend, que já faz esse proxy (HTTP + WebSocket)
+  // acrescentando o token. VITE_BRIDGE_PROXY_TARGET continua valendo para quem
+  // aponta para uma bridge direta (ex.: docker-compose com TANGO_BRIDGE_TOKEN).
+  const bridgeDirectTarget = process.env.VITE_BRIDGE_PROXY_TARGET || '';
   return {
     plugins: [
       react(),
@@ -131,13 +134,20 @@ export default defineConfig(() => {
           target: apiTarget,
           configure: suppressProxyErrors,
         },
-        '/tango-bridge': {
-          target: bridgeTarget,
-          rewrite: (path: string) => path.replace(/^\/tango-bridge/, ''),
-          changeOrigin: true,
-          ws: true,
-          configure: suppressProxyErrors,
-        },
+        '/tango-bridge': bridgeDirectTarget
+          ? {
+              target: bridgeDirectTarget,
+              rewrite: (path: string) => path.replace(/^\/tango-bridge/, ''),
+              changeOrigin: true,
+              ws: true,
+              configure: suppressProxyErrors,
+            }
+          : {
+              target: apiTarget,
+              changeOrigin: true,
+              ws: true,
+              configure: suppressProxyErrors,
+            },
       },
     },
     optimizeDeps: {

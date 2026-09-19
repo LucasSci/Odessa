@@ -38,6 +38,8 @@ from typing import Any, Callable, Coroutine
 from aiohttp import web
 from aiohttp.web import middleware
 
+import bridge_guard
+
 from playwright.async_api import (
     Browser,
     BrowserContext,
@@ -89,6 +91,13 @@ TANGO_URL_PATTERN: str = os.environ.get("TANGO_URL_PATTERN", "tango.me")
 # Porta do servidor HTTP local
 SERVER_PORT: int = int(_cli_config.get("port", os.environ.get("TANGO_BRIDGE_PORT", "7555")))
 
+# Controle de acesso (ver bridge_guard.py). O backend gera um token, guarda em
+# disco e o passa por TANGO_BRIDGE_TOKEN; todo pedido precisa trazê-lo em
+# X-Bridge-Token. Escuta só em loopback por padrão; em Docker o compose pode
+# definir TANGO_BRIDGE_HOST=0.0.0.0 (o token continua obrigatório).
+BRIDGE_TOKEN: str = os.environ.get("TANGO_BRIDGE_TOKEN", "").strip()
+BRIDGE_HOST: str = os.environ.get("TANGO_BRIDGE_HOST", "127.0.0.1").strip() or "127.0.0.1"
+BRIDGE_ALLOWED_HOSTS = bridge_guard.parse_hosts(os.environ.get("TANGO_BRIDGE_ALLOWED_HOSTS", ""))
 # Seletores (podem vir da config do frontend)
 _selectors = _cli_config.get("selectors", {})
 
@@ -724,19 +733,30 @@ bridge: TangoChatBridge | None = None
 
 
 @middleware
-async def cors_middleware(request: web.Request, handler):
-    """CORS para a UI da Odessa consumir."""
+async def access_middleware(request: web.Request, handler):
+    """Host local + token compartilhado com o backend (ver bridge_guard.py).
+
+    Não há mais CORS: a UI fala com a bridge pelo proxy do backend (mesma
+    origem), então nenhum navegador precisa acessá-la diretamente. Um preflight
+    OPTIONS sem cabeçalhos CORS faz o navegador recusar o pedido cross-site.
+    """
     if request.method == "OPTIONS":
-        response = web.Response(status=204)
-    else:
-        try:
-            response = await handler(request)
-        except web.HTTPException as exc:
-            response = exc
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-    return response
+        return web.Response(status=204)
+    rejection = bridge_guard.check_request(
+        request.method,
+        request.headers.get("Host"),
+        request.headers.get("Origin"),
+        request.headers.get(bridge_guard.TOKEN_HEADER),
+        BRIDGE_TOKEN,
+        BRIDGE_ALLOWED_HOSTS,
+    )
+    if rejection:
+        status, code = rejection
+        return web.json_response({"error": code}, status=status)
+    try:
+        return await handler(request)
+    except web.HTTPException as exc:
+        return exc
 
 
 async def handle_status(request: web.Request) -> web.Response:
@@ -828,7 +848,6 @@ async def handle_messages_sse(request: web.Request) -> web.StreamResponse:
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
         },
     )
     await response.prepare(request)
@@ -997,6 +1016,8 @@ async def handle_goto(request: web.Request) -> web.Response:
         url = body.get("url")
         if not url:
             return web.json_response({"error": "URL nao fornecida"}, status=400)
+        if not bridge_guard.navigation_allowed(url):
+            return web.json_response({"error": "Navegacao permitida apenas para tango.me"}, status=400)
         await bridge._page.goto(url, wait_until="domcontentloaded")
         return web.json_response({"ok": True, "url": url})
     except Exception as exc:
@@ -1258,7 +1279,7 @@ async def handle_logs(request: web.Request) -> web.Response:
 
 
 def create_app() -> web.Application:
-    app = web.Application(middlewares=[cors_middleware])
+    app = web.Application(middlewares=[access_middleware])
     app.router.add_get("/status", handle_status)
     app.router.add_get("/history", handle_history)
     app.router.add_post("/clear-history", handle_clear_history)
@@ -1294,12 +1315,12 @@ async def main() -> None:
     app = create_app()
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", SERVER_PORT)
+    site = web.TCPSite(runner, BRIDGE_HOST, SERVER_PORT)
     await site.start()
 
     log.info("=" * 60)
     log.info("  Tango Chat Bridge -- Servidor HTTP")
-    log.info("  http://localhost:%d", SERVER_PORT)
+    log.info("  http://%s:%d  (token %s)", BRIDGE_HOST, SERVER_PORT, "exigido" if BRIDGE_TOKEN else "NAO configurado -- modo legado")
     log.info("=" * 60)
     log.info("")
     log.info("  Endpoints:")

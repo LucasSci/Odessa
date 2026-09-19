@@ -4,7 +4,12 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 from server.services.chat_automation_service import chat_automation_service
-from server.services.bridge_manager import bridge_manager, load_bridge_config, save_bridge_config
+from server.services.bridge_manager import (
+    bridge_auth_headers,
+    bridge_manager,
+    load_bridge_config,
+    save_bridge_config,
+)
 
 
 router = APIRouter(tags=["chat-automation"])
@@ -128,7 +133,7 @@ async def update_bridge_config(request: BridgeConfigRequest):
             req = urllib.request.Request(
                 f"http://127.0.0.1:{port}/config",
                 data=payload,
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": "application/json", **bridge_auth_headers()},
                 method="POST",
             )
             with urllib.request.urlopen(req, timeout=3):
