@@ -6,12 +6,15 @@ persistidos em um arquivo de config separado. Um índice (personas.json) lista
 as personas e aponta qual é a ativa. A persona padrão "odessa" usa o arquivo
 legado persona_config.json, então nada quebra na primeira execução.
 """
+import functools
 import json
 import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TypeVar
+
+from server.core.atomic_json import file_lock, read_json, write_json
 
 logger = logging.getLogger("odessa.persona")
 
@@ -46,8 +49,10 @@ def _load_index() -> Dict[str, Any]:
     if not PERSONAS_INDEX_PATH.exists():
         return _empty_index()
     try:
-        with open(PERSONAS_INDEX_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        # Índice corrompido NÃO vira "só a Odessa" (o que apagaria as outras
+        # personas do índice no próximo salvamento): o arquivo ruim é isolado e
+        # o .bak, se íntegro, é restaurado (ver atomic_json.read_json).
+        data = read_json(PERSONAS_INDEX_PATH, default_factory=_empty_index)
         if not isinstance(data, dict):
             return _empty_index()
         data.setdefault("activePersonaId", DEFAULT_PERSONA_ID)
@@ -60,13 +65,30 @@ def _load_index() -> Dict[str, Any]:
 
 def _save_index(index: Dict[str, Any]) -> bool:
     try:
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        with open(PERSONAS_INDEX_PATH, "w", encoding="utf-8") as f:
-            json.dump(index, f, indent=2, ensure_ascii=False)
+        write_json(PERSONAS_INDEX_PATH, index)
         return True
     except Exception as exc:
         logger.error("Erro ao salvar índice de personas: %s", exc)
         return False
+
+
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+def index_transaction(func: F) -> F:
+    """Segura a trava do índice durante todo o ler-modificar-salvar da função.
+
+    Sem isso, duas requisições (ou uma thread de geração de foto) que carregam o
+    índice ao mesmo tempo salvam uma por cima da outra e uma alteração se perde.
+    A trava é reentrante: funções decoradas podem chamar outras decoradas.
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        with file_lock(PERSONAS_INDEX_PATH):
+            return func(*args, **kwargs)
+
+    return wrapper  # type: ignore[return-value]
 
 
 def _ensure_default_persona(index: Dict[str, Any]) -> Dict[str, Any]:
@@ -127,6 +149,7 @@ def get_persona_config_path(persona_id: Optional[str] = None) -> Path:
     return DEFAULT_CONFIG_PATH
 
 
+@index_transaction
 def set_active_persona(persona_id: str) -> bool:
     index = _ensure_default_persona(_load_index())
     if not any(p.get("id") == persona_id for p in index.get("personas", [])):
@@ -135,6 +158,7 @@ def set_active_persona(persona_id: str) -> bool:
     return _save_index(index)
 
 
+@index_transaction
 def create_persona(meta: Dict[str, Any]) -> Dict[str, Any]:
     index = _ensure_default_persona(_load_index())
     persona_id = str(meta.get("id") or "").strip() or _slugify(meta.get("name") or "persona")
@@ -162,8 +186,7 @@ def create_persona(meta: Dict[str, Any]) -> Dict[str, Any]:
 
     cfg_path = DATA_DIR / config_path
     if not cfg_path.exists():
-        with open(cfg_path, "w", encoding="utf-8") as f:
-            json.dump(_empty_config(), f, indent=2, ensure_ascii=False)
+        write_json(cfg_path, _empty_config(), backup=False)
     return persona
 
 
@@ -176,6 +199,7 @@ def get_persona_personality(persona_id: Optional[str] = None) -> str:
     return ""
 
 
+@index_transaction
 def set_persona_personality(persona_id: str, personality: str) -> bool:
     """Define a personalidade (prompt de sistema) de uma persona."""
     index = _ensure_default_persona(_load_index())
@@ -186,6 +210,7 @@ def set_persona_personality(persona_id: str, personality: str) -> bool:
     return _save_index(index)
 
 
+@index_transaction
 def delete_persona(persona_id: str) -> bool:
     index = _ensure_default_persona(_load_index())
     if persona_id == DEFAULT_PERSONA_ID:

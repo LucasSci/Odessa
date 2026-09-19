@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 
 from server.core import persona_manager
 from server.core import persona_visual
+from server.core.atomic_json import file_lock, read_json, write_json
 from server.core.config_manager import load_persona_config, save_persona_config
 from server.core.persona_assets import (
     list_assets,
@@ -99,16 +100,14 @@ def _read_persona_config_raw(persona_id: str) -> dict:
     config_path = persona_manager.get_persona_config_path(persona_id)
     if not config_path.exists():
         return {}
-    with open(config_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    # Corrompido: isola o arquivo e usa o .bak (nunca deixa 500 nem devolve vazio por cima).
+    return read_json(config_path, default_factory=dict)
 
 
 def _write_persona_config_raw(persona_id: str, config: dict) -> None:
     """Escreve o config JSON bruto de uma persona específica."""
     config_path = persona_manager.get_persona_config_path(persona_id)
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2, ensure_ascii=False)
+    write_json(config_path, config)
 
 
 @router.get("")
@@ -167,20 +166,23 @@ async def create_persona(request: PersonaCreateRequest):
 @router.patch("/{persona_id}")
 async def update_persona(persona_id: str, request: PersonaUpdateRequest):
     """Atualiza metadados de uma persona (nome/descrição/personalidade)."""
-    index = persona_manager._load_index()
-    persona = next((p for p in index.get("personas", []) if p.get("id") == persona_id), None)
-    if persona is None:
-        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' não encontrada")
-    if request.name is not None:
-        persona["name"] = request.name
-    if request.description is not None:
-        persona["description"] = request.description
-    if request.personality is not None:
-        persona["personality"] = request.personality
-    if request.avatarUrl is not None:
-        persona["avatarUrl"] = request.avatarUrl
-    if not persona_manager._save_index(index):
-        raise HTTPException(status_code=500, detail="Falha ao salvar índice de personas")
+    # Trava o índice durante o ler-modificar-salvar (senão duas alterações
+    # simultâneas se sobrescrevem).
+    with file_lock(persona_manager.PERSONAS_INDEX_PATH):
+        index = persona_manager._load_index()
+        persona = next((p for p in index.get("personas", []) if p.get("id") == persona_id), None)
+        if persona is None:
+            raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' não encontrada")
+        if request.name is not None:
+            persona["name"] = request.name
+        if request.description is not None:
+            persona["description"] = request.description
+        if request.personality is not None:
+            persona["personality"] = request.personality
+        if request.avatarUrl is not None:
+            persona["avatarUrl"] = request.avatarUrl
+        if not persona_manager._save_index(index):
+            raise HTTPException(status_code=500, detail="Falha ao salvar índice de personas")
     return {"ok": True, "persona": persona}
 
 
@@ -228,9 +230,7 @@ async def get_persona_config(persona_id: str):
     config_path = persona_manager.get_persona_config_path(persona_id)
     if not config_path.exists():
         return {"persona": persona, "config": {}}
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = json.load(f)
-    return {"persona": persona, "config": config}
+    return {"persona": persona, "config": read_json(config_path, default_factory=dict)}
 
 
 # ── Assets (rostos, ambientes, roupas) ─────────────────────────────────────

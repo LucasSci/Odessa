@@ -2,6 +2,7 @@ import base64
 import hashlib
 import io
 import json
+from server.core.atomic_json import file_lock, read_json, write_json
 import logging
 import os
 import time
@@ -141,15 +142,14 @@ class OBSService:
         if not OBS_SETTINGS_FILE.exists():
             return {}
         try:
-            return json.loads(OBS_SETTINGS_FILE.read_text(encoding="utf-8"))
+            return read_json(OBS_SETTINGS_FILE, default_factory=dict)
         except Exception as exc:
             logger.warning("[OBS_ERROR] Could not load OBS settings: %s", exc)
             return {}
 
     def _save_settings(self) -> None:
-        OBS_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        OBS_SETTINGS_FILE.write_text(
-            json.dumps(
+        write_json(
+            OBS_SETTINGS_FILE,
                 {
                     "enabled": self.enabled,
                     "websocketUrl": self.ws_url,
@@ -164,10 +164,6 @@ class OBSService:
                     "canvasHeight": self.canvas_height,
                     "sceneWhitelist": self.whitelist,
                 },
-                indent=2,
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
         )
 
     @staticmethod

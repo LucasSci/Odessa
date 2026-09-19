@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from server.config import RUNTIME_DIR
+from server.core.atomic_json import file_lock, read_json, write_json
 
 
 CONFIG_FILE = RUNTIME_DIR / "chat_automation.json"
@@ -23,7 +24,7 @@ class ChatAutomationService:
         try:
             if not CONFIG_FILE.exists():
                 return self._empty()
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+            data = read_json(CONFIG_FILE, default_factory=self._empty)
             if not isinstance(data, dict):
                 return self._empty()
             data.setdefault("allowlist", [])
@@ -33,8 +34,8 @@ class ChatAutomationService:
             return self._empty()
 
     def _save(self, data: dict[str, Any]) -> dict[str, Any]:
-        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        CONFIG_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        # Os logs são anexados com frequência: atômico, mas sem .bak a cada gravação.
+        write_json(CONFIG_FILE, data, backup=False)
         return data
 
     def get_config(self) -> dict[str, Any]:

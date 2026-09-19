@@ -49,3 +49,9 @@ metadata.json
 # ele continua no historico do git: revogue-o e gere outro.
 .mcp.json
 .codex/config.toml
+# Copias de seguranca e arquivos corrompidos isolados pelo atomic_json
+# (server/core/atomic_json.py): sao locais, nunca versionar nem empacotar.
+server/data/*.bak
+server/data/**/*.bak
+*.json.corrupt-*
+server/runtime/**/*.bak

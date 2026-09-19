@@ -10,6 +10,7 @@ import httpx
 
 from server.config import N8N_ACTION_WEBHOOK_URL, RUNTIME_DIR, WEBHOOK_ALLOWED_HOSTS
 from server.core.ssrf import SSRFTransport
+from server.core.atomic_json import file_lock, read_json, write_json
 
 logger = logging.getLogger("odessa.webhooks")
 
@@ -62,7 +63,7 @@ class WebhookService:
         if not WEBHOOKS_FILE.exists():
             return []
         try:
-            raw = json.loads(WEBHOOKS_FILE.read_text(encoding="utf-8"))
+            raw = read_json(WEBHOOKS_FILE, default_factory=list)
             if not isinstance(raw, list):
                 return []
             return [self._normalize_config(item) for item in raw if isinstance(item, dict)]
@@ -71,11 +72,7 @@ class WebhookService:
             return []
 
     def _save_configs(self) -> None:
-        WEBHOOKS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        WEBHOOKS_FILE.write_text(
-            json.dumps(self._configs, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        write_json(WEBHOOKS_FILE, self._configs)
 
     def _seed_legacy_n8n(self) -> None:
         if not N8N_ACTION_WEBHOOK_URL:

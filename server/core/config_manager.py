@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 import time
@@ -5,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict
 import os
 
+from server.core.atomic_json import read_json, write_json
 from server.core.persona_manager import DEFAULT_CONFIG_PATH, get_persona_config_path
 
 _cached_config = None
@@ -282,18 +284,21 @@ def load_persona_config() -> Dict[str, Any]:
     try:
         mtime = os.path.getmtime(config_path)
         if _cached_config is not None and mtime == _cached_mtime and _cached_path == config_path:
-            return _cached_config
+            # Cópia: os chamadores alteram o dict (ex.: GET /video/config) e, se
+            # devolvêssemos o do cache, uma alteração NÃO salva vazaria para as
+            # próximas leituras (e o cache divergiria do disco).
+            return copy.deepcopy(_cached_config)
 
         logger.info("Loading persona config from %s", config_path)
-        with open(config_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        # read_json isola um arquivo corrompido (.corrupt-<data>) e restaura o
+        # .bak em vez de devolver "vazio" e deixar o próximo salvamento apagar tudo.
+        data = read_json(config_path, default_factory=_empty_config)
 
         # Personas criadas a partir do perfil legado podem conter os vídeos,
         # mas ainda não ter workflow publicado. Nesse caso, reaproveita os
         # gatilhos padrão até que a persona configure seu próprio workflow.
         if config_path != DEFAULT_CONFIG_PATH and not data.get("triggers"):
-            with open(DEFAULT_CONFIG_PATH, "r", encoding="utf-8") as f:
-                legacy = json.load(f)
+            legacy = read_json(DEFAULT_CONFIG_PATH, default_factory=dict)
             if legacy.get("triggers"):
                 for key in ("triggers", "flowNodes", "flowConnections", "flowCanvasVideoIds", "idleVideoId"):
                     if key in legacy:
@@ -301,9 +306,11 @@ def load_persona_config() -> Dict[str, Any]:
                 logger.info("Inherited legacy workflow for persona config %s", config_path)
 
         data = _normalize_config(data)
-        _cached_config = data
-        _cached_mtime = mtime
-        _cached_path = config_path
+        # O arquivo pode ter sido movido para quarentena durante a leitura.
+        if config_path.exists():
+            _cached_config = copy.deepcopy(data)
+            _cached_mtime = os.path.getmtime(config_path)
+            _cached_path = config_path
         logger.info("Successfully loaded persona config with %s videos.", len(data.get("videos", [])))
         return data
     except Exception as exc:
@@ -316,11 +323,10 @@ def save_persona_config(config: Dict[str, Any]) -> bool:
     global _cached_config, _cached_mtime, _cached_path
     try:
         config_path = get_persona_config_path()
-        config_path.parent.mkdir(parents=True, exist_ok=True)
         normalized = _normalize_config(config)
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(normalized, f, indent=2, ensure_ascii=False)
-        _cached_config = normalized
+        # Atômico + guarda a versão anterior em .bak (ver atomic_json).
+        write_json(config_path, normalized)
+        _cached_config = copy.deepcopy(normalized)
         _cached_mtime = os.path.getmtime(config_path)
         _cached_path = config_path
         return True

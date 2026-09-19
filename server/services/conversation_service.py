@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from server.config import RUNTIME_DIR
+from server.core.atomic_json import file_lock, read_json, write_json
 
 logger = logging.getLogger("odessa.conversations")
 
@@ -30,14 +31,13 @@ class ConversationService:
         if not self.path.exists():
             return {"conversations": []}
         try:
-            return json.loads(self.path.read_text(encoding="utf-8"))
+            return read_json(self.path, default_factory=lambda: {"conversations": []})
         except Exception as exc:
             logger.warning("Could not load conversations: %s", exc)
             return {"conversations": []}
 
     def _save(self, data: dict[str, Any]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        write_json(self.path, data)
 
     def list_conversations(self) -> list[dict[str, Any]]:
         return sorted(

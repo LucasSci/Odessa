@@ -425,8 +425,20 @@ async def get_config():
                     added_new = True
 
     # 2. Remove videos from config that are no longer on disk
+    #
+    # Só faz sentido se a pasta de vídeos foi listada de verdade. Com a pasta
+    # indisponível (OneDrive offline, disco externo desligado, caminho errado) a
+    # listagem vem VAZIA — e o filtro abaixo apagaria a biblioteca inteira da
+    # config e a gravaria. Listagem vazia com vídeos cadastrados = "não sei",
+    # então não mexe em nada.
     original_len = len(config_videos)
-    config_videos = [v for v in config_videos if v.get("id") in available_ids or v.get("missingFile")]
+    if available_ids or not config_videos:
+        config_videos = [v for v in config_videos if v.get("id") in available_ids or v.get("missingFile")]
+    else:
+        logger.warning(
+            "Pasta de vídeos sem arquivos, mas a config tem %d vídeo(s): preservando a config.",
+            original_len,
+        )
     if len(config_videos) < original_len:
         added_new = True
 

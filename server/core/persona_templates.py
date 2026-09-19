@@ -19,6 +19,7 @@ ativa, permitindo produzir o mesmo vídeo com personas diferentes:
 import logging
 from typing import Any, Dict, Optional
 
+from server.core.atomic_json import file_lock, read_json, write_json
 from server.core.persona_manager import get_persona, get_persona_config_path
 from server.core.persona_assets import get_primary_asset, get_asset_url
 
@@ -85,14 +86,11 @@ def get_default_templates() -> Dict[str, Dict[str, str]]:
 
 def _load_templates_from_config(persona_id: str) -> Dict[str, Dict[str, str]]:
     """Carrega os templates do arquivo de config da persona."""
-    import json
     config_path = get_persona_config_path(persona_id)
     if not config_path.exists():
         return get_default_templates()
-    try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            config = json.load(f)
-    except Exception:
+    config = read_json(config_path, default_factory=dict)
+    if not isinstance(config, dict):
         return get_default_templates()
 
     stored = config.get("videoTemplates", {})
@@ -116,16 +114,18 @@ def get_templates(persona_id: str) -> Dict[str, Dict[str, str]]:
 
 def save_templates(persona_id: str, templates: Dict[str, Dict[str, str]]) -> Dict[str, Dict[str, str]]:
     """Salva os templates de prompt no arquivo de config da persona."""
-    import json
     config_path = get_persona_config_path(persona_id)
-    config: Dict[str, Any] = {}
-    if config_path.exists():
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                config = json.load(f)
-        except Exception:
+    # Antes, qualquer falha de leitura virava config = {} e o arquivo era regravado
+    # SÓ com os templates — apagando vídeos, gatilhos e fluxo da persona. Agora a
+    # leitura isola/restaura arquivo corrompido e a gravação é atômica (com .bak).
+    with file_lock(config_path):
+        config: Dict[str, Any] = read_json(config_path, default_factory=dict) if config_path.exists() else {}
+        if not isinstance(config, dict):
             config = {}
+        return _save_templates_locked(config_path, config, templates)
 
+
+def _save_templates_locked(config_path, config: Dict[str, Any], templates: Dict[str, Dict[str, str]]) -> Dict[str, Dict[str, str]]:
     # Valida e normaliza
     normalized = get_default_templates()
     for vtype in VIDEO_TYPES:
@@ -136,8 +136,7 @@ def save_templates(persona_id: str, templates: Dict[str, Dict[str, str]]) -> Dic
                     normalized[vtype][key] = str(val)
 
     config["videoTemplates"] = normalized
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2, ensure_ascii=False)
+    write_json(config_path, config)
     return normalized
 
 

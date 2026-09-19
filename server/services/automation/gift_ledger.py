@@ -1,6 +1,8 @@
 import logging
 import json
 from typing import Dict, Any, List
+
+from server.core.atomic_json import write_json
 from datetime import datetime
 from pathlib import Path
 
@@ -99,8 +101,7 @@ class GiftLedger:
 
     def export_json(self, path: Path):
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(self.get_summary(), f, indent=2, ensure_ascii=False)
+            write_json(path, self.get_summary(), backup=False)
             logger.info(f"GiftLedger exported to {path}")
         except Exception as exc:
             logger.error(f"Failed to export GiftLedger: {exc}")

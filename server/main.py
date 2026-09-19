@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from server.config import GEMINI_API_KEY, OPENAI_API_KEY  # noqa: F401 (mantido p/ compat de import)
 from server.core import auth as auth_core
+from server.core.atomic_json import recovery_events
 from server.core.request_guard import RequestGuard
 from server.api.v1.api import api_router
 from server.api.v1.endpoints import auth, obs, webhooks, proxy as proxy_router, agent as agent_router
@@ -182,6 +183,9 @@ async def health_check():
         "status": "ok",
         "version": "1.1.0",
         "service": "odessa-api",
+        # Arquivos de dados que estavam corrompidos e foram isolados/restaurados
+        # (ver atomic_json). Vazio = tudo íntegro.
+        "dataRecovery": recovery_events(),
         "desktop": {
             "enabled": os.getenv("ODESSA_DESKTOP") == "1",
             "user_data_dir": user_data_dir,

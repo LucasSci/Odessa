@@ -5,14 +5,13 @@ Antes viviam só no localStorage do navegador do Palco, então o overlay do OBS
 aplicadas nos clips que o VideoService devolve.
 """
 
-import json
 import logging
-import os
-import tempfile
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+from server.core.atomic_json import read_json, write_json
 
 logger = logging.getLogger("odessa.video_edits")
 
@@ -94,11 +93,9 @@ class VideoEditStore:
         signature = (stat.st_mtime_ns, stat.st_size)
         if self._cache and self._cache[0] == signature:
             return dict(self._cache[1])
-        try:
-            raw = json.loads(self._path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            logger.warning("[video_edits] arquivo ilegível, ignorando: %s", exc)
-            return {}
+        # Corrompido: isola o arquivo e usa o .bak (ver atomic_json.read_json);
+        # nunca devolve "{}" e deixa o próximo put() apagar as edições.
+        raw = read_json(self._path, default_factory=dict)
         if not isinstance(raw, dict):
             return {}
         parsed = {vid: sanitize_edit(vid, edit) for vid, edit in raw.items() if valid_video_id(vid)}
@@ -110,18 +107,8 @@ class VideoEditStore:
 
     @staticmethod
     def _write_json(path: Path, data: Any) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(data, handle, ensure_ascii=False)
-            os.replace(tmp, path)
-        except BaseException:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
+        # Compacto (as edições podem carregar trilhas em base64) e atômico, com .bak.
+        write_json(path, data, indent=None)
 
     def all(self) -> Dict[str, Dict[str, Any]]:
         with self._lock:
@@ -133,13 +120,7 @@ class VideoEditStore:
 
     # ── histórico de versões ────────────────────────────────────────────────
     def _read_history(self) -> Dict[str, list]:
-        try:
-            raw = json.loads(self._history_path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            return {}
-        except (OSError, ValueError) as exc:
-            logger.warning("[video_edits] histórico ilegível, ignorando: %s", exc)
-            return {}
+        raw = read_json(self._history_path, default_factory=dict)
         return raw if isinstance(raw, dict) else {}
 
     def _record_history(self, video_id: str, edit: Dict[str, Any], action: str) -> None:

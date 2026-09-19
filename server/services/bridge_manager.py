@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from server.core.atomic_json import file_lock, read_json, write_json
+
 log = logging.getLogger("odessa.bridge")
 
 # Diretório de runtime para configs
@@ -314,7 +316,7 @@ def load_bridge_config() -> dict[str, Any]:
     """Lê config da bridge do disco."""
     try:
         if BRIDGE_CONFIG_FILE.exists():
-            raw = json.loads(BRIDGE_CONFIG_FILE.read_text(encoding="utf-8"))
+            raw = read_json(BRIDGE_CONFIG_FILE, default_factory=dict)
             defaults = _default_config()
             defaults.update(raw)
             if "selectors" in raw and isinstance(raw["selectors"], dict):
@@ -327,14 +329,13 @@ def load_bridge_config() -> dict[str, Any]:
 
 def save_bridge_config(config: dict[str, Any]) -> dict[str, Any]:
     """Salva config da bridge no disco."""
-    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     merged = _default_config()
     for key in ("mode", "cdpUrl", "roomUrl", "port", "autoconnect"):
         if key in config:
             merged[key] = config[key]
     if "selectors" in config and isinstance(config["selectors"], dict):
         merged["selectors"] = {**merged["selectors"], **config["selectors"]}
-    BRIDGE_CONFIG_FILE.write_text(json.dumps(merged, indent=2, ensure_ascii=False), encoding="utf-8")
+    write_json(BRIDGE_CONFIG_FILE, merged)
     return merged
 
 

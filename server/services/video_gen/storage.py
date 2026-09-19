@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from server.config import ODESSA_VIDEO_GEN_DIR, VIDEO_GEN_FRAME_FORMAT
+from server.core.atomic_json import file_lock, read_json, write_json
 from server.core.persona_manager import get_active_persona_id
 
 logger = logging.getLogger("odessa.video_gen.storage")
@@ -154,20 +155,16 @@ def _trim_jsonl(path: Path, limit: int) -> None:
 def save_queue(queue: List[Dict[str, Any]], persona_id: Optional[str] = None) -> None:
     d = persona_dir(persona_id)
     _ensure_dir(d)
-    with open(d / "queue.json", "w", encoding="utf-8") as f:
-        json.dump(queue, f, indent=2, ensure_ascii=False)
+    # Caminho quente (a cada mudança de estado da fila): atômico, sem .bak.
+    write_json(d / "queue.json", queue, backup=False)
 
 
 def get_queue(persona_id: Optional[str] = None) -> List[Dict[str, Any]]:
     path = persona_dir(persona_id) / "queue.json"
     if not path.exists():
         return []
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else []
-    except (json.JSONDecodeError, OSError):
-        return []
+    data = read_json(path, default_factory=list)
+    return data if isinstance(data, list) else []
 
 
 # ── Histórico de gerações ──────────────────────────────────────────────────
@@ -175,20 +172,14 @@ def append_history(record: Dict[str, Any], persona_id: Optional[str] = None) -> 
     d = persona_dir(persona_id)
     _ensure_dir(d)
     path = d / "history.json"
-    history: List[Dict[str, Any]] = []
-    if path.exists():
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                history = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            history = []
-    if not isinstance(history, list):
-        history = []
     record = {**record, "id": record.get("id") or str(uuid.uuid4()), "createdAt": record.get("createdAt") or _now()}
-    history.append(record)
-    history = history[-MAX_HISTORY:]
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(history, f, indent=2, ensure_ascii=False)
+    # Trava: gerações terminam em threads diferentes e o ler-anexar-gravar se perdia.
+    with file_lock(path):
+        history = read_json(path, default_factory=list)
+        if not isinstance(history, list):
+            history = []
+        history.append(record)
+        write_json(path, history[-MAX_HISTORY:])
     return record
 
 
@@ -196,12 +187,8 @@ def get_history(persona_id: Optional[str] = None) -> List[Dict[str, Any]]:
     path = persona_dir(persona_id) / "history.json"
     if not path.exists():
         return []
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else []
-    except (json.JSONDecodeError, OSError):
-        return []
+    data = read_json(path, default_factory=list)
+    return data if isinstance(data, list) else []
 
 
 # ── Vídeos gerados ─────────────────────────────────────────────────────────

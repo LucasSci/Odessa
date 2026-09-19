@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from server.config import RUNTIME_DIR
+from server.core.atomic_json import file_lock, read_json, write_json
 
 logger = logging.getLogger("odessa.session_history")
 
@@ -203,9 +204,7 @@ class SessionHistoryService:
                     "endedAt": None,
                     "eventCount": self._event_counts.get(sid, 0),
                 }
-            self.sessions_file.write_text(
-                json.dumps(sessions, indent=2, ensure_ascii=False), encoding="utf-8"
-            )
+            write_json(self.sessions_file, sessions, backup=False)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to update sessions index: %s", exc)
 
@@ -213,7 +212,7 @@ class SessionHistoryService:
         try:
             if not self.sessions_file.exists():
                 return {}
-            data = json.loads(self.sessions_file.read_text(encoding="utf-8"))
+            data = read_json(self.sessions_file, default_factory=dict)
             return data if isinstance(data, dict) else {}
         except Exception:
             return {}
