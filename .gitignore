@@ -43,3 +43,9 @@ home-design*.png
 home2-design*.png
 import_test.json
 metadata.json
+
+# Configuracao local de agentes/MCP: contem tokens de API (ex.: Hostinger).
+# NAO versionar — cada pessoa mantem a sua. Se um token ja foi commitado,
+# ele continua no historico do git: revogue-o e gere outro.
+.mcp.json
+.codex/config.toml
