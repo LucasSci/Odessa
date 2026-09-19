@@ -21,6 +21,7 @@ import {
   Trash2,
   Upload,
   Users,
+  Volume2,
   VolumeX,
 } from 'lucide-react';
 import { emitEvent } from './core/eventBus';
@@ -31,13 +32,17 @@ import { VIDEO_ROTEIRO, categorizeVideo } from './core/videoRoteiro';
 import {
   routeSetupLiveScene,
   routeStartTransmission,
+  routeSwitchScene,
   type CommandResult,
 } from './lib/obsCommandRouter';
 import { cn } from './lib/utils';
 import type { AutopilotRuntimeState } from './core/useAutopilotRuntime';
 import type { CapturedMessage } from './types';
-import { Badge, Button, Card, Tabs } from './components/ui';
+import { Badge, Button, Card, ConfirmButton, Tabs } from './components/ui';
 import { useToast } from './components/Toast';
+import { ClipDeck, deckOrder, groupDeckVideos } from './components/stage/ClipDeck';
+import { EventRadio } from './components/stage/EventRadio';
+import { SignalStrip, type Signal } from './components/stage/SignalStrip';
 import { AiConfigPanel } from './components/AiConfigPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import TopPersonaSelector from './components/TopPersonaSelector';
@@ -47,11 +52,9 @@ import { PersonaChatLab } from './components/PersonaChatLab';
 import { TangoChatPanel } from './components/TangoChatPanel';
 import { SessionHistoryPanel } from './components/SessionHistoryPanel';
 import VideoEditor from './components/VideoEditor';
-import { StatusBadge, deriveStageStatus } from './components/StatusBadge';
 
-import { applyVideoEdit, getVideoEdit, saveVideoEdit, defaultVideoEdit, type VideoSegment } from './core/videoEdits';
+import { applyVideoEdit, getVideoEdit, hasVideoEdit, saveVideoEdit, defaultVideoEdit, type VideoSegment } from './core/videoEdits';
 import { getAiConfig, hasActiveGeminiKey, type AiAutonomyLevel } from './core/aiConfig';
-import { globalMoodEngine } from './core/moodEngine';
 
 const ReactiveFlowBoard = lazy(() => import('./ReactiveFlowBoard'));
 const PlanningCanvas = lazy(() => import('./PlanningCanvas'));
@@ -398,7 +401,7 @@ export default function OdessaLiveCenter({
 
   const [settingsSubTab, setSettingsSubTab] = useState<'general' | 'ai' | 'canvas'>('general');
   const [flowSubTab, setFlowSubTab] = useState<'board' | 'logs'>('board');
-  const [liveMode, setLiveMode] = useState<'central' | 'stage' | 'overview'>('central');
+  const [liveMode, setLiveMode] = useState<'central' | 'stage'>('stage');
   // Editor de vídeo canônico (Fase 5b) — um único modal, aberto de qualquer
   // aba (Palco ou Biblioteca), em vez de duas instâncias/UIs separadas.
   const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
@@ -898,18 +901,17 @@ export default function OdessaLiveCenter({
       </div>
 
       <section key={activeTab} className="anim-tab-enter flex min-h-0 flex-1 flex-col overflow-hidden">
-        {/* 1. AO VIVO (Central da Live + Palco / Visão Geral) */}
+        {/* 1. AO VIVO (Palco + Central da Live) */}
         {(activeTab === 'live' || activeTab === 'chat' || activeTab === 'home' || activeTab === 'stage') && (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex items-center justify-between border-b border-white/5 bg-black/40 px-4 py-1.5 text-xs">
               <Tabs
                 size="sm"
                 value={liveMode}
-                onChange={(id) => setLiveMode(id as 'central' | 'stage' | 'overview')}
+                onChange={(id) => setLiveMode(id as 'central' | 'stage')}
                 items={[
+                  { id: 'stage', label: 'Palco' },
                   { id: 'central', label: 'Central da Live' },
-                  { id: 'stage', label: 'Palco OBS' },
-                  { id: 'overview', label: 'Visão Geral' },
                 ]}
               />
             </div>
@@ -934,23 +936,6 @@ export default function OdessaLiveCenter({
                   onRefresh={refreshVideoState}
                   onPlayVideoById={playVideoById}
                   onOpenEditor={openVideoEditor}
-                />
-              )}
-              {liveMode === 'overview' && (
-                <HomeDashboard
-                  capturedText={capturedText}
-                  runtime={runtime}
-                  videoState={videoState}
-                  view={view}
-                  go={(tab) => {
-                    if (tab === 'chat' || tab === 'stage' || tab === 'home' || tab === 'live') {
-                      setActiveTab('live');
-                      setLiveMode(tab === 'stage' ? 'stage' : 'central');
-                    } else {
-                      setActiveTab(tab);
-                    }
-                  }}
-                  onRefresh={refreshVideoState}
                 />
               )}
             </div>
@@ -1248,7 +1233,7 @@ export function parseHeadersText(value: string) {
 
 // Metadados de cada aba para o cabeçalho/sidebar (redesign Studio 2.0).
 const TAB_META: Record<TabKey, { group: string; title: string }> = {
-  live:     { group: 'Operação', title: 'Central da Live' },
+  live:     { group: 'Operação', title: 'Ao Vivo' },
   conversation: { group: 'Laboratório', title: 'Conversa com Personas' },
   library:  { group: 'Conteúdo', title: 'Biblioteca' },
   flow:     { group: 'Operação', title: 'Automações' },
@@ -1306,141 +1291,6 @@ function DirectorStatusCard({ runtime, onOpen }: { runtime: AutopilotRuntimeStat
       </div>
     </div>
   );
-}
-
-function HomeDashboard({
-  capturedText,
-  runtime,
-  videoState,
-  view,
-  go,
-  onRefresh,
-}: {
-  capturedText: CapturedMessage[];
-  runtime: AutopilotRuntimeState;
-  videoState: VideoState | null;
-  view: HomeViewData;
-  go: (tab: TabKey) => void;
-  onRefresh: () => void;
-}) {
-  // ⚡ Bolt: Using backward loop instead of slice(-6).reverse()
-  const latestEvents = [];
-  for (let i = capturedText.length - 1; i >= Math.max(0, capturedText.length - 6); i--) {
-    latestEvents.push(capturedText[i]);
-  }
-  // Derive the active clip exactly like StagePanel so both players stay in sync.
-  // applyVideoEdit sobrepõe a edição por vídeo (cortes/volume/áudio) também nos
-  // clipes vindos do servidor (fluxo), não só nos forçados pela Diretora.
-  const homeActiveClip =
-    (videoState?.currentClip ? applyVideoEdit(videoState.currentClip) : null) ||
-    (videoState?.current_video_id
-      ? clipFromVideoId(videoState.current_video_id, view.videos)
-      : view.idleVideoId
-        ? clipFromVideoId(view.idleVideoId, view.videos)
-        : null);
-
-  const homeDecision = runtime.latestDecision;
-  const homeMood = globalMoodEngine.getCurrentMood();
-  const homeMoodLabel = ({ cozy: 'Aconchego', hype: 'Hype', focused: 'Focada', chaotic: 'Caótica' } as Record<string, string>)[homeMood.state] || 'Calma';
-  const homeStats = [
-    { v: view.activeTriggers.length, l: 'Gatilhos ativos', accent: true },
-    { v: videoState?.queue_len ?? 0, l: 'Clipes na fila' },
-    { v: capturedText.length, l: 'Eventos' },
-    { v: runtime.obsScenes.length, l: 'Cenas OK' },
-  ];
-
-  return (
-    <div className="h-full overflow-y-auto bg-[#07080a] p-4 lg:p-5">
-      <div className="grid gap-4 lg:grid-cols-[348px_1fr]" style={{ alignItems: 'start' }}>
-        {/* Preview do palco */}
-        <div className="relative overflow-hidden rounded-2xl border border-white/12 bg-black" style={{ aspectRatio: '9 / 16', maxHeight: 592 }}>
-          <ContinuityPlayer
-            clip={homeActiveClip}
-            nextClip={videoState?.nextClip ? applyVideoEdit(videoState.nextClip) : null}
-            videos={view.videos}
-            onEnded={async () => { await advanceReactiveFlow(videoState ?? null); onRefresh(); }}
-            fit="contain"
-            className="h-full w-full"
-          />
-          <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-2">
-            <span className="rounded-full border border-white/15 bg-black/60 px-2.5 py-1 text-[9px] font-bold uppercase tracking-widest text-[var(--gold)]">{videoState?.state === 'ACTION' ? 'reação no ar' : 'em ensaio'}</span>
-            <span className="rounded-full border border-white/10 bg-black/60 px-2.5 py-1 text-[9px] font-bold uppercase tracking-widest text-slate-400">1080×1920</span>
-          </div>
-        </div>
-
-        {/* Coluna direita */}
-        <div className="flex flex-col gap-4">
-          {/* Diretora ao vivo */}
-          <div className="odessa-panel-surface p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <Brain style={{ width: 15, height: 15 }} className="text-[var(--violet)]" />
-              <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Diretora ao vivo</span>
-              <button className="ml-auto text-[11px] text-slate-500 hover:text-slate-300" onClick={() => go('ai')}>ver tudo →</button>
-            </div>
-            <div className="flex gap-4">
-              <div className="min-w-0 flex-1">
-                {homeDecision ? (
-                  <>
-                    <p className="text-[13px] italic text-sky-200/90">“{homeDecision.speech}”</p>
-                    <p className="mt-1 text-[11px] text-slate-500">{homeDecision.reason}</p>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {homeDecision.actions.slice(0, 4).map((a) => (
-                        <span key={a.id} className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[9px] text-emerald-300">{a.type}</span>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-[13px] text-slate-500">Aguardando eventos — inicie a Diretora para vê-la conduzir.</p>
-                )}
-              </div>
-              <div className="w-[136px] shrink-0 space-y-2">
-                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-600">Humor</div>
-                <div className="heading-serif text-2xl text-[var(--gold)]">{homeMoodLabel}</div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-[#171a1f]"><div className="h-full rounded-full" style={{ width: `${Math.round(homeMood.energy)}%`, background: 'var(--accent-grad)' }} /></div>
-                <div className="text-[11px] text-slate-500">energia {Math.round(homeMood.energy)} · acolhimento {Math.round(homeMood.warmth)}</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Métricas */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {homeStats.map((s) => (
-              <div key={s.l} className="odessa-panel-surface p-4">
-                <div className="heading-serif text-3xl leading-none" style={s.accent ? { color: 'transparent', backgroundImage: 'var(--accent-grad)', WebkitBackgroundClip: 'text', backgroundClip: 'text' } : undefined}>{s.v}</div>
-                <div className="mt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{s.l}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Eventos ao vivo */}
-          <div className="odessa-panel-surface p-4">
-            <div className="mb-2 flex items-center gap-2">
-              <RadioTower style={{ width: 15, height: 15 }} className="text-[var(--violet)]" />
-              <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Eventos · ao vivo</span>
-              <span className="ml-auto text-[10px] text-slate-600">captura ●</span>
-            </div>
-            {latestEvents.length === 0 ? (
-              <p className="text-xs text-slate-500">Aguardando OCR ou teste manual.</p>
-            ) : (
-              <div className="divide-y divide-white/5">
-                {latestEvents.map((event) => (
-                  <div key={event.id} className="flex items-start gap-3 py-2.5">
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[#171a1f] text-[13px]">{event.kind === 'gift' ? '🎁' : event.kind === 'alert' ? '👋' : '💬'}</span>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[12.5px] text-slate-200">{event.text}</div>
-                      <div className="text-[10px] text-slate-600">{event.kind}/{event.source}</div>
-                    </div>
-                    <span className="shrink-0 font-mono text-[10px] text-slate-600">{event.time}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
 }
 
 type HomeViewData = {
@@ -1850,15 +1700,21 @@ function StagePanel({
     return () => document.removeEventListener('fullscreenchange', syncFullscreen);
   }, []);
 
-  const forceVideo = async (videoId: string) => {
-    if (!videoId) return;
-    setTriggering(true);
-    try {
-      await onPlayVideoById(videoId, 'manual_click');
-    } finally {
-      setTriggering(false);
-    }
-  };
+  const forceVideo = useCallback(
+    async (videoId: string, label?: string) => {
+      if (!videoId) return;
+      setTriggering(true);
+      try {
+        await onPlayVideoById(videoId, 'manual_click');
+        toast.info(`No ar: ${label || videoId}`);
+      } catch (err) {
+        toast.error(`Não foi possível colocar no ar: ${err instanceof Error ? err.message : 'falha'}`);
+      } finally {
+        setTriggering(false);
+      }
+    },
+    [onPlayVideoById, toast],
+  );
 
   const toggleFullscreen = async () => {
     try {
@@ -1880,19 +1736,93 @@ function StagePanel({
         ? clipFromVideoId(view.idleVideoId, view.videos)
         : null);
   const upcomingClips = Array.isArray(videoState?.upcoming) ? videoState.upcoming : [];
-
-  // ⚡ Bolt: Using backward loop instead of slice(-3).reverse()
-  const latestSignals = [];
-  for (let i = capturedText.length - 1; i >= Math.max(0, capturedText.length - 3); i--) {
-    latestSignals.push(capturedText[i]);
-  }
-
   const activeClipLabel = activeClip ? clipDisplayName(activeClip, view.videos) : 'Sem video selecionado';
 
   const advanceVideo = async () => {
     await advanceReactiveFlow(videoState ?? null);
     onRefresh();
   };
+
+  const deckGroups = useMemo(
+    () =>
+      groupDeckVideos(
+        view.videos.map((video) => ({
+          id: video.id,
+          label: videoLabel(video),
+          loop: video.loop,
+          thumbSrc: video.src || video.url || apiUrl(`/api/video/play/${video.id}`),
+          edited: hasVideoEdit(video.id),
+        })),
+      ),
+    [view.videos],
+  );
+  const deckFlat = useMemo(() => deckOrder(deckGroups), [deckGroups]);
+
+  const backToIdle = useCallback(() => {
+    if (!view.idleVideoId) {
+      toast.warning('Esta persona não tem um vídeo idle definido.');
+      return;
+    }
+    void forceVideo(view.idleVideoId, 'Idle');
+  }, [view.idleVideoId, forceVideo, toast]);
+
+  // Atalhos: 1-9 = pad do deck, Esc Esc = voltar ao idle, F = tela cheia.
+  const lastEscRef = useRef(0);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (/^[1-9]$/.test(event.key)) {
+        const video = deckFlat[Number(event.key) - 1];
+        if (video) void forceVideo(video.id, video.label);
+        return;
+      }
+      if (event.key === 'Escape') {
+        const now = Date.now();
+        if (now - lastEscRef.current < 600) backToIdle();
+        lastEscRef.current = now;
+        return;
+      }
+      if (event.key.toLowerCase() === 'f') void toggleFullscreen();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deckFlat, forceVideo, backToIdle]);
+
+  const signals: Signal[] = [
+    {
+      id: 'obs',
+      label: 'OBS',
+      status: runtime.obsError ? 'error' : runtime.currentObsScene ? 'online' : 'warn',
+      detail: runtime.obsError || runtime.currentObsScene || 'sem cena',
+    },
+    {
+      id: 'video',
+      label: 'Vídeo',
+      status: runtime.videoMonitor.error ? 'error' : videoState ? 'online' : 'warn',
+      detail: runtime.videoMonitor.error || `${videoState?.queue_len ?? 0} na fila`,
+    },
+    {
+      id: 'ia',
+      label: 'IA',
+      status: runtime.health ? (runtime.lastError ? 'warn' : 'online') : 'warn',
+      detail: runtime.lastError || undefined,
+    },
+    {
+      id: 'diretora',
+      label: 'Diretora',
+      status: runtime.autopilotEnabled ? 'online' : 'idle',
+      detail: runtime.autopilotEnabled ? runtime.autonomyLevel : 'pausada',
+    },
+    {
+      id: 'voz',
+      label: 'Voz',
+      status: runtime.voiceEnabled ? 'online' : 'idle',
+      detail: runtime.voiceEnabled ? 'ligada' : 'desligada',
+    },
+  ];
 
   if (isFullscreen) {
     return (
@@ -1913,98 +1843,145 @@ function StagePanel({
   }
 
   return (
-    <div ref={stageRef} className="odsa-stage2 flex h-full min-h-0 flex-col gap-4 overflow-y-auto bg-[#07080a] p-4 lg:p-5">
-      {/* Status + controles de OBS */}
-      <div className="flex flex-wrap items-center gap-2">
-        <StatusBadge
-          status={deriveStageStatus({ state: videoState?.state, isTransitioning: triggering, queueLen: videoState?.queue_len, autopilotEnabled: runtime.autopilotEnabled })}
-          pulse={runtime.autopilotEnabled}
-        />
-        <span className="truncate text-xs text-slate-400">{videoState?.queue_len ?? 0} na fila</span>
-        <div className="ml-auto flex items-center gap-2">
-          <button className="odsa-btn odsa-btn-secondary odsa-btn-md" disabled={!!obsBusy} onClick={() => void runRoutedCommand('Preparar mesa OBS', () => routeSetupLiveScene(obsSettingsFromApp as never))}>
-            <Upload style={{ width: 14, height: 14 }} /> Preparar OBS
-          </button>
-          <button className="odsa-btn odsa-btn-primary odsa-btn-md" disabled={!!obsBusy} onClick={() => void runRoutedCommand('Iniciar transmissao', () => routeStartTransmission(obsSettingsFromApp as never))}>
-            <RadioTower style={{ width: 14, height: 14 }} /> Transmitir
-          </button>
-          <button className="odsa-btn odsa-btn-secondary odsa-btn-md odsa-btn-icon" onClick={() => void toggleFullscreen()} title="Tela cheia">
-            <Maximize2 style={{ width: 15, height: 15 }} />
-          </button>
+    <div ref={stageRef} className="odsa-stage2 flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-1">
+      {/* Sinais vitais + comandos de transmissão */}
+      <div className="odessa-panel-surface flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3">
+        <SignalStrip signals={signals} />
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {runtime.obsScenes.length > 0 && (
+            <select
+              aria-label="Cena do OBS"
+              value={runtime.currentObsScene ?? ''}
+              disabled={!!obsBusy}
+              onChange={(e) => void runRoutedCommand(`Cena ${e.target.value}`, () => routeSwitchScene(e.target.value))}
+              className="h-8 rounded-full border border-[var(--border2)] bg-[var(--bg3)] px-3 text-xs text-[var(--t1)] outline-none focus:border-[var(--sky)]"
+            >
+              {!runtime.currentObsScene && <option value="">Cena…</option>}
+              {runtime.obsScenes.map((scene) => (
+                <option key={scene} value={scene}>{scene}</option>
+              ))}
+            </select>
+          )}
+          <Button size="sm" variant={runtime.voiceEnabled ? 'success' : 'secondary'} onClick={runtime.toggleVoice} aria-pressed={runtime.voiceEnabled}>
+            {runtime.voiceEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+            Voz {runtime.voiceEnabled ? 'ligada' : 'off'}
+          </Button>
+          <Button size="sm" variant="secondary" disabled={!!obsBusy} onClick={() => void runRoutedCommand('Preparar mesa OBS', () => routeSetupLiveScene(obsSettingsFromApp as never))}>
+            <Upload className="h-3.5 w-3.5" /> Preparar OBS
+          </Button>
+          <ConfirmButton size="sm" variant="primary" confirmLabel="Confirmar transmissão?" disabled={!!obsBusy} onConfirm={() => runRoutedCommand('Iniciar transmissão', () => routeStartTransmission(obsSettingsFromApp as never))}>
+            <RadioTower className="h-3.5 w-3.5" /> Transmitir
+          </ConfirmButton>
+          <Button size="sm" variant="secondary" onClick={() => void toggleFullscreen()} title="Tela cheia (F)" aria-label="Tela cheia">
+            <Maximize2 className="h-3.5 w-3.5" />
+          </Button>
         </div>
       </div>
 
-      {/* Topo: preview + No ar agora + fila */}
-      <div className="grid gap-4 lg:grid-cols-[minmax(260px,320px)_1fr]" style={{ alignItems: 'start' }}>
-        <div className="relative overflow-hidden rounded-2xl border border-white/12 bg-black" style={{ aspectRatio: '9 / 16', maxHeight: 460 }}>
-          <ContinuityPlayer clip={activeClip} nextClip={videoState?.nextClip ? applyVideoEdit(videoState.nextClip) : null} videos={view.videos} onEnded={advanceVideo} fit="contain" className="h-full w-full" />
-          <div className="pointer-events-none absolute right-2 top-2 rounded-full border border-white/15 bg-black/60 px-2.5 py-1 text-[9px] font-bold uppercase tracking-widest text-[var(--sky)]">No ar</div>
-        </div>
+      <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)] xl:grid-cols-[minmax(280px,360px)_minmax(0,1fr)_minmax(260px,320px)]">
+        {/* Programa */}
+        <div className="flex flex-col gap-3">
+          <div className="relative overflow-hidden rounded-2xl border border-[var(--sky)]/40 bg-black shadow-[var(--shadow-live)]" style={{ aspectRatio: '9 / 16', maxHeight: 560 }}>
+            <ContinuityPlayer clip={activeClip} nextClip={videoState?.nextClip ? applyVideoEdit(videoState.nextClip) : null} videos={view.videos} onEnded={advanceVideo} fit="contain" className="h-full w-full" />
+            <div className="pointer-events-none absolute left-2 top-2 flex items-center gap-1.5 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-white">
+              <span className={cn('h-1.5 w-1.5 rounded-full', runtime.autopilotEnabled ? 'animate-pulse bg-red-500' : 'bg-[var(--t3)]')} />
+              No ar
+            </div>
+          </div>
 
-        <div className="flex flex-col gap-4">
-          <div className="odessa-panel-surface p-4">
-            <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">No ar agora</div>
+          <div className="odessa-panel-surface p-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-white">{activeClipLabel}</div>
-                <div className="truncate text-xs text-slate-500">{(activeClip?.segments?.length || 0) > 0 ? `${activeClip?.segments?.length} cortes` : 'sem corte'} · áudio {activeClip?.audio?.mode || 'mudo'}</div>
+                <div className="truncate text-sm font-semibold text-[var(--t1)]">{activeClipLabel}</div>
+                <div className="truncate text-[11px] text-[var(--t3)]">
+                  {(activeClip?.segments?.length || 0) > 0 ? `${activeClip?.segments?.length} cortes` : 'sem corte'} · áudio {activeClip?.audio?.mode || 'mudo'}
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button className="odsa-btn odsa-btn-secondary odsa-btn-md odsa-btn-icon" title="Repetir" onClick={() => { if (activeClip?.videoId) void forceVideo(activeClip.videoId); }}><Rewind style={{ width: 15, height: 15 }} /></button>
-                <button className="odsa-btn odsa-btn-secondary odsa-btn-md odsa-btn-icon" title="Próximo" onClick={() => void advanceVideo()}><FastForward style={{ width: 15, height: 15 }} /></button>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <Button size="icon" variant="secondary" title="Repetir" aria-label="Repetir clip" onClick={() => { if (activeClip?.videoId) void forceVideo(activeClip.videoId, activeClipLabel); }}>
+                  <Rewind className="h-3.5 w-3.5" />
+                </Button>
+                <Button size="icon" variant="secondary" title="Próximo" aria-label="Próximo clip" onClick={() => void advanceVideo()}>
+                  <FastForward className="h-3.5 w-3.5" />
+                </Button>
+                {activeClip?.videoId && (
+                  <Button size="icon" variant="secondary" title="Editar cortes" aria-label="Editar cortes" onClick={() => onOpenEditor(activeClip.videoId, activeClipLabel)}>
+                    <Scissors className="h-3.5 w-3.5" />
+                  </Button>
+                )}
               </div>
             </div>
             <div className="mt-3 flex items-center gap-2">
-              <VolumeX style={{ width: 15, height: 15 }} className="shrink-0 text-slate-500" />
-              <input type="range" min={0} max={100} value={Math.round((activeClip?.audio?.volume ?? 1) * 100)}
-                onChange={(e) => { if (!activeClip?.videoId) return; const cur = getVideoEdit(activeClip.videoId) ?? defaultVideoEdit(activeClip.videoId); saveVideoEdit({ ...cur, volume: Number(e.target.value) / 100 }); onRefresh(); }}
-                className="flex-1 accent-[var(--violet)]" />
-              <span className="w-9 shrink-0 text-right font-mono text-[11px] text-slate-400">{Math.round((activeClip?.audio?.volume ?? 1) * 100)}%</span>
+              <VolumeX className="h-3.5 w-3.5 shrink-0 text-[var(--t3)]" />
+              <input
+                type="range"
+                min={0}
+                max={100}
+                aria-label="Volume do clip no ar"
+                value={Math.round((activeClip?.audio?.volume ?? 1) * 100)}
+                onChange={(e) => {
+                  if (!activeClip?.videoId) return;
+                  const cur = getVideoEdit(activeClip.videoId) ?? defaultVideoEdit(activeClip.videoId);
+                  saveVideoEdit({ ...cur, volume: Number(e.target.value) / 100 });
+                  onRefresh();
+                }}
+                className="flex-1 accent-[var(--sky)]"
+              />
+              <span className="w-9 shrink-0 text-right font-mono text-[11px] text-[var(--t3)]">{Math.round((activeClip?.audio?.volume ?? 1) * 100)}%</span>
+            </div>
+            <Button size="sm" variant="danger" className="mt-3 w-full" onClick={backToIdle} title="Esc duas vezes">
+              Voltar ao Idle
+            </Button>
+          </div>
+        </div>
+
+        {/* Deck de clips */}
+        <div className="odessa-panel-surface min-w-0 p-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--t3)]">Deck de clips</div>
+            <div className="text-[10px] text-[var(--t3)]">
+              clique ou teclas <kbd className="rounded bg-[var(--bg4)] px-1 font-mono">1</kbd>–<kbd className="rounded bg-[var(--bg4)] px-1 font-mono">9</kbd> = no ar
             </div>
           </div>
+          <ClipDeck
+            groups={deckGroups}
+            activeVideoId={activeClip?.videoId}
+            busy={triggering}
+            onPlay={(id) => {
+              const video = deckFlat.find((item) => item.id === id);
+              void forceVideo(id, video?.label);
+            }}
+            onEdit={onOpenEditor}
+          />
+        </div>
 
+        {/* Fila + rádio de eventos */}
+        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2 xl:col-span-1">
           <div className="odessa-panel-surface p-4">
-            <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">A seguir na fila</div>
+            <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--t3)]">A seguir na fila</div>
             {upcomingClips.length === 0 ? (
-              <div className="text-xs text-slate-500">Nada enfileirado. A Diretora enfileira reações automaticamente.</div>
+              <div className="text-xs text-[var(--t3)]">Nada enfileirado. A Diretora enfileira reações automaticamente.</div>
             ) : (
-              <div className="space-y-2">
+              <ol className="space-y-2">
                 {upcomingClips.slice(0, 5).map((clip, i) => (
-                  <div key={`${clip.videoId}-${i}`} className="flex items-center gap-3 text-xs">
-                    <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#171a1f] text-slate-400">▶</span>
-                    <span className="truncate text-slate-300">{clipDisplayName(clip, view.videos)}</span>
-                    <span className="ml-auto text-slate-600">fila</span>
-                  </div>
+                  <li key={`${clip.videoId}-${i}`} className="flex items-center gap-2.5 text-xs">
+                    <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-[var(--bg4)] font-mono text-[10px] text-[var(--t2)]">{i + 1}</span>
+                    <span className="truncate text-[var(--t1)]">{clipDisplayName(clip, view.videos)}</span>
+                  </li>
                 ))}
-              </div>
+              </ol>
             )}
+          </div>
+          <div className="odessa-panel-surface min-h-0 flex-1 p-4">
+            <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--t3)]">Eventos ao vivo</div>
+            <div className="max-h-[420px] overflow-y-auto pr-1">
+              <EventRadio events={capturedText} />
+            </div>
           </div>
         </div>
       </div>
-
-      {/* Editor de cortes — abre o editor canônico (Fase 5b: mesmo modal da Biblioteca) */}
-      <div className="odessa-panel-surface flex items-center justify-between gap-3 p-4">
-        {activeClip?.videoId ? (
-          <>
-            <div className="text-xs text-slate-400">
-              Editar cortes, áudio e transição de <span className="text-slate-200">{activeClipLabel}</span>
-            </div>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => onOpenEditor(activeClip.videoId, activeClipLabel)}
-            >
-              <Scissors className="h-3.5 w-3.5" />
-              Abrir editor completo
-            </Button>
-          </>
-        ) : (
-          <div className="text-xs text-slate-500">Coloque um vídeo no ar para editar os cortes aqui.</div>
-        )}
-      </div>
     </div>
   );
-
 }
 
 function VideoLibraryPanel({
