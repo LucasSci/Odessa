@@ -99,6 +99,20 @@ VIAddVersionKey "LegalCopyright" "${APP_PUBLISHER}"
     Sleep 1500
 !macroend
 
+; Seguranca do diretorio: o desinstalador remove a pasta de instalacao
+; inteira, entao ela TEM que ser uma pasta propria do app. Sem isso, escolher
+; "C:\Users\eu\Documentos" na pagina de diretorio faria o desinstalador apagar
+; os documentos. Exige que o ultimo nome da pasta seja OdessaStudio.
+!include "FileFunc.nsh"
+!insertmacro GetFileName
+!insertmacro un.GetFileName
+
+Function .onVerifyInstDir
+    ${GetFileName} "$INSTDIR" $R9
+    StrCmp $R9 "OdessaStudio" +2
+        Abort
+FunctionEnd
+
 Function .onInit
     ReadRegStr $0 HKCU "Software\OdessaStudio" "InstallDir"
     StrCmp $0 "" done
@@ -109,6 +123,13 @@ Function .onInit
 FunctionEnd
 
 Section "Instalar"
+    ; Cinto e suspensorio: /D=... na linha de comando ignora a pagina de
+    ; diretorio e o .onVerifyInstDir.
+    ${GetFileName} "$INSTDIR" $R9
+    StrCmp $R9 "OdessaStudio" +3
+        DetailPrint "Pasta de instalacao invalida ($INSTDIR): o nome deve ser OdessaStudio."
+        Abort "Pasta de instalacao invalida: o nome da pasta deve ser OdessaStudio."
+
     ; Atualizacao: guarda server\data (personas, configs, edicoes de video --
     ; dados do USUARIO nesta maquina) antes de copiar os arquivos do programa e
     ; devolve depois. O stage traz os dados-padrao do repo, que so devem valer
@@ -119,8 +140,23 @@ Section "Instalar"
     IfFileExists "$INSTDIR\server\data\*.*" 0 skip_backup
         DetailPrint "Preservando dados do usuario (server\data)..."
         nsExec::ExecToLog 'robocopy "$INSTDIR\server\data" "$R0" /E /R:1 /W:1 /NFL /NDL /NJH /NJS'
+        Pop $R2
+        ; robocopy: 0-7 = sucesso; >= 8 = falha. Sem backup, nao mexe em nada.
+        IntCmp $R2 8 backup_failed backup_failed backup_ok
+        backup_failed:
+            Abort "Nao foi possivel guardar seus dados antes da atualizacao (robocopy $R2). Nada foi alterado."
+        backup_ok:
         StrCpy $R1 "1"
     skip_backup:
+
+    ; Remove o codigo antigo antes de copiar o novo: File /r so sobrescreve, e
+    ; arquivos que sairam de uma versao ficariam para tras. Os dados do usuario
+    ; ja estao guardados em $R0 e voltam abaixo; o .env fica na raiz e nao e tocado.
+    RMDir /r "$INSTDIR\python"
+    RMDir /r "$INSTDIR\dist"
+    RMDir /r "$INSTDIR\launcher"
+    RMDir /r "$INSTDIR\server"
+    RMDir /r "$INSTDIR\tango_chat"
 
     SetOutPath "$INSTDIR"
     File /r "${STAGE_DIR}\*.*"
@@ -130,6 +166,18 @@ Section "Instalar"
         nsExec::ExecToLog 'robocopy "$R0" "$INSTDIR\server\data" /E /R:1 /W:1 /NFL /NDL /NJH /NJS'
         RMDir /r "$R0"
     skip_restore:
+
+    ; Reinstalacao depois de desinstalar mantendo os dados: devolve a copia.
+    StrCmp $R1 "1" skip_reuse
+    IfFileExists "$LOCALAPPDATA\Odessa\data-backup\data\*.*" 0 skip_data_reuse
+        DetailPrint "Reaproveitando dados guardados na desinstalacao anterior..."
+        nsExec::ExecToLog 'robocopy "$LOCALAPPDATA\Odessa\data-backup\data" "$INSTDIR\server\data" /E /R:1 /W:1 /NFL /NDL /NJH /NJS'
+        Pop $R2
+    skip_data_reuse:
+    IfFileExists "$LOCALAPPDATA\Odessa\data-backup\.env" 0 skip_reuse
+    IfFileExists "$INSTDIR\.env" skip_reuse
+        CopyFiles /SILENT "$LOCALAPPDATA\Odessa\data-backup\.env" "$INSTDIR\.env"
+    skip_reuse:
 
     CreateDirectory "$SMPROGRAMS\Odessa Studio"
     CreateShortcut "$SMPROGRAMS\Odessa Studio\Odessa Studio.lnk" "$INSTDIR\${APP_EXE_TARGET}" "" "$INSTDIR\favicon.ico" 0 SW_SHOWNORMAL "" "Abrir o Odessa Studio"
@@ -158,8 +206,31 @@ Section "Uninstall"
     RMDir "$SMPROGRAMS\Odessa Studio"
     Delete "$DESKTOP\Odessa Studio.lnk"
 
+    ; Nunca apaga recursivamente uma pasta que nao seja a do app (registro
+    ; adulterado, pasta movida...). Fora desse caso, remove so o que o
+    ; instalador colocou.
+    ${un.GetFileName} "$INSTDIR" $R9
+    StrCmp $R9 "OdessaStudio" dir_ok
+        MessageBox MB_OK|MB_ICONEXCLAMATION "A pasta de instalacao ($INSTDIR) nao se chama OdessaStudio; por seguranca, nada nela foi apagado. Remova-a manualmente se quiser." /SD IDOK
+        Goto unreg
+    dir_ok:
+
+    ; Dados do usuario: no modo silencioso (/S) sempre guarda. Interativo:
+    ; pergunta. A copia vai para fora da pasta que sera apagada.
+    MessageBox MB_YESNO|MB_ICONQUESTION "Manter seus dados (personas, configuracoes, edicoes de video e o arquivo .env)?$\n$\nSim: uma copia fica em $LOCALAPPDATA\Odessa\data-backup e sera reaproveitada se voce reinstalar.$\nNao: tudo sera apagado." /SD IDYES IDNO skip_keep
+        RMDir /r "$LOCALAPPDATA\Odessa\data-backup"
+        CreateDirectory "$LOCALAPPDATA\Odessa\data-backup"
+        IfFileExists "$INSTDIR\server\data\*.*" 0 no_data
+            nsExec::ExecToLog 'robocopy "$INSTDIR\server\data" "$LOCALAPPDATA\Odessa\data-backup\data" /E /R:1 /W:1 /NFL /NDL /NJH /NJS'
+            Pop $R2
+        no_data:
+        IfFileExists "$INSTDIR\.env" 0 skip_keep
+            CopyFiles /SILENT "$INSTDIR\.env" "$LOCALAPPDATA\Odessa\data-backup\.env"
+    skip_keep:
+
     RMDir /r "$INSTDIR"
 
+    unreg:
     DeleteRegKey HKCU "${UNINST_KEY}"
     DeleteRegKey HKCU "Software\OdessaStudio"
 SectionEnd
