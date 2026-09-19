@@ -40,7 +40,7 @@ import type { AutopilotRuntimeState } from './core/useAutopilotRuntime';
 import type { CapturedMessage } from './types';
 import { Badge, Button, Card, ConfirmButton, Tabs } from './components/ui';
 import { useToast } from './components/Toast';
-import { clampFadeMs, clipProgress, effectiveSegments } from './core/playback/clipTimeline';
+import { clampFadeMs, clipProgress, effectiveSegments, segmentSpeed } from './core/playback/clipTimeline';
 import { publishProgress } from './core/playback/progressStore';
 import { ClipDeck, deckOrder, groupDeckVideos } from './components/stage/ClipDeck';
 import { ClipProgress } from './components/stage/ClipProgress';
@@ -1437,6 +1437,7 @@ export function ContinuityPlayer({
     slotSegmentRef.current[slot] = 0;
     const segs = effectiveSegments(slotClip);
     const start = segs.length ? segs[0].startSec : Math.max(0, slotClip.startSec || 0);
+    element.playbackRate = segmentSpeed(segs[0]);
     try {
       if (Math.abs(element.currentTime - start) > 0.25) element.currentTime = start;
     } catch {
@@ -1562,6 +1563,7 @@ export function ContinuityPlayer({
     if (idx + 1 < segs.length) {
       // Próximo corte: pula para o início do segmento seguinte (mesma fonte).
       slotSegmentRef.current[slot] = idx + 1;
+      element.playbackRate = segmentSpeed(segs[idx + 1]);
       try {
         element.currentTime = segs[idx + 1].startSec;
       } catch {

@@ -46,6 +46,12 @@ describe('clipProgress', () => {
     expect(clipProgress({ startSec: 2, endSec: null }, 0, 5, 10)).toEqual({ elapsedSec: 3, totalSec: 8 });
   });
 
+  it('conta em tempo de relógio quando há velocidade por trecho', () => {
+    const clip = { segments: [{ startSec: 0, endSec: 4, speed: 2 }, { startSec: 10, endSec: 12 }] };
+    expect(clipProgress(clip, 0, 2, 30)).toEqual({ elapsedSec: 1, totalSec: 4 });
+    expect(clipProgress(clip, 1, 11, 30)).toEqual({ elapsedSec: 3, totalSec: 4 });
+  });
+
   it('devolve null enquanto a duração é desconhecida', () => {
     expect(clipProgress({ startSec: 0, endSec: null }, 0, 1, NaN)).toBeNull();
     expect(clipProgress({ startSec: 0, endSec: null }, 0, 1, 0)).toBeNull();

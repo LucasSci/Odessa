@@ -1,6 +1,13 @@
 export interface TimelineSegment {
   startSec: number;
   endSec: number;
+  /** Velocidade do trecho; ausente = 1×. */
+  speed?: number;
+}
+
+export function segmentSpeed(segment: TimelineSegment | undefined): number {
+  const n = segment?.speed;
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 1;
 }
 
 export interface TimelineClip {
@@ -50,11 +57,12 @@ export function clipProgress(
   const segs = effectiveSegments(clip);
   if (segs.length) {
     const idx = Math.max(0, Math.min(segs.length - 1, segmentIndex));
-    const lengths = segs.map((s) => Math.max(0, s.endSec - s.startSec));
+    // Em segundos de RELÓGIO: um trecho a 2× dura metade do tempo de mídia.
+    const lengths = segs.map((s) => Math.max(0, s.endSec - s.startSec) / segmentSpeed(s));
     const totalSec = lengths.reduce((a, b) => a + b, 0);
     if (totalSec <= 0) return null;
     const before = lengths.slice(0, idx).reduce((a, b) => a + b, 0);
-    const within = Math.max(0, Math.min(lengths[idx], currentSec - segs[idx].startSec));
+    const within = Math.max(0, Math.min(lengths[idx], (currentSec - segs[idx].startSec) / segmentSpeed(segs[idx])));
     return { elapsedSec: before + within, totalSec };
   }
   if (!Number.isFinite(durationSec) || durationSec <= 0) return null;

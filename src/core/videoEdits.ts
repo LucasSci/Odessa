@@ -10,11 +10,15 @@
  * o player ao vivo honrar os cortes/volume/som SEM mudar o servidor.
  */
 
+import { clampSpeed } from './videoEditOps';
+
 const STORAGE_KEY = 'odessa:video-edits:v1';
 
 export interface VideoSegment {
   startSec: number;
   endSec: number;
+  /** Velocidade de reprodução deste trecho (0.25–4). Ausente = 1×. */
+  speed?: number;
 }
 
 export type AudioMode = 'muted' | 'original' | 'track';
@@ -87,7 +91,12 @@ function sanitizeSegments(raw: unknown): VideoSegment[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((s): s is VideoSegment => Boolean(s) && typeof s === 'object')
-    .map((s) => ({ startSec: Math.max(0, Number(s.startSec) || 0), endSec: Math.max(0, Number(s.endSec) || 0) }))
+    .map((s) => {
+      const seg: VideoSegment = { startSec: Math.max(0, Number(s.startSec) || 0), endSec: Math.max(0, Number(s.endSec) || 0) };
+      const speed = clampSpeed(s.speed);
+      if (speed !== 1) seg.speed = speed;
+      return seg;
+    })
     .filter((s) => s.endSec > s.startSec);
 }
 
