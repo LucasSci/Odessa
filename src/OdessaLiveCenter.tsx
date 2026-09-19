@@ -37,6 +37,7 @@ import { cn } from './lib/utils';
 import type { AutopilotRuntimeState } from './core/useAutopilotRuntime';
 import type { CapturedMessage } from './types';
 import { Badge, Button, Card, Tabs } from './components/ui';
+import { useToast } from './components/Toast';
 import { AiConfigPanel } from './components/AiConfigPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import TopPersonaSelector from './components/TopPersonaSelector';
@@ -1824,18 +1825,18 @@ function StagePanel({
   const stageRef = useRef<HTMLDivElement>(null);
   const [triggering, setTriggering] = useState(false);
   const [obsBusy, setObsBusy] = useState('');
-  const [, setObsMessage] = useState<string | null>(null);
+  const toast = useToast();
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const runRoutedCommand = async (label: string, fn: () => Promise<CommandResult>) => {
     setObsBusy(label);
-    setObsMessage(null);
     try {
       const result = await fn();
-      setObsMessage(`${label}: ${result.ok ? 'ok' : result.error} (${result.route})`);
+      if (result.ok) toast.success(`${label}: concluído`);
+      else toast.error(`${label}: ${result.error}`);
       onRefresh();
     } catch (err) {
-      setObsMessage(`${label}: ${err instanceof Error ? err.message : 'falha'}`);
+      toast.error(`${label}: ${err instanceof Error ? err.message : 'falha'}`);
     } finally {
       setObsBusy('');
     }
@@ -1867,7 +1868,7 @@ function StagePanel({
       }
       await stageRef.current?.requestFullscreen();
     } catch (err) {
-      setObsMessage(`Tela cheia: ${err instanceof Error ? err.message : 'falha'}`);
+      toast.error(`Tela cheia: ${err instanceof Error ? err.message : 'falha'}`);
     }
   };
 

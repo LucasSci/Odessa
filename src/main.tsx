@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
+import { ToastProvider } from './components/Toast.tsx';
 import { installClickFeedback } from './lib/clickFeedback.ts';
 import './index.css';
 import './ux-polish.css';
@@ -9,6 +10,8 @@ installClickFeedback();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ToastProvider>
+      <App />
+    </ToastProvider>
   </StrictMode>,
 );
