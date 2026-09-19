@@ -15,6 +15,7 @@ import {
   RadioTower,
   RefreshCw,
   Rewind,
+  Search,
   Settings,
   Scissors,
   Stethoscope,
@@ -46,6 +47,8 @@ import { ClipDeck, deckOrder, groupDeckVideos } from './components/stage/ClipDec
 import { ClipProgress } from './components/stage/ClipProgress';
 import { EventRadio } from './components/stage/EventRadio';
 import { ContentHub } from './components/library/ContentHub';
+import { CommandPalette } from './components/CommandPalette';
+import type { PaletteCommand } from './core/commandPalette';
 import { SignalStrip, type Signal } from './components/stage/SignalStrip';
 import { AiConfigPanel } from './components/AiConfigPanel';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -411,6 +414,20 @@ export default function OdessaLiveCenter({
   useEffect(() => {
     void syncVideoEditsFromServer();
   }, []);
+
+  // Paleta de comandos (Ctrl+K / Cmd+K), disponível em qualquer tela.
+  const toast = useToast();
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   // Editor de vídeo canônico (Fase 5b) — um único modal, aberto de qualquer
   // aba (Palco ou Biblioteca), em vez de duas instâncias/UIs separadas.
   const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
@@ -722,6 +739,82 @@ export default function OdessaLiveCenter({
     videoState?.current_video_id,
   ]);
 
+  // Montada só com a paleta aberta (são centenas de itens por clip).
+  const paletteCommands: PaletteCommand[] = [];
+  if (paletteOpen) {
+    const goLive = (mode: 'stage' | 'central') => { setActiveTab('live'); setLiveMode(mode); };
+    const nav = (id: string, title: string, keywords: string, go: () => void): PaletteCommand => ({ id: `nav-${id}`, title: `Ir para ${title}`, group: 'Navegação', keywords, run: go });
+    paletteCommands.push(
+      nav('stage', 'Palco', 'ao vivo live obs clips', () => goLive('stage')),
+      nav('central', 'Central da Live', 'chat bridge tango mensagens', () => goLive('central')),
+      nav('library', 'Biblioteca', 'videos clips hub roteiro', () => setActiveTab('library')),
+      nav('flow', 'Automações', 'fluxo gatilhos canvas', () => setActiveTab('flow')),
+      nav('conversation', 'Conversar', 'laboratorio persona chat teste', () => setActiveTab('conversation')),
+      nav('personas', 'Personas', 'gerar conteudo foto video', () => setActiveTab('personas')),
+      nav('history', 'Histórico', 'sessao eventos log', () => setActiveTab('history')),
+      nav('settings', 'Configurações', 'ajustes ia obs voz', () => setActiveTab('settings')),
+      nav('admin', 'Diagnóstico', 'saude servicos ollama', () => setActiveTab('admin')),
+      {
+        id: 'live-idle',
+        title: 'Voltar ao Idle',
+        group: 'Ao vivo',
+        keywords: 'panico parar reacao',
+        run: async () => {
+          if (!view.idleVideoId) { toast.warning('Esta persona não tem um vídeo idle definido.'); return; }
+          const result = (await playVideoById(view.idleVideoId, 'manual_click')) as { ok?: boolean } | undefined;
+          if (result?.ok) toast.info('De volta ao Idle.'); else toast.error('Não foi possível voltar ao Idle.');
+        },
+      },
+      {
+        id: 'live-voice',
+        title: runtime.voiceEnabled ? 'Desligar voz' : 'Ligar voz',
+        group: 'Ao vivo',
+        keywords: 'tts fala audio',
+        hint: runtime.voiceEnabled ? 'ligada' : 'desligada',
+        run: () => runtime.toggleVoice(),
+      },
+    );
+    for (const scene of runtime.obsScenes) {
+      paletteCommands.push({
+        id: `obs-${scene}`,
+        title: `Cena OBS: ${scene}`,
+        group: 'OBS',
+        keywords: 'trocar cena',
+        hint: scene === runtime.currentObsScene ? 'atual' : undefined,
+        run: async () => {
+          const result = await routeSwitchScene(scene);
+          if (result.ok) toast.success(`Cena: ${scene}`); else toast.error(`Cena ${scene}: ${result.error}`);
+        },
+      });
+    }
+    for (const video of view.videos) {
+      const label = videoLabel(video);
+      const category = categorizeVideo(video);
+      const categoryLabel = VIDEO_ROTEIRO.find((cat) => cat.key === category)?.label ?? '';
+      const keywords = `${video.id} ${categoryLabel}`;
+      paletteCommands.push({
+        id: `clip-${video.id}`,
+        title: `Ir ao ar: ${label}`,
+        group: 'Clips',
+        keywords,
+        run: async () => {
+          const result = (await playVideoById(video.id, 'manual_click')) as { ok?: boolean } | undefined;
+          if (result?.ok) toast.info(`No ar: ${label}`); else toast.error(`Não foi possível colocar no ar: ${label}`);
+        },
+      });
+    }
+    for (const video of view.videos) {
+      const label = videoLabel(video);
+      paletteCommands.push({
+        id: `edit-${video.id}`,
+        title: `Editar: ${label}`,
+        group: 'Editar clip',
+        keywords: `${video.id} cortes tesoura`,
+        run: () => openVideoEditor(video.id, label),
+      });
+    }
+  }
+
   return (
     <main className="odessa-shell odsa-v2 flex h-screen w-screen min-h-0 overflow-hidden text-[var(--t1)]">
       {/* Sidebar (desktop) — navegação agrupada + card fixo da Diretora */}
@@ -848,6 +941,17 @@ export default function OdessaLiveCenter({
             <span className="d" />
             {runtime.autopilotEnabled ? 'AO VIVO' : 'PRONTA'}
           </span>
+
+          {/* Paleta de comandos */}
+          <button
+            className="odsa-btn odsa-btn-secondary odsa-btn-md hidden md:inline-flex"
+            onClick={() => setPaletteOpen(true)}
+            title="Buscar comandos (Ctrl+K)"
+            aria-label="Abrir paleta de comandos"
+          >
+            <Search style={{ width: 15, height: 15 }} />
+            <kbd className="font-mono text-[10px] opacity-70">Ctrl K</kbd>
+          </button>
 
           {/* Settings icon button */}
           <button
@@ -1082,6 +1186,7 @@ export default function OdessaLiveCenter({
           />
         </Suspense>
       )}
+      <CommandPalette open={paletteOpen} commands={paletteCommands} onClose={() => setPaletteOpen(false)} />
     </main>
   );
 }
