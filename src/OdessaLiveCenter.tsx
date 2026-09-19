@@ -40,7 +40,10 @@ import type { AutopilotRuntimeState } from './core/useAutopilotRuntime';
 import type { CapturedMessage } from './types';
 import { Badge, Button, Card, ConfirmButton, Tabs } from './components/ui';
 import { useToast } from './components/Toast';
+import { clampFadeMs, clipProgress, effectiveSegments } from './core/playback/clipTimeline';
+import { publishProgress } from './core/playback/progressStore';
 import { ClipDeck, deckOrder, groupDeckVideos } from './components/stage/ClipDeck';
+import { ClipProgress } from './components/stage/ClipProgress';
 import { EventRadio } from './components/stage/EventRadio';
 import { SignalStrip, type Signal } from './components/stage/SignalStrip';
 import { AiConfigPanel } from './components/AiConfigPanel';
@@ -1345,19 +1348,6 @@ function clipKey(clip?: VideoClip | null) {
 }
 
 /**
- * Segmentos limitados (com fim definido) que o player deve tocar em sequência.
- * - segments[] explícitos → usa-os;
- * - senão, trim simples (startSec/endSec) → um único segmento;
- * - senão (sem fim) → [] (vídeo inteiro; o evento 'ended' nativo encerra).
- */
-function effectiveSegments(clip: VideoClip | null): VideoSegment[] {
-  if (!clip) return [];
-  if (clip.segments && clip.segments.length) return clip.segments;
-  if (clip.endSec != null) return [{ startSec: Math.max(0, clip.startSec || 0), endSec: clip.endSec }];
-  return [];
-}
-
-/**
  * Reports that the active clip ended so the backend advances the reactive
  * flow to the next node. Idempotent on the server via fromNodeId/fromVideoId,
  * so several players can call it for the same clip without double-advancing.
@@ -1391,6 +1381,7 @@ export function ContinuityPlayer({
   className,
   fit = 'cover',
   showLabel = true,
+  publishProgress: shouldPublishProgress = false,
 }: {
   clip: VideoClip | null;
   nextClip?: VideoClip | null;
@@ -1399,12 +1390,16 @@ export function ContinuityPlayer({
   className?: string;
   fit?: 'cover' | 'contain';
   showLabel?: boolean;
+  /** Publica o progresso do clip ativo no store global (só o player principal do Palco). */
+  publishProgress?: boolean;
 }) {
   const firstVideoRef = useRef<HTMLVideoElement>(null);
   const secondVideoRef = useRef<HTMLVideoElement>(null);
   const refs = useMemo(() => [firstVideoRef, secondVideoRef] as const, []);
   const [activeSlot, setActiveSlot] = useState<0 | 1>(0);
   const activeSlotRef = useRef<0 | 1>(0);
+  // Duração do crossfade de entrada do clip que acabou de assumir (transitionMs).
+  const [fadeMs, setFadeMs] = useState(0);
   // Which clip each <video> slot currently holds. A ref (not state) because
   // playback is driven imperatively for frame-accurate, gap-free cuts.
   const slotClipRef = useRef<[VideoClip | null, VideoClip | null]>([null, null]);
@@ -1417,10 +1412,23 @@ export function ContinuityPlayer({
   // Switch the active slot. activeSlotRef MUST update synchronously here —
   // a deferred (useEffect) update lets a preload effect compute the wrong
   // idle slot and overwrite the src of the video that just started playing.
-  const activateSlot = useCallback((slot: 0 | 1) => {
+  const activateSlot = useCallback((slot: 0 | 1, incoming?: VideoClip | null) => {
+    // Só há fade quando um clip está de fato substituindo outro; a primeira
+    // carga (mesmo slot, nada por baixo) entra direto.
+    const previous = activeSlotRef.current;
+    const switching = previous !== slot;
     activeSlotRef.current = slot;
+    if (switching) {
+      const fade = clampFadeMs(incoming?.transitionMs);
+      setFadeMs(fade);
+      // O clip que saiu segue tocando por baixo durante o fade; depois dele,
+      // pausa (senão continua decodificando e, com áudio original, soaria junto).
+      window.setTimeout(() => {
+        if (activeSlotRef.current !== previous) refs[previous].current?.pause();
+      }, fade + 60);
+    }
     setActiveSlot(slot);
-  }, []);
+  }, [refs]);
 
   const primeElement = useCallback((element: HTMLVideoElement, slotClip: VideoClip, slot: 0 | 1) => {
     element.muted = (slotClip.audio?.mode || 'muted') !== 'original';
@@ -1465,7 +1473,7 @@ export function ContinuityPlayer({
         if (autoplay) {
           primeElement(element, slotClip, slot);
           void element.play().catch(() => undefined);
-          activateSlot(slot);
+          activateSlot(slot, slotClip);
           return;
         }
         // Preload only. But metadata loads asynchronously — if a cut promoted
@@ -1494,7 +1502,7 @@ export function ContinuityPlayer({
       void element.play().catch(() => undefined);
       const other = refs[slot === 0 ? 1 : 0].current;
       if (other) other.pause();
-      activateSlot(slot);
+      activateSlot(slot, slotClip);
     },
     [activateSlot, primeElement, refs],
   );
@@ -1541,6 +1549,10 @@ export function ContinuityPlayer({
   const handleProgress = (slot: 0 | 1, element: HTMLVideoElement) => {
     const slotClip = slotClipRef.current[slot];
     if (!slotClip) return;
+    if (shouldPublishProgress && slot === activeSlotRef.current) {
+      const progress = clipProgress(slotClip, slotSegmentRef.current[slot], element.currentTime, element.duration);
+      if (progress) publishProgress({ videoId: slotClip.videoId, ...progress });
+    }
     const segs = effectiveSegments(slotClip);
     if (!segs.length) return; // vídeo inteiro → encerra pelo evento 'ended' nativo
     let idx = slotSegmentRef.current[slot];
@@ -1593,6 +1605,12 @@ export function ContinuityPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackSig]);
 
+  // Limpa o progresso publicado ao desmontar / quando este player deixa de ser o principal.
+  useEffect(() => {
+    if (!shouldPublishProgress) return;
+    return () => publishProgress(null);
+  }, [shouldPublishProgress]);
+
   // Pausa a trilha ao desmontar o player.
   useEffect(() => () => trackAudioRef.current?.pause(), []);
 
@@ -1630,10 +1648,19 @@ export function ContinuityPlayer({
               clip: slotClipRef.current[index]?.videoId,
             });
           }}
+          // Crossfade: o clip que entra sobe por cima (z-2) e faz fade-in; o que
+          // sai fica opaco por baixo e só some depois do fade (delay = fadeMs).
+          style={{
+            opacity: activeSlot === index ? 1 : 0,
+            zIndex: activeSlot === index ? 2 : 1,
+            transition:
+              activeSlot === index
+                ? `opacity ${fadeMs}ms ease-in-out`
+                : `opacity 0ms linear ${fadeMs}ms`,
+          }}
           className={cn(
             'absolute inset-0 h-full w-full',
             fit === 'contain' ? 'object-contain' : 'object-cover',
-            activeSlot === index ? 'opacity-100' : 'opacity-0',
           )}
         />
       ))}
@@ -1882,7 +1909,7 @@ function StagePanel({
         {/* Programa */}
         <div className="flex flex-col gap-3">
           <div className="relative overflow-hidden rounded-2xl border border-[var(--sky)]/40 bg-black shadow-[var(--shadow-live)]" style={{ aspectRatio: '9 / 16', maxHeight: 560 }}>
-            <ContinuityPlayer clip={activeClip} nextClip={videoState?.nextClip ? applyVideoEdit(videoState.nextClip) : null} videos={view.videos} onEnded={advanceVideo} fit="contain" className="h-full w-full" />
+            <ContinuityPlayer clip={activeClip} nextClip={videoState?.nextClip ? applyVideoEdit(videoState.nextClip) : null} videos={view.videos} onEnded={advanceVideo} fit="contain" className="h-full w-full" publishProgress />
             <div className="pointer-events-none absolute left-2 top-2 flex items-center gap-1.5 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-white">
               <span className={cn('h-1.5 w-1.5 rounded-full', runtime.autopilotEnabled ? 'animate-pulse bg-red-500' : 'bg-[var(--t3)]')} />
               No ar
@@ -1911,6 +1938,10 @@ function StagePanel({
                 )}
               </div>
             </div>
+            <ClipProgress
+              videoId={activeClip?.videoId}
+              nextLabel={upcomingClips[0] ? clipDisplayName(upcomingClips[0], view.videos) : null}
+            />
             <div className="mt-3 flex items-center gap-2">
               <VolumeX className="h-3.5 w-3.5 shrink-0 text-[var(--t3)]" />
               <input
