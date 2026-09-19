@@ -1,8 +1,11 @@
 import asyncio
 import json
 import logging
+import re
 import shutil
 import subprocess
+import time
+from collections import deque
 from typing import Any
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -13,6 +16,31 @@ from server.utils.text_utils import extract_json_object
 
 router = APIRouter(tags=["AI"])
 logger = logging.getLogger("odessa.routes.ai")
+
+# Nome de modelo vira parte do caminho da URL do Google: só caracteres seguros.
+GEMINI_MODEL_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+
+
+class RateLimiter:
+    """Janela deslizante em memória (por processo): no máximo `limit` chamadas em `window_s`."""
+
+    def __init__(self, limit: int, window_s: float, clock=time.monotonic):
+        self._limit = limit
+        self._window = window_s
+        self._clock = clock
+        self._hits: deque[float] = deque()
+
+    def allow(self) -> bool:
+        now = self._clock()
+        while self._hits and now - self._hits[0] >= self._window:
+            self._hits.popleft()
+        if len(self._hits) >= self._limit:
+            return False
+        self._hits.append(now)
+        return True
+
+
+_gemini_rate_limiter = RateLimiter(limit=30, window_s=60.0)
 
 
 async def _check_ollama(timeout: float = 2.5) -> dict[str, Any]:
@@ -58,14 +86,20 @@ async def gemini_proxy(request: GeminiProxyRequest):
     if not api_key:
         raise HTTPException(status_code=503, detail="Nenhuma chave Gemini disponível (cliente nem servidor).")
     model = (request.model or "").strip() or "gemini-2.5-flash"
+    if not GEMINI_MODEL_RE.fullmatch(model):
+        raise HTTPException(status_code=400, detail="Modelo Gemini inválido.")
     payload = request.payload
     if not payload or not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="payload (corpo do generateContent) é obrigatório.")
+    if not _gemini_rate_limiter.allow():
+        raise HTTPException(status_code=429, detail="Muitas chamadas ao Gemini. Aguarde um instante.")
 
-    upstream_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    # A chave vai no header (não na URL): a query string aparece em logs de
+    # acesso, proxies e mensagens de erro.
+    upstream_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     try:
         async with httpx.AsyncClient(timeout=25.0) as client:
-            resp = await client.post(upstream_url, json=payload)
+            resp = await client.post(upstream_url, json=payload, headers={"x-goog-api-key": api_key})
         try:
             data = resp.json()
         except Exception:
@@ -74,8 +108,10 @@ async def gemini_proxy(request: GeminiProxyRequest):
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Proxy Gemini: tempo esgotado ao contatar o Google.")
     except Exception as exc:
+        # O detalhe fica só no log do servidor: a mensagem da exceção pode
+        # conter a URL/cabeçalhos da requisição.
         logger.error("[ai/gemini proxy] %s", exc, exc_info=True)
-        raise HTTPException(status_code=502, detail=f"Proxy Gemini falhou: {exc}") from exc
+        raise HTTPException(status_code=502, detail="Proxy Gemini falhou ao contatar o Google.") from exc
 
 
 @router.get("/status")

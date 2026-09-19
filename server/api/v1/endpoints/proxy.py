@@ -47,6 +47,14 @@ _DROP_RESPONSE_HEADERS = {
     "transfer-encoding",
     "connection",
     "keep-alive",
+    # Nunca repassar cookies de terceiros para a origem do Odessa, nem
+    # reaproveitar cabeçalhos de CORS/corpo do site de origem.
+    "set-cookie",
+    "set-cookie2",
+    "content-encoding",
+    "content-length",
+    "access-control-allow-origin",
+    "access-control-allow-credentials",
 }
 
 PROXY_TIMEOUT = 25.0
@@ -247,14 +255,60 @@ def _rewrite_js(js: str, js_url: str, server_base: str) -> str:
     return js
 
 
+class PayloadTooLarge(Exception):
+    """A resposta do site ultrapassou MAX_BODY_BYTES."""
+
+
+async def _read_capped(chunks, limit: int) -> bytes:
+    """Junta os pedaços de um corpo, parando assim que passar de `limit` bytes."""
+    body = bytearray()
+    async for chunk in chunks:
+        body.extend(chunk)
+        if len(body) > limit:
+            raise PayloadTooLarge()
+    return bytes(body)
+
+
 async def _fetch(url: str, headers: dict) -> httpx.Response:
     async with httpx.AsyncClient(
         transport=SSRFTransport(verify=True),
         follow_redirects=True,
         timeout=PROXY_TIMEOUT,
     ) as client:
+        # Streaming: o tamanho é limitado ENQUANTO baixa (client.get carregaria
+        # tudo na memória antes de qualquer checagem).
+        async with client.stream("GET", url, headers=headers) as upstream:
+            body = await _read_capped(upstream.aiter_bytes(), MAX_BODY_BYTES)
+            headers_out = {
+                k: v for k, v in upstream.headers.items()
+                # aiter_bytes já decodificou o corpo: estes cabeçalhos ficariam errados.
+                if k.lower() not in ("content-encoding", "content-length")
+            }
+            return httpx.Response(
+                status_code=upstream.status_code,
+                headers=headers_out,
+                content=body,
+                request=upstream.request,
+            )
 
-        return await client.get(url, headers=headers)
+
+# O conteúdo é de terceiros e roda no navegador do usuário, na porta do Odessa.
+# `sandbox` SEM allow-same-origin dá à página uma origem opaca: o JS dela não
+# consegue chamar a API do Odessa como se fosse o app.
+_SANDBOX_CSP = "sandbox allow-scripts allow-forms allow-popups"
+
+
+def _security_headers(request: Request | None = None) -> dict:
+    headers = {
+        "Content-Security-Policy": _SANDBOX_CSP,
+        "X-Content-Type-Options": "nosniff",
+    }
+    # Um iframe sandboxado envia Origin: null; ecoa só isso (fontes/CSS precisam
+    # de CORS), nunca "*" — senão qualquer site leria o proxy pelo fetch().
+    if request is not None and request.headers.get("origin") == "null":
+        headers["Access-Control-Allow-Origin"] = "null"
+        headers["Vary"] = "Origin"
+    return headers
 
 
 def _clean_response_headers(resp: httpx.Response) -> dict:
@@ -313,9 +367,11 @@ async def proxy_page(
 
     try:
         resp = await _fetch(url, forward_headers)
+    except PayloadTooLarge:
+        raise HTTPException(status_code=413, detail="Resposta grande demais para o proxy") from None
     except httpx.RequestError as exc:
         logger.error("[proxy] Request failed: %s", exc)
-        raise HTTPException(status_code=502, detail=f"Proxy request failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail="Proxy request failed") from exc
 
     content_type = resp.headers.get("content-type", "text/html")
 
@@ -334,13 +390,13 @@ async def proxy_page(
             headers={
                 "Content-Type": "text/html; charset=utf-8",
                 "Cache-Control": "no-store",
-                "Access-Control-Allow-Origin": "*",
+                **_security_headers(request),
             },
         )
 
-    # Non-HTML — pass through with CORS
+    # Non-HTML — pass through (mesmos cabeçalhos de segurança)
     clean_headers = _clean_response_headers(resp)
-    clean_headers["Access-Control-Allow-Origin"] = "*"
+    clean_headers.update(_security_headers(request))
     return Response(
         content=resp.content,
         status_code=200,
@@ -374,8 +430,11 @@ async def proxy_asset(
 
     try:
         resp = await _fetch(url, forward_headers)
+    except PayloadTooLarge:
+        raise HTTPException(status_code=413, detail="Asset grande demais para o proxy") from None
     except httpx.RequestError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        logger.error("[proxy] Asset request failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Proxy request failed") from exc
 
     if resp.status_code >= 400:
         raise HTTPException(status_code=resp.status_code, detail="Asset not found")
@@ -383,9 +442,11 @@ async def proxy_asset(
     content_type = resp.headers.get("content-type", "application/octet-stream")
     server_base = _proxy_base_url(request)
 
+    # Este endpoint também serve HTML/SVG se a URL apontar para eles: o sandbox
+    # precisa valer aqui também, senão vira XSS na origem do Odessa.
     response_headers = {
         "Cache-Control": "public, max-age=3600",
-        "Access-Control-Allow-Origin": "*",
+        **_security_headers(request),
     }
 
     # Rewrite CSS url() references so fonts/images inside CSS also proxy correctly
