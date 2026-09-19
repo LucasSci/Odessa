@@ -1,4 +1,5 @@
 """Fixtures and configuration for pytest."""
+import os
 import sys
 from pathlib import Path
 
@@ -7,6 +8,11 @@ from fastapi.testclient import TestClient
 
 # Add server module to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Hosts que os clientes de teste usam (TestClient = "testserver", httpx = o
+# base_url do teste). Precisa vir ANTES de importar server.main: a guarda de
+# Host lê isto na importação. Em produção o padrão é só localhost/127.0.0.1.
+os.environ.setdefault("ODESSA_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1],testserver,test")
 
 import server.core.auth as auth_core
 from server.main import app

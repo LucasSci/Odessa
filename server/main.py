@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from server.config import GEMINI_API_KEY, OPENAI_API_KEY  # noqa: F401 (mantido p/ compat de import)
 from server.core import auth as auth_core
+from server.core.request_guard import RequestGuard
 from server.api.v1.api import api_router
 from server.api.v1.endpoints import auth, obs, webhooks, proxy as proxy_router, agent as agent_router
 
@@ -135,6 +136,23 @@ async def require_admin_session(request: Request, call_next):
     except HTTPException as exc:
         from fastapi.responses import JSONResponse
         return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    return await call_next(request)
+
+_request_guard = RequestGuard.from_env(allowed_origins)
+
+
+# Registrado DEPOIS do middleware de sessão: o Starlette executa o último
+# registrado primeiro, então o Host/Origin é checado antes de qualquer outra coisa.
+@app.middleware("http")
+async def guard_host_and_origin(request: Request, call_next):
+    rejection = _request_guard.check(
+        request.method,
+        request.headers.get("host"),
+        request.headers.get("origin"),
+    )
+    if rejection:
+        status_code, detail = rejection
+        return JSONResponse({"detail": detail}, status_code=status_code)
     return await call_next(request)
 
 # Include Modular API Routers
