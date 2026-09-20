@@ -142,7 +142,7 @@ Section "Instalar"
         nsExec::ExecToLog 'robocopy "$INSTDIR\server\data" "$R0" /E /R:1 /W:1 /NFL /NDL /NJH /NJS'
         Pop $R2
         ; robocopy: 0-7 = sucesso; >= 8 = falha. Sem backup, nao mexe em nada.
-        IntCmp $R2 8 backup_failed backup_failed backup_ok
+        IntCmp $R2 8 backup_failed backup_ok backup_failed
         backup_failed:
             Abort "Nao foi possivel guardar seus dados antes da atualizacao (robocopy $R2). Nada foi alterado."
         backup_ok:
