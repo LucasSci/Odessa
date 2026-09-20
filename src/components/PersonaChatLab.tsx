@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Check, MessageCircle, Send, Sparkles, User, Wand2, X } from 'lucide-react';
+import { AlertTriangle, Bot, Check, Copy, Download, MessageCircle, RotateCcw, Send, Sparkles, User, Wand2, X } from 'lucide-react';
 import { listPersonas, type PersonaMeta } from '../core/personaManager';
-import { generateTangoChatReply, type TangoChatMessage } from '../core/tangoAiChatService';
+import { generateTangoChatReply } from '../core/tangoAiChatService';
+import { getAiConfig, resolveEffectiveProvider } from '../core/aiConfig';
 import { routeChatToTriggers } from '../core/chatToTriggerBridge';
 import {
   applySelfConfig,
@@ -14,14 +15,23 @@ import {
   type PendingSelfConfigChange,
   type SelfConfigFace,
 } from '../core/personaSelfConfig';
+import {
+  chatHistoryFor,
+  clearStoredConversation,
+  conversationToText,
+  formatClock,
+  loadConversation,
+  providerLabel,
+  saveConversation,
+  type LabMessage,
+} from '../core/conversationLab';
 import { recordSessionEvent } from '../core/sessionHistory';
 import { cn } from '../lib/utils';
-
-type LabMessage = TangoChatMessage & { role: 'user' | 'assistant' | 'system'; pending?: boolean };
 
 const DEFAULT_PERSONA_PROMPT = 'Responda em portugues brasileiro, com naturalidade, brevidade e personalidade.';
 /** A cada N respostas da persona, dispara a reflexão de evolução automática. */
 const EVOLVE_EVERY = 6;
+const NO_MESSAGES: LabMessage[] = [];
 
 export function PersonaChatLab() {
   const [personas, setPersonas] = useState<PersonaMeta[]>([]);
@@ -32,6 +42,8 @@ export function PersonaChatLab() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoConfig, setAutoConfig] = useState(true);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [facesByPersona, setFacesByPersona] = useState<Record<string, SelfConfigFace[]>>({});
   // Aprovação obrigatória (Área 4): a persona PROPÕE uma autoconfiguração,
   // mas só é aplicada se o operador aceitar aqui. Um pendente por persona —
@@ -39,6 +51,8 @@ export function PersonaChatLab() {
   const [pendingByPersona, setPendingByPersona] = useState<Record<string, PendingSelfConfigChange | null>>({});
   const assistantCountRef = useRef(0);
   const reflectingRef = useRef(false);
+  const endRef = useRef<HTMLDivElement>(null);
+  const draftRef = useRef<HTMLTextAreaElement>(null);
 
   const refreshPersonas = () => {
     void listPersonas()
@@ -46,21 +60,30 @@ export function PersonaChatLab() {
       .catch(() => { /* a lista atual é suficiente em caso de falha */ });
   };
 
-  const pushSystemMessage = (personaId: string, text: string) => {
+  const pushSystemMessage = (personaId: string, text: string, isError = false) => {
     setMessagesByPersona((current) => ({
       ...current,
       [personaId]: [
         ...(current[personaId] || []),
-        { role: 'system', username: 'sistema', text, timestamp: new Date().toISOString() },
+        { role: 'system', username: 'sistema', text, timestamp: new Date().toISOString(), error: isError || undefined },
       ],
     }));
+  };
+
+  // A conversa sobrevive a trocar de aba/persona e a recarregar a página: ela é
+  // lida do armazenamento no momento em que a persona é escolhida. Só entra na
+  // memória uma vez, então o que estiver em tela nunca é sobrescrito.
+  const selectPersona = (personaId: string) => {
+    setSelectedId(personaId);
+    if (!personaId) return;
+    setMessagesByPersona((current) => (current[personaId] ? current : { ...current, [personaId]: loadConversation(personaId) }));
   };
 
   useEffect(() => {
     void listPersonas()
       .then((data) => {
         setPersonas(data.personas);
-        setSelectedId(data.activePersonaId || data.personas[0]?.id || '');
+        selectPersona(data.activePersonaId || data.personas[0]?.id || '');
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Nao foi possivel carregar as personas.'))
       .finally(() => setLoadingPersonas(false));
@@ -80,10 +103,147 @@ export function PersonaChatLab() {
     () => personas.find((persona) => persona.id === selectedId) || null,
     [personas, selectedId],
   );
-  const messages = selectedId ? messagesByPersona[selectedId] || [] : [];
+  const messages = useMemo(
+    () => (selectedId ? messagesByPersona[selectedId] ?? NO_MESSAGES : NO_MESSAGES),
+    [messagesByPersona, selectedId],
+  );
   const pending = selectedId ? pendingByPersona[selectedId] || null : null;
 
-  const sendMessage = async () => {
+  useEffect(() => {
+    // Só grava conversa carregada e não vazia; "Limpar" apaga do armazenamento de propósito.
+    if (selectedId && messages.length) saveConversation(selectedId, messages);
+  }, [selectedId, messages]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView?.({ block: 'end' });
+  }, [messages.length, sending, pending]);
+
+  // O campo fica desabilitado enquanto a IA responde e perde o foco: devolve ao terminar.
+  const wasSendingRef = useRef(false);
+  useEffect(() => {
+    if (wasSendingRef.current && !sending) draftRef.current?.focus();
+    wasSendingRef.current = sending;
+  }, [sending]);
+
+  useEffect(() => {
+    if (!confirmClear) return;
+    const timer = window.setTimeout(() => setConfirmClear(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [confirmClear]);
+
+  const provider = resolveEffectiveProvider();
+  const providerText = providerLabel(provider, provider === 'ollama' ? getAiConfig().localModelName : undefined);
+
+  /** Gera a resposta da persona para `userMessage` (que já está na conversa). */
+  const generateReply = async (
+    personaId: string,
+    persona: PersonaMeta,
+    userMessage: LabMessage,
+    history: LabMessage[],
+  ) => {
+    setError(null);
+    setSending(true);
+    const context = chatHistoryFor(history);
+    try {
+      const systemPrompt = [
+        persona.personality?.trim() || DEFAULT_PERSONA_PROMPT,
+        autoConfig ? buildSelfConfigPrompt(persona, facesByPersona[personaId] || []) : '',
+      ].join('');
+      // Sem conversationMode/maxLength inflado: o Laboratório precisa gerar
+      // exatamente a mesma resposta (mesmas regras de brevidade, diálogo real,
+      // sem convites inventados) que o chat de verdade do Tango geraria pra
+      // essa mensagem — senão testar aqui não prevê o que vai acontecer na
+      // live. maxLength fica um pouco acima do padrão (140) só para não
+      // truncar o bloco <autoconfig> (invisível, some do texto exibido) que a
+      // autoconfiguração pode anexar à resposta.
+      const result = await generateTangoChatReply(
+        { username: 'Voce', text: userMessage.text, timestamp: userMessage.timestamp },
+        context,
+        systemPrompt,
+        { maxLength: 320, timeoutMs: 150_000 },
+      );
+
+      if (!result.ok) {
+        // Falha não é fala da persona: aparece como aviso, com "Tentar de novo".
+        pushSystemMessage(personaId, result.blockedReason || result.reason || 'A IA não conseguiu responder.', true);
+        return;
+      }
+
+      const { cleanText, changes } = autoConfig ? parseAutoConfig(result.reply) : { cleanText: result.reply, changes: null };
+      const assistantMessage: LabMessage = {
+        role: 'assistant',
+        username: persona.name,
+        text: cleanText,
+        timestamp: new Date().toISOString(),
+      };
+      setMessagesByPersona((current) => ({
+        ...current,
+        [personaId]: [...(current[personaId] || []), assistantMessage],
+      }));
+
+      // A persona pediu para mudar a si mesma → PROPÕE, não aplica direto
+      // (Área 4: aprovação obrigatória). O operador aceita/rejeita no card
+      // que aparece no fluxo de mensagens.
+      if (changes) {
+        const proposal: PendingSelfConfigChange = {
+          id: `selfconfig-${Date.now()}`,
+          personaId,
+          changes,
+          source: 'conversation',
+          proposedAt: new Date().toISOString(),
+          summary: summarizeSelfConfigChanges(changes),
+        };
+        setPendingByPersona((current) => ({ ...current, [personaId]: proposal }));
+        pushSystemMessage(personaId, `🛠️ ${persona.name} propôs uma mudança em si mesma — revise abaixo.`);
+        recordSessionEvent('persona.selfconfig.proposed', {
+          personaId,
+          summary: proposal.summary,
+          source: 'conversation',
+        });
+      }
+      // Evolução automática: a cada EVOLVE_EVERY respostas a persona reflete
+      // sobre a conversa. O traço incorporado também vira proposta, não
+      // aplica sozinho — só pula se já existir um pendente pra não empilhar.
+      assistantCountRef.current += 1;
+      if (autoConfig && assistantCountRef.current % EVOLVE_EVERY === 0 && !reflectingRef.current && !pendingByPersona[personaId]) {
+        reflectingRef.current = true;
+        void reflectOnConversation(persona, [...context, userMessage, assistantMessage])
+          .then((evolved) => {
+            if (!evolved) return;
+            const proposal: PendingSelfConfigChange = {
+              id: `selfconfig-evolve-${Date.now()}`,
+              personaId,
+              changes: evolved,
+              source: 'evolution',
+              proposedAt: new Date().toISOString(),
+              summary: summarizeSelfConfigChanges(evolved),
+            };
+            let created = false;
+            setPendingByPersona((current) => {
+              if (current[personaId]) return current;
+              created = true;
+              return { ...current, [personaId]: proposal };
+            });
+            if (created) {
+              pushSystemMessage(personaId, `🧬 ${persona.name} quer incorporar algo que percebeu na conversa — revise abaixo.`);
+              recordSessionEvent('persona.selfconfig.proposed', {
+                personaId,
+                summary: proposal.summary,
+                source: 'evolution',
+              });
+            }
+          })
+          .catch(() => { /* evolução é best-effort */ })
+          .finally(() => { reflectingRef.current = false; });
+      }
+    } catch (err) {
+      pushSystemMessage(personaId, err instanceof Error ? err.message : 'Falha ao conversar com a persona.', true);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const sendMessage = () => {
     const text = draft.trim();
     if (!text || !selectedPersona || sending || pending) return;
 
@@ -95,8 +255,6 @@ export function PersonaChatLab() {
     };
     const history = messages;
     setDraft('');
-    setError(null);
-    setSending(true);
     setMessagesByPersona((current) => ({
       ...current,
       [selectedId]: [...history, userMessage],
@@ -113,107 +271,54 @@ export function PersonaChatLab() {
       { execute: false },
     );
 
-    try {
-      const systemPrompt = [
-        selectedPersona.personality?.trim() || DEFAULT_PERSONA_PROMPT,
-        autoConfig ? buildSelfConfigPrompt(selectedPersona, facesByPersona[selectedId] || []) : '',
-      ].join('');
-      // Sem conversationMode/maxLength inflado: o Laboratório precisa gerar
-      // exatamente a mesma resposta (mesmas regras de brevidade, diálogo real,
-      // sem convites inventados) que o chat de verdade do Tango geraria pra
-      // essa mensagem — senão testar aqui não prevê o que vai acontecer na
-      // live. maxLength fica um pouco acima do padrão (140) só para não
-      // truncar o bloco <autoconfig> (invisível, some do texto exibido) que a
-      // autoconfiguração pode anexar à resposta.
-      const result = await generateTangoChatReply(
-        { username: 'Voce', text, timestamp: userMessage.timestamp },
-        history,
-        systemPrompt,
-        { maxLength: 320, timeoutMs: 150_000 },
-      );
-      const { cleanText, changes } = autoConfig && result.ok
-        ? parseAutoConfig(result.reply)
-        : { cleanText: result.reply, changes: null };
-      const assistantMessage: LabMessage = {
-        role: 'assistant',
-        username: selectedPersona.name,
-        text: result.ok ? cleanText : (result.reason || 'A IA não conseguiu responder.'),
-        timestamp: new Date().toISOString(),
-      };
-      setMessagesByPersona((current) => ({
-        ...current,
-        [selectedId]: [...(current[selectedId] || []), assistantMessage],
-      }));
-      if (!result.ok) {
-        setError(result.blockedReason || result.reason || 'A resposta foi bloqueada.');
-      } else {
-        // A persona pediu para mudar a si mesma → PROPÕE, não aplica direto
-        // (Área 4: aprovação obrigatória). O operador aceita/rejeita no card
-        // que aparece no fluxo de mensagens.
-        if (changes) {
-          const proposal: PendingSelfConfigChange = {
-            id: `selfconfig-${Date.now()}`,
-            personaId: selectedId,
-            changes,
-            source: 'conversation',
-            proposedAt: new Date().toISOString(),
-            summary: summarizeSelfConfigChanges(changes),
-          };
-          setPendingByPersona((current) => ({ ...current, [selectedId]: proposal }));
-          pushSystemMessage(selectedId, `🛠️ ${selectedPersona.name} propôs uma mudança em si mesma — revise abaixo.`);
-          recordSessionEvent('persona.selfconfig.proposed', {
-            personaId: selectedId,
-            summary: proposal.summary,
-            source: 'conversation',
-          });
-        }
-        // Evolução automática: a cada EVOLVE_EVERY respostas a persona reflete
-        // sobre a conversa. O traço incorporado também vira proposta, não
-        // aplica sozinho — só pula se já existir um pendente pra não empilhar.
-        assistantCountRef.current += 1;
-        if (autoConfig && assistantCountRef.current % EVOLVE_EVERY === 0 && !reflectingRef.current && !pendingByPersona[selectedId]) {
-          reflectingRef.current = true;
-          void reflectOnConversation(selectedPersona, [...history, userMessage, assistantMessage])
-            .then((evolved) => {
-              if (!evolved) return;
-              const proposal: PendingSelfConfigChange = {
-                id: `selfconfig-evolve-${Date.now()}`,
-                personaId: selectedId,
-                changes: evolved,
-                source: 'evolution',
-                proposedAt: new Date().toISOString(),
-                summary: summarizeSelfConfigChanges(evolved),
-              };
-              let created = false;
-              setPendingByPersona((current) => {
-                if (current[selectedId]) return current;
-                created = true;
-                return { ...current, [selectedId]: proposal };
-              });
-              if (created) {
-                pushSystemMessage(selectedId, `🧬 ${selectedPersona.name} quer incorporar algo que percebeu na conversa — revise abaixo.`);
-                recordSessionEvent('persona.selfconfig.proposed', {
-                  personaId: selectedId,
-                  summary: proposal.summary,
-                  source: 'evolution',
-                });
-              }
-            })
-            .catch(() => { /* evolução é best-effort */ })
-            .finally(() => { reflectingRef.current = false; });
-        }
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao conversar com a persona.');
-    } finally {
-      setSending(false);
+    void generateReply(selectedId, selectedPersona, userMessage, history);
+  };
+
+  /** Refaz a última resposta sem duplicar a mensagem do usuário nem religar os gatilhos. */
+  const retryLast = () => {
+    if (!selectedPersona || sending || pending) return;
+    let lastUser = -1;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === 'user') { lastUser = i; break; }
     }
+    if (lastUser < 0) return;
+    const userMessage = messages[lastUser];
+    const history = messages.slice(0, lastUser);
+    setMessagesByPersona((current) => ({ ...current, [selectedId]: messages.slice(0, lastUser + 1) }));
+    void generateReply(selectedId, selectedPersona, userMessage, history);
   };
 
   const clearConversation = () => {
     if (!selectedId) return;
+    if (!confirmClear) {
+      setConfirmClear(true);
+      return;
+    }
+    setConfirmClear(false);
+    clearStoredConversation(selectedId);
     setMessagesByPersona((current) => ({ ...current, [selectedId]: [] }));
     setError(null);
+  };
+
+  const exportConversation = () => {
+    if (!selectedPersona || !messages.length) return;
+    const blob = new Blob([conversationToText(selectedPersona.name, messages)], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `conversa-${selectedPersona.id}.txt`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const copyMessage = async (index: number, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedIndex(index);
+      window.setTimeout(() => setCopiedIndex((current) => (current === index ? null : current)), 1500);
+    } catch {
+      setError('Não foi possível copiar (o navegador bloqueou o acesso à área de transferência).');
+    }
   };
 
   const acceptPending = async () => {
@@ -238,7 +343,7 @@ export function PersonaChatLab() {
         source: change.source,
       });
     } catch {
-      pushSystemMessage(change.personaId, '⚠️ Falha ao aplicar a mudança aprovada.');
+      pushSystemMessage(change.personaId, '⚠️ Falha ao aplicar a mudança aprovada.', true);
     }
   };
 
@@ -254,6 +359,18 @@ export function PersonaChatLab() {
     });
   };
 
+  const onDraftKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Enter envia; Shift+Enter quebra linha; durante a composição de acentos
+    // (IME) o Enter só confirma o caractere.
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      sendMessage();
+    }
+  };
+
+  const lastIsError = messages.length > 0 && messages[messages.length - 1].error === true;
+  const blocked = !selectedPersona || sending || Boolean(pending);
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
       <div className="mb-5 rounded-2xl border border-white/10 bg-[#101114] p-5">
@@ -268,7 +385,7 @@ export function PersonaChatLab() {
         </p>
       </div>
 
-      {error && <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{error}</div>}
+      {error && <div role="alert" className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{error}</div>}
 
       <div className="grid min-h-[560px] gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
         <aside className="rounded-2xl border border-white/10 bg-[#0c0e12] p-3">
@@ -283,7 +400,8 @@ export function PersonaChatLab() {
                 <button
                   key={persona.id}
                   type="button"
-                  onClick={() => setSelectedId(persona.id)}
+                  aria-pressed={selectedId === persona.id}
+                  onClick={() => selectPersona(persona.id)}
                   className={cn(
                     'w-full rounded-xl border px-3 py-3 text-left transition',
                     selectedId === persona.id
@@ -300,18 +418,19 @@ export function PersonaChatLab() {
         </aside>
 
         <section className="flex min-h-[560px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0c0e12]">
-          <header className="flex items-center justify-between border-b border-white/10 bg-black/20 px-4 py-3">
+          <header className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-black/20 px-4 py-3">
             <div className="flex items-center gap-2">
               <Bot className="h-4 w-4 text-emerald-400" />
               <div>
                 <div className="text-sm font-semibold text-white">{selectedPersona?.name || 'Selecione uma persona'}</div>
-                <div className="text-[11px] text-slate-500">Ollama · conversa de teste</div>
+                <div className="text-[11px] text-slate-500">{providerText} · conversa de teste</div>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 onClick={() => setAutoConfig((value) => !value)}
+                aria-pressed={autoConfig}
                 title="Permitir que a persona mude a si mesma pela conversa (nome, imagem, personalidade)"
                 className={cn(
                   'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition',
@@ -323,27 +442,72 @@ export function PersonaChatLab() {
                 <Wand2 className="h-3 w-3" />
                 Autoconfig {autoConfig ? 'ON' : 'OFF'}
               </button>
-              <button type="button" onClick={clearConversation} className="text-xs text-slate-500 hover:text-white">Limpar conversa</button>
+              <button
+                type="button"
+                onClick={exportConversation}
+                disabled={!messages.length}
+                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-white disabled:opacity-40"
+                title="Baixar a conversa em texto"
+              >
+                <Download className="h-3.5 w-3.5" /> Exportar
+              </button>
+              <button
+                type="button"
+                onClick={clearConversation}
+                disabled={!messages.length}
+                className={cn('text-xs disabled:opacity-40', confirmClear ? 'font-semibold text-red-300' : 'text-slate-500 hover:text-white')}
+              >
+                {confirmClear ? 'Confirmar: apagar conversa?' : 'Limpar conversa'}
+              </button>
             </div>
           </header>
 
-          <div className="flex-1 space-y-3 overflow-y-auto p-4">
+          <div role="log" aria-live="polite" aria-label="Conversa" className="flex-1 space-y-3 overflow-y-auto p-4">
             {!messages.length && <div className="flex h-full min-h-[300px] items-center justify-center text-center text-sm text-slate-500">Envie uma mensagem para iniciar esta conversa.</div>}
             {messages.map((message, index) =>
               message.role === 'system' ? (
-                <div key={`${message.timestamp}-${index}`} className="flex justify-center">
-                  <div className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-center text-[11px] text-emerald-200">
-                    {message.text}
+                <div key={`${message.timestamp}-${index}`} className="flex flex-col items-center gap-1.5">
+                  <div
+                    className={cn(
+                      'flex max-w-[90%] items-start gap-1.5 rounded-2xl border px-3 py-1.5 text-center text-[11px]',
+                      message.error
+                        ? 'border-red-400/30 bg-red-400/10 text-red-200'
+                        : 'border-emerald-400/25 bg-emerald-400/10 text-emerald-200',
+                    )}
+                  >
+                    {message.error && <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+                    <span>{message.text}</span>
                   </div>
+                  {message.error && index === messages.length - 1 && (
+                    <button
+                      type="button"
+                      onClick={retryLast}
+                      disabled={blocked}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 px-3 py-1 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:opacity-40"
+                    >
+                      <RotateCcw className="h-3 w-3" /> Tentar de novo
+                    </button>
+                  )}
                 </div>
               ) : (
-              <div key={`${message.timestamp}-${index}`} className={cn('flex gap-2', message.role === 'user' ? 'justify-end' : 'justify-start')}>
-                {message.role === 'assistant' && <Bot className="mt-2 h-4 w-4 shrink-0 text-emerald-400" />}
+              <div key={`${message.timestamp}-${index}`} className={cn('group flex gap-2', message.role === 'user' ? 'justify-end' : 'justify-start')}>
+                {message.role === 'assistant' && <Bot className="mt-2 h-4 w-4 shrink-0 text-emerald-400" aria-hidden="true" />}
                 <div className={cn('max-w-[78%] rounded-2xl px-3 py-2 text-sm', message.role === 'user' ? 'bg-sky-500/15 text-sky-100' : 'bg-white/[0.06] text-slate-200')}>
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">{message.username}</div>
-                  {message.text}
+                  <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    <span>{message.username}</span>
+                    {formatClock(message.timestamp) && <span className="font-normal normal-case tracking-normal">{formatClock(message.timestamp)}</span>}
+                    <button
+                      type="button"
+                      onClick={() => void copyMessage(index, message.text)}
+                      aria-label="Copiar mensagem"
+                      className="ml-auto opacity-0 transition hover:text-white focus-visible:opacity-100 group-hover:opacity-100"
+                    >
+                      {copiedIndex === index ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                    </button>
+                  </div>
+                  <span className="whitespace-pre-wrap break-words">{message.text}</span>
                 </div>
-                {message.role === 'user' && <User className="mt-2 h-4 w-4 shrink-0 text-sky-400" />}
+                {message.role === 'user' && <User className="mt-2 h-4 w-4 shrink-0 text-sky-400" aria-hidden="true" />}
               </div>
               )
             )}
@@ -376,22 +540,34 @@ export function PersonaChatLab() {
                 </div>
               </div>
             )}
+            <div ref={endRef} />
           </div>
 
           <div className="border-t border-white/10 p-3">
-            <div className="flex gap-2">
-              <input
+            <div className="flex items-end gap-2">
+              <textarea
+                ref={draftRef}
                 value={draft}
+                rows={Math.min(5, Math.max(1, draft.split('\n').length))}
                 onChange={(event) => setDraft(event.target.value)}
-                onKeyDown={(event) => { if (event.key === 'Enter') void sendMessage(); }}
-                disabled={!selectedPersona || sending || Boolean(pending)}
-                placeholder={pending ? 'Revise a proposta acima antes de continuar...' : 'Escreva uma mensagem de teste...'}
-                className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-emerald-400/50 disabled:opacity-50"
+                onKeyDown={onDraftKeyDown}
+                disabled={blocked}
+                aria-label="Mensagem para a persona"
+                placeholder={pending ? 'Revise a proposta acima antes de continuar...' : 'Escreva uma mensagem... (Shift+Enter: nova linha)'}
+                className="min-w-0 flex-1 resize-none rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-emerald-400/50 disabled:opacity-50"
               />
-              <button type="button" onClick={() => void sendMessage()} disabled={!draft.trim() || !selectedPersona || sending || Boolean(pending)} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-black transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40">
+              <button
+                type="button"
+                onClick={sendMessage}
+                disabled={!draft.trim() || blocked}
+                className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-black transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+              >
                 <Send className="h-4 w-4" /> Enviar
               </button>
             </div>
+            {lastIsError && !sending && (
+              <p className="mt-2 text-[11px] text-slate-500">Se a IA local ou uma chave for o problema, o aviso no topo da tela e a aba Diagnóstico mostram como resolver.</p>
+            )}
           </div>
         </section>
       </div>

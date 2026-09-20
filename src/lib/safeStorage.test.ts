@@ -35,6 +35,23 @@ describe('safeStorage', () => {
     expect(safeLocal.get('a')).toBe('1'); // ficou na memória
   });
 
+  it('dados apagados por fora do app não ressuscitam a partir da memória', () => {
+    safeLocal.set('k', 'v');
+    window.localStorage.clear(); // outra aba / ferramentas do navegador
+    expect(safeLocal.get('k')).toBeNull();
+  });
+
+  it('quando a escrita volta a funcionar, o valor da memória é descartado', () => {
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
+      throw new DOMException('cota', 'QuotaExceededError');
+    });
+    expect(safeLocal.set('k', 'na-memoria')).toBe(false);
+    spy.mockRestore();
+    expect(safeLocal.set('k', 'no-storage')).toBe(true);
+    window.localStorage.clear();
+    expect(safeLocal.get('k')).toBeNull();
+  });
+
   it('sessionStorage é independente do localStorage', () => {
     safeLocal.set('mesma', 'local');
     safeSession.set('mesma', 'sessao');

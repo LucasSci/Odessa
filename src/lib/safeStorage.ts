@@ -31,15 +31,21 @@ function makeStore(kind: Area) {
       return memory[kind].get(key) ?? null;
     },
     set(key: string, value: string): boolean {
-      memory[kind].set(key, value);
+      // A memória só guarda o que NÃO coube no armazenamento; se a escrita deu
+      // certo, uma cópia velha aqui ressuscitaria dados apagados por fora
+      // (outra aba, ferramentas do navegador, "limpar dados do site").
       try {
         const storage = area(kind);
-        if (!storage) return false;
-        storage.setItem(key, value);
-        return true;
+        if (storage) {
+          storage.setItem(key, value);
+          memory[kind].delete(key);
+          return true;
+        }
       } catch {
-        return false;
+        // cai na memória
       }
+      memory[kind].set(key, value);
+      return false;
     },
     remove(key: string): void {
       memory[kind].delete(key);
