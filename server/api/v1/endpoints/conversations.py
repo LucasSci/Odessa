@@ -3,6 +3,8 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from server.services.ai_errors import AIUnavailableError
+
 router = APIRouter(tags=["conversations"])
 
 
@@ -83,6 +85,8 @@ async def generate_reply(conversation_id: str, request: ReplyGenerateRequest):
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Conversation not found") from exc
+    except AIUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=exc.to_detail()) from exc
 
 
 @router.post("/{conversation_id}/approve")

@@ -182,6 +182,26 @@ export function checkSafetyRestrictions(text: string): { safe: boolean; blockedT
 }
 
 /**
+ * Transforma a resposta de erro do backend em texto para o operador. O 503
+ * `ai_unavailable` traz o motivo de cada provedor (Ollama fora do ar, modelo
+ * não instalado, chave inválida...), em vez de uma fala pronta que escondia a falha.
+ */
+export function describeBackendAiFailure(status: number, body: string): string {
+  if (status === 503) {
+    try {
+      const parsed = JSON.parse(body) as { detail?: { code?: string; errors?: string[] } };
+      if (parsed.detail?.code === 'ai_unavailable') {
+        const reasons = (parsed.detail.errors ?? []).join(' | ');
+        return `IA indisponível${reasons ? ` — ${reasons}` : ''}`.slice(0, 400);
+      }
+    } catch {
+      // corpo não era JSON: cai no texto genérico abaixo
+    }
+  }
+  return `Backend retornou HTTP ${status}: ${body.slice(0, 240)}`;
+}
+
+/**
  * Chama a IA generativa do backend (POST /api/v1/ai/respond), que usa a
  * RouteLLM/OpenAI/Gemini configurada no servidor. Retorna o texto ou null.
  */
@@ -234,7 +254,7 @@ async function callBackendAiRespond(
     });
     if (!res.ok) {
       const detail = await res.text();
-      return { text: null, error: `Backend retornou HTTP ${res.status}: ${detail.slice(0, 240)}` };
+      return { text: null, error: describeBackendAiFailure(res.status, detail) };
     }
     const data = (await res.json()) as { response?: string };
     return { text: data.response?.trim() || null, error: 'O backend retornou uma resposta vazia.' };

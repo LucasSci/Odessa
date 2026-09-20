@@ -45,7 +45,7 @@ def test_ai_respond_success(client):
         },
     )
     # Endpoint exists and returns valid response or error
-    assert response.status_code in [200, 400, 422, 500, 502]
+    assert response.status_code in [200, 400, 422, 500, 502, 503]
 
 
 @pytest.mark.unit
@@ -82,7 +82,7 @@ def test_ai_decide_success(client):
         },
     )
     # Endpoint exists and returns valid response or error
-    assert response.status_code in [200, 400, 422, 500, 502]
+    assert response.status_code in [200, 400, 422, 500, 502, 503]
     if response.status_code == 200:
         data = response.json()
         assert "speech" in data or "intent" in data
@@ -113,7 +113,7 @@ def test_ai_fallback_to_openai(client):
         },
     )
     # Should return valid response or error
-    assert response.status_code in [200, 400, 422, 500, 502]
+    assert response.status_code in [200, 400, 422, 500, 502, 503]
 
 
 @pytest.mark.unit

@@ -90,7 +90,7 @@ Use `-Force` para substituir atalhos existentes.
 Para trabalhar sem chaves externas, mantenha no `.env`:
 
 ```env
-ENABLE_LOCAL_FALLBACK=true
+ENABLE_LOCAL_FALLBACK=false
 SIMULATION_MODE=true
 ENABLE_TTS=false
 TTS_SIMULATION_MODE=true

@@ -6,6 +6,8 @@ from fastapi import HTTPException
 from openai import OpenAI
 from google import genai
 
+from server.services.ai_errors import AIUnavailableError
+
 from server.config import (
     OPENAI_API_KEY,
     GEMINI_API_KEY,
@@ -335,13 +337,21 @@ class AIService:
                     logger.warning("[AI ROUTER] OpenAI failed: %s", exc)
                     errors.append(f"OpenAI: {exc}")
 
-        # Priority 2: Local Fallback / Simulated AI
+        # Nenhum provedor respondeu. Antes devolvia uma fala pronta com HTTP 200,
+        # o que fazia parecer que a IA estava funcionando (a Odessa repetia a
+        # mesma frase e o diagnostico nao mostrava nada de errado). Agora o erro
+        # sobe com o motivo de cada provedor; a frase pronta so sai se o operador
+        # ligar ENABLE_LOCAL_FALLBACK de proposito.
+        if not errors:
+            errors.append(
+                "Nenhum provedor de IA esta configurado ou disponivel "
+                f"(tentados: {', '.join(providers_to_try)})."
+            )
         if ENABLE_LOCAL_FALLBACK:
-            logger.info("[AI ROUTER] Falling back to local fallback.")
+            logger.warning("[AI ROUTER] Todos os provedores falharam; usando fala pronta (ENABLE_LOCAL_FALLBACK): %s", errors)
             return "Gente, adorei essa energia. Já já eu respondo melhor, continua comigo.", "local_fallback"
-
-        # Final Fallback: Neutral Response
-        return "Gente, adorei essa energia. Já já eu respondo melhor, continua comigo.", "neutral_last_resort"
+        logger.error("[AI ROUTER] Todos os provedores falharam: %s", errors)
+        raise AIUnavailableError(errors)
 
 # Singleton instance
 ai_service = AIService()

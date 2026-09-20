@@ -195,6 +195,29 @@ async def health_check():
     }
 
 
+# Dependências externas (Ollama, chaves de IA) com o que fazer para consertar.
+# Exige sessão (não está em _PUBLIC_PATHS_EXACT): é para a UI já logada.
+@app.get("/health/deps")
+@app.get("/api/health/deps")
+async def health_deps():
+    import shutil
+
+    from server import config as server_config
+    from server.api.v1.endpoints.ai import _check_ollama
+    from server.services.deps_health import build_deps_report
+
+    return build_deps_report(
+        provider=server_config.AI_PROVIDER,
+        ollama=await _check_ollama(),
+        ollama_installed=shutil.which("ollama") is not None,
+        keys={
+            "gemini": bool(server_config.GEMINI_API_KEY),
+            "openai": bool(server_config.OPENAI_API_KEY),
+            "claude": bool(server_config.ANTHROPIC_API_KEY),
+        },
+    )
+
+
 def _bridge_port() -> int:
     try:
         from server.services.bridge_manager import load_bridge_config

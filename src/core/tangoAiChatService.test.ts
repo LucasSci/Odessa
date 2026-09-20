@@ -1,10 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
   checkSafetyRestrictions,
+  describeBackendAiFailure,
   sanitizeTangoReply,
 } from './tangoAiChatService';
 
 describe('tangoAiChatService', () => {
+  it('explica o 503 ai_unavailable com o motivo de cada provedor', () => {
+    const body = JSON.stringify({ detail: { code: 'ai_unavailable', errors: ['Ollama: connection refused', 'Gemini: chave inválida'] } });
+    expect(describeBackendAiFailure(503, body)).toBe('IA indisponível — Ollama: connection refused | Gemini: chave inválida');
+  });
+
+  it('mantém texto genérico para outros erros do backend', () => {
+    expect(describeBackendAiFailure(502, 'boom')).toBe('Backend retornou HTTP 502: boom');
+    expect(describeBackendAiFailure(503, 'não é json')).toBe('Backend retornou HTTP 503: não é json');
+  });
+
   it('sanitizes quotes and trims excessive whitespace', () => {
     const raw = '  "Oi @Lucas! Tudo bem com você? ✨"  ';
     const clean = sanitizeTangoReply(raw);

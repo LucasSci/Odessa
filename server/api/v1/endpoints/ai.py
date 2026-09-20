@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from server.config import GEMINI_API_KEY
 from server.models import AIRespondRequest, AIDecideRequest
+from server.services.ai_errors import AIUnavailableError
 from server.utils.text_utils import extract_json_object
 
 router = APIRouter(tags=["AI"])
@@ -228,6 +229,8 @@ def ai_respond(request: AIRespondRequest):
         return {"response": text, "provider": provider}
     except HTTPException:
         raise
+    except AIUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=exc.to_detail()) from exc
     except Exception as exc:
         logger.error("[AI RESPOND EXCEPTION] %s", exc, exc_info=True)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -306,6 +309,8 @@ def ai_decide(request: AIDecideRequest):
 
     except HTTPException:
         raise
+    except AIUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=exc.to_detail()) from exc
     except Exception as exc:
         logger.error("[AI DECIDE EXCEPTION] %s", exc, exc_info=True)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
