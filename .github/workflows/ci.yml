@@ -11,32 +11,53 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        # Mesma versao do runtime embutido no instalador (desktop/build-runtime.ps1).
+        python-version: '3.12'
         cache: 'pip'
-        
+        cache-dependency-path: server/requirements.txt
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r server/requirements.txt
         pip install pytest pytest-asyncio pytest-cov
-        
+
+    # As duas pastas: server/tests (unidade/seguranca/dados) e tests/ (API).
+    # O pytest.ini so aponta para tests/, entao as duas vao explicitas.
     - name: Run Backend Tests
       env:
         ODESSA_AUTH_DISABLED: 1
-        ODESSA_SESSION_SECRET: test
+        ODESSA_SESSION_SECRET: test-secret-only-for-ci
         ODESSA_AGENT_TOKEN: test
       run: |
-        PYTHONPATH=. pytest --cov=server server/tests/
+        PYTHONPATH=. pytest --cov=server server/tests tests
+
+  installer-scripts:
+    # Launcher e verify-stage sao PowerShell do instalador Windows: so rodam la.
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install pytest
+      run: python -m pip install pytest
+
+    - name: Run installer script tests
+      run: python -m pytest server/tests/test_launcher_script.py server/tests/test_verify_stage.py -q
 
   frontend-tests:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
@@ -44,9 +65,16 @@ jobs:
 
     - name: Install pnpm
       run: npm install -g pnpm@9
-        
+
+    # Lockfile congelado: o CI falha se package.json e pnpm-lock.yaml divergirem.
     - name: Install dependencies
-      run: pnpm install --no-frozen-lockfile
-      
+      run: pnpm install --frozen-lockfile
+
+    - name: Type check
+      run: pnpm exec tsc --noEmit
+
     - name: Run Frontend Tests
       run: pnpm vitest run
+
+    - name: Build
+      run: pnpm build
