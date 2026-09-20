@@ -51,14 +51,8 @@ import { CommandPalette } from './components/CommandPalette';
 import { DependencyBanner } from './components/DependencyBanner';
 import type { PaletteCommand } from './core/commandPalette';
 import { SignalStrip, type Signal } from './components/stage/SignalStrip';
-import { AiConfigPanel } from './components/AiConfigPanel';
-import { SettingsPanel } from './components/SettingsPanel';
 import TopPersonaSelector from './components/TopPersonaSelector';
-import { PersonasPanel } from './components/PersonasPanel';
-import { AdminPanel } from './components/AdminPanel';
-import { PersonaChatLab } from './components/PersonaChatLab';
 import { TangoChatPanel } from './components/TangoChatPanel';
-import { SessionHistoryPanel } from './components/SessionHistoryPanel';
 import VideoEditor from './components/VideoEditor';
 
 import { applyVideoEdit, getVideoEdit, hasVideoEdit, persistVideoEditDebounced, syncVideoEditsFromServer, defaultVideoEdit, type VideoSegment } from './core/videoEdits';
@@ -67,8 +61,33 @@ import { getAiConfig, hasActiveGeminiKey, type AiAutonomyLevel } from './core/ai
 const ReactiveFlowBoard = lazy(() => import('./ReactiveFlowBoard'));
 const PlanningCanvas = lazy(() => import('./PlanningCanvas'));
 const ReactiveFlowLogLab = lazy(() => import('./components/ReactiveFlowLogLab'));
-// VideoEditor é importado de forma normal (não-lazy): no Palco o stream de vídeo
-// ao vivo segura conexões HTTP/1.1 e o chunk lazy ficava "pending" para sempre.
+// VideoEditor e TangoChatPanel são importados de forma normal (não-lazy): no Palco o
+// stream de vídeo ao vivo segura conexões HTTP/1.1 e o chunk lazy ficava "pending" para sempre.
+//
+// As abas abaixo nunca convivem com o stream do Palco (ao trocar de aba o Palco
+// desmonta) e viram chunks separados. Além disso são pré-carregados quando o
+// navegador está ocioso (ver prefetchTabChunks), antes de qualquer vídeo tocar.
+const loadPersonasPanel = () => import('./components/PersonasPanel');
+const loadPersonaChatLab = () => import('./components/PersonaChatLab');
+const loadAdminPanel = () => import('./components/AdminPanel');
+const loadSessionHistoryPanel = () => import('./components/SessionHistoryPanel');
+const loadSettingsPanel = () => import('./components/SettingsPanel');
+const loadAiConfigPanel = () => import('./components/AiConfigPanel');
+
+const PersonasPanel = lazy(() => loadPersonasPanel().then((m) => ({ default: m.PersonasPanel })));
+const PersonaChatLab = lazy(() => loadPersonaChatLab().then((m) => ({ default: m.PersonaChatLab })));
+const AdminPanel = lazy(() => loadAdminPanel().then((m) => ({ default: m.AdminPanel })));
+const SessionHistoryPanel = lazy(() => loadSessionHistoryPanel().then((m) => ({ default: m.SessionHistoryPanel })));
+const SettingsPanel = lazy(() => loadSettingsPanel().then((m) => ({ default: m.SettingsPanel })));
+const AiConfigPanel = lazy(() => loadAiConfigPanel().then((m) => ({ default: m.AiConfigPanel })));
+
+function prefetchTabChunks() {
+  const loaders = [loadPersonasPanel, loadPersonaChatLab, loadAdminPanel, loadSessionHistoryPanel, loadSettingsPanel, loadAiConfigPanel];
+  const run = () => loaders.forEach((load) => void load().catch(() => undefined));
+  const idle = (window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback;
+  if (idle) idle(run, { timeout: 6000 });
+  else window.setTimeout(run, 3000);
+}
 
 // ─── Gift detection ───────────────────────────────────────────────────────────
 // isGiftEvent is imported from ocrPipeline — single source of truth.
@@ -419,6 +438,9 @@ export default function OdessaLiveCenter({
   // Paleta de comandos (Ctrl+K / Cmd+K), disponível em qualquer tela.
   const toast = useToast();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  useEffect(() => {
+    prefetchTabChunks();
+  }, []);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'k') {
@@ -1111,12 +1133,24 @@ export default function OdessaLiveCenter({
         )}
 
         {/* 4. PERSONAS */}
-        {activeTab === 'personas' && <PersonasPanel />}
+        {activeTab === 'personas' && (
+          <Suspense fallback={<PanelLoading label="Carregando personas" />}>
+            <PersonasPanel />
+          </Suspense>
+        )}
 
         {/* 5. CONVERSA LOCAL */}
-        {activeTab === 'conversation' && <PersonaChatLab />}
+        {activeTab === 'conversation' && (
+          <Suspense fallback={<PanelLoading label="Carregando conversa" />}>
+            <PersonaChatLab />
+          </Suspense>
+        )}
 
-        {activeTab === 'admin' && <AdminPanel />}
+        {activeTab === 'admin' && (
+          <Suspense fallback={<PanelLoading label="Carregando administração" />}>
+            <AdminPanel />
+          </Suspense>
+        )}
 
         {/* 6. HISTÓRICO */}
         {activeTab === 'history' && (
@@ -1126,7 +1160,9 @@ export default function OdessaLiveCenter({
             description="Registro consolidado de eventos, mensagens recebidas, presentes e respostas de IA."
           >
             <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
-              <SessionHistoryPanel active={activeTab === 'history'} />
+              <Suspense fallback={<PanelLoading label="Carregando histórico" />}>
+                <SessionHistoryPanel active={activeTab === 'history'} />
+              </Suspense>
             </div>
           </PageSurface>
         )}
@@ -1149,20 +1185,24 @@ export default function OdessaLiveCenter({
 
             <div className="min-h-0 flex-1 overflow-y-auto">
               {settingsSubTab === 'general' && (
-                <SettingsPanel
-                  health={runtime.health}
-                  onRefreshHealth={runtime.refreshHealth}
-                  liveConfig={liveConfig}
-                  onLiveConfigChange={onLiveConfigChange}
-                  onObsSettingsChanged={onObsSettingsChanged}
-                  onSaved={() => {
-                    void runtime.refreshObsScenes();
-                  }}
-                />
+                <Suspense fallback={<PanelLoading label="Carregando configurações" />}>
+                  <SettingsPanel
+                    health={runtime.health}
+                    onRefreshHealth={runtime.refreshHealth}
+                    liveConfig={liveConfig}
+                    onLiveConfigChange={onLiveConfigChange}
+                    onObsSettingsChanged={onObsSettingsChanged}
+                    onSaved={() => {
+                      void runtime.refreshObsScenes();
+                    }}
+                  />
+                </Suspense>
               )}
               {settingsSubTab === 'ai' && (
                 <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                  <AiConfigPanel />
+                  <Suspense fallback={<PanelLoading label="Carregando Diretora IA" />}>
+                    <AiConfigPanel />
+                  </Suspense>
                 </div>
               )}
               {settingsSubTab === 'canvas' && (
