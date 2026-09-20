@@ -33,6 +33,7 @@ import {
   MAX_SPEED, MIN_SPEED, clampSpeed, duplicateSegment, playbackSeconds, snapCandidates, snapTime, splitAt,
 } from '../core/videoEditOps';
 import { segmentSpeed } from '../core/playback/clipTimeline';
+import { useModalFocus } from '../core/useModalFocus';
 
 interface VideoEditorProps {
   videoId: string;
@@ -71,6 +72,7 @@ const SHORTCUTS: Array<[string, string]> = [
 const chip = 'inline-flex items-center gap-1 rounded-lg border border-[var(--border2)] bg-[var(--bg3)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--t2)] transition hover:bg-[var(--bg4)] hover:text-[var(--t1)] disabled:cursor-not-allowed disabled:opacity-40';
 
 export default function VideoEditor({ videoId, label, onClose }: VideoEditorProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
   const videoRef = useRef<HTMLVideoElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -489,6 +491,9 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      // Espaço/Enter num botão focado é o clique nativo: sem isto, o atalho de
+      // play disparava junto com o botão (duas ações por tecla).
+      if ((tag === 'BUTTON' || tag === 'A') && (e.key === ' ' || e.key === 'Enter')) return;
       const key = e.key.toLowerCase();
       if ((e.ctrlKey || e.metaKey) && key === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
       if ((e.ctrlKey || e.metaKey) && key === 'd') { e.preventDefault(); duplicateSelected(); return; }
@@ -504,17 +509,19 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
       else if (e.key === 'Delete' || e.key === 'Backspace') { if (selectedSeg != null) { e.preventDefault(); removeSegment(selectedSeg); } }
       else if (e.key === '?') { e.preventDefault(); setShowHelp((v) => !v); }
       else if (e.key === ' ') { e.preventDefault(); togglePlay(); }
-      else if (e.key === 'Escape') { if (showHelp) setShowHelp(false); }
+      else if (e.key === 'Escape') { e.preventDefault(); if (showHelp) setShowHelp(false); else requestClose(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [step, stepFrame, markIn, markOut, togglePlay, undo, redo, splitAtPlayhead, duplicateSelected, removeSegment, selectedSeg, fitZoom, showHelp]);
+  }, [step, stepFrame, markIn, markOut, togglePlay, undo, redo, splitAtPlayhead, duplicateSelected, removeSegment, selectedSeg, fitZoom, showHelp, requestClose]);
+
+  useModalFocus(dialogRef);
 
   const selected = selectedSeg != null ? segments[selectedSeg] : undefined;
   const totalPlay = segments.length > 0 ? playbackSeconds(segments) : duration;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[var(--bg)]" role="dialog" aria-label="Editor de vídeo">
+    <div ref={dialogRef} tabIndex={-1} className="fixed inset-0 z-50 flex flex-col bg-[var(--bg)] outline-none" role="dialog" aria-modal="true" aria-label="Editor de vídeo">
       {/* Cabeçalho */}
       <header className="flex items-center gap-2 border-b border-[var(--border2)] bg-[var(--bg2)] px-4 py-2.5">
         <Scissors className="h-4 w-4 text-[var(--sky)]" />

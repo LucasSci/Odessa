@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import { filterCommands, type PaletteCommand } from '../core/commandPalette';
 import { cn } from '../lib/utils';
+import { useModalFocus } from '../core/useModalFocus';
 
 /**
  * Paleta de comandos (Ctrl+K): busca única para navegar, pôr um clip no ar,
@@ -19,7 +20,9 @@ export function CommandPalette({
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
   const listRef = useRef<HTMLUListElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const results = useMemo(() => filterCommands(commands, query), [commands, query]);
+  useModalFocus(dialogRef, open, 'input');
 
   useEffect(() => {
     if (open) {
@@ -70,6 +73,8 @@ export function CommandPalette({
       }}
     >
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label="Paleta de comandos"
@@ -79,7 +84,6 @@ export function CommandPalette({
         <div className="flex items-center gap-2 border-b border-[var(--border2)] px-4 py-3">
           <Search className="h-4 w-4 shrink-0 text-[var(--t3)]" />
           <input
-            autoFocus
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Buscar comando, clip, cena…"
