@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Launcher do Odessa instalado  -  inicia o backend (que já serve o frontend
     sozinho, ver server/main.py) e abre a interface no navegador padrão.
@@ -26,6 +26,43 @@ function Write-Log($msg) {
     "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $msg" | Add-Content -Path $logFile
 }
 
+# Rotação: log passando de 5 MB vira .1 (o .1 vira .2 ...), guardando 5 cópias.
+# Sem isso o backend.err.log crescia sem limite a cada execução.
+function Rotate-Log($path, [long]$maxBytes = 5MB, [int]$keep = 5) {
+    try {
+        if (-not (Test-Path $path)) { return }
+        if ((Get-Item $path).Length -lt $maxBytes) { return }
+        for ($i = $keep - 1; $i -ge 1; $i--) {
+            $from = "$path.$i"
+            if (Test-Path $from) { Move-Item -Force $from "$path.$($i + 1)" }
+        }
+        Move-Item -Force $path "$path.1"
+    } catch { }
+}
+foreach ($name in @("odessa.log", "backend.out.log", "backend.err.log")) {
+    Rotate-Log (Join-Path $logDir $name)
+}
+
+# /health devolve {"service": "odessa-api"}: é a assinatura que distingue o nosso
+# backend de qualquer outro programa que esteja na porta 8000.
+function Test-OdessaBackend {
+    try {
+        $resp = Invoke-WebRequest -Uri $healthUrl -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
+        if ($resp.StatusCode -ne 200) { return $false }
+        return (($resp.Content | ConvertFrom-Json).service -eq "odessa-api")
+    } catch { return $false }
+}
+
+function Test-PortInUse([int]$port) {
+    $client = New-Object System.Net.Sockets.TcpClient
+    try {
+        $async = $client.BeginConnect("127.0.0.1", $port, $null, $null)
+        if (-not $async.AsyncWaitHandle.WaitOne(800)) { return $false }
+        $client.EndConnect($async)
+        return $true
+    } catch { return $false } finally { $client.Close() }
+}
+
 #  .env com segredos gerados no primeiro uso 
 # Sem isso o backend sobe com os defaults de dev (ODESSA_SESSION_SECRET fixo
 # no código-fonte)  -  funciona, mas não é o ideal nem para uso local. Gerado
@@ -51,14 +88,21 @@ if (-not (Test-Path $envFile)) {
 }
 
 #  Já está rodando? 
-try {
-    $probe = Invoke-WebRequest -Uri $healthUrl -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
-    if ($probe.StatusCode -eq 200) {
-        Write-Log "Backend já estava rodando  -  só abrindo o navegador."
-        Start-Process $appUrl
-        exit 0
-    }
-} catch { }
+if (Test-OdessaBackend) {
+    Write-Log "Backend já estava rodando  -  só abrindo o navegador."
+    Start-Process $appUrl
+    exit 0
+}
+if (Test-PortInUse $serverPort) {
+    # Antes qualquer programa respondendo 200 em /health passava por "o Odessa
+    # já está rodando", e o navegador abria a página de outro programa.
+    Write-Log "Porta $serverPort ocupada por outro programa (não é o Odessa)."
+    [System.Windows.Forms.MessageBox]::Show(
+        "A porta $serverPort está sendo usada por outro programa, então o Odessa não consegue iniciar.`n`nFeche o programa que usa essa porta (ou reinicie o computador) e abra o Odessa de novo.",
+        "Odessa  -  porta ocupada", "OK", "Warning"
+    ) 2>$null
+    exit 1
+}
 
 #  Sobe o backend em segundo plano
 Write-Log "Iniciando backend..."
@@ -75,13 +119,20 @@ $stdErrLog = Join-Path $logDir "backend.err.log"
 # ao lado do app.
 $env:PLAYWRIGHT_BROWSERS_PATH = "0"
 
-$psi = Start-Process -FilePath $pyExe `
-    -ArgumentList @("-m", "uvicorn", "server.main:app", "--host", "127.0.0.1", "--port", "$serverPort") `
-    -WorkingDirectory $installRoot `
-    -WindowStyle Hidden `
-    -RedirectStandardOutput $stdOutLog `
-    -RedirectStandardError $stdErrLog `
-    -PassThru
+function Start-Backend {
+    $proc = Start-Process -FilePath $pyExe `
+        -ArgumentList @("-m", "uvicorn", "server.main:app", "--host", "127.0.0.1", "--port", "$serverPort") `
+        -WorkingDirectory $installRoot `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $stdOutLog `
+        -RedirectStandardError $stdErrLog `
+        -PassThru
+    # Sem tocar no Handle, o ExitCode pode voltar vazio depois que o processo sai.
+    $null = $proc.Handle
+    return $proc
+}
+
+$psi = Start-Backend
 
 #  Espera o /health responder (até 45s  -  cold start de dependências) 
 $ready = $false
@@ -102,7 +153,7 @@ for ($i = 0; $i -lt 45; $i++) {
 }
 
 if (-not $ready) {
-    Write-Log "Backend não respondeu a tempo (45s)."
+    Write-Log "Backend não respondeu a tempo (45s)  -  continua vivo, só está lento; o supervisor segue de olho."
 } else {
     Write-Log "Backend pronto. Abrindo navegador."
 }
@@ -133,4 +184,43 @@ if (-not $obsFound -and -not (Test-Path $obsMarker)) {
     Write-Log "OBS Studio não encontrado  -  abrindo página de download."
     Start-Process "https://obsproject.com/download"
     New-Item -ItemType File -Force -Path $obsMarker | Out-Null
+}
+
+# Supervisor: se o backend cair no meio da live, sobe de novo (espera 2s, 4s, 8s...
+# até 30s entre tentativas). Cinco quedas em 2 minutos = problema de verdade, então
+# avisa em vez de ficar reiniciando para sempre. Este script fica vivo (oculto) só
+# para isso; o instalador e o desinstalador o encerram junto com o backend.
+$crashes = New-Object System.Collections.Generic.List[datetime]
+while ($true) {
+    $psi.WaitForExit()
+    Write-Log "Backend encerrou (código $($psi.ExitCode))."
+
+    if (-not (Test-Path $pyExe)) {
+        Write-Log "Instalação removida ou em atualização  -  supervisor encerrando."
+        exit 0
+    }
+
+    $now = Get-Date
+    $crashes.Add($now)
+    $crashes.RemoveAll([Predicate[datetime]]{ param($t) ($now - $t).TotalSeconds -gt 120 }) | Out-Null
+    if ($crashes.Count -ge 5) {
+        Write-Log "Backend caiu $($crashes.Count) vezes em 2 minutos  -  desistindo. Veja $stdErrLog"
+        [System.Windows.Forms.MessageBox]::Show(
+            "O Odessa parou de funcionar várias vezes seguidas e não vai reiniciar sozinho.`n`nAbra o Odessa de novo pelo atalho. Se repetir, envie o log:`n$stdErrLog",
+            "Odessa  -  backend parou", "OK", "Error"
+        ) 2>$null
+        exit 1
+    }
+
+    # Guarda o erro da queda antes que o próximo processo sobrescreva o arquivo.
+    try { Copy-Item -Force $stdErrLog (Join-Path $logDir "backend.err.last-crash.log") } catch { }
+
+    Start-Sleep -Seconds ([math]::Min(30, [math]::Pow(2, $crashes.Count)))
+
+    if (Test-OdessaBackend) {
+        Write-Log "Outro backend do Odessa já está no ar  -  supervisor encerrando."
+        exit 0
+    }
+    Write-Log "Reiniciando backend (queda $($crashes.Count))..."
+    $psi = Start-Backend
 }

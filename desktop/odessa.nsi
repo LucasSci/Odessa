@@ -92,6 +92,9 @@ VIAddVersionKey "LegalCopyright" "${APP_PUBLISHER}"
 ; dois. O delimitador do texto e crase porque ele contem aspas simples e duplas.
 !macro StopInstalledBackend DIR
     FileOpen $1 "$TEMP\odessa-stop-running.ps1" w
+    ; O launcher (start-odessa.ps1) fica vivo como supervisor e reergueria o
+    ; backend logo depois de morto -- em plena troca de arquivos. Sai primeiro.
+    FileWrite $1 `Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $$_.CommandLine -like "*${DIR}\launcher\start-odessa.ps1*" } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }$\r$\n`
     FileWrite $1 `Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" | Where-Object { $$_.ExecutablePath -like "${DIR}*" } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }$\r$\n`
     FileClose $1
     nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -File "$TEMP\odessa-stop-running.ps1"'

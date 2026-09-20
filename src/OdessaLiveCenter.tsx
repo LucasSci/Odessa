@@ -48,6 +48,7 @@ import { ClipProgress } from './components/stage/ClipProgress';
 import { EventRadio } from './components/stage/EventRadio';
 import { ContentHub } from './components/library/ContentHub';
 import { CommandPalette } from './components/CommandPalette';
+import { DependencyBanner } from './components/DependencyBanner';
 import type { PaletteCommand } from './core/commandPalette';
 import { SignalStrip, type Signal } from './components/stage/SignalStrip';
 import { AiConfigPanel } from './components/AiConfigPanel';
@@ -984,6 +985,8 @@ export default function OdessaLiveCenter({
           </div>
         )}
       </header>
+
+      <DependencyBanner />
 
       <div className="flex gap-1 overflow-x-auto border-b border-[var(--border)] px-3 py-1.5 lg:hidden" style={{ background: 'rgba(6,7,10,0.86)', backdropFilter: 'blur(20px)' }}>
         {([
