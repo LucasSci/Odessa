@@ -1,27 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { AlertTriangle, ExternalLink, Loader2, X } from 'lucide-react';
-import { apiUrl } from '../lib/api';
+import { ApiError, apiFetch } from '../lib/apiFetch';
+import { safeSession } from '../lib/safeStorage';
 import { parseDepsReport, pickIssueToShow, type DepsIssue, type DepsReport } from '../core/depsHealth';
+import { usePolling } from '../core/usePolling';
 import { cn } from '../lib/utils';
 
 const POLL_MS = 30_000;
 // Depois de "Baixar modelo" o download leva minutos: reconsulta mais rápido.
 const FAST_POLL_MS = 6_000;
 
+const DISMISSED_KEY = 'odessa.deps.dismissed';
+
 function readDismissed(): Set<string> {
-  try {
-    return new Set(JSON.parse(sessionStorage.getItem('odessa.deps.dismissed') || '[]') as string[]);
-  } catch {
-    return new Set();
-  }
+  const stored = safeSession.getJSON<unknown>(DISMISSED_KEY, []);
+  return new Set(Array.isArray(stored) ? stored.filter((item): item is string => typeof item === 'string') : []);
 }
 
 function saveDismissed(codes: Set<string>) {
-  try {
-    sessionStorage.setItem('odessa.deps.dismissed', JSON.stringify([...codes]));
-  } catch {
-    // sessionStorage indisponível: o aviso só volta no próximo carregamento
-  }
+  safeSession.setJSON(DISMISSED_KEY, [...codes]);
 }
 
 /**
@@ -35,30 +32,17 @@ export function DependencyBanner() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [fast, setFast] = useState(false);
-  const alive = useRef(true);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch(apiUrl('/health/deps'), { signal: AbortSignal.timeout(8_000) });
-      if (!res.ok) return;
-      const parsed = parseDepsReport(await res.json());
-      if (alive.current && parsed) setReport(parsed);
+      const parsed = parseDepsReport(await apiFetch<unknown>('/health/deps', { timeoutMs: 8_000, signal }));
+      if (parsed && !signal?.aborted) setReport(parsed);
     } catch {
       // backend fora do ar: os outros indicadores do app já mostram isso
     }
   }, []);
 
-  useEffect(() => {
-    alive.current = true;
-    void refresh();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void refresh();
-    }, fast ? FAST_POLL_MS : POLL_MS);
-    return () => {
-      alive.current = false;
-      window.clearInterval(timer);
-    };
-  }, [refresh, fast]);
+  usePolling(refresh, fast ? FAST_POLL_MS : POLL_MS);
 
   const issue = pickIssueToShow(report, dismissed);
   if (!issue) return null;
@@ -73,12 +57,11 @@ export function DependencyBanner() {
     setBusy(true);
     setMessage(null);
     try {
-      const res = await fetch(apiUrl(action.path), { method: 'POST', signal: AbortSignal.timeout(30_000) });
-      const data = (await res.json().catch(() => null)) as { message?: string; detail?: string } | null;
-      setMessage(data?.message || data?.detail || (res.ok ? 'Pronto.' : `Falhou (HTTP ${res.status}).`));
-      if (res.ok) setFast(true);
+      const data = await apiFetch<{ message?: string } | undefined>(action.path, { method: 'POST', timeoutMs: 30_000 });
+      setMessage(data?.message || 'Pronto.');
+      setFast(true);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Não foi possível concluir a ação.');
+      setMessage(error instanceof ApiError || error instanceof Error ? error.message : 'Não foi possível concluir a ação.');
     } finally {
       setBusy(false);
       void refresh();

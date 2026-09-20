@@ -5,7 +5,8 @@
  * mensagens (buffer), prompts gerados, próximo vídeo a gerar e as imagens
  * (frames) usadas como base.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { usePolling } from '../core/usePolling';
 import { Clapperboard, Image as ImageIcon, Loader2, MessageSquare, Play, Sparkles, Trash2, Wand2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { apiUrl } from '../lib/api';
@@ -40,7 +41,6 @@ export function VideoGenPanel({ className }: { className?: string }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const timerRef = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -54,13 +54,7 @@ export function VideoGenPanel({ className }: { className?: string }) {
     }
   }, []);
 
-  useEffect(() => {
-    void refresh();
-    timerRef.current = window.setInterval(() => void refresh(), POLL_MS);
-    return () => {
-      if (timerRef.current) window.clearInterval(timerRef.current);
-    };
-  }, [refresh]);
+  usePolling(refresh, POLL_MS);
 
   const handleGeneratePrompt = async () => {
     setBusy(true);

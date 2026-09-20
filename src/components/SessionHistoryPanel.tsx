@@ -5,7 +5,8 @@
  * vídeos gerados, respostas de IA) e permite exportar em JSON ou CSV.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { usePolling } from '../core/usePolling';
 import {
   Download,
   FileJson,
@@ -139,12 +140,7 @@ export function SessionHistoryPanel({ active }: { active: boolean }) {
     setLoading(false);
   }, [selectedSession, typeFilter]);
 
-  useEffect(() => {
-    if (!active) return;
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 3000);
-    return () => window.clearInterval(timer);
-  }, [active, refresh]);
+  usePolling(refresh, 3000, { enabled: active, restartKey: refresh });
 
   const summary = useMemo(() => {
     const byType: Record<string, number> = {};

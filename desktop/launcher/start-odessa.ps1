@@ -16,7 +16,10 @@ $serverPort = 8000
 # monta URLs de API com o literal "localhost" (ver CORS em server/main.py),
 # entao abrir via 127.0.0.1 causa erro de CORS nessas chamadas mesmo servindo
 # o mesmo backend.
-$healthUrl = "http://localhost:$serverPort/health"
+# A sondagem de saude usa 127.0.0.1: o uvicorn escuta so em IPv4, e "localhost"
+# tenta ::1 primeiro -- cada tentativa estourava o timeout de 2s e o launcher
+# nunca via o backend pronto (nem reconhecia um ja rodando).
+$healthUrl = "http://127.0.0.1:$serverPort/health"
 $appUrl = "http://localhost:$serverPort/"
 $logDir = Join-Path $env:LOCALAPPDATA "Odessa\logs"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null

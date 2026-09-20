@@ -3,6 +3,7 @@
  * Usado em StagePanel para diagnóstico unificado.
  */
 import { cn } from '../lib/utils';
+import { usePolling } from '../core/usePolling';
 
 export type ServiceStatus = 'online' | 'offline' | 'degraded' | 'unknown' | 'checking';
 
@@ -101,32 +102,29 @@ export function useServiceHealth(checks: Array<{ name: string; url: string }>) {
     checks.map((c) => ({ name: c.name, status: 'checking' as ServiceStatus })),
   );
 
-  useEffect(() => {
-    const run = async () => {
-      const results = await Promise.all(
-        checks.map(async (check) => {
-          const start = Date.now();
-          try {
-            const res = await fetch(check.url, { signal: AbortSignal.timeout(3000) });
-            return {
-              name: check.name,
-              status: (res.ok ? 'online' : 'degraded') as ServiceStatus,
-              latencyMs: Date.now() - start,
-            };
-          } catch {
-            return { name: check.name, status: 'offline' as ServiceStatus, latencyMs: null };
-          }
-        }),
-      );
-      setServices(results);
-    };
-    void run();
-    const id = setInterval(() => void run(), 15000);
-    return () => clearInterval(id);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Checar "offline" é o objetivo: cada verificação captura a própria falha, então
+  // o backoff do polling não entra em ação aqui (o intervalo é sempre 15s).
+  usePolling(async (signal) => {
+    const results = await Promise.all(
+      checks.map(async (check) => {
+        const start = Date.now();
+        try {
+          const res = await fetch(check.url, { signal: AbortSignal.any([signal, AbortSignal.timeout(3000)]) });
+          return {
+            name: check.name,
+            status: (res.ok ? 'online' : 'degraded') as ServiceStatus,
+            latencyMs: Date.now() - start,
+          };
+        } catch {
+          return { name: check.name, status: 'offline' as ServiceStatus, latencyMs: null };
+        }
+      }),
+    );
+    if (!signal.aborted) setServices(results);
+  }, 15000);
 
   return services;
 }
 
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';

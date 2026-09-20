@@ -8,6 +8,7 @@
  * JSON na mão ou navegar entre painéis separados.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { usePolling } from '../core/usePolling';
 import { Images, Sparkles, LayoutGrid, Loader2, RefreshCw, Wand2 } from 'lucide-react';
 import {
   fetchPersonaContent,
@@ -93,11 +94,7 @@ export default function PersonaContentStudio({ personaId, personaName }: Props) 
     }
   }, [personaId]);
 
-  useEffect(() => {
-    const interval = window.setInterval(() => void refresh(), CONTENT_STUDIO_POLL_MS);
-    void refresh();
-    return () => window.clearInterval(interval);
-  }, [refresh]);
+  usePolling(refresh, CONTENT_STUDIO_POLL_MS, { restartKey: refresh });
 
   // Acompanha o job de geração de foto até done/error, então avisa a lista
   // de conteúdo (refresh) e some com o card depois de um instante. Auto-
