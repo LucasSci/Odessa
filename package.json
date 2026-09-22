@@ -25,7 +25,7 @@
   "dependencies": {
     "@xyflow/react": "^12.11.1",
     "clsx": "^2.1.1",
-    "lucide-react": "^1.45.0",
+    "lucide-react": "^1.47.0",
     "obs-websocket-js": "^5.0.8",
     "playwright": "^1.62.1",
     "react": "^19.3.0",
