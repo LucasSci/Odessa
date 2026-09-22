@@ -23,6 +23,6 @@ uvicorn[standard]
 python-multipart
 
 # Bridge do Tango (tango_chat/tango_chat.py)
-playwright>=1.62.0
+playwright>=1.63.0
 playwright-stealth>=2.0.3
 aiohttp>=3.14.3
