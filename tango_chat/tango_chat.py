@@ -69,10 +69,17 @@ CDP_URL: str = _cli_config.get("cdpUrl", os.environ.get("TANGO_CDP_URL", "http:/
 TANGO_ROOM_URL: str = _cli_config.get("roomUrl", os.environ.get(
     "TANGO_ROOM_URL", "https://tango.me/stream/broadcast"
 ))
-PROFILE_DIR: str = os.environ.get(
+PROFILE_DIR: str = _cli_config.get("profileDir") or os.environ.get(
     "TANGO_PROFILE_DIR",
     str(Path.home() / ".tango_profile"),
 )
+
+# Navegador do modo standalone, resolvido pelo backend (browser_discovery.py):
+# Edge/Chrome via canal do Playwright, demais via executável; sem nada, o
+# Chromium embutido do Playwright.
+BROWSER_NAME: str = _cli_config.get("browserName") or "Chromium embutido"
+BROWSER_CHANNEL: str = _cli_config.get("browserChannel") or ""
+BROWSER_EXECUTABLE: str = _cli_config.get("browserExecutable") or ""
 
 # Headless automatico: em containers Linux sem display (servidor/Docker/preview),
 # o Chromium roda sem janela visivel e a tela e transmitida via CDP Screencast.
@@ -366,7 +373,7 @@ class TangoChatBridge:
 
     async def _try_standalone(self) -> None:
         """Abre Chromium com perfil persistente e navega ao Tango."""
-        log.info("Usando modo STANDALONE (Chromium do Playwright)")
+        log.info("Usando modo STANDALONE (%s)", BROWSER_NAME)
         log.info("Perfil persistente: %s", PROFILE_DIR)
 
         # Aplica stealth se disponivel
@@ -377,8 +384,27 @@ class TangoChatBridge:
         except ImportError:
             log.info("playwright-stealth nao instalado (ok, continuando sem)")
 
-        self._context = await self._playwright.chromium.launch_persistent_context(
+        browser_kwargs: dict[str, Any] = {}
+        if BROWSER_CHANNEL:
+            browser_kwargs["channel"] = BROWSER_CHANNEL
+        elif BROWSER_EXECUTABLE:
+            browser_kwargs["executable_path"] = BROWSER_EXECUTABLE
+        try:
+            self._context = await self._launch_persistent(browser_kwargs)
+        except Exception as exc:
+            if not browser_kwargs:
+                raise
+            # Navegador do sistema falhou (perfil travado, política corporativa…):
+            # cai no Chromium embutido para a live não ficar sem chat.
+            log.warning("%s não abriu (%s) — usando o Chromium embutido.", BROWSER_NAME, str(exc)[:160])
+            self._context = await self._launch_persistent({})
+        self._mode = "standalone"
+        await self._after_standalone_launch()
+
+    async def _launch_persistent(self, browser_kwargs: dict[str, Any]):
+        return await self._playwright.chromium.launch_persistent_context(
             PROFILE_DIR,
+            **browser_kwargs,
             headless=_resolve_headless(),
             viewport={"width": 1280, "height": 900},
             locale="pt-BR",
@@ -390,6 +416,8 @@ class TangoChatBridge:
             ignore_default_args=["--enable-automation"],
         )
 
+    async def _after_standalone_launch(self) -> None:
+        """Stealth, aba e navegação até a sala do Tango (vale para qualquer navegador)."""
         # Aplica stealth
         try:
             from playwright_stealth import stealth_async
@@ -411,8 +439,7 @@ class TangoChatBridge:
             await self._page.goto(TANGO_ROOM_URL, wait_until="domcontentloaded")
             await asyncio.sleep(3)
 
-        self._mode = "standalone"
-        log.info("Standalone pronto. URL: %s", self._page.url)
+        log.info("Standalone pronto (%s). URL: %s", BROWSER_NAME, self._page.url)
 
     async def _find_tango_page(self) -> Page | None:
         """Percorre contextos/paginas do browser CDP para achar a aba correta."""
@@ -854,6 +881,7 @@ class TangoChatBridge:
             "error": self._error_message or None,
             "cdpUrl": CDP_URL,
             "profileDir": PROFILE_DIR,
+            "browserName": BROWSER_NAME,
         }
 
 

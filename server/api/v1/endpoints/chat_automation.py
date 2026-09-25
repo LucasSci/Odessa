@@ -47,6 +47,8 @@ class BridgeConfigRequest(BaseModel):
     port: int = 7555
     autoconnect: bool = True
     selectors: dict[str, str] | None = None
+    # "auto" ou edge/chrome/brave/opera/vivaldi; None = mantém o salvo.
+    browser: str | None = None
 
 
 @router.get("/config")
@@ -160,14 +162,26 @@ def get_bridge_logs(limit: int = Query(default=100, ge=1, le=500)):
 class ChromeLaunchRequest(BaseModel):
     url: str = "https://tango.me/stream/broadcast"
     port: int = 9222
+    # Navegador da live; vazio = preferência salva no config da bridge (ou Automático).
+    browser: str | None = None
+
+
+@router.get("/bridge/browsers")
+async def api_list_browsers():
+    """Navegadores Chromium instalados, o preferido salvo e o que o Automático escolhe."""
+    import asyncio
+
+    from server.services.browser_discovery import browsers_payload
+
+    return await asyncio.to_thread(browsers_payload, load_bridge_config().get("browser"))
 
 
 @router.post("/bridge/launch-chrome")
 async def api_launch_chrome(request: ChromeLaunchRequest | None = None):
-    """Inicia o Google Chrome com porta de depuração para acoplamento na live."""
+    """Abre o navegador da live (Edge, Chrome…) com porta de depuração para acoplar."""
     from server.services.bridge_manager import launch_chrome_for_live
     req = request or ChromeLaunchRequest()
-    return await launch_chrome_for_live(url=req.url, port=req.port)
+    return await launch_chrome_for_live(url=req.url, port=req.port, browser=req.browser)
 
 
 @router.get("/bridge/chrome-tabs")
@@ -182,6 +196,6 @@ def api_create_shortcut(request: ChromeLaunchRequest | None = None):
     """Cria um atalho no Desktop do Windows para abrir o Chrome da Live com 1 clique."""
     from server.services.bridge_manager import create_desktop_shortcut
     req = request or ChromeLaunchRequest()
-    return create_desktop_shortcut(url=req.url, port=req.port)
+    return create_desktop_shortcut(url=req.url, port=req.port, browser=req.browser)
 
 

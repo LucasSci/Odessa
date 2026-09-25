@@ -74,6 +74,9 @@ def bridge_auth_headers() -> dict[str, str]:
 def _default_config() -> dict[str, Any]:
     return {
         "mode": "",
+        # Navegador da live: "auto" (padrão do sistema → Edge → Chrome…) ou um id
+        # fixo (edge, chrome, brave, opera, vivaldi). Ver browser_discovery.py.
+        "browser": "auto",
         "cdpUrl": "http://127.0.0.1:9222",
         "roomUrl": "https://tango.me/stream/broadcast",
         "port": 7555,
@@ -163,6 +166,18 @@ class BridgeProcessManager:
         effective_config = dict(config or {})
         if mode:
             effective_config["mode"] = mode
+
+        # Navegador do modo standalone (a bridge abre o navegador ela mesma):
+        # o escolhido/Automático em vez de só o Chromium embutido, com o mesmo
+        # perfil dedicado do botão "Abrir navegador da live" — o login do Tango
+        # feito num modo vale no outro. Sem navegador instalado, fica o embutido.
+        chosen = await asyncio.to_thread(resolve_live_browser, effective_config.get("browser"))
+        if chosen:
+            effective_config["browserId"] = chosen["id"]
+            effective_config["browserName"] = chosen["name"]
+            effective_config["browserChannel"] = chosen.get("playwrightChannel")
+            effective_config["browserExecutable"] = chosen["path"]
+            effective_config["profileDir"] = str(debug_profile_dir_for(chosen["id"]))
 
         args = [sys.executable, script]
         if effective_config:
@@ -336,6 +351,11 @@ def save_bridge_config(config: dict[str, Any]) -> dict[str, Any]:
     for key in ("mode", "cdpUrl", "roomUrl", "port", "autoconnect"):
         if key in config:
             merged[key] = config[key]
+    # Navegador: telas antigas mandam o config sem este campo — mantém o salvo.
+    from server.services.browser_discovery import AUTO, SPECS
+
+    browser = str(config.get("browser") or load_bridge_config().get("browser") or AUTO).strip().lower()
+    merged["browser"] = browser if browser == AUTO or any(spec.id == browser for spec in SPECS) else AUTO
     if "selectors" in config and isinstance(config["selectors"], dict):
         merged["selectors"] = {**merged["selectors"], **config["selectors"]}
     write_json(BRIDGE_CONFIG_FILE, merged)
@@ -386,24 +406,51 @@ def validate_chrome_target(url: Any, port: Any) -> tuple[str, int]:
     return candidate, port_num
 
 
-async def launch_chrome_for_live(url: str = "https://tango.me/stream/broadcast", port: int = 9222) -> dict[str, Any]:
-    """Abre o Google Chrome real com porta de depuração remota e URL da live."""
+def resolve_live_browser(browser: str | None = None) -> dict[str, Any] | None:
+    """Navegador da live: o pedido, senão a preferência salva, senão o Automático."""
+    from server.services.browser_discovery import resolve_browser
+
+    preference = browser or load_bridge_config().get("browser") or "auto"
+    chosen = resolve_browser(preference)
+    return chosen.to_dict() if chosen else None
+
+
+def debug_profile_dir_for(browser_id: str) -> Path:
+    """Perfil dedicado por navegador (a porta de depuração não funciona no perfil
+    padrão, e perfis de navegadores diferentes não podem ser compartilhados).
+    O do Chrome mantém o caminho antigo para não perder o login do Tango."""
+    if browser_id == "chrome":
+        path = RUNTIME_DIR / "chrome-debug-profile"
+    else:
+        path = RUNTIME_DIR / "browser-profiles" / browser_id
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+async def launch_chrome_for_live(
+    url: str = "https://tango.me/stream/broadcast",
+    port: int = 9222,
+    browser: str | None = None,
+) -> dict[str, Any]:
+    """Abre o navegador da live (Edge, Chrome, Brave…) com porta de depuração e a URL da live.
+
+    O nome ficou por compatibilidade; o navegador vem de `browser` ou do config.
+    """
     try:
         url, port = validate_chrome_target(url, port)
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
 
-    chrome_path = find_chrome_executable()
-    if not chrome_path:
-        return {"ok": False, "error": "Google Chrome não encontrado no sistema."}
+    chosen = resolve_live_browser(browser)
+    if not chosen:
+        return {"ok": False, "error": "Nenhum navegador compatível encontrado (Edge, Chrome, Brave, Opera ou Vivaldi)."}
+    chrome_path = chosen["path"]
 
-    # Desde o Chrome ~136, --remote-debugging-port é ignorado SILENCIOSAMENTE
-    # (nenhum erro, a flag simplesmente não tem efeito) quando o processo usa
-    # o user-data-dir PADRÃO do usuário — restrição de segurança do Google
-    # contra ativação remota de depuração no perfil principal. Precisa de um
-    # --user-data-dir dedicado (perfil só para essa depuração) pra funcionar.
-    debug_profile_dir = RUNTIME_DIR / "chrome-debug-profile"
-    debug_profile_dir.mkdir(parents=True, exist_ok=True)
+    # Desde o Chrome ~136 (e no Edge, mesmo motor), --remote-debugging-port é
+    # ignorado SILENCIOSAMENTE quando o processo usa o user-data-dir PADRÃO do
+    # usuário — restrição de segurança contra ativação remota de depuração no
+    # perfil principal. Precisa de um --user-data-dir dedicado.
+    debug_profile_dir = debug_profile_dir_for(chosen["id"])
 
     # Flags do Chrome para habilitar acoplamento CDP sem interferir no uso normal
     args = [
@@ -423,9 +470,11 @@ async def launch_chrome_for_live(url: str = "https://tango.me/stream/broadcast",
         return {
             "ok": True,
             "chromePath": chrome_path,
+            "browser": chosen["id"],
+            "browserName": chosen["name"],
             "port": port,
             "url": url,
-            "message": f"Chrome iniciado na porta {port} com a página {url}",
+            "message": f"{chosen['name']} iniciado na porta {port} com a página {url}",
         }
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
@@ -471,16 +520,21 @@ def _chrome_debug_tabs_sync(port: int) -> dict[str, Any]:
         }
 
 
-def create_desktop_shortcut(url: str = "https://tango.me/stream/broadcast", port: int = 9222) -> dict[str, Any]:
-    """Cria um atalho no Desktop do Windows para abrir o Chrome da Live com 1 clique."""
+def create_desktop_shortcut(
+    url: str = "https://tango.me/stream/broadcast",
+    port: int = 9222,
+    browser: str | None = None,
+) -> dict[str, Any]:
+    """Cria um atalho no Desktop do Windows que abre o navegador da live com 1 clique."""
     try:
         url, port = validate_chrome_target(url, port)
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
 
-    chrome_path = find_chrome_executable()
-    if not chrome_path:
-        return {"ok": False, "error": "Google Chrome não encontrado."}
+    chosen = resolve_live_browser(browser)
+    if not chosen:
+        return {"ok": False, "error": "Nenhum navegador compatível encontrado (Edge, Chrome, Brave, Opera ou Vivaldi)."}
+    chrome_path = chosen["path"]
 
     desktop_dir = Path.home() / "Desktop"
     if not desktop_dir.exists():
@@ -489,8 +543,7 @@ def create_desktop_shortcut(url: str = "https://tango.me/stream/broadcast", port
         desktop_dir = Path.home() / "Desktop"
 
     shortcut_path = desktop_dir / "Tango Live Studio (Odessa).lnk"
-    debug_profile_dir = RUNTIME_DIR / "chrome-debug-profile"
-    debug_profile_dir.mkdir(parents=True, exist_ok=True)
+    debug_profile_dir = debug_profile_dir_for(chosen["id"])
     # Mesmo motivo do launch_chrome_for_live: sem --user-data-dir dedicado,
     # o Chrome ignora --remote-debugging-port silenciosamente no perfil padrão.
     arguments = f'--remote-debugging-port={port} --user-data-dir="{debug_profile_dir}" -- "{url}"'
@@ -501,7 +554,7 @@ def create_desktop_shortcut(url: str = "https://tango.me/stream/broadcast", port
     $Shortcut = $WshShell.CreateShortcut($payload.shortcut_path)
     $Shortcut.TargetPath = $payload.chrome_path
     $Shortcut.Arguments = $payload.arguments
-    $Shortcut.Description = 'Abre o Chrome com depuração ativa para o Tango Live da Odessa'
+    $Shortcut.Description = 'Abre o navegador da live com depuração ativa para o Tango Live da Odessa'
     $Shortcut.IconLocation = "$($payload.chrome_path),0"
     $Shortcut.Save()
     """

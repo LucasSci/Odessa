@@ -42,6 +42,8 @@ export interface BridgeConnectionGuideProps {
   onLaunchChrome: () => void;
   starting: boolean;
   launching: boolean;
+  /** Navegador da live escolhido (Edge, Chrome…); ver LiveBrowserPicker. */
+  browserName?: string;
 }
 
 function isCloudPreview(): boolean {
@@ -60,6 +62,7 @@ export function BridgeConnectionGuide({
   onLaunchChrome,
   starting,
   launching,
+  browserName = 'navegador da live',
 }: BridgeConnectionGuideProps) {
   const isCloud = isCloudPreview();
 
@@ -71,12 +74,12 @@ export function BridgeConnectionGuide({
     },
     {
       ok: chromeRunning,
-      label: 'Chrome com depuração (porta 9222)',
+      label: `${browserName} com depuração (porta 9222)`,
       detail: chromeRunning
-        ? 'Chrome detectado com CDP ativo'
+        ? `${browserName} detectado com CDP ativo`
         : isCloud
-          ? 'Impossível no preview — não há Chrome no container'
-          : 'Abra o Chrome com --remote-debugging-port=9222',
+          ? 'Impossível no preview — não há navegador no container'
+          : `Abra o ${browserName} com --remote-debugging-port=9222`,
     },
     {
       ok: processRunning,
@@ -85,7 +88,7 @@ export function BridgeConnectionGuide({
         ? `Bridge rodando (PID ativo)`
         : isCloud
           ? 'Playwright não instalado no container'
-          : 'Clique em "Iniciar Bridge" após abrir o Chrome',
+          : `Clique em "Iniciar Bridge" após abrir o ${browserName}`,
     },
     {
       ok: bridgeConnected,
@@ -165,13 +168,13 @@ export function BridgeConnectionGuide({
                 Você está no preview (nuvem) — a bridge não funciona aqui
               </p>
               <p className="text-[11px] text-slate-300 leading-relaxed">
-                A bridge precisa do <strong>Google Chrome</strong> rodando com depuração na
+                A bridge precisa de um navegador (<strong>Edge ou Chrome</strong>) rodando com depuração na
                 <strong> mesma máquina</strong> onde o backend está. No preview, o backend roda num
-                container Linux <strong>sem Chrome e sem Playwright</strong>.
+                container Linux <strong>sem navegador e sem Playwright</strong>.
               </p>
               <p className="text-[11px] text-slate-300 leading-relaxed">
                 Para usar a bridge, rode o Odessa <strong>localmente na sua máquina</strong> (Windows)
-                onde o Chrome já está instalado e você tem login no Tango.
+                onde o Edge ou o Chrome está instalado e você tem login no Tango.
               </p>
             </div>
           </div>
@@ -217,10 +220,10 @@ export function BridgeConnectionGuide({
               </span>
               <div className="flex-1">
                 <p className="text-xs font-semibold text-slate-200">
-                  Abra o Chrome com depuração ativa
+                  Abra o {browserName} com depuração ativa
                 </p>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  Clique no botão abaixo — ele abre o Chrome na porta 9222 já na página do Tango:
+                  Clique no botão abaixo — ele abre o {browserName} na porta 9222 já na página do Tango:
                 </p>
                 <Button
                   size="sm"
@@ -232,17 +235,17 @@ export function BridgeConnectionGuide({
                   {launching ? (
                     <>
                       <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                      Abrindo Chrome...
+                      Abrindo {browserName}…
                     </>
                   ) : chromeRunning ? (
                     <>
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      Chrome detectado!
+                      {browserName} detectado!
                     </>
                   ) : (
                     <>
                       <ExternalLink className="h-3.5 w-3.5" />
-                      Abrir Chrome da Live
+                      Abrir {browserName}
                     </>
                   )}
                 </Button>
@@ -290,7 +293,7 @@ export function BridgeConnectionGuide({
                 </div>
                 {!chromeRunning && (
                   <p className="text-[10px] text-amber-400 mt-1.5">
-                    ⚠️ Abra o Chrome primeiro (passo 2)
+                    ⚠️ Abra o {browserName} primeiro (passo 2)
                   </p>
                 )}
               </div>
@@ -310,7 +313,7 @@ export function BridgeConnectionGuide({
               </p>
               <p className="text-[11px] text-slate-300 leading-relaxed mt-1">
                 Não quer configurar a bridge agora? O <strong>Painel Unificado</strong> funciona
-                sem Chrome/CDP — ele usa o runtime do Odessa para gerenciar a live, capturar o chat
+                sem navegador/CDP — ele usa o runtime do Odessa para gerenciar a live, capturar o chat
                 via OCR ou entrada manual, e a IA responde no chat.
               </p>
               <Button

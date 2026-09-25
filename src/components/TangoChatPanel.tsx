@@ -77,6 +77,7 @@ import { recordSessionEvent } from '../core/sessionHistory';
 import { TangoChatFeed } from './TangoChatFeed';
 import { UnifiedLivePanel, type VideoStateLite } from './UnifiedLivePanel';
 import { BridgeConnectionGuide } from './BridgeConnectionGuide';
+import { LiveBrowserPicker, type LiveBrowser } from './LiveBrowserPicker';
 import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
 import type { CapturedMessage } from '../types';
 
@@ -235,6 +236,9 @@ export function TangoChatPanel({
   // ── Chrome Live Helpers State ─────────────────────
   const [chromeStatus, setChromeStatus] = useState<ChromeStatus | null>(null);
   const [launchingChrome, setLaunchingChrome] = useState(false);
+  // Navegador efetivo da live (Edge, Chrome…), só para os textos da tela.
+  const [liveBrowser, setLiveBrowser] = useState<LiveBrowser | null>(null);
+  const liveBrowserName = liveBrowser?.name ?? 'navegador';
   const [creatingShortcut, setCreatingShortcut] = useState(false);
   const [shortcutFeedback, setShortcutFeedback] = useState<string | null>(null);
   // ── Wizard State ──────────────────────────────────
@@ -413,11 +417,11 @@ export function TangoChatPanel({
       if (!latestChromeStatus?.runningWithDebug) {
         setWizardStep(2);
         setWizardTestResult(
-          '⚠️ O Chrome não respondeu na porta de depuração 9222 a tempo.\n\n' +
+          `⚠️ O ${liveBrowserName} não respondeu na porta de depuração 9222 a tempo.\n\n` +
           'Verifique se:\n' +
-          '• O Chrome foi mesmo aberto (confira se uma janela apareceu)\n' +
-          '• Nenhuma outra instância do Chrome está usando a porta 9222\n\n' +
-          'Dica: use o atalho no Desktop para abrir o Chrome corretamente.',
+          `• O ${liveBrowserName} foi mesmo aberto (confira se uma janela apareceu)\n` +
+          '• Nenhum outro navegador está usando a porta 9222\n\n' +
+          `Dica: use o atalho no Desktop para abrir o ${liveBrowserName} corretamente.`,
         );
         return;
       }
@@ -452,10 +456,10 @@ export function TangoChatPanel({
           '⚠️ A bridge NÃO conectou à aba do navegador.\n' +
           `Erro: ${bridgeErr}\n\n` +
           'Verifique se:\n' +
-          '• O Chrome foi aberto com a porta de depuração 9222\n' +
+          `• O ${liveBrowserName} foi aberto com a porta de depuração 9222\n` +
           '• A aba da transmissão está aberta e visível\n' +
-          '• Nenhuma outra instância do Chrome está usando a porta\n\n' +
-          'Dica: use o atalho no Desktop para abrir o Chrome corretamente.',
+          '• Nenhum outro navegador está usando a porta\n\n' +
+          `Dica: use o atalho no Desktop para abrir o ${liveBrowserName} corretamente.`,
         );
         return; // NÃO reporta falso positivo — para aqui
       }
@@ -958,21 +962,24 @@ export function TangoChatPanel({
               <div>
                 <h4 className="text-sm font-bold text-white mb-1">Passo 2: Abrir a página no Navegador com Depuração</h4>
                 <p className="text-xs text-slate-400">
-                  Clique no botão abaixo para abrir o Chrome na página escolhida (<strong>{bridgeConfig.roomUrl}</strong>).
+                  Clique no botão abaixo para abrir o {liveBrowserName} na página escolhida (<strong>{bridgeConfig.roomUrl}</strong>).
+                  Na primeira vez, faça login no Tango nessa janela — o login fica salvo.
                 </p>
               </div>
+
+              <LiveBrowserPicker bridgeConfig={bridgeConfig} onResolved={setLiveBrowser} />
 
               {/* Status do Chrome */}
               <div className="rounded-xl border border-white/10 bg-black/40 p-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-slate-300">Status do Google Chrome:</span>
+                  <span className="text-xs font-semibold text-slate-300">Status do {liveBrowserName}:</span>
                   {chromeStatus?.runningWithDebug ? (
                     <Badge variant="success" className="text-xs">
-                      <CheckCircle2 className="mr-1 h-3.5 w-3.5" /> Chrome Aberto com Debug Ativo!
+                      <CheckCircle2 className="mr-1 h-3.5 w-3.5" /> Navegador aberto com depuração ativa!
                     </Badge>
                   ) : (
                     <Badge variant="warning" className="text-xs">
-                      <AlertCircle className="mr-1 h-3.5 w-3.5" /> Chrome Não Detectado na Porta 9222
+                      <AlertCircle className="mr-1 h-3.5 w-3.5" /> Navegador não detectado na porta 9222
                     </Badge>
                   )}
                 </div>
@@ -986,7 +993,7 @@ export function TangoChatPanel({
                     onClick={() => void handleLaunchChrome()}
                   >
                     {launchingChrome ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <ExternalLink className="h-4 w-4 mr-1.5" />}
-                    🚀 1. Abrir Página no Chrome
+                    🚀 1. Abrir Página no {liveBrowserName}
                   </Button>
 
                   <Button
@@ -1105,6 +1112,7 @@ export function TangoChatPanel({
               </div>
 
               {/* Guia de diagnóstico quando a bridge não conecta */}
+              {!bridgeConnected && <LiveBrowserPicker bridgeConfig={bridgeConfig} onResolved={setLiveBrowser} />}
               {!bridgeConnected && (
                 <BridgeConnectionGuide
                   chromeRunning={!!chromeStatus?.runningWithDebug}
@@ -1116,6 +1124,7 @@ export function TangoChatPanel({
                   onLaunchChrome={() => void handleLaunchChrome()}
                   starting={starting}
                   launching={launchingChrome}
+                  browserName={liveBrowser?.name}
                 />
               )}
 
@@ -1568,7 +1577,7 @@ export function TangoChatPanel({
               {[
                 { value: '', label: 'Automático', desc: 'Tenta CDP primeiro; fallback para Standalone.' },
                 { value: 'standalone', label: 'Standalone (Recomendado)', desc: 'Abre um Chromium próprio do Playwright com perfil salvo permanente.' },
-                { value: 'cdp', label: 'CDP (Chrome Aberto)', desc: 'Conecta ao seu Chrome com flag --remote-debugging-port=9222.' },
+                { value: 'cdp', label: 'CDP (navegador aberto)', desc: 'Conecta ao navegador da live (Edge, Chrome…) aberto com --remote-debugging-port=9222.' },
               ].map((opt) => (
                 <button
                   key={opt.value}

@@ -173,6 +173,8 @@ export type BridgeConfig = {
   roomUrl: string;
   port: number;
   autoconnect: boolean;
+  /** Navegador da live: 'auto' ou edge/chrome/brave/opera/vivaldi (backend: browser_discovery.py). */
+  browser?: string;
   selectors: {
     containerChat: string;
     mensagem: string;
