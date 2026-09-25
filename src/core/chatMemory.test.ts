@@ -39,6 +39,11 @@ describe('chatMemory', () => {
     await expect(getUserMemory('davi')).resolves.toEqual({ found: false, totalMessages: 0, totalGifts: 0 });
   });
 
+  it('resposta sem perfil (modo nuvem) conta como memória indisponível, não como usuário novo', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ profiles: [], mode: 'cloud' }), { status: 200 })));
+    await expect(getUserMemory('eva')).resolves.toBeNull();
+  });
+
   it('não guarda mensagens de moderação e envia o resto em lote', async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));

@@ -85,10 +85,13 @@ export async function getUserMemory(username?: string): Promise<UserMemory | nul
       `/memory/profiles/${encodeURIComponent(user)}`,
       { timeoutMs: 1_500 },
     );
+    // 200 sem perfil = memória indisponível (ex.: stub do modo nuvem), não
+    // "usuário novo" — senão a IA daria boas-vindas a todo mundo.
+    if (!data?.profile) return null;
     const value: UserMemory = {
-      found: Boolean(data?.profile),
-      totalMessages: Number(data?.profile?.total_messages) || 0,
-      totalGifts: Number(data?.profile?.total_gifts) || 0,
+      found: true,
+      totalMessages: Number(data.profile.total_messages) || 0,
+      totalGifts: Number(data.profile.total_gifts) || 0,
     };
     memoryCache.set(user.toLowerCase(), { at: Date.now(), value });
     return value;
