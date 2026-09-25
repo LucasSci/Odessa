@@ -1112,7 +1112,7 @@ export default function OdessaLiveCenter({
             ) : (
               <PageSurface
                 icon={<ListVideo className="h-4 w-4" />}
-                title="Logs da operacao"
+                title="Logs da operação"
                 description="Teste o caminho real: chat/OCR, gatilho salvo no fluxo, fila e video."
               >
                 <Suspense fallback={<PanelLoading label="Carregando logs de automação" />}>
@@ -1309,13 +1309,13 @@ function PageSurface({
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden p-4 lg:p-5">
-      <div className="anim-header-in mb-4 shrink-0 rounded-[34px] border border-white/10 bg-[#101114] p-5">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-sky-200/70">
+      {/* Uma linha de contexto: o título grande da página já está na barra superior. */}
+      <div className="mb-3 flex shrink-0 flex-wrap items-baseline gap-x-3 gap-y-1 px-1">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-white [&_svg]:text-sky-200">
           {icon}
-          Odessa console
-        </div>
-        <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-white">{title}</h1>
-        <p className="mt-1 max-w-3xl text-sm text-slate-400">{description}</p>
+          {title}
+        </h2>
+        <p className="text-xs text-slate-400">{description}</p>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto rounded-[34px] border border-white/10 bg-[#07080a]">
         {children}

@@ -238,13 +238,10 @@ export function SessionHistoryPanel({ active }: { active: boolean }) {
             <span className="rounded bg-black/30 px-1.5 py-0.5 text-[10px]">{count}</span>
           </div>
         ))}
-        {Object.keys(summary).length === 0 && (
-          <span className="text-[11px] text-slate-600">Nenhum evento registrado ainda.</span>
-        )}
       </div>
 
       {/* Lista de eventos */}
-      <div className="max-h-[420px] space-y-1.5 overflow-y-auto pr-1">
+      <div className="max-h-[calc(100vh-300px)] min-h-[240px] space-y-1.5 overflow-y-auto pr-1">
         {events.length === 0 && (
           <div className="flex flex-col items-center justify-center py-10 text-center">
             <Download className="mb-2 h-8 w-8 opacity-30 text-slate-600" />
