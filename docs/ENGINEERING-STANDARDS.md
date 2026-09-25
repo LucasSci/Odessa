@@ -114,7 +114,9 @@ exigir PR, exigir os checks acima como obrigatórios e bloquear push direto.
   (`src/lib/api.ts`, `apiFetch`). Garantido pelo arch-contract e pelo lint.
 - **Termos de uso e Política de privacidade**: só publicados depois de revisados
   e **aprovados pelo jurídico** (issue #248). Agentes não redigem nem publicam
-  texto legal final por conta própria.
+  texto legal final por conta própria. O inventário técnico de dados para o
+  jurídico está em `docs/legal/INVENTARIO-DE-DADOS.md` — atualize-o sempre que
+  um dado novo for coletado, guardado ou enviado a um terceiro.
 
 ---
 

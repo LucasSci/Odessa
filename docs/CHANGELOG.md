@@ -5,6 +5,13 @@ Todas as mudanças relevantes do projeto Odessa.
 ## [1.1.0] — Em desenvolvimento
 
 ### Adicionado
+- **Central da Live com prontidão**: veredito em uma frase sobre o envio
+  real, estado de IA/captura/envio/OBS/vídeo, última resposta enviada e
+  bloqueada, confirmação antes do envio real. (#168)
+- **Memória do chat pela bridge**: novo/recorrente/presenteador nas
+  respostas, "memórias usadas" e reset do aprendizado. (#165)
+- **Governador da bridge**: duplicadas, moderação e prioridade de presentes;
+  status "simulada" e "falhou" na fila. (#156, #158–#160)
 - **Padrões de engenharia e esteira de qualidade** — fluxo Issue → Pull
   Request para qualquer agente, CI com ESLint, arch-contract, Knip,
   Commitlint, cobertura no Codecov, orçamento de performance, auditoria de
