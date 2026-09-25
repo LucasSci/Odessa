@@ -46,6 +46,30 @@ test('navega por todas as páginas e cada uma sai do carregamento', async ({ pag
   expect(errors).toEqual([]);
 });
 
+test('painel lazy mostra skeleton enquanto o chunk baixa', async ({ page }) => {
+  // Rede lenta simulada só para o chunk da página Histórico.
+  await page.route(/\/assets\/SessionHistoryPanel-.*\.js$/, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    await route.continue();
+  });
+  await page.goto('/');
+  await page.getByRole('navigation', { name: 'Páginas' }).getByRole('button', { name: 'Histórico', exact: true }).click();
+  const section = page.getByRole('region', { name: 'Histórico', exact: true });
+  const skeleton = section.locator('[data-skeleton="panel"]');
+  await expect(skeleton).toBeVisible();
+  await expect(skeleton).toHaveAttribute('aria-busy', 'true');
+  await expect(skeleton).toHaveCount(0, { timeout: 15_000 });
+});
+
+test('paleta de comandos abre com Ctrl+K e fecha com Esc', async ({ page }) => {
+  await page.goto('/');
+  await page.keyboard.press('Control+k');
+  const dialog = page.getByRole('dialog', { name: 'Paleta de comandos' });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+});
+
 test('rota direta pela URL abre a página certa', async ({ page }) => {
   await page.goto('/#/historico');
   await expect(page.getByRole('region', { name: 'Histórico', exact: true })).toBeVisible();

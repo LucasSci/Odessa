@@ -26,7 +26,7 @@ import {
 import { generateFromTemplate } from '../core/videoGenApi';
 import PersonaVisualManager from './PersonaVisualManager';
 import PersonaContentStudio from './PersonaContentStudio';
-import { Tabs } from './ui';
+import { Tabs, SkeletonList } from './ui';
 
 type Props = {
   personaId: string;
@@ -189,9 +189,12 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8 text-sm text-slate-400">
-        Carregando assets de {personaName}...
-      </div>
+      <SkeletonList
+        label={`Carregando assets de ${personaName}`}
+        rows={6}
+        className="grid grid-cols-3 gap-3 space-y-0 p-4"
+        itemClassName="aspect-square h-auto"
+      />
     );
   }
 

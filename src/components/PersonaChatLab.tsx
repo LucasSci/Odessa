@@ -27,6 +27,7 @@ import {
 } from '../core/conversationLab';
 import { recordSessionEvent } from '../core/sessionHistory';
 import { cn } from '../lib/utils';
+import { SkeletonList } from './ui';
 
 const DEFAULT_PERSONA_PROMPT = 'Responda em portugues brasileiro, com naturalidade, brevidade e personalidade.';
 /** Mensagens de exemplo para testar a persona com um clique (conversa vazia). */
@@ -427,7 +428,7 @@ export function PersonaChatLab() {
             <Sparkles className="h-3.5 w-3.5 text-emerald-400" /> Personas
           </div>
           {loadingPersonas ? (
-            <p className="px-2 text-sm text-slate-500">Carregando...</p>
+            <SkeletonList label="Carregando personas" rows={4} className="px-1" itemClassName="h-11" />
           ) : (
             <div className="space-y-1.5">
               {personas.map((persona) => (

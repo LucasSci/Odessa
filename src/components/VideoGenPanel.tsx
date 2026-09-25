@@ -19,6 +19,7 @@ import {
   type VideoGenQueueItem,
 } from '../core/videoGenApi';
 import { GenerationProgressCard, type GenerationStage } from './GenerationProgressCard';
+import { SkeletonList } from './ui';
 
 const POLL_MS = 3000;
 
@@ -123,7 +124,7 @@ export function VideoGenPanel({ className }: { className?: string }) {
       </div>
 
       {error && <p className="text-xs text-red-400">{error}</p>}
-      {loading && !state && <p className="text-xs text-slate-500">Carregando estado...</p>}
+      {loading && !state && <SkeletonList label="Carregando estado da geração" rows={2} itemClassName="h-8" />}
       {!state && !loading && !error && <p className="text-xs text-slate-500">Backend indisponível.</p>}
       {!state && <div className="h-2" />}
 

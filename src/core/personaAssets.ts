@@ -3,6 +3,7 @@
  * e templates de prompt por tipo de vídeo.
  */
 import { apiUrl } from '../lib/api';
+import { httpErrorMessage } from '../lib/apiFetch';
 
 export type AssetCategory = 'faces' | 'environments' | 'wardrobe';
 
@@ -31,10 +32,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     ...init,
   });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(detail || `HTTP ${res.status}`);
-  }
+  if (!res.ok) throw new Error(await httpErrorMessage(res));
   return (await res.json()) as T;
 }
 
@@ -57,10 +55,7 @@ export async function uploadAsset(
     method: 'POST',
     body: formData,
   });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(detail || `HTTP ${res.status}`);
-  }
+  if (!res.ok) throw new Error(await httpErrorMessage(res));
   return res.json();
 }
 

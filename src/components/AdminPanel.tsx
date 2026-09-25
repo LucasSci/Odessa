@@ -11,6 +11,7 @@ import { apiUrl } from '../lib/api';
 import { SystemHealthCard, type ServiceHealth } from './SystemHealthCard';
 import { ValidationChecklist, type ValidationCheck } from './ValidationChecklist';
 import { cn } from '../lib/utils';
+import { Skeleton } from './ui';
 
 type AiStatus = {
   provider?: string;
@@ -311,15 +312,15 @@ export function AdminPanel() {
       )}
 
       {!result && loading && (
-        <div role="status" aria-label="Executando diagnóstico">
+        <div role="status" aria-busy="true" aria-label="Executando diagnóstico" className="od-skeleton-in">
           <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[0, 1, 2, 3].map((index) => (
-              <div key={index} className="h-[68px] animate-pulse rounded-xl border border-white/10 bg-[#101114]" />
+              <Skeleton key={index} className="h-[68px] rounded-xl" />
             ))}
           </div>
           <div className="grid gap-4 lg:grid-cols-2">
-            <div className="h-64 animate-pulse rounded-2xl border border-white/10 bg-[#0c0e12]" />
-            <div className="h-64 animate-pulse rounded-2xl border border-white/10 bg-[#0c0e12]" />
+            <Skeleton className="h-64" />
+            <Skeleton className="h-64" />
           </div>
           <p className="mt-3 text-xs text-slate-500">Verificando API, IA, OBS, memória, vozes e automação…</p>
         </div>

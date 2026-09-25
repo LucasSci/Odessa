@@ -45,6 +45,21 @@ export function describeErrorBody(status: number, body: unknown): { message: str
 }
 
 /**
+ * Mensagem legível de uma resposta HTTP de erro (lê o corpo). Para quem ainda
+ * usa `fetch` direto: evita mostrar `{"detail": …}` cru na tela.
+ */
+export async function httpErrorMessage(response: Response): Promise<string> {
+  const text = await response.text().catch(() => '');
+  let body: unknown = text;
+  try {
+    body = text ? JSON.parse(text) : undefined;
+  } catch {
+    /* corpo não é JSON: usa o texto */
+  }
+  return describeErrorBody(response.status, body).message;
+}
+
+/**
  * fetch para o backend com o que os `fetch` soltos esquecem: timeout, checagem de
  * `.ok` (erro vira `ApiError` em vez de o chamador ler um JSON de erro como se fosse
  * dado) e corpo JSON tipado. Resolve o caminho com `apiUrl`.

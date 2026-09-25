@@ -678,7 +678,7 @@
 }
 .od-pill[data-tone="ready"] .od-pill-dot { background: var(--sky); box-shadow: 0 0 10px rgba(125,211,252,0.6); }
 .od-pill[data-tone="online"]   { color: #a7f3d0; }
-.od-pill[data-tone="online"] .od-pill-dot   { background: var(--green); box-shadow: 0 0 8px rgba(52,211,153,0.6); animation: od-pulse 2.4s var(--ease-in-out) infinite; }
+.od-pill[data-tone="online"] .od-pill-dot   { background: var(--green); box-shadow: 0 0 8px rgba(52,211,153,0.6); }
 .od-pill[data-tone="standby"]  { color: var(--t2); }
 .od-pill[data-tone="standby"] .od-pill-dot  { background: var(--t3); }
 .od-pill[data-tone="pending"]  { color: #fde68a; }
@@ -1146,7 +1146,6 @@
   background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.06) 40%, rgba(255,255,255,0.03) 80%);
   background-size: 220% 100%;
   animation: od-shimmer 1.4s linear infinite;
-  border-radius: 6px;
 }
 @keyframes od-shimmer {
   0% { background-position: 100% 0; }
@@ -1366,10 +1365,14 @@
   font-size: 11.5px; font-weight: 700; letter-spacing: 0.14em;
   text-transform: uppercase; color: var(--sky);
 }
+/* Pulsação só quando está AO VIVO: é o único estado que é um "evento"
+   acontecendo agora. "Pronta" é estático. */
 .odsa-live-pill .d {
   width: 7px; height: 7px; border-radius: 99px; background: var(--sky);
-  animation: odsa-pulse-sky 1.8s ease-out infinite;
   flex-shrink: 0;
+}
+.odsa-live-pill.is-on .d {
+  animation: odsa-pulse-sky 1.8s ease-out infinite;
 }
 @keyframes odsa-pulse-sky {
   0%   { box-shadow: 0 0 0 0   rgba(125,211,252,0.55); }
@@ -1566,312 +1569,119 @@
 .od-tab.is-active, .odsa-tab.is-active { box-shadow: inset 0 -2px 0 var(--violet); }
 
 /* ══════════════════════════════════════════════════════════════
-   BUTTON ANIMATIONS — enhanced hover, press & shimmer
-   Applies to all three button systems: .btn, .od-btn, .odsa-btn
+   BUTTONS — só aparência de hover. Transições, press e lift ficam num
+   único lugar: ux-polish.css §8 (sem shimmer, sem bounce, sem ripple).
 ══════════════════════════════════════════════════════════════ */
-
-@keyframes btn-shimmer {
-  0%   { transform: translateX(-120%) skewX(-12deg); }
-  100% { transform: translateX(220%)  skewX(-12deg); }
-}
-
-@keyframes btn-glow-pulse {
-  0%, 100% { box-shadow: var(--shadow-live), inset 0 1px 0 rgba(255,255,255,0.25); }
-  50%      { box-shadow: 0 0 38px rgba(59,130,246,0.45), 0 0 18px rgba(34,211,238,0.30), inset 0 1px 0 rgba(255,255,255,0.30); }
-}
-
-/* ── Shared base enhancements ─────────────────────────────── */
 .btn,
 .od-btn,
-.odsa-btn {
-  position: relative;
-  overflow: hidden;
-}
-
-/* ── Legacy .btn system ───────────────────────────────────── */
-.btn {
-  transition: transform var(--dur-fast) var(--ease-out),
-              background 0.15s, border-color 0.15s, box-shadow 0.2s var(--ease-out);
-}
-.btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(0,0,0,0.28);
-}
-.btn:active {
-  transform: translateY(0) scale(0.97);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-}
-
-.btn-accent {
-  position: relative;
-  overflow: hidden;
-}
-.btn-accent::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0;
-  width: 40%; height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
-  opacity: 0;
-  pointer-events: none;
-}
-.btn-accent:hover::before {
-  opacity: 1;
-  animation: btn-shimmer 0.7s var(--ease-out);
-}
-.btn-accent:hover {
-  transform: translateY(-2px);
-  filter: brightness(1.08);
-  box-shadow: 0 0 28px rgba(159, 122, 234, 0.35), 0 6px 20px rgba(0,0,0,0.3);
-}
-.btn-accent:active {
-  transform: translateY(0) scale(0.96);
-  filter: brightness(0.95);
-}
-
-/* ── od-btn system ────────────────────────────────────────── */
-.od-btn {
-  transition: transform var(--dur-med) var(--ease-out),
-              filter var(--dur-med) var(--ease-out),
-              background var(--dur-fast) var(--ease-out),
-              border-color var(--dur-fast) var(--ease-out),
-              box-shadow var(--dur-med) var(--ease-out);
-}
-.od-btn:hover { transform: translateY(-1px); }
-.od-btn:active { transform: translateY(0) scale(0.96); }
-
-.od-btn-primary {
-  position: relative;
-  overflow: hidden;
-}
-.od-btn-primary::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0;
-  width: 40%; height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
-  opacity: 0;
-  pointer-events: none;
-}
-.od-btn-primary:hover::before {
-  opacity: 1;
-  animation: btn-shimmer 0.65s var(--ease-out);
-}
-.od-btn-primary:hover {
-  transform: translateY(-2px);
-  filter: brightness(1.1);
-  box-shadow: 0 0 36px rgba(59,130,246,0.4), 0 6px 18px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.3);
-}
-.od-btn-primary:active {
-  transform: translateY(0) scale(0.95);
-  filter: brightness(0.95);
-}
-
-.od-btn-secondary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
-}
-.od-btn-secondary:active { transform: scale(0.96); }
-
-.od-btn-ghost:hover { transform: translateY(-1px); }
-.od-btn-ghost:active { transform: scale(0.96); }
-
-.od-btn-danger:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 0 18px rgba(248,113,113,0.25);
-}
-.od-btn-danger:active { transform: scale(0.96); }
-
-/* ── odsa-btn system ──────────────────────────────────────── */
-.odsa-btn {
-  transition: transform var(--dur-med) var(--ease-out),
-              filter var(--dur-med) var(--ease-out),
-              background var(--dur-fast) var(--ease-out),
-              border-color var(--dur-fast) var(--ease-out),
-              box-shadow var(--dur-med) var(--ease-out);
-}
-.odsa-btn:hover { transform: translateY(-1px); }
-.odsa-btn:active { transform: translateY(0) scale(0.96); }
-
-.odsa-btn-primary {
-  position: relative;
-  overflow: hidden;
-}
-.odsa-btn-primary::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0;
-  width: 40%; height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
-  opacity: 0;
-  pointer-events: none;
-}
-.odsa-btn-primary:hover::before {
-  opacity: 1;
-  animation: btn-shimmer 0.65s var(--ease-out);
-}
-.odsa-btn-primary:hover {
-  transform: translateY(-2px);
-  filter: brightness(1.1);
-  box-shadow: 0 0 36px rgba(59,130,246,0.4), 0 6px 18px rgba(0,0,0,0.3);
-}
-.odsa-btn-primary:active {
-  transform: translateY(0) scale(0.95);
-  filter: brightness(0.95);
-}
-
-.odsa-btn-secondary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
-}
-.odsa-btn-secondary:active { transform: scale(0.96); }
-
-.odsa-btn-ghost:hover { transform: translateY(-1px); }
-.odsa-btn-ghost:active { transform: scale(0.96); }
-
-.odsa-btn-danger:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 0 18px rgba(248,113,113,0.25);
-}
-.odsa-btn-danger:active { transform: scale(0.96); }
-
-/* ── Icon micro-animation on hover ────────────────────────── */
-.od-btn:hover svg,
-.odsa-btn:hover svg {
-  transform: scale(1.12);
-  transition: transform var(--dur-med) var(--ease-out);
-}
-.od-btn:active svg,
-.odsa-btn:active svg {
-  transform: scale(0.9);
-}
-
-/* ── Icon button hover glow ───────────────────────────────── */
-.od-iconbtn {
-  transition: all var(--dur-med) var(--ease-out);
-}
-.od-iconbtn:hover {
-  transform: translateY(-1px) scale(1.05);
-  box-shadow: 0 0 16px rgba(125,211,252,0.18);
-}
-.od-iconbtn:active {
-  transform: scale(0.92);
-}
-
-/* ── Global press feedback for ALL buttons ────────────────── */
-button:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
-/* ── Director card button ─────────────────────────────────── */
+.odsa-btn,
 .odsa-dc-btn {
   position: relative;
   overflow: hidden;
-  transition: transform var(--dur-fast) var(--ease-out), filter var(--dur-fast) var(--ease-out);
+}
+.od-btn-primary:hover,
+.odsa-btn-primary:hover {
+  box-shadow: 0 0 28px rgba(59, 130, 246, 0.34), 0 4px 14px rgba(0, 0, 0, 0.28);
+}
+.btn-accent:hover {
+  box-shadow: 0 0 28px rgba(159, 122, 234, 0.3), 0 4px 14px rgba(0, 0, 0, 0.28);
+}
+.btn:hover,
+.od-btn-secondary:hover,
+.odsa-btn-secondary:hover {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+.od-btn-danger:hover,
+.odsa-btn-danger:hover {
+  box-shadow: 0 0 18px rgba(248, 113, 113, 0.22);
+}
+.od-iconbtn:hover {
+  box-shadow: 0 0 16px rgba(125, 211, 252, 0.16);
 }
 .odsa-dc-btn:hover {
-  transform: translateY(-1px) scale(1.03);
   filter: brightness(1.1);
-  box-shadow: 0 4px 14px rgba(59,130,246,0.3);
-}
-.odsa-dc-btn:active { transform: scale(0.95); }
-.odsa-dc-btn::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0;
-  width: 40%; height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
-  opacity: 0;
-  pointer-events: none;
-}
-.odsa-dc-btn:hover::before {
-  opacity: 1;
-  animation: btn-shimmer 0.6s var(--ease-out);
+  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.3);
 }
 
 /* ══════════════════════════════════════════════════════════════
    ENTRANCE & TRANSITION ANIMATIONS
+   Ferramenta usada por horas numa live: entradas curtas (≤ 220 ms),
+   deslocamento pequeno (≤ 8 px) e curva ease-out. Tokens em ux-polish.css
+   (--motion-*). Saídas usam as classes .od-pop / .od-backdrop / .od-toast.
 ══════════════════════════════════════════════════════════════ */
 
 @keyframes odessa-fade-in-up {
   from {
     opacity: 0;
-    transform: translateY(14px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+    transform: translateY(6px);
   }
 }
 
 @keyframes odessa-slide-in-left {
   from {
     opacity: 0;
-    transform: translateX(-16px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
+    transform: translateX(-8px);
   }
 }
 
 @keyframes odessa-scale-in {
   from {
     opacity: 0;
-    transform: scale(0.92) translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
+    transform: scale(0.96) translateY(-4px);
   }
 }
 
 @keyframes odessa-fade-in {
   from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 /* Tab content transition — re-triggers via React key change */
 .anim-tab-enter {
-  animation: odessa-fade-in-up 0.35s var(--ease-out) both;
+  animation: odessa-fade-in-up var(--motion-enter) var(--ease-out) both;
 }
 
 /* Troca de página do shell: a página já está montada (só estava escondida),
-   então basta um fade curto — sem deslocamento e sem começar invisível por
-   350 ms como antes. A animação reinicia sozinha quando a página volta a ser
-   exibida (sai de display:none). */
+   então basta um fade curto — sem deslocamento. A animação reinicia sozinha
+   quando a página volta a ser exibida (sai de display:none). */
 .odsa-page:not([hidden]) {
-  animation: odessa-fade-in 0.14s ease-out;
+  animation: odessa-fade-in 140ms var(--ease-out);
 }
 
-/* Sidebar nav staggered entrance */
+/* Entrada da sidebar: acontece uma vez por carregamento do app. */
 .anim-slide-in {
-  animation: odessa-slide-in-left 0.4s var(--ease-out) both;
+  animation: odessa-slide-in-left 260ms var(--ease-out) both;
 }
 
-/* Toast / modal entrance */
+/* Toast / aviso pontual */
 .anim-scale-in {
-  animation: odessa-scale-in 0.3s var(--ease-out) both;
+  animation: odessa-scale-in var(--motion-enter) var(--ease-out) both;
+}
+
+/* Troca de conteúdo de sub-aba (key muda → remonta). Só opacidade e SEM
+   fill-mode: transform/fill criariam containing block e quebrariam modais
+   position:fixed dentro do conteúdo. */
+.anim-content-swap {
+  animation: odessa-fade-in var(--motion-enter) var(--ease-out);
 }
 
 /* Simple fade */
 .anim-fade-in {
-  animation: odessa-fade-in 0.3s ease both;
+  animation: odessa-fade-in var(--motion-enter) var(--ease-out) both;
 }
 
-/* Stagger delays for sidebar items */
-.anim-stagger-1 { animation-delay: 0.04s; }
-.anim-stagger-2 { animation-delay: 0.08s; }
-.anim-stagger-3 { animation-delay: 0.12s; }
-.anim-stagger-4 { animation-delay: 0.16s; }
-.anim-stagger-5 { animation-delay: 0.20s; }
-.anim-stagger-6 { animation-delay: 0.24s; }
+/* Stagger da sidebar: 30 ms por item, total < 200 ms. */
+.anim-stagger-1 { animation-delay: 0.03s; }
+.anim-stagger-2 { animation-delay: 0.06s; }
+.anim-stagger-3 { animation-delay: 0.09s; }
+.anim-stagger-4 { animation-delay: 0.12s; }
+.anim-stagger-5 { animation-delay: 0.15s; }
+.anim-stagger-6 { animation-delay: 0.18s; }
 
-/* Panel/card hover lift */
+/* Panel/card hover: só borda e sombra (sem lift) */
 .odsa-panel,
 .od-panel,
 .odessa-panel-surface {
-  transition: transform var(--dur-med) var(--ease-out), box-shadow var(--dur-med) var(--ease-out), border-color var(--dur-med) var(--ease-out);
+  transition: box-shadow var(--dur-med) var(--ease-out), border-color var(--dur-med) var(--ease-out);
 }
 .odsa-panel:hover {
   border-color: var(--border3);
@@ -1880,84 +1690,17 @@ button:active:not(:disabled) {
 
 /* Live pill entrance */
 .odsa-live-pill {
-  animation: odessa-scale-in 0.4s var(--ease-out) both;
-}
-
-/* Brand mark subtle float */
-@keyframes odessa-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-3px); }
-}
-.odsa-brand-mark {
-  animation: odessa-float 4s ease-in-out infinite;
+  animation: odessa-scale-in var(--motion-enter) var(--ease-out) both;
 }
 
 /* PageSurface header entrance */
 .anim-header-in {
-  animation: odessa-fade-in-up 0.4s var(--ease-out) both;
+  animation: odessa-fade-in-up var(--motion-enter) var(--ease-out) both;
 }
 
 /* Metric card entrance */
 .anim-card-in {
-  animation: odessa-fade-in-up 0.3s var(--ease-out) both;
-}
-
-/* ── Click ripple ─────────────────────────────────────────── */
-.od-ripple-host {
-  position: relative;
-  overflow: hidden;
-}
-
-.od-ripple {
-  position: absolute;
-  border-radius: 9999px;
-  pointer-events: none;
-  transform: scale(0);
-  opacity: 0.85;
-  background: radial-gradient(
-    circle,
-    rgba(255, 255, 255, 0.35) 0%,
-    rgba(125, 211, 252, 0.18) 55%,
-    transparent 70%
-  );
-  animation: od-ripple 0.55s var(--ease-out) forwards;
-}
-
-/* Ripple violeta para botões de troca de persona */
-.od-ripple.od-ripple--persona {
-  background: radial-gradient(
-    circle,
-    rgba(196, 181, 253, 0.45) 0%,
-    rgba(139, 92, 246, 0.25) 55%,
-    transparent 70%
-  );
-}
-
-@keyframes od-ripple {
-  to {
-    transform: scale(1);
-    opacity: 0;
-  }
-}
-
-/* Quick glow burst on press for all interactive elements */
-button:not(:disabled):active,
-[role="button"]:not([disabled]):active {
-  filter: brightness(1.15) saturate(1.1);
-}
-
-/* ── Bounce-back after click ──────────────────────────────── */
-/* Aplica um "bounce" elástico ao soltar o clique — o botão
-   comprime no :active e volta com um leve overshoot. */
-@keyframes od-click-bounce {
-  0%   { transform: scale(0.96); }
-  50%  { transform: scale(1.03); }
-  75%  { transform: scale(0.99); }
-  100% { transform: scale(1); }
-}
-
-.od-click-bounce {
-  animation: od-click-bounce 0.32s var(--ease-out);
+  animation: odessa-fade-in-up var(--motion-enter) var(--ease-out) both;
 }
 
 /* ── Persona switch glow flash ────────────────────────────── */

@@ -17,6 +17,7 @@ import {
   type PersonaAssets,
   type PersonaVisual,
 } from '../core/personaAssets';
+import { SkeletonList } from './ui';
 
 type Props = {
   personaId: string;
@@ -125,9 +126,7 @@ export default function PersonaVisualManager({ personaId, assets }: Props) {
 
   if (loading) {
     return (
-      <p className="p-4 text-center text-sm text-slate-400">
-        Carregando kits e cenários...
-      </p>
+      <SkeletonList label="Carregando kits e cenários" rows={3} className="p-4" itemClassName="h-16" />
     );
   }
 

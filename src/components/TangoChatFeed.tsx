@@ -245,7 +245,7 @@ export function TangoChatFeed({
           <button
             type="button"
             onClick={scrollToBottom}
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 rounded-full bg-sky-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-lg shadow-sky-600/40 hover:bg-sky-500 transition"
+            className="anim-fade-in absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 rounded-full bg-sky-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-lg shadow-sky-600/40 hover:bg-sky-500 transition"
           >
             <ChevronDown className="h-3.5 w-3.5" />
             Novas mensagens ({unreadCount}) ↓

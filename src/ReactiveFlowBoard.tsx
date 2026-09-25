@@ -40,7 +40,7 @@ import {
   Video,
   X,
 } from 'lucide-react';
-import { Badge, Button, Input, OverflowMenu, Skeleton, StatusDot } from './components/ui';
+import { Badge, Button, Input, Modal, OverflowMenu, Skeleton, StatusDot } from './components/ui';
 import GiftCatalogModal from './GiftCatalogModal';
 import { type GiftCatalogEntry, loadGiftCatalog } from './core/giftCatalog';
 import { loadRulesFromFlowTriggers } from './core/giftEventBus';
@@ -2181,14 +2181,20 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
         onChange={(entries) => setGiftCatalog(entries)}
       />
 
-      {schedulesOpen && (
-        <SchedulesModal
+      <Modal
+        open={schedulesOpen}
+        onClose={() => setSchedulesOpen(false)}
+        label="Automações por tempo"
+        align="top"
+        className="max-w-lg rounded-3xl border border-[var(--border)] bg-[#0b0d10] p-6 shadow-2xl"
+      >
+        <SchedulesPanel
           videos={config?.videos || []}
           schedules={config?.schedules || []}
           onClose={() => setSchedulesOpen(false)}
           onUpdate={(next) => updateConfig((c) => ({ ...c, schedules: next }))}
         />
-      )}
+      </Modal>
     </div>
   );
 }
@@ -2423,7 +2429,7 @@ function TriggerCard({
   );
 }
 
-// ── SchedulesModal ──────────────────────────────────────────────────────────
+// ── SchedulesPanel ──────────────────────────────────────────────────────────
 
 type ScheduleServerInfo = {
   id: string;
@@ -2431,7 +2437,7 @@ type ScheduleServerInfo = {
   secondsUntilNext: number;
 };
 
-function SchedulesModal({
+function SchedulesPanel({
   videos,
   schedules,
   onClose,
@@ -2478,180 +2484,173 @@ function SchedulesModal({
     onUpdate(schedules.filter((s) => s.id !== id));
   };
 
+  // O fundo, a animação de entrada/saída e o foco vêm do <Modal> do chamador.
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-6 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="mt-10 w-full max-w-lg rounded-3xl border border-[var(--border)] bg-[#0b0d10] p-6 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="mb-5 flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-sky-300/20 bg-sky-500/10">
-              <Clock className="h-4 w-4 text-sky-300" />
-            </div>
-            <div>
-              <h2 className="text-base font-semibold text-white">Automações por tempo</h2>
-              <p className="text-xs text-[var(--t3)]">
-                Videos que tocam automaticamente sem precisar de presente ou comentário
-              </p>
-            </div>
+    <>
+      {/* Header */}
+      <div className="mb-5 flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-sky-300/20 bg-sky-500/10">
+            <Clock className="h-4 w-4 text-sky-300" />
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-full p-1.5 text-[var(--t3)] transition hover:bg-white/10 hover:text-white"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* How it works */}
-        <div className="mb-4 rounded-2xl border border-sky-500/15 bg-sky-500/5 p-3 text-xs leading-relaxed text-sky-200/70">
-          <span className="font-semibold text-sky-200">Como funciona: </span>
-          A cada intervalo configurado o video é adicionado à fila. Ele toca quando o idle finaliza um ciclo —
-          se já houver um presente/reação em andamento, a automação aguarda na fila.
-          Salve o rascunho e publique o fluxo para ativar as automações.
-        </div>
-
-        {/* Schedule list */}
-        {schedules.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-[var(--border2)] p-8 text-center">
-            <Clock className="mx-auto mb-3 h-8 w-8 text-[var(--t4)]" />
-            <p className="text-sm font-medium text-[var(--t2)]">Nenhuma automação configurada</p>
-            <p className="mt-1 text-xs text-[var(--t4)]">
-              Adicione automações para manter o conteúdo ativo mesmo sem interação dos espectadores
+          <div>
+            <h2 className="text-base font-semibold text-white">Automações por tempo</h2>
+            <p className="text-xs text-[var(--t3)]">
+              Videos que tocam automaticamente sem precisar de presente ou comentário
             </p>
           </div>
-        ) : (
-          <div className="space-y-3">
-            {schedules.map((schedule) => {
-              const info = serverInfo.find((s) => s.id === schedule.id);
-              const minsLeft = info ? Math.ceil(info.secondsUntilNext / 60) : null;
-              const lastFiredDate = info?.lastFiredAt
-                ? new Date(info.lastFiredAt * 1000).toLocaleTimeString('pt-BR', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })
-                : null;
-
-              return (
-                <div
-                  key={schedule.id}
-                  className={cn(
-                    'rounded-2xl border p-4 transition',
-                    schedule.enabled
-                      ? 'border-sky-300/20 bg-sky-400/5'
-                      : 'border-[var(--border)] bg-[rgba(255,255,255,0.02)] opacity-60',
-                  )}
-                >
-                  {/* Row 1: name + enable toggle + delete */}
-                  <div className="mb-3 flex items-center gap-2">
-                    <input
-                      className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-white outline-none placeholder:text-[var(--t4)]"
-                      placeholder="Nome da automação…"
-                      value={schedule.name}
-                      onChange={(e) => updateSchedule(schedule.id, { name: e.target.value })}
-                    />
-                    <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-[var(--t3)]">
-                      <span>{schedule.enabled ? 'Ativa' : 'Pausada'}</span>
-                      <input
-                        type="checkbox"
-                        checked={schedule.enabled}
-                        onChange={(e) => updateSchedule(schedule.id, { enabled: e.target.checked })}
-                        className="h-4 w-4 cursor-pointer accent-sky-400"
-                      />
-                    </label>
-                    <button
-                      onClick={() => removeSchedule(schedule.id)}
-                      className="shrink-0 rounded-full p-1 text-[var(--t4)] transition hover:bg-red-500/15 hover:text-red-400"
-                      title="Remover automação"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-
-                  {/* Row 2: video picker + interval */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-                        Video
-                      </span>
-                      <select
-                        value={schedule.videoId}
-                        onChange={(e) => updateSchedule(schedule.id, { videoId: e.target.value })}
-                        className="h-9 w-full rounded-xl border border-[var(--border2)] bg-[var(--bg3)] px-2 text-xs text-white outline-none focus:border-sky-400/40"
-                      >
-                        {videos.length === 0 && (
-                          <option value="">— nenhum video —</option>
-                        )}
-                        {videos.map((v) => (
-                          <option key={v.id} value={v.id}>
-                            {v.label || v.id}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-                        A cada (minutos)
-                      </span>
-                      <input
-                        type="number"
-                        min="1"
-                        step="1"
-                        value={schedule.intervalMinutes}
-                        onChange={(e) =>
-                          updateSchedule(schedule.id, {
-                            intervalMinutes: Math.max(1, Math.round(Number(e.target.value) || 1)),
-                          })
-                        }
-                        className="h-9 w-full rounded-xl border border-[var(--border2)] bg-[var(--bg3)] px-2 text-xs text-white outline-none focus:border-sky-400/40"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Row 3: next fire info */}
-                  {schedule.enabled && (
-                    <div className="mt-2.5 flex items-center gap-1.5 text-[10px] text-[var(--t3)]">
-                      <Clock className="h-3 w-3 shrink-0" />
-                      {info === undefined ? (
-                        <span className="text-[var(--t4)]">Salve e publique para ativar</span>
-                      ) : minsLeft !== null && minsLeft <= 0 ? (
-                        <span className="text-emerald-400">Disparará na próxima verificação</span>
-                      ) : (
-                        <span>Próxima em ~{minsLeft}min</span>
-                      )}
-                      {lastFiredDate && (
-                        <span className="ml-1 text-[var(--t4)]">· última vez às {lastFiredDate}</span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Add button */}
-        <Button
-          className="mt-4 w-full"
-          variant="secondary"
-          onClick={addSchedule}
-          disabled={videos.length === 0}
-        >
-          <Plus className="h-4 w-4" />
-          Adicionar automação
-        </Button>
-
-        <div className="mt-4 flex justify-end">
-          <Button variant="secondary" onClick={onClose}>
-            Fechar
-          </Button>
         </div>
+        <button
+          onClick={onClose}
+          className="rounded-full p-1.5 text-[var(--t3)] transition hover:bg-white/10 hover:text-white"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
-    </div>
+
+      {/* How it works */}
+      <div className="mb-4 rounded-2xl border border-sky-500/15 bg-sky-500/5 p-3 text-xs leading-relaxed text-sky-200/70">
+        <span className="font-semibold text-sky-200">Como funciona: </span>
+        A cada intervalo configurado o video é adicionado à fila. Ele toca quando o idle finaliza um ciclo —
+        se já houver um presente/reação em andamento, a automação aguarda na fila.
+        Salve o rascunho e publique o fluxo para ativar as automações.
+      </div>
+
+      {/* Schedule list */}
+      {schedules.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-[var(--border2)] p-8 text-center">
+          <Clock className="mx-auto mb-3 h-8 w-8 text-[var(--t4)]" />
+          <p className="text-sm font-medium text-[var(--t2)]">Nenhuma automação configurada</p>
+          <p className="mt-1 text-xs text-[var(--t4)]">
+            Adicione automações para manter o conteúdo ativo mesmo sem interação dos espectadores
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {schedules.map((schedule) => {
+            const info = serverInfo.find((s) => s.id === schedule.id);
+            const minsLeft = info ? Math.ceil(info.secondsUntilNext / 60) : null;
+            const lastFiredDate = info?.lastFiredAt
+              ? new Date(info.lastFiredAt * 1000).toLocaleTimeString('pt-BR', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
+              : null;
+
+            return (
+              <div
+                key={schedule.id}
+                className={cn(
+                  'rounded-2xl border p-4 transition',
+                  schedule.enabled
+                    ? 'border-sky-300/20 bg-sky-400/5'
+                    : 'border-[var(--border)] bg-[rgba(255,255,255,0.02)] opacity-60',
+                )}
+              >
+                {/* Row 1: name + enable toggle + delete */}
+                <div className="mb-3 flex items-center gap-2">
+                  <input
+                    className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-white outline-none placeholder:text-[var(--t4)]"
+                    placeholder="Nome da automação…"
+                    value={schedule.name}
+                    onChange={(e) => updateSchedule(schedule.id, { name: e.target.value })}
+                  />
+                  <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-[var(--t3)]">
+                    <span>{schedule.enabled ? 'Ativa' : 'Pausada'}</span>
+                    <input
+                      type="checkbox"
+                      checked={schedule.enabled}
+                      onChange={(e) => updateSchedule(schedule.id, { enabled: e.target.checked })}
+                      className="h-4 w-4 cursor-pointer accent-sky-400"
+                    />
+                  </label>
+                  <button
+                    onClick={() => removeSchedule(schedule.id)}
+                    className="shrink-0 rounded-full p-1 text-[var(--t4)] transition hover:bg-red-500/15 hover:text-red-400"
+                    title="Remover automação"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
+                {/* Row 2: video picker + interval */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
+                      Video
+                    </span>
+                    <select
+                      value={schedule.videoId}
+                      onChange={(e) => updateSchedule(schedule.id, { videoId: e.target.value })}
+                      className="h-9 w-full rounded-xl border border-[var(--border2)] bg-[var(--bg3)] px-2 text-xs text-white outline-none focus:border-sky-400/40"
+                    >
+                      {videos.length === 0 && (
+                        <option value="">— nenhum video —</option>
+                      )}
+                      {videos.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.label || v.id}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
+                      A cada (minutos)
+                    </span>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={schedule.intervalMinutes}
+                      onChange={(e) =>
+                        updateSchedule(schedule.id, {
+                          intervalMinutes: Math.max(1, Math.round(Number(e.target.value) || 1)),
+                        })
+                      }
+                      className="h-9 w-full rounded-xl border border-[var(--border2)] bg-[var(--bg3)] px-2 text-xs text-white outline-none focus:border-sky-400/40"
+                    />
+                  </div>
+                </div>
+
+                {/* Row 3: next fire info */}
+                {schedule.enabled && (
+                  <div className="mt-2.5 flex items-center gap-1.5 text-[10px] text-[var(--t3)]">
+                    <Clock className="h-3 w-3 shrink-0" />
+                    {info === undefined ? (
+                      <span className="text-[var(--t4)]">Salve e publique para ativar</span>
+                    ) : minsLeft !== null && minsLeft <= 0 ? (
+                      <span className="text-emerald-400">Disparará na próxima verificação</span>
+                    ) : (
+                      <span>Próxima em ~{minsLeft}min</span>
+                    )}
+                    {lastFiredDate && (
+                      <span className="ml-1 text-[var(--t4)]">· última vez às {lastFiredDate}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Add button */}
+      <Button
+        className="mt-4 w-full"
+        variant="secondary"
+        onClick={addSchedule}
+        disabled={videos.length === 0}
+      >
+        <Plus className="h-4 w-4" />
+        Adicionar automação
+      </Button>
+
+      <div className="mt-4 flex justify-end">
+        <Button variant="secondary" onClick={onClose}>
+          Fechar
+        </Button>
+      </div>
+    </>
   );
 }

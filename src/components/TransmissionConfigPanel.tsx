@@ -6,6 +6,7 @@ import {
   setPersonaTransmission,
   type TransmissionConfig,
 } from '../core/personaManager';
+import { SkeletonList } from './ui';
 
 type Props = {
   personaId: string;
@@ -98,9 +99,7 @@ export default function TransmissionConfigPanel({ personaId, personaName }: Prop
       )}
 
       {loading ? (
-        <div className="flex items-center gap-2 py-6 text-xs text-slate-500">
-          <Loader2 className="h-4 w-4 animate-spin" /> Carregando...
-        </div>
+        <SkeletonList label="Carregando configuração de transmissão" rows={3} className="py-2" itemClassName="h-12" />
       ) : (
         <div className="space-y-3">
           {/* Modo de transmissão */}

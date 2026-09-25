@@ -44,6 +44,7 @@ import PersonaVisualBoard from './PersonaVisualBoard';
 import PersonaAssetManager from './PersonaAssetManager';
 import TransmissionConfigPanel from './TransmissionConfigPanel';
 import { VIDEO_ROTEIRO, categorizeVideo } from '../core/videoRoteiro';
+import { SkeletonList } from './ui';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -241,9 +242,12 @@ export function PersonasPanel() {
                     </p>
 
                     {configLoading ? (
-                      <div className="flex items-center gap-2 py-4 text-xs text-slate-500">
-                        <Loader2 className="h-4 w-4 animate-spin" /> Carregando vídeos da persona...
-                      </div>
+                      <SkeletonList
+                        label="Carregando vídeos da persona"
+                        rows={4}
+                        className="grid gap-3 space-y-0 sm:grid-cols-2"
+                        itemClassName="h-24"
+                      />
                     ) : (
                       <div className="grid gap-3 sm:grid-cols-2">
                         {VIDEO_ROTEIRO.map((cat) => {
@@ -481,9 +485,7 @@ function PersonaList({
       )}
 
       {loading ? (
-        <div className="flex items-center gap-2 py-4 text-xs text-slate-500">
-          <Loader2 className="h-4 w-4 animate-spin" /> Carregando...
-        </div>
+        <SkeletonList label="Carregando personas" rows={3} itemClassName="h-14" />
       ) : (
         <div className="space-y-2">
           {personas.map((p) => (

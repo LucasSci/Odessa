@@ -16,6 +16,7 @@ import {
   type PersonaAssets,
   type PersonaVisual,
 } from '../core/personaAssets';
+import { SkeletonList } from './ui';
 
 const EMPTY_ASSETS: PersonaAssets = { faces: [], environments: [], wardrobe: [] };
 
@@ -118,8 +119,8 @@ function PersonaVisualCard({
 
   if (loading) {
     return (
-      <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-xs text-slate-500">
-        Carregando {persona.name}...
+      <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <SkeletonList label={`Carregando ${persona.name}`} rows={3} itemClassName="h-10" />
       </div>
     );
   }

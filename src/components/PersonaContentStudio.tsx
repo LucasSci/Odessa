@@ -21,7 +21,7 @@ import {
 import { fetchPhotoJobStatus } from '../core/personaSelfConfig';
 import { fetchQueue, type VideoGenQueueItem } from '../core/videoGenApi';
 import { GenerationProgressCard, type GenerationStage } from './GenerationProgressCard';
-import { Tabs } from './ui';
+import { Tabs, SkeletonList } from './ui';
 
 const JOB_POLL_MS = 2000;
 
@@ -267,9 +267,7 @@ export default function PersonaContentStudio({ personaId, personaName }: Props) 
       )}
 
       {loading && !content ? (
-        <div className="flex items-center justify-center gap-2 py-10 text-xs text-slate-500">
-          <Loader2 className="h-4 w-4 animate-spin" /> Carregando conteúdo...
-        </div>
+        <SkeletonList label="Carregando conteúdo" rows={4} className="py-4" itemClassName="h-14" />
       ) : (
         <>
           {subTab === 'organize' && (

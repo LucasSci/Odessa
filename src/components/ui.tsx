@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react';
 import { Loader2, MoreHorizontal } from 'lucide-react';
+import { useModalFocus } from '../core/useModalFocus';
+import { usePresence } from '../core/usePresence';
 import { cn } from '../lib/utils';
 
 export function Button({
@@ -18,7 +20,8 @@ export function Button({
   return (
     <button
       className={cn(
-        'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[22px] border font-semibold transition-all duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.96] hover:-translate-y-px focus:outline-none focus:ring-2 focus:ring-[var(--gold)]/40 disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:translate-y-0 disabled:active:scale-100',
+        // Transição e press (scale 0.97) vêm de ux-polish.css §8 — iguais em todo botão.
+        'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[22px] border font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--gold)]/40 disabled:cursor-not-allowed disabled:opacity-55',
         size === 'sm' && 'h-8 px-3 text-xs',
         size === 'md' && 'h-[38px] px-4 text-[13px]',
         size === 'icon' && 'h-9 w-9 px-0',
@@ -27,15 +30,16 @@ export function Button({
           'border-transparent bg-[image:var(--grad-live)] text-[#051018] shadow-[var(--shadow-live)] hover:brightness-110 hover:shadow-[0_0_36px_rgba(59,130,246,0.42)]',
         variant === 'secondary' &&
           'border-[var(--border2)] bg-[var(--bg2)] text-[var(--t1)] hover:border-[var(--gold)]/45 hover:shadow-[0_0_20px_rgba(96,165,250,0.15)]',
-        variant === 'ghost' && 'border-transparent bg-transparent text-[var(--t2)] hover:bg-[var(--bg3)] hover:text-[var(--t1)] active:scale-[0.97]',
+        variant === 'ghost' && 'border-transparent bg-transparent text-[var(--t2)] hover:bg-[var(--bg3)] hover:text-[var(--t1)]',
         variant === 'danger' && 'border-red-400/25 bg-red-500/10 text-red-300 hover:bg-red-500/15 hover:shadow-[0_0_18px_rgba(248,113,113,0.20)]',
         variant === 'success' && 'border-emerald-400/25 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15 hover:shadow-[0_0_18px_rgba(52,211,153,0.20)]',
         className,
       )}
       disabled={disabled || loading}
+      aria-busy={loading || undefined}
       {...props}
     >
-      {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+      {loading && <Loader2 className="anim-fade-in h-4 w-4 animate-spin" />}
       {children}
     </button>
   );
@@ -178,8 +182,81 @@ export function Input({
   );
 }
 
+/** Bloco de skeleton com shimmer (para de animar com prefers-reduced-motion). */
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn('animate-pulse rounded-2xl bg-[var(--bg3)]', className)} />;
+  return <div aria-hidden="true" className={cn('od-skel rounded-2xl', className)} />;
+}
+
+/** Mostra os filhos só depois de `delayMs` — carregamento rápido não pisca. */
+function useDelayedVisible(delayMs: number) {
+  const [visible, setVisible] = useState(delayMs <= 0);
+  useEffect(() => {
+    if (delayMs <= 0) return;
+    const timer = window.setTimeout(() => setVisible(true), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [delayMs]);
+  return visible;
+}
+
+/**
+ * SkeletonList — lista em carregamento. Anuncia `label` para leitor de tela
+ * e mantém a altura aproximada do conteúdo final (sem salto de layout).
+ */
+export function SkeletonList({
+  label,
+  rows = 3,
+  className,
+  itemClassName,
+}: {
+  label: string;
+  rows?: number;
+  className?: string;
+  itemClassName?: string;
+}) {
+  return (
+    <div role="status" aria-busy="true" className={cn('od-skeleton-in space-y-2', className)}>
+      <span className="sr-only">{label}</span>
+      {Array.from({ length: rows }, (_, index) => (
+        <Skeleton key={index} className={cn('h-12 rounded-xl', itemClassName)} />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * PanelSkeleton — forma genérica de uma página (cabeçalho + cartões + bloco
+ * principal) enquanto o chunk lazy ou os dados chegam. Só aparece depois de
+ * 150 ms, para carregamentos rápidos não piscarem.
+ */
+export function PanelSkeleton({ label, className }: { label: string; className?: string }) {
+  const visible = useDelayedVisible(150);
+  return (
+    <div
+      role="status"
+      aria-busy="true"
+      data-skeleton="panel"
+      className={cn('flex h-full min-h-[320px] flex-col gap-4 p-5', className)}
+    >
+      <span className="sr-only">{label}</span>
+      {visible && (
+        <div className="od-skeleton-in flex flex-1 flex-col gap-4">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-9 w-9 rounded-xl" />
+            <div className="flex flex-1 flex-col gap-2">
+              <Skeleton className="h-3.5 w-48 rounded-md" />
+              <Skeleton className="h-3 w-72 max-w-full rounded-md" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {[0, 1, 2, 3].map((index) => (
+              <Skeleton key={index} className="h-[68px] rounded-xl" />
+            ))}
+          </div>
+          <Skeleton className="min-h-[180px] flex-1 rounded-[22px]" />
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -203,7 +280,7 @@ export function Tooltip({
           'pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5',
           '-translate-x-1/2 whitespace-nowrap rounded-lg border border-[var(--border2)]',
           'bg-[#13151a] px-2.5 py-1.5 text-[10px] font-medium text-[var(--t1)] shadow-xl',
-          'opacity-0 scale-95 transition-all duration-150 group-hover:opacity-100 group-hover:scale-100',
+          'od-tooltip opacity-0 scale-[0.97] group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100 group-focus-within:scale-100',
         )}
       >
         {content}
@@ -251,15 +328,16 @@ export function ConfirmButton({
       type="button"
       onClick={handleClick}
       disabled={disabled || loading}
+      aria-busy={loading || undefined}
       className={cn(
-        'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[22px] border',
-        'font-semibold transition-all duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.96] hover:-translate-y-px focus:outline-none',
-        'disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:translate-y-0 disabled:active:scale-100',
+        'relative inline-flex items-center justify-center gap-2 overflow-hidden whitespace-nowrap rounded-[22px] border',
+        'font-semibold focus:outline-none',
+        'disabled:cursor-not-allowed disabled:opacity-55',
         size === 'sm' && 'h-8 px-3 text-xs',
         size === 'md' && 'h-[38px] px-4 text-[13px]',
         size === 'icon' && 'h-9 w-9 px-0',
         confirming
-          ? 'border-red-400/40 bg-red-500/20 text-red-300 animate-pulse'
+          ? 'border-red-400/40 bg-red-500/20 text-red-300'
           : variant === 'danger'
             ? 'border-red-400/25 bg-red-500/10 text-red-300 hover:bg-red-500/15'
             : variant === 'primary'
@@ -268,8 +346,9 @@ export function ConfirmButton({
         className,
       )}
     >
-      {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+      {loading && <Loader2 className="anim-fade-in h-4 w-4 animate-spin" />}
       {confirming ? confirmLabel : children}
+      {confirming && <span aria-hidden="true" className="od-confirm-timer" />}
     </button>
   );
 }
@@ -289,6 +368,7 @@ export interface OverflowMenuItem {
  */
 export function OverflowMenu({ items, label = 'Mais', size = 'md' }: { items: OverflowMenuItem[]; label?: string; size?: 'sm' | 'md' }) {
   const [open, setOpen] = useState(false);
+  const presence = usePresence(open);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -313,10 +393,11 @@ export function OverflowMenu({ items, label = 'Mais', size = 'md' }: { items: Ov
         <MoreHorizontal className="h-4 w-4" />
         {label}
       </Button>
-      {open && (
+      {presence.mounted && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-50 mt-1.5 min-w-[190px] overflow-hidden rounded-2xl border border-[var(--border2)] bg-[#13151a] p-1 shadow-2xl"
+          data-state={presence.state}
+          className="od-pop od-origin-top-right absolute right-0 top-full z-50 mt-1.5 min-w-[190px] overflow-hidden rounded-2xl border border-[var(--border2)] bg-[#13151a] p-1 shadow-2xl"
         >
           {items.map((item) => (
             <button
@@ -339,6 +420,68 @@ export function OverflowMenu({ items, label = 'Mais', size = 'md' }: { items: Ov
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+
+/**
+ * Modal — fundo + painel com entrada e saída animadas, Esc para fechar,
+ * clique fora fecha, foco preso dentro (useModalFocus). Use em vez de montar
+ * `fixed inset-0 …` na mão: `{open && …}` desmonta sem animação de saída.
+ */
+export function Modal({
+  open,
+  onClose,
+  label,
+  align = 'center',
+  className,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** Nome do diálogo para leitor de tela. */
+  label: string;
+  align?: 'center' | 'top';
+  className?: string;
+  children: ReactNode;
+}) {
+  const presence = usePresence(open);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalFocus(panelRef, open && presence.mounted);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  if (!presence.mounted) return null;
+  return (
+    <div
+      data-state={presence.state}
+      className={cn(
+        'od-backdrop fixed inset-0 z-[60] flex justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm',
+        align === 'center' ? 'items-center' : 'items-start pt-16',
+      )}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        tabIndex={-1}
+        data-state={presence.state}
+        className={cn('od-pop od-origin-top w-full outline-none', className)}
+      >
+        {children}
+      </div>
     </div>
   );
 }

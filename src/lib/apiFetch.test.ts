@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, apiFetch, describeErrorBody } from './apiFetch';
+import { ApiError, apiFetch, describeErrorBody, httpErrorMessage } from './apiFetch';
 
 function mockFetch(status: number, body: unknown, raw = false) {
   const fn = vi.fn().mockResolvedValue(
@@ -83,5 +83,17 @@ describe('apiFetch', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('cancelado', 'AbortError')));
     const error = await fail(apiFetch('/x'));
     expect(error.name).toBe('AbortError');
+  });
+});
+
+describe('httpErrorMessage', () => {
+  it('extrai o detail do FastAPI em vez de mostrar o JSON cru', async () => {
+    const res = new Response(JSON.stringify({ detail: 'Backend temporarily unavailable' }), { status: 503 });
+    await expect(httpErrorMessage(res)).resolves.toBe('Backend temporarily unavailable');
+  });
+
+  it('usa o texto quando o corpo não é JSON e um fallback quando é vazio', async () => {
+    await expect(httpErrorMessage(new Response('Bad gateway', { status: 502 }))).resolves.toBe('Bad gateway');
+    await expect(httpErrorMessage(new Response('', { status: 500 }))).resolves.toBe('Falha na chamada ao backend (HTTP 500).');
   });
 });
