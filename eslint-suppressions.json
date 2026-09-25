@@ -1,9 +1,4 @@
 {
-  "api/[...path].js": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "src/GiftCatalogModal.tsx": {
     "react-hooks/set-state-in-effect": {
       "count": 1

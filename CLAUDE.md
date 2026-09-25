@@ -58,8 +58,6 @@ Compress-Archive -Path dist, api, public, src, package.json, pnpm-lock.yaml, hos
 
 Then call `mcp__hostinger-mcp__hosting_deployJsApplication` with `archivePath` pointing at `deploy.zip` and `domain` = `darkgrey-shark-457698.hostingersite.com`.
 
-Known issue: `api/[...path].js` imports `server/automation/sendController.js`,
-which is not in the zip above — see issue #249 before changing the deploy.
 
 ## API routing gotcha
 

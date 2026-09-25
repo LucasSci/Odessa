@@ -2,7 +2,6 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import nodePath from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { sendAutomatedMessage } from '../server/automation/sendController.js';
 
 // Strip any query string from import.meta.url before passing to fileURLToPath.
 // The old hot-reload mechanism appends ?v=mtime to force a new cache entry;
@@ -3126,17 +3125,16 @@ async function protectedResponse(req, res, rawPath) {
     });
   }
 
+  // O servidor em nuvem não tem navegador nem acesso à janela da live: enviar
+  // mensagem no chat é trabalho da bridge do Tango no computador da live
+  // (/tango-bridge/send). Antes esta rota importava server/automation (que não
+  // vai no deploy) e derrubava o handler inteiro quando a pasta faltava (#249).
   if (path === '/chat-automation/web-send' && req.method === 'POST') {
-    const body = await readBody(req);
-    const response = await sendAutomatedMessage({
-      conversationContext: body?.conversationContext || body?.context || {},
-      url: String(body?.url || '').trim(),
-      inputSelector: String(body?.inputSelector || '').trim(),
-      sendButtonSelector: String(body?.sendButtonSelector || '').trim(),
-      typingDelayMs: Number(body?.typingDelayMs ?? 65),
-      metadata: body?.metadata || {},
+    return json(res, 501, {
+      ok: false,
+      status: 'not_supported_in_cloud',
+      error: 'Envio pelo navegador não roda no servidor em nuvem. Use a bridge do Tango no computador da live.',
     });
-    return json(res, response.ok ? 200 : 502, response);
   }
 
   if (path === '/chat-automation/response-config' && req.method === 'GET') {
