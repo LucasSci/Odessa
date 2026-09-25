@@ -93,6 +93,10 @@ Todas as mudanças relevantes do projeto Odessa.
   personas, testes).
 
 ### Corrigido
+- "Resetar aprendizado" e "Esquecer" não apagavam os fatos por espectador
+  guardados no navegador (lidos pela Diretora), e o espectador oculto
+  continuava no contexto dela. Agora valem para esses fatos também, e a
+  memória tem teto (10 por espectador, 500 no total). (#254)
 - Em desenvolvimento, o stream de mensagens do chat (SSE) ia direto na porta
   da bridge e levava 401: nenhuma mensagem chegava ao app. Agora passa pelo
   proxy do backend, como no build. (#158)
