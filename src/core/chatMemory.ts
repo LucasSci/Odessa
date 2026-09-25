@@ -13,6 +13,7 @@
 import { apiFetch, ApiError } from '../lib/apiFetch';
 import type { LiveEvent } from '../types';
 import { clearChatLearning, recordChatLearning } from './chatLearning';
+import { globalRAGMemory } from './longTermMemory';
 import type { ChatMessageKind } from './chatConversationGovernor';
 
 const FLUSH_DELAY_MS = 3_000;
@@ -134,9 +135,10 @@ export function buildUserMemoryContext(
   return { context: lines.join('\n'), used };
 }
 
-/** "Resetar aprendizado": apaga tendências do chat e a memória por usuário. */
+/** "Resetar aprendizado": apaga tendências, fatos por espectador e a memória por usuário. */
 export async function resetChatMemory(): Promise<{ usersCleared: number | null }> {
   clearChatLearning();
+  globalRAGMemory.clear();
   memoryCache.clear();
   pending = [];
   try {
@@ -172,12 +174,16 @@ export async function listMemoryProfiles(query = ''): Promise<MemoryProfile[]> {
 
 /** Oculta (ou mostra de novo) um espectador: continua contado, mas fora do prompt. */
 export async function setMemoryProfileHidden(profile: Pick<MemoryProfile, 'id' | 'username'>, hidden: boolean): Promise<void> {
+  // Ocultar vale no navegador na hora (lado seguro); mostrar, só se o backend aceitar.
+  if (hidden) globalRAGMemory.setHidden(profile.username, true);
   await apiFetch(`/memory/profiles/${encodeURIComponent(profile.id)}/visibility`, { method: 'POST', json: { hidden } });
+  if (!hidden) globalRAGMemory.setHidden(profile.username, false);
   memoryCache.delete(profile.username.toLowerCase());
 }
 
-/** Esquece um espectador: apaga perfil e interações. */
+/** Esquece um espectador: apaga perfil, interações e os fatos dele no navegador. */
 export async function forgetMemoryProfile(profile: Pick<MemoryProfile, 'id' | 'username'>): Promise<void> {
+  globalRAGMemory.forgetUser(profile.username);
   await apiFetch(`/memory/profiles/${encodeURIComponent(profile.id)}`, { method: 'DELETE' });
   memoryCache.delete(profile.username.toLowerCase());
 }

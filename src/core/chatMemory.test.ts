@@ -10,6 +10,7 @@ import {
   setMemoryProfileHidden,
 } from './chatMemory';
 import { getChatInsights } from './chatLearning';
+import { globalRAGMemory } from './longTermMemory';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -124,5 +125,34 @@ describe('chatMemory', () => {
     expect(String(fetchMock.mock.calls[3][0])).toMatch(/\/memory\/profiles\/hugo$/);
     expect(fetchMock.mock.calls[3][1].method).toBe('DELETE');
     await expect(getUserMemory('hugo')).resolves.toEqual({ found: false, totalMessages: 0, totalGifts: 0 });
+  });
+
+  it('resetar, esquecer e ocultar valem também para os fatos que a Diretora lê (#254)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => new Response('{}', { status: 200 })));
+    globalRAGMemory.storeFact('Iara', 'gosta', 'gosta de forró');
+    globalRAGMemory.storeFact('joao', 'pedido', 'toca samba');
+    globalRAGMemory.storeFact('kika', 'gosta', 'gosta de rock');
+
+    await setMemoryProfileHidden({ id: 'iara', username: 'Iara' }, true);
+    expect(globalRAGMemory.retrieveContext(['Iara'])).toBe('');
+    await setMemoryProfileHidden({ id: 'iara', username: 'Iara' }, false);
+    expect(globalRAGMemory.retrieveContext(['Iara'])).toContain('forró');
+
+    await forgetMemoryProfile({ id: 'joao', username: 'joao' });
+    expect(globalRAGMemory.retrieveContext(['joao'])).toBe('');
+    expect(globalRAGMemory.retrieveContext(['kika'])).toContain('rock');
+
+    await resetChatMemory();
+    expect(globalRAGMemory.retrieveContext(['Iara', 'kika'])).toBe('');
+  });
+
+  it('ocultar vale no navegador mesmo se o backend falhar; mostrar não', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => new Response('{"detail":"erro"}', { status: 500 })));
+    globalRAGMemory.storeFact('lia', 'gosta', 'gosta de jazz');
+    await expect(setMemoryProfileHidden({ id: 'lia', username: 'lia' }, true)).rejects.toThrow();
+    expect(globalRAGMemory.retrieveContext(['lia'])).toBe('');
+    await expect(setMemoryProfileHidden({ id: 'lia', username: 'lia' }, false)).rejects.toThrow();
+    expect(globalRAGMemory.retrieveContext(['lia'])).toBe('');
+    globalRAGMemory.clear();
   });
 });
