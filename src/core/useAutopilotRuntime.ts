@@ -17,11 +17,7 @@ import {
   prepareChatReplyQueue,
   updateChatReplyQueueFromAction,
 } from './chatReplyQueue';
-import {
-  buildLiveSupervisorSnapshot,
-  type LiveSupervisorSnapshot,
-  type RecoveryAction,
-} from './liveReadinessSupervisor';
+import { type RecoveryAction } from './liveReadinessSupervisor';
 import {
   applyLiveActionPolicy,
   eventPriorityScore,
@@ -131,7 +127,8 @@ export interface AutopilotRuntimeState {
   localAgentMessage: string;
   videoMonitor: VideoBridgeStatus;
   chatAutomationMonitor: ChatAutomationMonitor;
-  readiness: LiveSupervisorSnapshot;
+  /** Executa uma ação de recuperação (usado pelo useLiveSupervisor). */
+  runRecoveryAction: (action: RecoveryAction) => Promise<void>;
   completedCycles: number;
   failedCycles: number;
   averageConfidence: number;
@@ -410,52 +407,6 @@ export function useAutopilotRuntime({
     };
   }, [cycles]);
 
-  const readiness = useMemo(() => {
-    const target = loadChatAutomationTarget();
-    const visualTargetReady = Boolean(
-      target.mode === 'visual' &&
-        target.inputPoint &&
-        typeof target.inputPoint.x === 'number' &&
-        typeof target.inputPoint.y === 'number' &&
-        target.viewport &&
-        typeof target.viewport.width === 'number' &&
-        typeof target.viewport.height === 'number',
-    );
-    return buildLiveSupervisorSnapshot({
-      now: Date.now(),
-      capturedEvents: capturedText,
-      healthError,
-      obs: {
-        connected: !obsError && (isObsDirectAvailable() || obsScenes.length > 0),
-        currentScene: currentObsScene,
-        scenes: obsScenes,
-        error: obsError,
-        hasOcrSource: obsScenes.length > 0 ? true : undefined,
-        hasStageSource: obsScenes.length > 0 ? true : undefined,
-        streaming: undefined,
-      },
-      video: videoMonitor,
-      chat: {
-        visualTargetReady,
-        allowlistReady: chatAutomationMonitor.allowlistReady,
-        localAgentReady,
-        lastSendStatus: chatAutomationMonitor.lastSendStatus,
-        lastSendError: chatAutomationMonitor.lastSendError,
-      },
-      autonomyLevel,
-      autoChatEnabled: getAiConfig().autoChatReplyEnabled,
-    });
-  }, [
-    capturedText,
-    healthError,
-    obsError,
-    obsScenes,
-    currentObsScene,
-    videoMonitor,
-    chatAutomationMonitor,
-    localAgentReady,
-    autonomyLevel,
-  ]);
 
   const refreshHealth = useCallback(async () => {
     try {
@@ -727,12 +678,8 @@ export function useAutopilotRuntime({
     [refreshObsScenes, refreshVideoMonitor, videoMonitor.idleVideoId],
   );
 
-  useEffect(() => {
-    if (readiness.state === 'healthy') return;
-    readiness.recoveryActions.forEach((action) => {
-      void runRecoveryAction(action);
-    });
-  }, [readiness.state, readiness.recoveryActions, runRecoveryAction]);
+  // A avaliação de prontidão e a recuperação automática ficam em
+  // useLiveSupervisor (precisa da bridge do Tango, que vive no provider do chat).
 
   useEffect(() => {
     if (!autopilotEnabled) return;
@@ -1260,7 +1207,7 @@ export function useAutopilotRuntime({
     localAgentMessage,
     videoMonitor,
     chatAutomationMonitor,
-    readiness,
+    runRecoveryAction,
     completedCycles,
     failedCycles,
     averageConfidence,

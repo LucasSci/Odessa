@@ -61,6 +61,7 @@ import { applyVideoEdit, getVideoEdit, hasVideoEdit, persistVideoEditDebounced, 
 import { getAiConfig, hasActiveGeminiKey, type AiAutonomyLevel } from './core/aiConfig';
 import { PageActivity, usePageActive } from './core/pageActivity';
 import { usePolling } from './core/usePolling';
+import { useLiveSupervisor } from './core/useLiveSupervisor';
 import { PAGE_ORDER, hashForPage, pageFromHash, pageForShortcut, pageOfTab, type PageKey } from './core/pageRoutes';
 
 const loadReactiveFlowBoard = () => import('./ReactiveFlowBoard');
@@ -497,6 +498,10 @@ export default function OdessaLiveCenter({
 
   // Paleta de comandos (Ctrl+K / Cmd+K), disponível em qualquer tela.
   const toast = useToast();
+  // Supervisor da live (#162): com a live no ar, pausa o chat autônomo, volta
+  // ao idle ou reconecta o OBS quando algo falha.
+  const warnAutoChatPaused = useCallback((reason: string) => toast.warning(`Chat autônomo pausado: ${reason}`), [toast]);
+  useLiveSupervisor(runtime, warnAutoChatPaused);
   const [paletteOpen, setPaletteOpen] = useState(false);
   useEffect(() => {
     prefetchTabChunks();
