@@ -4,16 +4,24 @@ import { cn } from '../lib/utils';
 
 export type ToastKind = 'success' | 'error' | 'warning' | 'info';
 
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 export interface ToastOptions {
   kind?: ToastKind;
   /** ms até sumir sozinho; 0 = fica até ser fechado. Erros duram mais por padrão. */
   durationMs?: number;
+  /** Botão no próprio aviso (ex.: "Desfazer"); clicar executa e fecha o aviso. */
+  action?: ToastAction;
 }
 
 interface ToastItem {
   id: number;
   message: string;
   kind: ToastKind;
+  action?: ToastAction;
 }
 
 interface ToastApi {
@@ -52,8 +60,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     (message: string, options: ToastOptions = {}) => {
       const kind = options.kind ?? 'info';
       const id = nextId.current++;
-      setItems((prev) => [...prev, { id, message, kind }].slice(-MAX_VISIBLE));
-      const duration = options.durationMs ?? DEFAULT_DURATION[kind];
+      setItems((prev) => [...prev, { id, message, kind, action: options.action }].slice(-MAX_VISIBLE));
+      // Aviso com ação fica um pouco mais, para dar tempo de clicar em "Desfazer".
+      const duration = options.durationMs ?? (options.action ? Math.max(DEFAULT_DURATION[kind], 7000) : DEFAULT_DURATION[kind]);
       if (duration > 0) timers.current.set(id, setTimeout(() => dismiss(id), duration));
     },
     [dismiss],
@@ -99,6 +108,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             >
               <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', style.icon_)} />
               <span className="min-w-0 flex-1 break-words">{item.message}</span>
+              {item.action && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    item.action?.onClick();
+                    dismiss(item.id);
+                  }}
+                  className="shrink-0 rounded-lg border border-white/15 px-2 py-0.5 text-[12px] font-semibold text-[var(--t1)] transition hover:bg-white/10"
+                >
+                  {item.action.label}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => dismiss(item.id)}

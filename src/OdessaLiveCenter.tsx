@@ -1,6 +1,7 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import {
+  Archive,
   Brain,
   ClipboardCheck,
   FastForward,
@@ -14,12 +15,12 @@ import {
   Play,
   RadioTower,
   RefreshCw,
+  Repeat,
   Rewind,
   Search,
   Settings,
   Scissors,
   Stethoscope,
-  Trash2,
   Upload,
   Users,
   Volume2,
@@ -47,6 +48,7 @@ import { ClipDeck, deckOrder, groupDeckVideos } from './components/stage/ClipDec
 import { ClipProgress } from './components/stage/ClipProgress';
 import { EventRadio } from './components/stage/EventRadio';
 import { ContentHub } from './components/library/ContentHub';
+import { VideoThumb } from './components/VideoThumb';
 import { CommandPalette } from './components/CommandPalette';
 import { DependencyBanner } from './components/DependencyBanner';
 import type { PaletteCommand } from './core/commandPalette';
@@ -2256,6 +2258,23 @@ function StagePanel({
   );
 }
 
+const UPLOAD_STATUS_LABEL: Record<'pending' | 'uploading' | 'done' | 'error', string> = {
+  pending: 'na fila',
+  uploading: 'enviando',
+  done: 'enviado',
+  error: 'falhou',
+};
+
+/** Busca sem diferenciar maiúsculas, acentos e separadores (_ e -). */
+function normalizeSearch(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .trim();
+}
+
 function VideoLibraryPanel({
   config,
   onChanged,
@@ -2283,6 +2302,8 @@ function VideoLibraryPanel({
   const [activePersonaId, setActivePersonaId] = useState<string | null>(null);
   const [libraryVideos, setLibraryVideos] = useState<VideoEntry[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const toast = useToast();
 
   useEffect(() => {
     listPersonas()
@@ -2313,8 +2334,12 @@ function VideoLibraryPanel({
     () => sourceVideos.map((v) => ({ id: v.id, label: videoLabel(v), loop: v.loop })),
     [sourceVideos],
   );
-  const displayedVideos =
-    categoryFilter === 'all' ? sourceVideos : sourceVideos.filter((v) => categorizeVideo(v) === categoryFilter);
+  const searchTerm = normalizeSearch(search);
+  const displayedVideos = sourceVideos.filter(
+    (v) =>
+      (categoryFilter === 'all' || categorizeVideo(v) === categoryFilter) &&
+      (!searchTerm || normalizeSearch(`${videoLabel(v)} ${v.id} ${v.personaName || ''}`).includes(searchTerm)),
+  );
 
   const uploadSummary = useMemo(
     () =>
@@ -2402,21 +2427,51 @@ function VideoLibraryPanel({
     }
   };
 
-  const forceVideo = async (videoId: string) => {
-    await fetch(apiUrl('/video/force'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ videoId }),
-    }).catch(() => undefined);
+  // "No ar" troca o que está passando na live — por isso o nome explícito (antes
+  // se chamava "Preview"). A prévia local é passar o mouse na miniatura.
+  const forceVideo = async (videoId: string, label: string) => {
+    try {
+      const res = await fetch(apiUrl('/video/force'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast.info(`No ar: ${label}`);
+    } catch (err) {
+      toast.error(`Não foi possível colocar no ar: ${err instanceof Error ? err.message : 'falha'}`);
+    }
   };
 
-  const archiveVideo = async (videoId: string) => {
-    await fetch(apiUrl(`/video/${encodeURIComponent(videoId)}/archive`), { method: 'POST' }).catch(() => undefined);
+  const refreshAfterChange = () => {
     onChanged();
     if (personaFilter === 'all') void refreshLibrary();
   };
 
-  const setIdle = async (videoId: string) => {
+  const restoreVideo = async (videoId: string, label: string) => {
+    try {
+      const res = await fetch(apiUrl(`/video/${encodeURIComponent(videoId)}/restore`), { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast.success(`Restaurado: ${label}`);
+    } catch (err) {
+      toast.error(`Não foi possível restaurar: ${err instanceof Error ? err.message : 'falha'}`);
+    }
+    refreshAfterChange();
+  };
+
+  // Arquivar é reversível (vai para a lixeira): executa na hora e oferece Desfazer.
+  const archiveVideo = async (videoId: string, label: string) => {
+    try {
+      const res = await fetch(apiUrl(`/video/${encodeURIComponent(videoId)}/archive`), { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast.toast(`Arquivado: ${label}`, { kind: 'success', action: { label: 'Desfazer', onClick: () => void restoreVideo(videoId, label) } });
+    } catch (err) {
+      toast.error(`Não foi possível arquivar: ${err instanceof Error ? err.message : 'falha'}`);
+    }
+    refreshAfterChange();
+  };
+
+  const setIdle = async (videoId: string, label: string) => {
     if (!config) return;
     const nextConfig = {
       ...config,
@@ -2427,27 +2482,30 @@ function VideoLibraryPanel({
       })),
       action_map: { ...(config.action_map || {}), idle: [videoId] },
     };
-    await fetch(apiUrl('/video/config'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(nextConfig),
-    });
-    onChanged();
-    if (personaFilter === 'all') void refreshLibrary();
+    try {
+      const res = await fetch(apiUrl('/video/config'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(nextConfig),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast.success(`Idle principal: ${label}`);
+    } catch (err) {
+      toast.error(`Não foi possível definir o idle: ${err instanceof Error ? err.message : 'falha'}`);
+    }
+    refreshAfterChange();
   };
 
   return (
     <div className="h-full overflow-y-auto p-5 lg:p-8">
-      <div className="mb-6 flex flex-col gap-4 rounded-[34px] border border-white/10 bg-[#101114] p-5 md:flex-row md:items-end md:justify-between">
+      <div className="mb-4 flex flex-col gap-3 rounded-[28px] border border-white/10 bg-[#101114] px-5 py-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.3em] text-sky-200/70">
-            Biblioteca
-          </div>
-          <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-white">
-            Videos da mesa de direcao
-          </h1>
-          <p className="mt-1 text-sm text-[var(--t3)]">
-            Clipes usados pelo Idle, reacoes, loops e gatilhos OCR.
+          {/* O título da página já está na barra superior; aqui só o contexto. */}
+          <h2 className="text-lg font-semibold tracking-[-0.02em] text-white">
+            Vídeos da mesa de direção
+          </h2>
+          <p className="mt-0.5 text-sm text-[var(--t3)]">
+            Clipes usados pelo idle, reações, loops e gatilhos. Passe o mouse numa miniatura para ver a prévia.
           </p>
         </div>
         <div>
@@ -2461,7 +2519,7 @@ function VideoLibraryPanel({
           />
           <Button variant="primary" loading={uploading} onClick={() => fileRef.current?.click()}>
             <Upload className="h-4 w-4" />
-            Adicionar videos
+            Adicionar vídeos
           </Button>
         </div>
       </div>
@@ -2475,7 +2533,18 @@ function VideoLibraryPanel({
       />
 
       <div className="mb-5 flex flex-col gap-3 rounded-[28px] border border-white/10 bg-[#101114] p-4 md:flex-row md:items-center md:justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="relative">
+            <span className="sr-only">Buscar vídeo</span>
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--t3)]" />
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Buscar vídeo…"
+              className="h-8 w-56 rounded-full border border-white/10 bg-black/30 pl-8 pr-3 text-xs text-white outline-none focus:border-sky-300/50"
+            />
+          </label>
           <Users className="h-3.5 w-3.5 text-[var(--t3)]" />
           <Tabs
             size="sm"
@@ -2501,7 +2570,7 @@ function VideoLibraryPanel({
                 : 'border-white/10 text-[var(--t3)] hover:text-white',
             )}
           >
-            Todas categorias
+            Todas as categorias
           </button>
           {VIDEO_ROTEIRO.map((cat) => (
             <button
@@ -2526,7 +2595,7 @@ function VideoLibraryPanel({
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <div className="text-sm font-semibold text-white">
-                {uploading ? 'Enviando videos' : 'Upload concluido'}
+                {uploading ? 'Enviando vídeos' : 'Envio concluído'}
               </div>
               <div className="text-xs text-slate-400">
                 {uploadSummary.sent} enviados, {uploadSummary.failed} falharam,{' '}
@@ -2558,7 +2627,7 @@ function VideoLibraryPanel({
                       item.status === 'pending' && 'text-slate-500',
                     )}
                   >
-                    {item.status}
+                    {UPLOAD_STATUS_LABEL[item.status]}
                   </span>
                 </div>
                 {item.error && (
@@ -2573,84 +2642,87 @@ function VideoLibraryPanel({
       {displayedVideos.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Film className="mb-4 h-12 w-12 text-[var(--t3)]" />
-          <p className="text-sm font-semibold text-[var(--t1)]">Nenhum video encontrado</p>
+          <p className="text-sm font-semibold text-[var(--t1)]">Nenhum vídeo encontrado</p>
           <p className="mt-1 text-xs text-[var(--t3)]">
-            {personaFilter === 'all' || categoryFilter !== 'all'
-              ? 'Ajuste os filtros de persona/categoria acima.'
-              : 'Clique em "Adicionar videos" para fazer upload'}
+            {searchTerm
+              ? `Nada com "${search.trim()}". Tente outro termo ou limpe a busca.`
+              : personaFilter === 'all' || categoryFilter !== 'all'
+                ? 'Ajuste os filtros de persona/categoria acima.'
+                : 'Clique em "Adicionar vídeos" para enviar os primeiros clipes.'}
           </p>
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
         {displayedVideos.map((video) => {
-          // No modo "todas as personas", Preview/Idle/Excluir escrevem no
+          // No modo "todas as personas", No ar/Idle/Arquivar escrevem no
           // config da PERSONA ATIVA — errado pra um vídeo de outra persona.
-          // "Editar" fica sempre liberado: é 100% localStorage, sem essa
-          // amarração (ver videoEdits.ts).
+          // "Editar" fica sempre liberado (ver videoEdits.ts).
           const isForeign =
             personaFilter === 'all' && Boolean(video.personaId) && video.personaId !== activePersonaId;
+          const label = videoLabel(video);
+          const isMainIdle = !isForeign && config?.idleVideoId === video.id;
+          const categoryLabel = VIDEO_ROTEIRO.find((cat) => cat.key === categorizeVideo(video))?.label;
+          const description = video.description && !/^auto-detected/i.test(video.description) ? video.description : '';
+          const foreignTitle = isForeign ? 'Só disponível para a persona ativa' : undefined;
           return (
-            <Card key={`${video.personaId || 'active'}-${video.id}`} className="overflow-hidden bg-[#101114]">
-              <div className="aspect-video bg-black">
-                <video
-                  muted
-                  playsInline
-                  preload="metadata"
-                  className="h-full w-full object-contain"
+            <Card key={`${video.personaId || 'active'}-${video.id}`} className="flex flex-col overflow-hidden bg-[#101114]">
+              <div className="relative">
+                <VideoThumb
                   src={apiUrl(`/api/video/play/${video.id}`)}
-                  onError={() => console.debug('[VIDEO_DEBUG] thumbnail_error', { videoId: video.id })}
+                  label={label}
+                  previewOnHover
+                  className="aspect-[9/16] max-h-[340px] w-full"
                 />
+                <div className="pointer-events-none absolute left-2 top-2 flex flex-wrap gap-1">
+                  {isMainIdle && <Badge variant="gold">Idle principal</Badge>}
+                  {!isMainIdle && video.loop && <Badge variant="default">Loop</Badge>}
+                  {hasVideoEdit(video.id) && <Badge variant="success">Editado</Badge>}
+                </div>
+                {personaFilter === 'all' && video.personaName && (
+                  <div className="pointer-events-none absolute bottom-2 left-2">
+                    <Badge variant={isForeign ? 'default' : 'success'}>{video.personaName}</Badge>
+                  </div>
+                )}
               </div>
-              <div className="p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold">{videoLabel(video)}</div>
-                    <div className="truncate text-xs text-[var(--t3)]">{video.group || video.id}</div>
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    {video.loop && <Badge variant="gold">Idle</Badge>}
-                    {hasVideoEdit(video.id) && <Badge variant="success">Editado</Badge>}
-                    {personaFilter === 'all' && video.personaName && (
-                      <Badge variant={isForeign ? 'default' : 'success'}>{video.personaName}</Badge>
-                    )}
-                  </div>
-                </div>
-                <div className="mt-3 line-clamp-2 text-xs text-[var(--t3)]">
-                  {video.description || 'Video registrado na Odessa.'}
-                </div>
-                <div className="mt-4 flex gap-2">
+              <div className="flex flex-1 flex-col p-3">
+                <div className="truncate text-[13px] font-semibold text-[var(--t1)]" title={label}>{label}</div>
+                <div className="truncate text-[11px] text-[var(--t3)]">{categoryLabel || 'Sem categoria'}</div>
+                {description && <div className="mt-1.5 line-clamp-2 text-[11px] text-[var(--t3)]">{description}</div>}
+                <div className="mt-auto flex items-center gap-1 pt-3">
                   <Button
                     size="sm"
                     variant="secondary"
                     disabled={isForeign}
-                    title={isForeign ? 'Só disponível pra persona ativa' : undefined}
-                    onClick={() => forceVideo(video.id)}
+                    title={foreignTitle ?? 'Colocar este clipe no ar agora'}
+                    onClick={() => void forceVideo(video.id, label)}
                   >
-                    <Play className="h-3.5 w-3.5" />
-                    Preview
+                    <RadioTower className="h-3.5 w-3.5" />
+                    No ar
                   </Button>
-                  <Button size="sm" variant="secondary" onClick={() => onOpenEditor(video.id, videoLabel(video))}>
+                  <Button size="icon" variant="secondary" title="Editar cortes e áudio" aria-label={`Editar ${label}`} onClick={() => onOpenEditor(video.id, label)}>
                     <Scissors className="h-3.5 w-3.5" />
-                    Editar
                   </Button>
                   <Button
-                    size="sm"
+                    size="icon"
                     variant="secondary"
-                    disabled={isForeign}
-                    title={isForeign ? 'Só disponível pra persona ativa' : undefined}
-                    onClick={() => setIdle(video.id)}
+                    disabled={isForeign || isMainIdle}
+                    title={foreignTitle ?? (isMainIdle ? 'Já é o idle principal' : 'Definir como idle principal')}
+                    aria-label={`Definir ${label} como idle principal`}
+                    onClick={() => void setIdle(video.id, label)}
                   >
-                    Idle
+                    <Repeat className="h-3.5 w-3.5" />
                   </Button>
                   <Button
-                    size="sm"
+                    size="icon"
                     variant="danger"
                     disabled={isForeign}
-                    title={isForeign ? 'Só disponível pra persona ativa' : undefined}
-                    onClick={() => archiveVideo(video.id)}
+                    className="ml-auto"
+                    title={foreignTitle ?? 'Arquivar (dá para desfazer)'}
+                    aria-label={`Arquivar ${label}`}
+                    onClick={() => void archiveVideo(video.id, label)}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Archive className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               </div>

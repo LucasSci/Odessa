@@ -47,6 +47,7 @@ import { apiUrl } from './lib/api';
 import { callFlowDesigner } from './core/aiDecisionContract';
 import { cn } from './lib/utils';
 import { usePageActive } from './core/pageActivity';
+import { VideoThumb } from './components/VideoThumb';
 
 type VideoEntry = {
   id: string;
@@ -412,17 +413,8 @@ function secondsLabel(value: number | null | undefined) {
 }
 
 function StaticThumbnail({ videoId, className }: { videoId: string; className?: string }) {
-  return (
-    <div className={cn('overflow-hidden bg-black', className)}>
-      <video
-        src={apiUrl(`/video/play/${videoId}`)}
-        className="h-full w-full object-cover opacity-75"
-        muted
-        playsInline
-        preload="metadata"
-      />
-    </div>
-  );
+  // Carrega só ao entrar na tela e decodifica um quadro (antes ficava preto).
+  return <VideoThumb src={apiUrl(`/video/play/${videoId}`)} label={videoId} className={cn('opacity-90', className)} />;
 }
 
 function VideoFlowNode({ data, selected }: NodeProps<VideoFlowNodeType>) {
