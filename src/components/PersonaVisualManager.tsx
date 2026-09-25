@@ -31,7 +31,8 @@ const SELECT_CLS =
 
 export default function PersonaVisualManager({ personaId, assets }: Props) {
   const [visual, setVisual] = useState<PersonaVisual>({ wardrobeKits: [], scenarios: [] });
-  const [loading, setLoading] = useState(true);
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const loading = loadedFor !== personaId;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -45,21 +46,35 @@ export default function PersonaVisualManager({ personaId, assets }: Props) {
   const [scenarioEnv, setScenarioEnv] = useState('');
   const [scenarioKit, setScenarioKit] = useState('');
 
+  // Recarrega depois de uma ação do usuário.
   const refresh = useCallback(async () => {
     try {
       setVisual(await getPersonaVisual(personaId));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Falha ao carregar kits e cenários');
-    } finally {
-      setLoading(false);
     }
   }, [personaId]);
 
+  // Carga ao abrir ou trocar de persona; `alive` descarta respostas antigas.
   useEffect(() => {
-    setLoading(true);
-    void refresh();
-  }, [refresh]);
+    let alive = true;
+    getPersonaVisual(personaId)
+      .then((data) => {
+        if (!alive) return;
+        setVisual(data);
+        setError(null);
+      })
+      .catch((e) => {
+        if (alive) setError(e instanceof Error ? e.message : 'Falha ao carregar kits e cenários');
+      })
+      .finally(() => {
+        if (alive) setLoadedFor(personaId);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [personaId]);
 
   const togglePiece = (id: string) =>
     setSelectedPieces((prev) =>

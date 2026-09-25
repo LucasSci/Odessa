@@ -44,22 +44,18 @@ export function GenerationProgressCard({
   className?: string;
 }) {
   const running = stage === 'queued' || stage === 'gerando';
-  const [elapsedSec, setElapsedSec] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
 
-  // Contador de segundos decorridos — só enquanto a etapa está em
-  // andamento. startedAt é uma string estável (vem do backend), então o
-  // efeito não recria o interval a cada render.
+  // Relógio de 1 s só enquanto a etapa está em andamento. O tempo decorrido
+  // é derivado no render (sem setState dentro do efeito).
   useEffect(() => {
-    if (!running || !startedAt) {
-      setElapsedSec(0);
-      return;
-    }
-    const startedMs = new Date(startedAt).getTime();
-    const tick = () => setElapsedSec(Math.max(0, Math.floor((Date.now() - startedMs) / 1000)));
-    tick();
-    const timer = window.setInterval(tick, 1000);
+    if (!running || !startedAt) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [running, startedAt]);
+
+  const startedMs = startedAt ? new Date(startedAt).getTime() : NaN;
+  const elapsedSec = running && Number.isFinite(startedMs) ? Math.max(0, Math.floor((now - startedMs) / 1000)) : 0;
 
   const meta = STAGE_META[stage];
 

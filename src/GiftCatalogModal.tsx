@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Gift, Pencil, Plus, Trash2, Upload, X } from 'lucide-react';
 import { Button, Input, Modal } from './components/ui';
 import {
@@ -42,18 +42,22 @@ export default function GiftCatalogModal({
   onClose: () => void;
   onChange?: (entries: GiftCatalogEntry[]) => void;
 }) {
-  const [entries, setEntries] = useState<GiftCatalogEntry[]>([]);
+  const [entries, setEntries] = useState<GiftCatalogEntry[]>(() => (open ? loadGiftCatalog() : []));
   const [draft, setDraft] = useState<DraftGift | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
+  // Ao abrir, recarrega o catálogo e limpa o rascunho (ajuste durante o render,
+  // sem efeito: evita um render extra com dados velhos).
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) {
       setEntries(loadGiftCatalog());
       setDraft(null);
       setError(null);
     }
-  }, [open]);
+  }
 
   const total = useMemo(
     () => entries.reduce((sum, entry) => sum + (Number(entry.price) || 0), 0),

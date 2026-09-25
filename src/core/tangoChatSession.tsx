@@ -52,6 +52,7 @@ import {
   type PendingSelfConfigChange,
 } from './personaSelfConfig';
 import type { CapturedMessage } from '../types';
+import { usePolling } from './usePolling';
 
 // ─── Config & Endpoints ──────────────────────────────────────────────
 export const BRIDGE_URL = '/tango-bridge';
@@ -374,9 +375,8 @@ export function TangoChatSessionProvider({
     return messages;
   }, [messages]);
 
-  // ── Polling de Status com backoff exponencial e pausa quando inativo ──
+  // ── Status da bridge (consultado pelo usePolling mais abaixo) ──
   const inFlightStatusRef = useRef(false);
-  const statusBackoffMsRef = useRef(3500);
 
   const refreshStatus = useCallback(async (): Promise<BridgeProcessStatus | null> => {
     if (inFlightStatusRef.current || (typeof document !== 'undefined' && document.hidden)) {
@@ -387,54 +387,24 @@ export function TangoChatSessionProvider({
       const data = await fetchJson<BridgeProcessStatus>(`${BRIDGE_API}/status`);
       setProcessStatus(data);
       processStatusRef.current = data;
-      if (data) {
-        statusBackoffMsRef.current = 3500; // Reset backoff no sucesso
-      } else {
-        statusBackoffMsRef.current = Math.min(statusBackoffMsRef.current * 1.5, 30000);
-      }
       return data;
     } catch {
-      statusBackoffMsRef.current = Math.min(statusBackoffMsRef.current * 1.5, 30000);
       return processStatusRef.current;
     } finally {
       inFlightStatusRef.current = false;
     }
   }, []);
 
-  useEffect(() => {
-    let timeoutId: number | undefined;
-    let cancelled = false;
-
-    const schedulePoll = () => {
-      if (cancelled) return;
-      timeoutId = window.setTimeout(async () => {
-        await refreshStatus();
-        schedulePoll();
-      }, statusBackoffMsRef.current);
-    };
-
-    // Dispara imediatamente e agenda ciclo recursivo
-    void refreshStatus();
-    schedulePoll();
-
-    // Quando o usuário volta à aba do navegador, acorda imediatamente
-    const handleVisibility = () => {
-      if (typeof document !== 'undefined' && !document.hidden && !cancelled) {
-        statusBackoffMsRef.current = 3500;
-        window.clearTimeout(timeoutId);
-        void refreshStatus();
-        schedulePoll();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibility);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, [refreshStatus]);
+  // Consulta contínua enquanto o app está aberto. usePolling espaça as
+  // tentativas quando a bridge não responde (até 30 s), pausa com a aba do
+  // navegador oculta e consulta na hora ao voltar.
+  usePolling(
+    async () => {
+      if (!(await refreshStatus())) throw new Error('bridge sem status');
+    },
+    3500,
+    { maxBackoffMs: 30_000 },
+  );
 
   // ── Carregar Configurações ────────────────────────
   useEffect(() => {
@@ -928,7 +898,8 @@ export function TangoChatSessionProvider({
       };
     };
 
-    setSseState('connecting');
+    // Estado "connecting" é derivado (ver sseStateView): nada de setState
+    // síncrono aqui.
     connect();
 
     return () => {
@@ -1003,7 +974,8 @@ export function TangoChatSessionProvider({
     aiPrompt,
     setAiPrompt,
     lastSentAt,
-    sseState,
+    // Bridge conectada e stream ainda não aberto = conectando.
+    sseState: bridgeConnected && sseState === 'stopped' ? 'connecting' : sseState,
     sseAttempts,
   };
 

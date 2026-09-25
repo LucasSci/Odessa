@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiUrl } from './lib/api';
 import { cn } from './lib/utils';
 import { preloadVideos, videoSrcFor, videoVersion } from './lib/videoPreload';
@@ -91,7 +91,6 @@ export default function PersonaOverlay() {
   const videoRefA = useRef<HTMLVideoElement>(null);
   const videoRefB = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const refs = useMemo(() => [videoRefA, videoRefB] as const, []);
   const activeSlotRef = useRef<0 | 1>(0);
   const endedRef = useRef('');
   // Índice do corte em reprodução em cada slot (clips com edição salva).
@@ -321,8 +320,8 @@ export default function PersonaOverlay() {
 
       const nextSlot = activeSlotRef.current === 0 ? 1 : 0;
       const previousSlot = activeSlotRef.current;
-      const nextElement = refs[nextSlot].current;
-      const previousElement = refs[previousSlot].current;
+      const nextElement = (nextSlot === 0 ? videoRefA : videoRefB).current;
+      const previousElement = (previousSlot === 0 ? videoRefA : videoRefB).current;
       if (!nextElement) return;
 
       setIsTransitioning(true);
@@ -414,7 +413,7 @@ export default function PersonaOverlay() {
         nextElement.load();
       }
     },
-    [advanceAndRefresh, currentKey, isTransitioning, refs],
+    [advanceAndRefresh, currentKey, isTransitioning],
   );
 
   useEffect(() => {
@@ -519,7 +518,7 @@ export default function PersonaOverlay() {
       {slotClips.map((slotClip, index) => (
         <video
           key={index}
-          ref={refs[index]}
+          ref={index === 0 ? videoRefA : videoRefB}
           autoPlay
           muted={(slotClip?.audio?.mode || 'muted') !== 'original'}
           playsInline

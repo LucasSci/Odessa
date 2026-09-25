@@ -24,16 +24,15 @@ export function CommandPalette({
   const results = useMemo(() => filterCommands(commands, query), [commands, query]);
   useModalFocus(dialogRef, open, 'input');
 
-  useEffect(() => {
+  // Reabrir começa do zero (ajuste durante o render, sem efeito).
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) {
       setQuery('');
       setIndex(0);
     }
-  }, [open]);
-
-  useEffect(() => {
-    setIndex(0);
-  }, [query]);
+  }
 
   useEffect(() => {
     const active = listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
@@ -64,7 +63,6 @@ export function CommandPalette({
     }
   };
 
-  let lastGroup = '';
   return (
     <div
       className="fixed inset-0 z-[80] flex items-start justify-center bg-black/60 px-4 pt-[12vh]"
@@ -85,7 +83,10 @@ export function CommandPalette({
           <Search className="h-4 w-4 shrink-0 text-[var(--t3)]" />
           <input
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setIndex(0);
+            }}
             placeholder="Buscar comando, clip, cena…"
             aria-label="Buscar comando"
             aria-controls="command-palette-list"
@@ -99,8 +100,7 @@ export function CommandPalette({
         <ul id="command-palette-list" ref={listRef} role="listbox" className="max-h-[50vh] overflow-y-auto p-2">
           {results.length === 0 && <li className="px-3 py-6 text-center text-xs text-[var(--t3)]">Nada encontrado para “{query}”.</li>}
           {results.map((command, i) => {
-            const showGroup = command.group !== lastGroup;
-            lastGroup = command.group;
+            const showGroup = i === 0 || results[i - 1].group !== command.group;
             return (
               <li key={command.id} role="presentation">
                 {showGroup && (

@@ -49,7 +49,7 @@ No CI (`.github/workflows/ci.yml`), todo PR para a `main` roda:
 | Job / passo | Ferramenta | O que bloqueia |
 |---|---|---|
 | `commitlint` | Commitlint | commit fora do padrão |
-| Lint | ESLint | qualquer erro novo (os antigos estão em `eslint-suppressions.json`, ver #246 — corrigiu um? rode `pnpm exec eslint . --prune-suppressions`) |
+| Lint | ESLint (inclui as regras do React Compiler: `react-hooks/*`) | qualquer erro. Não use `eslint-disable` nem arquivo de supressões para passar: corrija a causa |
 | Type check | `tsc --noEmit` | erro de tipo |
 | Architecture contract | **arch-contract** (`arch-contract.yaml`) | violação de camada (seção 6) |
 | Knip | **Knip** (`knip.json`) | arquivo ou dependência sem uso, dependência não declarada |

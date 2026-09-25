@@ -57,7 +57,6 @@ jobs:
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
 
-    # Erros antigos ficam em eslint-suppressions.json (issue #246); erro novo quebra.
     - name: Lint
       run: pnpm lint
 

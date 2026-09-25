@@ -48,7 +48,7 @@ import { Badge, Button, ConfirmButton } from './ui';
 import { EmptyState } from './common/OperationalState';
 import { routeStopTransmission } from '../lib/obsCommandRouter';
 import { cn } from '../lib/utils';
-import { usePageActive } from '../core/pageActivity';
+import { usePolling } from '../core/usePolling';
 import {
   generateTangoChatReply,
   generateTangoProactiveMessage,
@@ -177,18 +177,15 @@ export function TangoChatPanel({
   // ── Indicador de geração da IA (sem % real — o Ollama não expõe isso na
   // chamada não-streaming — mas o tempo decorrido já mostra "está
   // escrevendo" x "travou" na prática) ──
-  const [aiElapsedSeconds, setAiElapsedSeconds] = useState(0);
+  const [clockNow, setClockNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!aiGenerationStartedAt) {
-      setAiElapsedSeconds(0);
-      return;
-    }
-    setAiElapsedSeconds(Math.floor((Date.now() - aiGenerationStartedAt) / 1000));
-    const id = window.setInterval(() => {
-      setAiElapsedSeconds(Math.floor((Date.now() - aiGenerationStartedAt) / 1000));
-    }, 1000);
+    if (!aiGenerationStartedAt) return;
+    const id = window.setInterval(() => setClockNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [aiGenerationStartedAt]);
+  const aiElapsedSeconds = aiGenerationStartedAt
+    ? Math.max(0, Math.floor((clockNow - aiGenerationStartedAt) / 1000))
+    : 0;
 
   // ── Navegação & Modos ─────────────────────────────
   const [subTab, setSubTab] = useState<SubTab>('live');
@@ -238,78 +235,26 @@ export function TangoChatPanel({
   const bridgeReachable = processStatus?.bridgeReachable ?? false;
   const bridgeConnected = processStatus?.bridgeStatus?.status === 'connected';
 
-  // ── Logs & Insights Polling com backoff e pausa quando inativo ──
-  const inFlightLogsRef = useRef(false);
-  const logsBackoffMsRef = useRef(3000);
-
-  useEffect(() => {
-    if (subTab === 'diagnostics' && diagSection === 'insights') {
-      setInsights(getChatInsights());
-    }
-    if (subTab !== 'diagnostics' || !processRunning) {
-      return;
-    }
-
-    let timeoutId: number | undefined;
-    let cancelled = false;
-
-    const pollLogs = async () => {
-      if (inFlightLogsRef.current || (typeof document !== 'undefined' && document.hidden)) {
-        return;
-      }
-      inFlightLogsRef.current = true;
-      try {
-        const data = await fetchJson<{ lines: string[] }>(`${BRIDGE_API}/logs?limit=150`);
-        if (data?.lines) {
-          setLogs(data.lines);
-          logsBackoffMsRef.current = 3000;
-        } else {
-          logsBackoffMsRef.current = Math.min(logsBackoffMsRef.current * 1.5, 30000);
-        }
-      } catch {
-        logsBackoffMsRef.current = Math.min(logsBackoffMsRef.current * 1.5, 30000);
-      } finally {
-        inFlightLogsRef.current = false;
-      }
-    };
-
-    const schedulePoll = () => {
-      if (cancelled) return;
-      timeoutId = window.setTimeout(async () => {
-        await pollLogs();
-        schedulePoll();
-      }, logsBackoffMsRef.current);
-    };
-
-    void pollLogs();
-    schedulePoll();
-
-    const handleVisibility = () => {
-      if (typeof document !== 'undefined' && !document.hidden && !cancelled) {
-        logsBackoffMsRef.current = 3000;
-        window.clearTimeout(timeoutId);
-        void pollLogs();
-        schedulePoll();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibility);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, [subTab, processRunning, diagSection]);
+  // ── Logs da bridge: só na aba Diagnóstico com a bridge rodando. usePolling
+  // cuida do espaçamento após falhas, da pausa com a aba oculta e de não
+  // empilhar pedidos. ──
+  usePolling(
+    async () => {
+      const data = await fetchJson<{ lines: string[] }>(`${BRIDGE_API}/logs?limit=150`);
+      if (!data?.lines) throw new Error('logs da bridge indisponíveis');
+      setLogs(data.lines);
+    },
+    3000,
+    { enabled: subTab === 'diagnostics' && processRunning, maxBackoffMs: 30_000 },
+  );
 
   // ── Auto-scrolls (o feed do chat gerencia o Smart Auto-scroll internamente) ──
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
-  // ── Polling de Abas do Chrome com backoff e pausa quando inativo ──
+  // ── Abas do Chrome (aba Configuração Automática) ──
   const inFlightChromeRef = useRef(false);
-  const chromeBackoffMsRef = useRef(4000);
 
   const chromeStatusRef = useRef<ChromeStatus | null>(null);
 
@@ -322,58 +267,23 @@ export function TangoChatPanel({
       const data = await fetchJson<ChromeStatus>(`${BRIDGE_API}/chrome-tabs?port=9222`);
       setChromeStatus(data);
       chromeStatusRef.current = data;
-      if (data) {
-        chromeBackoffMsRef.current = 4000;
-      } else {
-        chromeBackoffMsRef.current = Math.min(chromeBackoffMsRef.current * 1.5, 30000);
-      }
       return data;
     } catch {
-      chromeBackoffMsRef.current = Math.min(chromeBackoffMsRef.current * 1.5, 30000);
       return chromeStatusRef.current;
     } finally {
       inFlightChromeRef.current = false;
     }
   }, []);
 
-  // Página escondida pelo shell (outra aba do Odessa aberta) também pausa.
-  const pageActive = usePageActive();
-  useEffect(() => {
-    // Only poll Chrome tabs when the user is on the setup tab — avoids
-    // continuous background fetches when the live view is active.
-    if (subTab !== 'setup' || !pageActive) return;
-
-    let timeoutId: number | undefined;
-    let cancelled = false;
-
-    const schedulePoll = () => {
-      if (cancelled) return;
-      timeoutId = window.setTimeout(async () => {
-        await refreshChromeStatus();
-        schedulePoll();
-      }, chromeBackoffMsRef.current);
-    };
-
-    void refreshChromeStatus();
-    schedulePoll();
-
-    const handleVisibility = () => {
-      if (typeof document !== 'undefined' && !document.hidden && !cancelled) {
-        chromeBackoffMsRef.current = 4000;
-        window.clearTimeout(timeoutId);
-        void refreshChromeStatus();
-        schedulePoll();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibility);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, [refreshChromeStatus, subTab, pageActive]);
+  // Só consulta na aba de configuração — nada de fetch contínuo durante a live.
+  // usePolling pausa também quando a página do shell está escondida.
+  usePolling(
+    async () => {
+      if (!(await refreshChromeStatus())) throw new Error('Chrome sem resposta');
+    },
+    4000,
+    { enabled: subTab === 'setup', maxBackoffMs: 30_000 },
+  );
 
   const handleLaunchChrome = async () => {
     setLaunchingChrome(true);
@@ -856,7 +766,10 @@ export function TangoChatPanel({
               'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition',
               subTab === t.id ? 'bg-white/15 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'
             )}
-            onClick={() => setSubTab(t.id)}
+            onClick={() => {
+              setSubTab(t.id);
+              if (t.id === 'diagnostics' && diagSection === 'insights') setInsights(getChatInsights());
+            }}
           >
             {t.icon}
             {t.label}
@@ -1716,7 +1629,10 @@ export function TangoChatPanel({
                 'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition',
                 diagSection === 'insights' ? 'bg-white/15 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'
               )}
-              onClick={() => setDiagSection('insights')}
+              onClick={() => {
+                setDiagSection('insights');
+                setInsights(getChatInsights());
+              }}
             >
               <Sparkles className="h-3.5 w-3.5" />
               Insights

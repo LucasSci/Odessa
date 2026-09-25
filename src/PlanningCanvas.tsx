@@ -124,7 +124,12 @@ function StickyNoteNode({ id, data, selected }: NodeProps<Node<CanvasItemData>>)
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const colors = NOTE_COLORS[data.color] || NOTE_COLORS.yellow;
 
-  useEffect(() => { setText(data.content); }, [data.content]);
+  // Conteúdo mudou fora do nó (desfazer, sync): acompanha sem efeito extra.
+  const [syncedContent, setSyncedContent] = useState(data.content);
+  if (data.content !== syncedContent) {
+    setSyncedContent(data.content);
+    setText(data.content);
+  }
 
   useEffect(() => {
     if (editing && textareaRef.current) {
@@ -255,7 +260,12 @@ function TextBlockNode({ id, data, selected }: NodeProps<Node<CanvasItemData>>) 
   const [text, setText] = useState(data.content);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => { setText(data.content); }, [data.content]);
+  // Conteúdo mudou fora do nó (desfazer, sync): acompanha sem efeito extra.
+  const [syncedContent, setSyncedContent] = useState(data.content);
+  if (data.content !== syncedContent) {
+    setSyncedContent(data.content);
+    setText(data.content);
+  }
 
   useEffect(() => {
     if (editing && textareaRef.current) {

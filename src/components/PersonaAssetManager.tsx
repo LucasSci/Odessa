@@ -74,7 +74,9 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
   });
   const [templates, setTemplates] = useState<VideoTemplates>({});
   const [videoTypes, setVideoTypes] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+  // "Carregando" é derivado: a persona atual ainda não teve os dados aplicados.
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const loading = loadedFor !== personaId;
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState<AssetCategory | null>(null);
   const [activeTab, setActiveTab] = useState<'assets' | 'visual' | 'templates' | 'studio'>('assets');
@@ -93,27 +95,48 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
     wardrobe: null,
   });
 
-  const refresh = useCallback(async () => {
-    try {
-      const [assetData, templateData] = await Promise.all([
-        getPersonaAssets(personaId),
-        getTemplates(personaId),
-      ]);
+  const fetchData = useCallback(
+    () => Promise.all([getPersonaAssets(personaId), getTemplates(personaId)]),
+    [personaId],
+  );
+
+  const applyData = useCallback(
+    ([assetData, templateData]: [Awaited<ReturnType<typeof getPersonaAssets>>, Awaited<ReturnType<typeof getTemplates>>]) => {
       setAssets(assetData.assets);
       setTemplates(templateData.templates);
       setVideoTypes(templateData.videoTypes);
       setError(null);
+    },
+    [],
+  );
+
+  // Recarrega depois de uma ação do usuário (upload, remoção, renomear…).
+  const refresh = useCallback(async () => {
+    try {
+      applyData(await fetchData());
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Falha ao carregar dados');
-    } finally {
-      setLoading(false);
     }
-  }, [personaId]);
+  }, [fetchData, applyData]);
 
+  // Carga ao abrir ou trocar de persona. `alive` descarta a resposta de uma
+  // persona anterior que chegue depois da troca.
   useEffect(() => {
-    setLoading(true);
-    void refresh();
-  }, [refresh]);
+    let alive = true;
+    fetchData()
+      .then((data) => {
+        if (alive) applyData(data);
+      })
+      .catch((e) => {
+        if (alive) setError(e instanceof Error ? e.message : 'Falha ao carregar dados');
+      })
+      .finally(() => {
+        if (alive) setLoadedFor(personaId);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [fetchData, applyData, personaId]);
 
   const handleUpload = async (category: AssetCategory, file: File) => {
     setUploading(category);

@@ -84,12 +84,12 @@ function PersonaVisualCard({
     wardrobeKits: [],
     scenarios: [],
   });
-  const [loading, setLoading] = useState(true);
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const loading = loadedFor !== persona.id;
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
-    setLoading(true);
     Promise.all([getPersonaAssets(persona.id), getPersonaVisual(persona.id)])
       .then(([assetData, visualData]) => {
         if (!alive) return;
@@ -101,7 +101,7 @@ function PersonaVisualCard({
         if (alive) setError(e instanceof Error ? e.message : 'Falha ao carregar dados visuais');
       })
       .finally(() => {
-        if (alive) setLoading(false);
+        if (alive) setLoadedFor(persona.id);
       });
     return () => {
       alive = false;
