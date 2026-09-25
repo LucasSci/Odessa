@@ -97,6 +97,7 @@ Legenda: ✅ atendido e testado · 🟡 atendido, validação manual pendente ·
 | Reconhece recorrência sem inventar intimidade | ✅ | Perfil novo/recorrente/presenteador no prompt com instrução explícita (`chatMemory.test.ts`); memória por usuário alimentada pela bridge, **corrigida** colisão de chave no backend (`server/tests/test_memory_service.py`) |
 | Decisão mostra "memórias usadas" nos logs | ✅ | `memoriesUsed` no cartão da fila e no histórico |
 | Operador pode limpar/resetar aprendizado | ✅ | "Resetar aprendizado" (tendências + `DELETE /memory/profiles`) |
+| Operador pode ocultar ou esquecer um espectador | ✅ | Insights → "Espectadores na memória" (#252): oculto não entra no prompt, esquecer apaga perfil e interações (`ChatMemoryProfiles.test.tsx`, `server/tests/test_memory_service.py`) |
 | Não guardar dado desnecessário/sensível | ✅ | Moderação não é guardada; e-mail/telefone mascarados (`chatMemory.test.ts`) |
 
 ## #166 — Logs auditáveis e replay

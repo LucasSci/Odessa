@@ -135,6 +135,9 @@ class MemoryService:
         if not profile:
             return {"found": False, "context": "", "profile": None, "interactions": []}
         user = profile["profile"]
+        if user.get("hidden"):
+            # Ocultado pelo operador: existe, mas não entra no contexto da IA.
+            return {"found": True, "hidden": True, "context": "", "profile": user, "interactions": []}
         interactions = profile["interactions"]
         lines = [
             f"Usuario @{user['username']}: {user['total_messages']} mensagens, {user['total_gifts']} presentes.",
@@ -245,7 +248,9 @@ class MemoryService:
                     ),
                 )
 
-                # Add to round summary
+                # Add to round summary (ocultados pelo operador ficam de fora)
+                if user and user["hidden"]:
+                    continue
                 if not any(u["id"] == user_id for u in recognized_users):
                     recognized_users.append(
                         {

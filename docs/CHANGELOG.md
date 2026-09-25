@@ -10,6 +10,8 @@ Todas as mudanças relevantes do projeto Odessa.
   bloqueada, confirmação antes do envio real. (#168)
 - **Memória do chat pela bridge**: novo/recorrente/presenteador nas
   respostas, "memórias usadas" e reset do aprendizado. (#165)
+- **Espectadores na memória**: buscar, ocultar das respostas ou esquecer um
+  espectador específico, na Central da Live → Insights. (#252)
 - **Governador da bridge**: duplicadas, moderação e prioridade de presentes;
   status "simulada" e "falhou" na fila. (#156, #158–#160)
 - **Padrões de engenharia e esteira de qualidade** — fluxo Issue → Pull

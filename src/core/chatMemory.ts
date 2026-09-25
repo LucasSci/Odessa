@@ -81,13 +81,14 @@ export async function getUserMemory(username?: string): Promise<UserMemory | nul
   const cached = memoryCache.get(user.toLowerCase());
   if (cached && Date.now() - cached.at < MEMORY_CACHE_MS) return cached.value;
   try {
-    const data = await apiFetch<{ profile?: { total_messages?: number; total_gifts?: number } }>(
+    const data = await apiFetch<{ profile?: { total_messages?: number; total_gifts?: number; hidden?: number | boolean } }>(
       `/memory/profiles/${encodeURIComponent(user)}`,
       { timeoutMs: 1_500 },
     );
     // 200 sem perfil = memória indisponível (ex.: stub do modo nuvem), não
-    // "usuário novo" — senão a IA daria boas-vindas a todo mundo.
-    if (!data?.profile) return null;
+    // "usuário novo" — senão a IA daria boas-vindas a todo mundo. Perfil
+    // ocultado pelo operador também não entra no prompt (#252).
+    if (!data?.profile || data.profile.hidden) return null;
     const value: UserMemory = {
       found: true,
       totalMessages: Number(data.profile.total_messages) || 0,
@@ -144,4 +145,39 @@ export async function resetChatMemory(): Promise<{ usersCleared: number | null }
   } catch {
     return { usersCleared: null };
   }
+}
+
+/** Espectador conhecido pela memória do chat (tela de privacidade, #252). */
+export interface MemoryProfile {
+  id: string;
+  username: string;
+  lastSeen: string;
+  totalMessages: number;
+  totalGifts: number;
+  hidden: boolean;
+}
+
+export async function listMemoryProfiles(query = ''): Promise<MemoryProfile[]> {
+  const params = new URLSearchParams({ q: query.trim(), limit: '100', includeHidden: 'true' });
+  const data = await apiFetch<{ profiles?: Array<Record<string, unknown>> }>(`/memory/profiles?${params}`);
+  return (data?.profiles ?? []).map((row) => ({
+    id: String(row.id),
+    username: String(row.username ?? row.id),
+    lastSeen: String(row.last_seen ?? ''),
+    totalMessages: Number(row.total_messages) || 0,
+    totalGifts: Number(row.total_gifts) || 0,
+    hidden: Boolean(row.hidden),
+  }));
+}
+
+/** Oculta (ou mostra de novo) um espectador: continua contado, mas fora do prompt. */
+export async function setMemoryProfileHidden(profile: Pick<MemoryProfile, 'id' | 'username'>, hidden: boolean): Promise<void> {
+  await apiFetch(`/memory/profiles/${encodeURIComponent(profile.id)}/visibility`, { method: 'POST', json: { hidden } });
+  memoryCache.delete(profile.username.toLowerCase());
+}
+
+/** Esquece um espectador: apaga perfil e interações. */
+export async function forgetMemoryProfile(profile: Pick<MemoryProfile, 'id' | 'username'>): Promise<void> {
+  await apiFetch(`/memory/profiles/${encodeURIComponent(profile.id)}`, { method: 'DELETE' });
+  memoryCache.delete(profile.username.toLowerCase());
 }

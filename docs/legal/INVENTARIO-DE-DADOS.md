@@ -48,7 +48,7 @@ Vários desses provedores processam dados fora do Brasil (transferência interna
 ## 4. Controles que já existem
 
 - Reset do aprendizado (tendências + memória por usuário) na Central da Live → Diagnóstico → Insights.
-- Exclusão/ocultação de um perfil de usuário: `DELETE /api/v1/memory/profiles/{usuario}` e `POST …/visibility` (sem tela ainda).
+- Ver, ocultar ou esquecer um espectador específico na Central da Live → Diagnóstico → Insights → "Espectadores na memória" (#252). Ocultar tira o espectador do contexto da IA sem apagar; esquecer apaga perfil e interações (`DELETE /api/v1/memory/profiles/{usuario}`).
 - Mascaramento de e-mail/telefone e descarte de mensagens de moderação antes de guardar.
 - Sentry opt-in e sem dados pessoais.
 - Modo teste (dry-run): nada é enviado no chat.
@@ -67,5 +67,4 @@ Vários desses provedores processam dados fora do Brasil (transferência interna
 ## 6. Próximos passos técnicos (dependem das respostas acima)
 
 - Retenção automática configurável para histórico e memória.
-- Tela para excluir/ocultar um espectador específico.
 - Links para Termos e Política no login e no rodapé, com versão e data de aprovação.
