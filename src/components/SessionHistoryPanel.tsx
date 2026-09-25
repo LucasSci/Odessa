@@ -34,7 +34,7 @@ const TYPE_LABELS: Record<string, string> = {
   'video.generated': 'Vídeo gerado',
   'ai.reply': 'Resposta IA',
   'ai.reply.sent': 'Resposta IA enviada',
-  'ai.reply.skipped': 'Resposta pulada (cooldown/limite)',
+  'ai.reply.skipped': 'Resposta não enviada (governador)',
   'message.sent': 'Mensagem enviada',
   'persona.selfconfig.proposed': 'Autoconfig proposta',
   'persona.selfconfig.applied': 'Autoconfig aplicada',
