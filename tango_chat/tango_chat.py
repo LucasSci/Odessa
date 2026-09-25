@@ -192,6 +192,12 @@ class SendError(RuntimeError):
         self.attempts = attempts
 
 
+def _for_log(value: object) -> str:
+    """Texto do chat em uma linha só: com quebra de linha, uma mensagem poderia
+    forjar linhas no log da bridge (ex.: um falso "confirmada no chat")."""
+    return str(value).replace("\r", "\\r").replace("\n", "\\n")
+
+
 def _normalize_chat_text(text: str) -> str:
     return " ".join(text.split()).casefold()
 
@@ -703,7 +709,7 @@ class TangoChatBridge:
                 text=data.get("text", ""),
             )
             msg.own = self._resolve_echo(msg.text)
-            log.info("MSG | %s: %s", msg.username, msg.text)
+            log.info("MSG | %s: %s", _for_log(msg.username), _for_log(msg.text))
             self._message_count += 1
             self.history.append(msg)
             await self.incoming.put(msg)
@@ -760,7 +766,7 @@ class TangoChatBridge:
     async def _send_locked(self, page: Page, text: str) -> dict:
         command_id = uuid.uuid4().hex[:12]
         started = time.monotonic()
-        log.info("SEND %s | %s", command_id, text)
+        log.info("SEND %s | %s", command_id, _for_log(text))
 
         # 1) Achar o campo. Só aqui existe nova tentativa: nada foi digitado
         #    ainda, então tentar de novo não duplica a mensagem no chat.
@@ -777,13 +783,13 @@ class TangoChatBridge:
                     raise SendError(
                         f"Campo do chat não encontrado ({exc}).", "input", command_id, attempts
                     ) from exc
-                log.warning("SEND %s | campo indisponivel, nova tentativa: %s", command_id, exc)
+                log.warning("SEND %s | campo indisponivel, nova tentativa: %s", command_id, _for_log(exc))
                 await asyncio.sleep(1)
 
         # Texto que sobrou no campo (tentativa anterior, rascunho) iria junto.
         leftover = await self._read_input(input_el)
         if leftover.strip():
-            log.warning("SEND %s | limpando texto que ja estava no campo: %r", command_id, leftover)
+            log.warning("SEND %s | limpando texto que ja estava no campo: %s", command_id, _for_log(leftover))
             await input_el.fill("")
 
         # 2) Digitar e enviar. Daqui em diante NUNCA repetir: o Enter pode ter
@@ -925,7 +931,7 @@ async def handle_send(request: web.Request) -> web.Response:
         result = await bridge.send_message(text)
         return web.json_response({"ok": True, **result})
     except SendError as exc:
-        log.error("SEND %s | falhou na etapa %s: %s", exc.command_id, exc.stage, exc)
+        log.error("SEND %s | falhou na etapa %s: %s", exc.command_id, exc.stage, _for_log(exc))
         return web.json_response(
             {"ok": False, "error": str(exc), "stage": exc.stage, "commandId": exc.command_id, "attempts": exc.attempts},
             status=500,

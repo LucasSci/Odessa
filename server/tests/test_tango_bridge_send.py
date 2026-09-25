@@ -187,6 +187,16 @@ def test_dois_envios_simultaneos_nao_intercalam_as_teclas():
     assert all(result["confirmed"] for result in results)
 
 
+def test_texto_com_quebra_de_linha_nao_forja_linha_no_log(caplog):
+    page = FakePage()
+    forged = "oi\n12:00:00 | INFO    | SEND abc | confirmada no chat em 1 ms."
+    with caplog.at_level("INFO"):
+        asyncio.run(_bridge_with(page).send_message(forged))
+    sent_lines = [record.getMessage() for record in caplog.records if record.getMessage().startswith("SEND")]
+    assert sent_lines and all("\n" not in line for line in sent_lines)
+    assert any("oi\\n12:00:00" in line for line in sent_lines)
+
+
 def test_eco_de_texto_curto_nao_confirma_mensagem_diferente():
     assert tango_chat._is_echo_of("oi", "oi")
     assert not tango_chat._is_echo_of("oi", "oii gente")
