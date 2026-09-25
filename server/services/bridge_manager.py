@@ -102,6 +102,9 @@ class BridgeProcessManager:
         self._started_at: str | None = None
         self._reader_thread: threading.Thread | None = None
         self._adopted: bool = False
+        # Parada pedida pelo usuário: a extensão do navegador não religa a
+        # bridge sozinha até ele iniciá-la de novo (ver browser_extension.py).
+        self.user_stopped: bool = False
 
     @property
     def is_running(self) -> bool:
@@ -138,6 +141,7 @@ class BridgeProcessManager:
         autoconnect: bool = True,
         config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        self.user_stopped = False
         if self.is_running:
             return {"ok": False, "error": "already_running", "pid": self.pid}
 
@@ -238,6 +242,7 @@ class BridgeProcessManager:
         return {"ok": True, "pid": self._process.pid}
 
     async def stop(self) -> dict[str, Any]:
+        self.user_stopped = True
         if not self.is_running:
             return {"ok": False, "error": "not_running"}
 

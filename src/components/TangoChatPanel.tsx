@@ -68,6 +68,7 @@ import {
   fetchJson,
   defaultConfig,
   BRIDGE_API,
+  BRIDGE_URL,
   SSE_MAX_ATTEMPTS,
   type AutonomyMode,
   type BridgeConfig,
@@ -78,6 +79,7 @@ import { TangoChatFeed } from './TangoChatFeed';
 import { UnifiedLivePanel, type VideoStateLite } from './UnifiedLivePanel';
 import { BridgeConnectionGuide } from './BridgeConnectionGuide';
 import { LiveBrowserPicker, type LiveBrowser } from './LiveBrowserPicker';
+import { BrowserExtensionCard } from './BrowserExtensionCard';
 import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
 import type { CapturedMessage } from '../types';
 
@@ -257,6 +259,30 @@ export function TangoChatPanel({
   const processRunning = processStatus?.processRunning ?? false;
   const bridgeReachable = processStatus?.bridgeReachable ?? false;
   const bridgeConnected = processStatus?.bridgeStatus?.status === 'connected';
+
+  // Modo extensão: a bridge não abre navegador; espera a aba do Tango já
+  // logada (Edge/Chrome do usuário) conectar pela extensão do Odessa.
+  const handleUseExtension = useCallback(async () => {
+    const next: BridgeConfig = { ...bridgeConfig, mode: 'extension' };
+    const saved = await fetchJson<BridgeConfig>(`${BRIDGE_API}/config`, { method: 'POST', body: JSON.stringify(next) });
+    setBridgeConfig(saved ?? next);
+    setConfigDirty(false);
+    if (processStatus?.bridgeReachable) {
+      if (processStatus.bridgeStatus?.status === 'connected') {
+        await fetchJson(`${BRIDGE_URL}/disconnect`, { method: 'POST' });
+      }
+      await fetchJson(`${BRIDGE_URL}/connect`, { method: 'POST', body: JSON.stringify({ mode: 'extension' }) });
+    } else {
+      await fetchJson(`${BRIDGE_API}/start`, {
+        method: 'POST',
+        body: JSON.stringify({ mode: 'extension', autoconnect: true, config: saved ?? next }),
+      });
+    }
+    await refreshStatus();
+  }, [bridgeConfig, processStatus, refreshStatus, setBridgeConfig, setConfigDirty]);
+  const extensionCard = (
+    <BrowserExtensionCard processStatus={processStatus} bridgeConfig={bridgeConfig} onUseExtension={handleUseExtension} />
+  );
 
   // ── Logs da bridge: só na aba Diagnóstico com a bridge rodando. usePolling
   // cuida do espaçamento após falhas, da pausa com a aba oculta e de não
@@ -967,6 +993,8 @@ export function TangoChatPanel({
                 </p>
               </div>
 
+              {extensionCard}
+
               <LiveBrowserPicker bridgeConfig={bridgeConfig} onResolved={setLiveBrowser} />
 
               {/* Status do Chrome */}
@@ -1112,6 +1140,7 @@ export function TangoChatPanel({
               </div>
 
               {/* Guia de diagnóstico quando a bridge não conecta */}
+              {(!bridgeConnected || bridgeConfig.mode === 'extension') && extensionCard}
               {!bridgeConnected && <LiveBrowserPicker bridgeConfig={bridgeConfig} onResolved={setLiveBrowser} />}
               {!bridgeConnected && (
                 <BridgeConnectionGuide
@@ -1578,6 +1607,7 @@ export function TangoChatPanel({
                 { value: '', label: 'Automático', desc: 'Tenta CDP primeiro; fallback para Standalone.' },
                 { value: 'standalone', label: 'Standalone (Recomendado)', desc: 'Abre um Chromium próprio do Playwright com perfil salvo permanente.' },
                 { value: 'cdp', label: 'CDP (navegador aberto)', desc: 'Conecta ao navegador da live (Edge, Chrome…) aberto com --remote-debugging-port=9222.' },
+                { value: 'extension', label: 'Extensão (aba já logada)', desc: 'Usa a aba do Tango em que você já está logado no Edge/Chrome, pela extensão do Odessa. Sem novo login.' },
               ].map((opt) => (
                 <button
                   key={opt.value}

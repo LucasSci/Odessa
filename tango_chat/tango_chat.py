@@ -93,6 +93,9 @@ def _resolve_headless() -> bool:
         return False
     return sys.platform.startswith("linux") and not os.environ.get("DISPLAY")
 
+# Leitor do chat (compartilhado com a extensão do navegador).
+CHAT_OBSERVER_JS: str = (Path(__file__).resolve().parent / "chat_observer.js").read_text(encoding="utf-8")
+
 # Padrao para identificar a aba do Tango na lista de paginas (modo CDP).
 TANGO_URL_PATTERN: str = os.environ.get("TANGO_URL_PATTERN", "tango.me")
 
@@ -272,6 +275,12 @@ class TangoChatBridge:
         self._send_lock: asyncio.Lock = asyncio.Lock()
         # Mensagens enviadas esperando aparecer no chat: (texto normalizado, evento).
         self._pending_echoes: list[tuple[str, asyncio.Event]] = []
+        # Modo "extension": a extensão do Odessa roda na aba do Tango em que o
+        # usuário já está logado (no navegador dele) e fala com a bridge por
+        # WebSocket — sem Playwright, sem perfil dedicado, sem porta de depuração.
+        self._extension_ws: web.WebSocketResponse | None = None
+        self._extension_pending: dict[str, asyncio.Future[dict]] = {}
+        self._extension_browser: str = ""
 
     # == Conectar =====================================================
 
@@ -283,7 +292,16 @@ class TangoChatBridge:
           ""           -> tenta CDP, se falhar usa standalone
           "cdp"        -> so CDP
           "standalone" -> so standalone
+          "extension"  -> não abre navegador; espera a extensão do Odessa
+                          conectar a partir da aba do Tango já logada
         """
+        if force_mode == "extension":
+            self._mode = "extension"
+            self._error_message = ""
+            if not self._extension_ws:
+                self._status = "waiting_extension"
+                log.info("Modo EXTENSÃO: aguardando a extensão do Odessa na aba do Tango.")
+            return
         async with self._connect_lock:
             # Reconfere depois de adquirir o lock: se outra chamada concorrente
             # (ex.: autoconnect do bridge/start + o /connect explicito do
@@ -471,6 +489,9 @@ class TangoChatBridge:
     async def disconnect(self) -> None:
         """Desconecta (nao fecha o Chrome se for CDP)."""
         log.info("Desconectando bridge ...")
+        if self._extension_ws and not self._extension_ws.closed:
+            await self._extension_ws.close(code=1000, message=b"bridge desconectada")
+        self._extension_ws = None
         await self._cleanup()
         self._status = "disconnected"
         self._started_at = None
@@ -547,178 +568,28 @@ class TangoChatBridge:
             else:
                 raise
 
-        js_code = f"""
-        (() => {{
-            // Reinjeção segura após navegação/reconexão/configuração nova.
-            window.__tangoChatObserver?.disconnect();
-            window.__tangoChatContainerWatcher?.disconnect();
-            if (window.__tangoChatAttachTimer) clearInterval(window.__tangoChatAttachTimer);
-            window.__tangoChatObservedContainer = null;
-            window.__tangoChatObserverActive = true;
-
-            const containerSelector = `{SELETOR_CONTAINER_CHAT}`;
-            const messageSelector   = `{SELETOR_MENSAGEM}`;
-            const usernameSelector  = `{SELETOR_USERNAME}`;
-            const textSelector      = `{SELETOR_TEXTO_MSG}`;
-
+        # O leitor do chat mora em chat_observer.js — o mesmo arquivo que a
+        # extensão do navegador usa (tango_chat/extension).
+        observer_config = json.dumps({
+            "containerSelector": SELETOR_CONTAINER_CHAT,
+            "messageSelector": SELETOR_MENSAGEM,
+            "usernameSelector": SELETOR_USERNAME,
+            "textSelector": SELETOR_TEXTO_MSG,
+        })
+        js_code = (
+            CHAT_OBSERVER_JS
+            + """
+        ;(() => {
             // Expõe função de simulação global
-            window.__odessaSimulateChat = (username, text) => {{
-                if (window.__onNewChatMessage) {{
-                    window.__onNewChatMessage(JSON.stringify({{ username, text }}));
-                }}
-            }};
-
-            // Virtualizadores reutilizam o mesmo elemento para mensagens novas.
-            // Guardamos o ultimo conteudo por elemento, em vez de bloquear o no
-            // para sempre, e deduplicamos pelo conteudo real da mensagem.
-            const lastContentByElement = new WeakMap();
-            const recentKeys = new Map();
-
-            // Placeholders de UI do próprio Tango que aparecem no lugar do
-            // texto da mensagem por um instante (não são conteúdo de chat de
-            // verdade) — ver o uso em extractMessage() abaixo.
-            const PLACEHOLDER_TEXT_RE = /^(a\\s+traduzir|traduciendo|translating)\\.{{0,3}}$/i;
-
-            function firstMatch(root, primary, fallbacks) {{
-                if (primary) {{
-                    try {{
-                        const found = root.querySelector(primary);
-                        if (found) return found;
-                    }} catch (_) {{ /* seletor configurado invalido */ }}
-                }}
-                for (const selector of fallbacks) {{
-                    const found = root.querySelector(selector);
-                    if (found) return found;
-                }}
-                return null;
-            }}
-
-            function extractMessage(node) {{
-                if (!node || !node.querySelector) return null;
-                let msgEl = null;
-                try {{
-                    msgEl = messageSelector && node.matches(messageSelector)
-                        ? node
-                        : firstMatch(node, messageSelector, [
-                            '[data-testid^="chat-event-"]',
-                            '[data-testid*="chat-message"]',
-                            '[data-testid*="comment"]',
-                        ]);
-                }} catch (_) {{ /* fallback abaixo */ }}
-                if (!msgEl) return null;
-
-                const usernameEl = firstMatch(msgEl, usernameSelector, [
-                    '[data-testid*="username"]', '[data-testid*="author"]',
-                    '[class*="username"]', '[class*="author"]',
-                ]);
-                const textEl = firstMatch(msgEl, textSelector, [
-                    '[data-testid*="message-text"]', '[data-testid*="comment-text"]',
-                    '[class*="messageText"]', '[class*="commentText"]',
-                ]);
-
-                const username = usernameEl?.textContent?.trim() || 'Espectador';
-                const text = textEl?.textContent?.trim() || '';
-                if (!text) return null;
-
-                // O próprio Tango mostra um texto PROVISÓRIO (ex.: "A traduzir...")
-                // no mesmo elemento da mensagem enquanto a tradução automática
-                // carrega, antes de trocar pelo texto final — sem este filtro,
-                // esse placeholder virava uma "mensagem" fantasma no feed (não
-                // sabemos o idioma da conta de quem está transmitindo, então
-                // cobrimos pt/en/es; o texto final chega numa mutação seguinte
-                // e é capturado normalmente, já que o dedup abaixo só é setado
-                // quando chegamos aqui).
-                if (PLACEHOLDER_TEXT_RE.test(text)) return null;
-
-                const key = `${{username}}::${{text}}`;
-                if (lastContentByElement.get(msgEl) === key) return null;
-                lastContentByElement.set(msgEl, key);
-
-                const now = Date.now();
-                const lastSeen = recentKeys.get(key) || 0;
-                if (now - lastSeen < 1500) return null;
-                recentKeys.set(key, now);
-                if (recentKeys.size > 1000) {{
-                    for (const [oldKey, timestamp] of recentKeys) {{
-                        if (now - timestamp > 60000) recentKeys.delete(oldKey);
-                    }}
-                }}
-                return {{ username, text }};
-            }}
-
-            function emitFrom(node) {{
-                const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
-                if (!element) return;
-                const candidates = new Set([element]);
-                try {{
-                    const closest = messageSelector ? element.closest(messageSelector) : null;
-                    if (closest) candidates.add(closest);
-                }} catch (_) {{ /* seletor configurado invalido */ }}
-                for (const selector of ['[data-testid^="chat-event-"]', '[data-testid*="chat-message"]', '[data-testid*="comment"]']) {{
-                    const closest = element.closest?.(selector);
-                    if (closest) candidates.add(closest);
-                }}
-                const descendants = element.querySelectorAll ? Array.from(element.querySelectorAll('*')) : [];
-                for (const candidate of [element, ...descendants, ...candidates]) {{
-                    const msg = extractMessage(candidate);
-                    if (msg) window.__onNewChatMessage(JSON.stringify(msg));
-                }}
-            }}
-
-            const observer = new MutationObserver((mutations) => {{
-                for (const mutation of mutations) {{
-                    if (mutation.type === 'characterData') emitFrom(mutation.target);
-                    for (const node of mutation.addedNodes) emitFrom(node);
-                }}
-            }});
-
-            function findContainer() {{
-                return firstMatch(document, containerSelector, [
-                    '[data-testid="virtuoso-item-list"]',
-                    '[data-testid*="chat"] [role="list"]',
-                    '[role="log"]',
-                ]);
-            }}
-
-            function attachToContainer() {{
-                const container = findContainer();
-                if (!container) return false;
-                const current = window.__tangoChatObservedContainer;
-                if (current !== container || !current?.isConnected) {{
-                    window.__tangoChatObserver?.disconnect();
-                    observer.observe(container, {{ childList: true, subtree: true, characterData: true }});
-                    window.__tangoChatObserver = observer;
-                    window.__tangoChatObservedContainer = container;
-                }}
-
-                // Captura também mensagens que já estavam visíveis antes da injeção.
-                const existing = [];
-                try {{
-                    if (messageSelector) existing.push(...container.querySelectorAll(messageSelector));
-                }} catch (_) {{ /* usa fallbacks */ }}
-                for (const selector of ['[data-testid^="chat-event-"]', '[data-testid*="chat-message"]', '[data-testid*="comment"]']) {{
-                    existing.push(...container.querySelectorAll(selector));
-                }}
-                for (const node of [...new Set(existing)]) {{
-                    const msg = extractMessage(node);
-                    if (msg) window.__onNewChatMessage(JSON.stringify(msg));
-                }}
-                console.log('[OdessaBot] MutationObserver ativo em', container);
-                return true;
-            }}
-
-            if (!attachToContainer()) {{
-                console.warn('[OdessaBot] Chat ainda nao apareceu; aguardando no DOM:', containerSelector);
-                const watcher = new MutationObserver(() => {{
-                    if (attachToContainer()) watcher.disconnect();
-                }});
-                watcher.observe(document.documentElement, {{ childList: true, subtree: true }});
-                window.__tangoChatContainerWatcher = watcher;
-            }}
-            // Mantem a ligacao viva quando a SPA substitui o container do chat.
-            window.__tangoChatAttachTimer = setInterval(attachToContainer, 2000);
-        }})();
-        """
+            window.__odessaSimulateChat = (username, text) => {
+                if (window.__onNewChatMessage) {
+                    window.__onNewChatMessage(JSON.stringify({ username, text }));
+                }
+            };
+            window.installOdessaChatObserver(%s, (msg) => window.__onNewChatMessage(JSON.stringify(msg)));
+        })();
+        """ % observer_config
+        )
         try:
             await self._page.evaluate(js_code)
             self._observer_injected = True
@@ -785,10 +656,97 @@ class TangoChatBridge:
           mensagens desatualizado; confira no Tango.
         Levanta ``SendError`` quando não dá para afirmar que saiu.
         """
+        if self._mode == "extension":
+            async with self._send_lock:
+                return await self._send_via_extension(text)
         if not self._page:
             raise RuntimeError("Bridge nao conectada.")
         async with self._send_lock:
             return await self._send_locked(self._page, text)
+
+    async def _send_via_extension(self, text: str) -> dict:
+        """A extensão digita na aba do Tango; a confirmação é a mesma do modo
+        com navegador próprio: a mensagem precisa voltar pelo leitor do chat."""
+        ws = self._extension_ws
+        command_id = uuid.uuid4().hex[:12]
+        if not ws or ws.closed:
+            raise SendError("A extensão do Odessa não está conectada.", "input", command_id, 1)
+        started = time.monotonic()
+        log.info("SEND %s (extensão) | %s", command_id, _for_log(text))
+        expected = _normalize_chat_text(text)
+        echo = (expected, asyncio.Event())
+        self._pending_echoes.append(echo)
+        result_future: asyncio.Future[dict] = asyncio.get_running_loop().create_future()
+        self._extension_pending[command_id] = result_future
+        try:
+            await ws.send_json({
+                "type": "send",
+                "id": command_id,
+                "text": text,
+                "inputSelector": SELETOR_INPUT_TEXTO,
+                "buttonSelector": SELETOR_BOTAO_ENVIAR,
+            })
+            try:
+                result = await asyncio.wait_for(result_future, timeout=SEND_INPUT_TIMEOUT_S + 10)
+            except asyncio.TimeoutError as exc:
+                raise SendError("A extensão não respondeu ao envio a tempo.", "typing", command_id, 1) from exc
+            if not result.get("ok"):
+                raise SendError(
+                    str(result.get("error") or "A extensão não conseguiu enviar."),
+                    str(result.get("stage") or "typing"),
+                    command_id,
+                    1,
+                )
+            try:
+                await asyncio.wait_for(echo[1].wait(), timeout=SEND_CONFIRM_TIMEOUT_S)
+                confirmed = True
+            except asyncio.TimeoutError:
+                confirmed = False
+        finally:
+            self._extension_pending.pop(command_id, None)
+            self._pending_echoes.remove(echo)
+        duration_ms = int((time.monotonic() - started) * 1000)
+        log.info("SEND %s (extensão) | %s em %d ms.", command_id, "confirmada no chat" if confirmed else "enviada sem eco", duration_ms)
+        return {"commandId": command_id, "confirmed": confirmed, "attempts": 1, "durationMs": duration_ms}
+
+    # == Extensão do navegador =========================================
+
+    def observer_config(self) -> dict:
+        return {
+            "containerSelector": SELETOR_CONTAINER_CHAT,
+            "messageSelector": SELETOR_MENSAGEM,
+            "usernameSelector": SELETOR_USERNAME,
+            "textSelector": SELETOR_TEXTO_MSG,
+        }
+
+    async def push_extension_config(self) -> None:
+        ws = self._extension_ws
+        if ws and not ws.closed:
+            await ws.send_json({"type": "config", "observer": self.observer_config()})
+
+    async def attach_extension(self, ws: web.WebSocketResponse, hello: dict) -> None:
+        self._extension_ws = ws
+        self._extension_browser = str(hello.get("browser") or "navegador")
+        self._mode = "extension"
+        self._status = "connected"
+        self._error_message = ""
+        self._page_url = str(hello.get("url") or "")
+        self._observer_injected = True
+        self._started_at = datetime.now(timezone.utc).isoformat()
+        log.info("Extensão conectada (%s) | URL: %s", self._extension_browser, _for_log(self._page_url))
+        await self.push_extension_config()
+
+    def detach_extension(self, ws: web.WebSocketResponse) -> None:
+        if self._extension_ws is not ws:
+            return
+        self._extension_ws = None
+        self._observer_injected = False
+        for future in self._extension_pending.values():
+            if not future.done():
+                future.set_result({"ok": False, "error": "A extensão desconectou.", "stage": "typing"})
+        if self._mode == "extension":
+            self._status = "waiting_extension"
+        log.info("Extensão desconectada; aguardando reconexão.")
 
     async def _send_locked(self, page: Page, text: str) -> dict:
         command_id = uuid.uuid4().hex[:12]
@@ -881,7 +839,8 @@ class TangoChatBridge:
             "error": self._error_message or None,
             "cdpUrl": CDP_URL,
             "profileDir": PROFILE_DIR,
-            "browserName": BROWSER_NAME,
+            "browserName": self._extension_browser if self._mode == "extension" else BROWSER_NAME,
+            "extensionConnected": bool(self._extension_ws and not self._extension_ws.closed),
         }
 
 
@@ -1430,10 +1389,61 @@ async def handle_config(request: web.Request) -> web.Response:
             SELETOR_BOTAO_ENVIAR = selectors["botaoEnviar"]
         if bridge._status == "connected" and bridge._page:
             await bridge._inject_observer()
+        await bridge.push_extension_config()
         log.info("Config atualizada via API e observer sincronizado")
         return web.json_response({"ok": True})
     except Exception as exc:
         return web.json_response({"error": str(exc)}, status=500)
+
+
+async def handle_extension_ws(request: web.Request) -> web.WebSocketResponse:
+    """GET /extension — WebSocket da extensão do Odessa (aba do Tango do usuário).
+
+    Protocolo (JSON):
+      extensão → bridge: hello {url, browser} | message {username, text}
+                         | page {url} | send_result {id, ok, error, stage} | ping
+      bridge → extensão: config {observer} | send {id, text, inputSelector, buttonSelector} | pong
+    O acesso passa pelo proxy do backend, que confere o token de pareamento.
+    """
+    ws = web.WebSocketResponse(heartbeat=20)
+    await ws.prepare(request)
+    if not bridge:
+        await ws.close(code=1011)
+        return ws
+    if bridge._page is not None:
+        # Já há um navegador próprio conectado; não mistura as duas fontes de chat.
+        await ws.send_json({"type": "error", "error": "A bridge já está usando outro navegador. Pare a bridge e use o modo extensão."})
+        await ws.close(code=1008)
+        return ws
+    if bridge._extension_ws and not bridge._extension_ws.closed:
+        # Aba nova assume o lugar da antiga (ex.: recarregou a live).
+        await bridge._extension_ws.close(code=4000, message=b"substituida")
+    try:
+        async for msg in ws:
+            if msg.type != web.WSMsgType.TEXT:
+                continue
+            try:
+                data = json.loads(msg.data)
+            except json.JSONDecodeError:
+                continue
+            kind = data.get("type")
+            if kind == "hello":
+                await bridge.attach_extension(ws, data)
+            elif bridge._extension_ws is not ws:
+                continue
+            elif kind == "message":
+                await bridge._handle_incoming_message(json.dumps({"username": data.get("username", ""), "text": data.get("text", "")}))
+            elif kind == "page":
+                bridge._page_url = str(data.get("url") or bridge._page_url)
+            elif kind == "send_result":
+                future = bridge._extension_pending.get(str(data.get("id")))
+                if future and not future.done():
+                    future.set_result(data)
+            elif kind == "ping":
+                await ws.send_json({"type": "pong"})
+    finally:
+        bridge.detach_extension(ws)
+    return ws
 
 
 async def handle_logs(request: web.Request) -> web.Response:
@@ -1454,6 +1464,7 @@ def create_app() -> web.Application:
     app.router.add_get("/screenshot", handle_screenshot)
     app.router.add_get("/viewport", handle_viewport)
     app.router.add_get("/live", handle_live_ws)
+    app.router.add_get("/extension", handle_extension_ws)
     app.router.add_get("/logs", handle_logs)
     app.router.add_post("/send", handle_send)
     app.router.add_post("/connect", handle_connect)
@@ -1511,6 +1522,7 @@ async def main() -> None:
     log.info("    POST /connect                -> tenta CDP, fallback standalone")
     log.info('    POST /connect {"mode":"cdp"} -> forca CDP')
     log.info('    POST /connect {"mode":"standalone"} -> forca standalone')
+    log.info('    POST /connect {"mode":"extension"}  -> aba do Tango do usuario via extensao (GET /extension)')
     log.info("")
 
     if "--autoconnect" in sys.argv:

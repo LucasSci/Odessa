@@ -155,7 +155,8 @@ export type BridgeProcessStatus = {
 };
 
 export type BridgeConnectionStatus = {
-  status: 'disconnected' | 'connecting' | 'connected' | 'error' | 'not_initialized';
+  /** waiting_extension: modo extensão, esperando a aba do Tango conectar. */
+  status: 'disconnected' | 'connecting' | 'connected' | 'error' | 'not_initialized' | 'waiting_extension';
   mode?: string;
   pageUrl?: string;
   startedAt?: string | null;
@@ -165,6 +166,9 @@ export type BridgeConnectionStatus = {
   error?: string | null;
   cdpUrl?: string;
   profileDir?: string;
+  browserName?: string;
+  /** Modo extensão: a aba do usuário está ligada agora. */
+  extensionConnected?: boolean;
 };
 
 export type BridgeConfig = {

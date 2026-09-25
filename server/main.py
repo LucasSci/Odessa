@@ -354,6 +354,87 @@ async def proxy_tango_bridge_live(websocket: WebSocket):
             pass
 
 
+@app.websocket("/tango-bridge/extension")
+async def proxy_tango_bridge_extension(websocket: WebSocket):
+    """Extensão do Odessa (aba do Tango já logada no Edge/Chrome do usuário) ↔ bridge.
+
+    Só aceita Origin de extensão + token de pareamento no primeiro quadro
+    (hello). Deixa a bridge pronta em modo extensão (ver browser_extension.py)
+    e repassa os quadros nos dois sentidos.
+    """
+    import json
+
+    from server.services.bridge_manager import BRIDGE_TOKEN_HEADER, get_bridge_token
+    from server.services.browser_extension import (
+        BridgePaused,
+        ensure_bridge_for_extension,
+        extension_origin_ok,
+        pairing_token_ok,
+    )
+
+    if not _request_guard.host_ok(websocket.headers.get("host")) or not extension_origin_ok(websocket.headers.get("origin")):
+        await websocket.close(code=1008)
+        return
+    await websocket.accept()
+    try:
+        hello = json.loads(await asyncio.wait_for(websocket.receive_text(), timeout=10))
+    except Exception:
+        await websocket.close(code=1008)
+        return
+    if not isinstance(hello, dict) or hello.get("type") != "hello" or not pairing_token_ok(hello.pop("pairToken", None)):
+        await websocket.close(code=4001, reason="pairing")
+        return
+
+    try:
+        port = await ensure_bridge_for_extension()
+    except BridgePaused as exc:
+        await websocket.close(code=4002, reason=str(exc)[:120])
+        return
+    except Exception as exc:
+        logger.warning("Extensão: bridge indisponível: %s", exc)
+        await websocket.send_text(json.dumps({"type": "error", "error": str(exc)}))
+        await websocket.close(code=1011)
+        return
+
+    close_code = 1000
+    try:
+        async with websockets.connect(
+            f"ws://127.0.0.1:{port}/extension",
+            additional_headers={BRIDGE_TOKEN_HEADER: get_bridge_token()},
+        ) as upstream:
+            await upstream.send(json.dumps(hello))
+
+            async def client_to_upstream():
+                while True:
+                    msg = await websocket.receive()
+                    if msg["type"] == "websocket.disconnect":
+                        break
+                    if msg.get("text") is not None:
+                        await upstream.send(msg["text"])
+
+            async def upstream_to_client():
+                async for message in upstream:
+                    await websocket.send_text(message if isinstance(message, str) else message.decode("utf-8", "replace"))
+
+            done, pending = await asyncio.wait(
+                [asyncio.create_task(client_to_upstream()), asyncio.create_task(upstream_to_client())],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+            # 4000 = outra aba assumiu: a extensão não deve reconectar esta.
+            if upstream.close_code and 4000 <= upstream.close_code < 5000:
+                close_code = upstream.close_code
+    except Exception as exc:
+        logger.info("Extensão: conexão com a bridge encerrada: %s", exc)
+        close_code = 1011
+    finally:
+        try:
+            await websocket.close(code=close_code)
+        except Exception:
+            pass
+
+
 dist_dir = Path(__file__).resolve().parents[1] / "dist"
 if dist_dir.exists():
     app.mount("/assets", StaticFiles(directory=dist_dir / "assets"), name="web-assets")

@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 
 from server.services.chat_automation_service import chat_automation_service
@@ -199,3 +199,32 @@ def api_create_shortcut(request: ChromeLaunchRequest | None = None):
     return create_desktop_shortcut(url=req.url, port=req.port, browser=req.browser)
 
 
+class ExtensionPrepareRequest(BaseModel):
+    # Abre a pasta no Explorer para o passo "Carregar sem pacote" do Edge.
+    reveal: bool = True
+
+
+@router.get("/bridge/extension")
+def api_extension_info():
+    """Onde fica a extensão do Odessa (Edge/Chrome) e se já foi preparada."""
+    from server.services.browser_extension import extension_info
+
+    return extension_info()
+
+
+@router.post("/bridge/extension/prepare")
+def api_prepare_extension(http_request: Request, request: ExtensionPrepareRequest | None = None):
+    """Gera a pasta da extensão com o endereço deste backend e o token de pareamento."""
+    import os
+
+    from server.services.browser_extension import prepare_extension
+
+    req = request or ExtensionPrepareRequest()
+    port = http_request.url.port or (443 if http_request.url.scheme == "https" else 80)
+    result = prepare_extension(port)
+    if req.reveal and hasattr(os, "startfile"):
+        try:
+            os.startfile(result["path"])  # type: ignore[attr-defined]
+        except OSError:
+            pass
+    return result
