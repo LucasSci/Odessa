@@ -28,7 +28,7 @@ import {
   Save,
   X,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, safeImageSrc } from '../lib/utils';
 import {
   listPersonas,
   setActivePersona,
@@ -501,8 +501,8 @@ function PersonaList({
               <div className="flex items-center gap-2.5 p-2.5">
                 {/* Avatar */}
                 <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg bg-sky-500/20">
-                  {p.avatarUrl ? (
-                    <img loading="lazy" decoding="async" src={p.avatarUrl} alt={p.name} className="h-full w-full object-cover" />
+                  {safeImageSrc(p.avatarUrl) ? (
+                    <img loading="lazy" decoding="async" src={safeImageSrc(p.avatarUrl)} alt={p.name} className="h-full w-full object-cover" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-xs font-bold text-sky-300">
                       {p.name.charAt(0).toUpperCase()}
@@ -607,8 +607,8 @@ function PersonaDetail({
       <div className="flex items-start gap-4">
         {/* Avatar */}
         <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-sky-500/20">
-          {avatarUrl ? (
-            <img loading="lazy" decoding="async" src={avatarUrl} alt={name} className="h-full w-full object-cover" />
+          {safeImageSrc(avatarUrl) ? (
+            <img loading="lazy" decoding="async" src={safeImageSrc(avatarUrl)} alt={name} className="h-full w-full object-cover" />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-xl font-bold text-sky-300">
               {name.charAt(0).toUpperCase()}

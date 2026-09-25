@@ -8,6 +8,7 @@ import {
   saveGiftCatalog,
   upsertGift,
 } from './core/giftCatalog';
+import { safeImageSrc } from './lib/utils';
 
 const MAX_IMAGE_BYTES = 512 * 1024; // 512 KB — gift icons are tiny
 
@@ -199,7 +200,7 @@ export default function GiftCatalogModal({
               >
                 <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl bg-black/40">
                   {entry.imageUrl ? (
-                    <img loading="lazy" decoding="async" src={entry.imageUrl} alt={entry.name} className="h-full w-full object-contain" />
+                    <img loading="lazy" decoding="async" src={safeImageSrc(entry.imageUrl)} alt={entry.name} className="h-full w-full object-contain" />
                   ) : (
                     <span className="text-3xl">{entry.emoji || '🎁'}</span>
                   )}
@@ -272,7 +273,7 @@ function GiftForm({
         <div className="flex flex-col items-center gap-2">
           <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-black/40">
             {draft.imageUrl ? (
-              <img loading="lazy" decoding="async" src={draft.imageUrl} alt="" className="h-full w-full object-contain" />
+              <img loading="lazy" decoding="async" src={safeImageSrc(draft.imageUrl)} alt="" className="h-full w-full object-contain" />
             ) : (
               <span className="text-4xl">{draft.emoji || '🎁'}</span>
             )}

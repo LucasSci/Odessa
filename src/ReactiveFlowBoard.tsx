@@ -47,7 +47,7 @@ import { loadRulesFromFlowTriggers } from './core/giftEventBus';
 import { ANY_GIFT_KEY, giftLabel } from './core/knownGifts';
 import { apiUrl } from './lib/api';
 import { callFlowDesigner } from './core/aiDecisionContract';
-import { cn } from './lib/utils';
+import { cn, safeImageSrc } from './lib/utils';
 import { usePageActive } from './core/pageActivity';
 import { VideoThumb } from './components/VideoThumb';
 
@@ -2234,7 +2234,7 @@ function GiftPicker({
       <div className="flex items-center gap-2">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[var(--border2)] bg-black/40">
           {selected?.imageUrl ? (
-            <img loading="lazy" decoding="async" src={selected.imageUrl} alt={selected.name} className="h-full w-full object-contain" />
+            <img loading="lazy" decoding="async" src={safeImageSrc(selected.imageUrl)} alt={selected.name} className="h-full w-full object-contain" />
           ) : (
             <span className="text-lg">{selected?.emoji || (mode === 'any' ? '🎉' : '🎁')}</span>
           )}
