@@ -230,19 +230,13 @@ export function AdminPanel() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
-      <div className="mb-5 rounded-2xl border border-white/10 bg-[#101114] p-5">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-emerald-200/70">
-              <Activity className="h-4 w-4" />
-              Painel administrativo
-            </div>
-            <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-white">Diagnóstico do sistema</h1>
-            <p className="mt-1 max-w-3xl text-sm text-slate-400">
-              Verifica cada parte do programa e aponta o que precisa de manutenção ou correção.
-              {result && ` Última verificação: ${result.checkedAt}.`}
-            </p>
-          </div>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        {/* O título da página já está na barra superior; aqui só o contexto. */}
+        <p className="max-w-3xl text-sm text-slate-400">
+          Verifica cada parte do programa e aponta o que precisa de manutenção ou correção.
+          {result ? ` Última verificação: ${result.checkedAt}.` : ''}
+        </p>
+        <div>
           <button
             type="button"
             onClick={refresh}
@@ -317,8 +311,17 @@ export function AdminPanel() {
       )}
 
       {!result && loading && (
-        <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-8 text-center text-sm text-slate-500">
-          Executando diagnóstico...
+        <div role="status" aria-label="Executando diagnóstico">
+          <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {[0, 1, 2, 3].map((index) => (
+              <div key={index} className="h-[68px] animate-pulse rounded-xl border border-white/10 bg-[#101114]" />
+            ))}
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="h-64 animate-pulse rounded-2xl border border-white/10 bg-[#0c0e12]" />
+            <div className="h-64 animate-pulse rounded-2xl border border-white/10 bg-[#0c0e12]" />
+          </div>
+          <p className="mt-3 text-xs text-slate-500">Verificando API, IA, OBS, memória, vozes e automação…</p>
         </div>
       )}
     </div>

@@ -40,6 +40,11 @@ const SUGGESTED_MESSAGES = [
 const EVOLVE_EVERY = 6;
 const NO_MESSAGES: LabMessage[] = [];
 
+/** Id de proposta de autoconfiguração (chamado em handlers, nunca no render). */
+function proposalId(prefix: string) {
+  return `${prefix}-${Date.now()}`;
+}
+
 export function PersonaChatLab() {
   const [personas, setPersonas] = useState<PersonaMeta[]>([]);
   const [selectedId, setSelectedId] = useState('');
@@ -211,7 +216,7 @@ export function PersonaChatLab() {
       // que aparece no fluxo de mensagens.
       if (changes) {
         const proposal: PendingSelfConfigChange = {
-          id: `selfconfig-${Date.now()}`,
+          id: proposalId('selfconfig'),
           personaId,
           changes,
           source: 'conversation',
@@ -236,7 +241,7 @@ export function PersonaChatLab() {
           .then((evolved) => {
             if (!evolved) return;
             const proposal: PendingSelfConfigChange = {
-              id: `selfconfig-evolve-${Date.now()}`,
+              id: proposalId('selfconfig-evolve'),
               personaId,
               changes: evolved,
               source: 'evolution',
@@ -270,8 +275,6 @@ export function PersonaChatLab() {
     }
   };
 
-  const sendMessage = () => sendText(draft);
-
   const sendText = (raw: string) => {
     const text = raw.trim();
     if (!text || !selectedPersona || sending || pending) return;
@@ -302,6 +305,8 @@ export function PersonaChatLab() {
 
     void generateReply(selectedId, selectedPersona, userMessage, history);
   };
+
+  const sendMessage = () => sendText(draft);
 
   /** Refaz a última resposta sem duplicar a mensagem do usuário nem religar os gatilhos. */
   const retryLast = () => {
