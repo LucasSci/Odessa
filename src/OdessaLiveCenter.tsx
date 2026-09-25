@@ -1585,14 +1585,15 @@ function clipKey(clip?: VideoClip | null) {
  * flow to the next node. Idempotent on the server via fromNodeId/fromVideoId,
  * so several players can call it for the same clip without double-advancing.
  */
-async function advanceReactiveFlow(state: VideoState | null): Promise<void> {
+async function advanceReactiveFlow(endedClip: VideoClip | null): Promise<void> {
+  // Sem clip (botão "Próximo") o servidor avança sempre; com o clip que
+  // TERMINOU, avisos atrasados de outros players não pulam o clip seguinte.
   await fetch(apiUrl('/api/video/advance'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      fromNodeId: state?.activeNodeId || state?.currentClip?.nodeId || null,
-      fromVideoId: state?.current_video_id || null,
-    }),
+    body: JSON.stringify(
+      endedClip ? { fromNodeId: endedClip.nodeId || null, fromVideoId: endedClip.videoId || null } : {},
+    ),
   }).catch(() => undefined);
 }
 
@@ -1619,7 +1620,8 @@ export function ContinuityPlayer({
   clip: VideoClip | null;
   nextClip?: VideoClip | null;
   videos: VideoEntry[];
-  onEnded: () => Promise<void>;
+  /** Recebe o clip que TERMINOU (não o estado mais recente, que pode já ser o próximo). */
+  onEnded: (endedClip: VideoClip) => Promise<void>;
   className?: string;
   fit?: 'cover' | 'contain';
   showLabel?: boolean;
@@ -1774,7 +1776,7 @@ export function ContinuityPlayer({
       endedRef.current = key;
       const idle: 0 | 1 = activeSlotRef.current === 0 ? 1 : 0;
       if (slotClipRef.current[idle]) cutToSlot(idle);
-      void onEnded();
+      void onEnded(endedClip);
     },
     [cutToSlot, onEnded],
   );
@@ -2000,8 +2002,8 @@ function StagePanel({
   const upcomingClips = Array.isArray(videoState?.upcoming) ? videoState.upcoming : [];
   const activeClipLabel = activeClip ? clipDisplayName(activeClip, view.videos) : 'Sem video selecionado';
 
-  const advanceVideo = async () => {
-    await advanceReactiveFlow(videoState ?? null);
+  const advanceVideo = async (endedClip: VideoClip | null = null) => {
+    await advanceReactiveFlow(endedClip);
     onRefresh();
   };
 

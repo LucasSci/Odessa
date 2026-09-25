@@ -48,6 +48,8 @@ type VideoState = {
   server_time?: number;
   currentClip?: VideoClip | null;
   queue?: TriggerQueueEntry[];
+  /** Veredito do motor: o clip no ar é do fluxo que ele executa. */
+  inFlow?: boolean;
 };
 
 function clipFromVideoId(videoId: string): VideoClip {
@@ -428,18 +430,15 @@ export default function PersonaOverlay() {
         state.currentClip ||
         (state.current_video_id ? clipFromVideoId(state.current_video_id) : null);
 
-      // TRAVA DE FLUXO: o overlay só toca o que está no FLUXO PUBLICADO. Se o
-      // servidor mandar um vídeo que NÃO está no fluxo (ex.: um trigger/automação
-      // velho disparado por um presente real do chat), não toca "por conta
-      // própria" — empurra o servidor de volta pro idle (uma vez por vídeo rogue)
-      // e mantém o que já está no ar. Só trava com a config carregada (senão,
-      // no boot, deixa passar).
-      const cfg = scheduleConfigRef.current;
-      const inFlow =
-        !nextClip ||
-        !cfg ||
-        cfg.idleVideoId === nextClip.videoId ||
-        (cfg.flowNodes || []).some((n) => n.videoId === nextClip.videoId);
+      // TRAVA DE FLUXO: o overlay só toca o que é do fluxo. Se o servidor mandar
+      // um vídeo fora dele (ex.: um trigger/automação velho disparado por um
+      // presente real do chat), não toca — empurra o servidor adiante (uma vez
+      // por vídeo) e mantém o que já está no ar.
+      // Quem decide é o MOTOR (`inFlow`, calculado com a config que ele executa).
+      // Antes a trava comparava com o fluxo publicado baixado a cada 2 min e,
+      // no boot, com uma config vazia embutida no build: tudo — até o idle —
+      // parecia "fora do fluxo" e era pulado. Servidor antigo sem o campo: passa.
+      const inFlow = !nextClip || state.inFlow !== false;
       if (nextClip && !inFlow) {
         if (rogueAdvancedRef.current !== nextClip.videoId) {
           rogueAdvancedRef.current = nextClip.videoId;

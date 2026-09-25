@@ -1,50 +1,20 @@
 /// <reference types="vitest" />
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { defineConfig, type Plugin } from 'vite';
 
-// ── Build-time schedule config injection ─────────────────────────────────────
-// During `npm run build` on the Hostinger server the KV store is on disk at
-// ~/odessa-data/data/kv.json.  This plugin reads the current workflow config
-// and embeds it into the JS bundle as __ODESSA_SCHEDULE_CONFIG__ so the
-// PersonaOverlay can fire scheduled triggers client-side even when the Node.js
-// API process is running old code (e.g. right after a static-site deploy that
-// doesn't restart the process).
+// ── __ODESSA_SCHEDULE_CONFIG__ ──────────────────────────────────────────────
+// Na época da Hostinger este plugin embutia no bundle o fluxo lido de
+// ~/odessa-data/data/kv.json no momento do build. No app desktop isso colava
+// no overlay do OBS um fluxo velho (ou vazio) da máquina que gerou o build — e
+// com ele a trava de fluxo do overlay descartava os vídeos da automação.
+// O overlay busca o fluxo do backend em tempo real; aqui fica sempre null.
 function odessaSchedulePlugin(): Plugin {
   return {
     name: 'odessa-schedule-inject',
     config() {
-      let scheduleConfig: unknown = null;
-      try {
-        const homedir = os.homedir();
-        const kvPath = path.join(homedir, 'odessa-data', 'data', 'kv.json');
-        if (fs.existsSync(kvPath)) {
-          const kv = JSON.parse(fs.readFileSync(kvPath, 'utf8')) as Record<string, { value: unknown }>;
-          const personaConfig = (kv['persona_config']?.value || {}) as Record<string, unknown>;
-          const wf = (personaConfig.draftWorkflow || personaConfig.publishedWorkflow || personaConfig) as Record<string, unknown>;
-          scheduleConfig = {
-            schedules: wf.schedules || [],
-            flowNodes: wf.flowNodes || [],
-            flowConnections: wf.flowConnections || [],
-            triggers: wf.triggers || [],
-            idleVideoId: wf.idleVideoId || null,
-          };
-          const count = (scheduleConfig as { schedules: unknown[] }).schedules.length;
-          console.log(`[odessa-schedule-plugin] Injected ${count} schedule(s) into build`);
-        } else {
-          console.log(`[odessa-schedule-plugin] KV not found at ${kvPath}, schedules not injected`);
-        }
-      } catch (e: unknown) {
-        console.warn('[odessa-schedule-plugin] Could not read KV config:', (e as Error).message);
-      }
-      return {
-        define: {
-          __ODESSA_SCHEDULE_CONFIG__: JSON.stringify(scheduleConfig),
-        },
-      };
+      return { define: { __ODESSA_SCHEDULE_CONFIG__: 'null' } };
     },
   };
 }

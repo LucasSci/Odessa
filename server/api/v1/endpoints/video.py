@@ -4,7 +4,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from pydantic import BaseModel
 from fastapi.responses import FileResponse, JSONResponse
 from server.core.video_files import list_available_videos, get_video_path, get_video_directory
@@ -370,10 +370,28 @@ async def return_to_idle():
     return video_service.return_to_idle()
 
 @router.post("/advance")
-async def advance_video():
-    """Advance to the next resolved clip, preserving configured playback offsets."""
+async def advance_video(request: Request):
+    """Avança para o próximo clip do fluxo.
+
+    Vários players tocam o mesmo clip ao mesmo tempo (overlay do OBS, fontes
+    duplicadas, Palco do painel) e todos avisam quando ele termina. Com
+    fromNodeId/fromVideoId (o clip que terminou) o avanço é idempotente: só o
+    primeiro aviso avança; os atrasados viram no-op em vez de pular o clip que
+    acabou de começar. Sem corpo (botão "Próximo") avança sempre.
+    """
     from server.services.video_service import video_service
-    return video_service.advance()
+
+    body: dict = {}
+    try:
+        parsed = await request.json()
+        if isinstance(parsed, dict):
+            body = parsed
+    except Exception:
+        body = {}
+    return video_service.advance(
+        from_node_id=body.get("fromNodeId") or None,
+        from_video_id=body.get("fromVideoId") or None,
+    )
 
 @router.post("/scenario/{scenario_id}")
 async def trigger_scenario(scenario_id: str):

@@ -186,6 +186,9 @@ class VideoService:
             "blockedConnectionIds": [],
             "executionMode": "live",
             "lastTransitionAt": self.current_video_start_ts,
+            # Quem decide se o clip no ar é do fluxo é o motor (a mesma config
+            # que ele executa) — o overlay usa isto na trava de fluxo.
+            "inFlow": self._clip_in_flow(self.current_clip),
         }
 
     def _active_connection_id(self) -> Optional[str]:
@@ -243,8 +246,42 @@ class VideoService:
             idle = self._clip_from_video_id(self.current_video_id, return_to_idle=False)
         return self.force_clip(idle, state="IDLE")
 
-    def advance(self) -> Dict[str, Any]:
-        """Advance to the resolved next clip, or fall back to Idle."""
+    def _is_current_clip(self, from_node_id: Optional[str], from_video_id: Optional[str]) -> bool:
+        """O clip informado como "terminou" ainda é o que está no ar?"""
+        current = self.current_clip or {}
+        current_node = current.get("nodeId")
+        if from_node_id and current_node:
+            return from_node_id == current_node
+        if from_video_id:
+            clean = str(from_video_id).replace("video_", "").replace(".mp4", "").strip()
+            return clean == self.current_video_id
+        return True
+
+    def _clip_in_flow(self, clip: Optional[Dict[str, Any]]) -> bool:
+        """O clip faz parte do fluxo que o motor está executando (idle ou um nó)?"""
+        if not clip:
+            return True
+        video_id = clip.get("videoId")
+        if video_id and video_id == self._idle_video_id():
+            return True
+        nodes = self._config.get("flowNodes", [])
+        node_id = clip.get("nodeId")
+        if node_id and any(node.get("nodeId") == node_id for node in nodes):
+            return True
+        return any(node.get("videoId") == video_id for node in nodes)
+
+    def advance(self, from_node_id: Optional[str] = None, from_video_id: Optional[str] = None) -> Dict[str, Any]:
+        """Advance to the resolved next clip, or fall back to Idle.
+
+        Com from_node_id/from_video_id, só avança se esse clip ainda for o atual —
+        avisos atrasados de outros players não pulam o clip seguinte.
+        """
+        if (from_node_id or from_video_id) and not self._is_current_clip(from_node_id, from_video_id):
+            logger.info(
+                "Advance ignorado: %s/%s já não está no ar (atual %s)",
+                from_node_id, from_video_id, self.current_video_id,
+            )
+            return {**self.get_state(), "advanced": False}
         upcoming = self._upcoming_for_clip(self.current_clip)
         if upcoming:
             next_clip = upcoming[0]
