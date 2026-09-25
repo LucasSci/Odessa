@@ -1,19 +1,38 @@
-# Description
-Briefly describe the changes introduced by this PR.
+## Issue relacionada
 
-# Type of change
-- [ ] Bug fix (non-breaking change which fixes an issue)
-- [ ] New feature (non-breaking change which adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Documentation update
+Closes #
 
-# How Has This Been Tested?
-Please describe the tests that you ran to verify your changes.
+<!-- Todo PR resolve (ou avança) uma Issue classificada como Correção, Melhoria ou Nova função.
+     Use "Closes #N" para fechar ao mergear, ou "Refs #N" se o PR só avança a issue. -->
 
-# Checklist:
-- [ ] My code follows the style guidelines of this project
-- [ ] I have performed a self-review of my own code
-- [ ] I have commented my code, particularly in hard-to-understand areas
-- [ ] My changes generate no new warnings
-- [ ] I have added tests that prove my fix is effective or that my feature works
-- [ ] New and existing unit tests pass locally with my changes
+## Tipo
+
+- [ ] Correção
+- [ ] Melhoria
+- [ ] Nova função
+
+## O que mudou
+
+<!-- O que foi alterado e por quê. Foque no comportamento, não em listar arquivos. -->
+
+## Como foi validado
+
+<!-- Comandos executados e o resultado, testes adicionados, validação manual (telas, fluxos). -->
+
+- [ ] `pnpm check` (lint, typecheck, arquitetura, Knip, testes)
+- [ ] `pnpm build && pnpm budget`
+- [ ] `pnpm test:e2e` (se mexeu em tela)
+- [ ] `pytest` (se mexeu no backend)
+
+## Riscos, limitações e próximos passos
+
+- **Riscos:**
+- **Limitações:**
+- **Próximos passos:**
+
+## Checklist
+
+- [ ] Reutilizei componentes/hooks existentes (`src/components/ui.tsx`, `src/core/*`) em vez de criar outros iguais.
+- [ ] Telas novas ou alteradas têm skeleton, entrada/saída suave, estado de progresso e feedback (ver `docs/ENGINEERING-STANDARDS.md` → Motion).
+- [ ] Sem segredo, token ou dado pessoal no diff.
+- [ ] Documentação atualizada quando o comportamento mudou.
