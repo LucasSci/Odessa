@@ -1,0 +1,58 @@
+name: Mutation tests
+
+# Stryker no núcleo de regras (src/core) — issue #242. Lento demais para
+# bloquear PR: roda toda segunda-feira e sob demanda.
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      mutate:
+        description: 'Glob opcional para limitar os arquivos mutados (ex.: src/core/chatReplyQueue.ts)'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  stryker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Install pnpm
+      run: npm install -g pnpm@10
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+
+    # O arquivo incremental guarda resultados de mutantes cujo código e testes
+    # não mudaram — a execução seguinte só testa o que mudou.
+    - uses: actions/cache@v4
+      with:
+        path: reports/mutation/stryker-incremental.json
+        key: stryker-${{ github.sha }}
+        restore-keys: stryker-
+
+    - name: Run Stryker
+      env:
+        MUTATE: ${{ inputs.mutate }}
+      run: |
+        if [ -n "$MUTATE" ]; then
+          pnpm test:mutation --mutate "$MUTATE"
+        else
+          pnpm test:mutation
+        fi
+
+    - name: Upload report
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: mutation-report
+        path: reports/mutation/
+        retention-days: 30
