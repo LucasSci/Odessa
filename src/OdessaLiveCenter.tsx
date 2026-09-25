@@ -51,6 +51,7 @@ import { ContentHub } from './components/library/ContentHub';
 import { VideoThumb } from './components/VideoThumb';
 import { CommandPalette } from './components/CommandPalette';
 import { DependencyBanner } from './components/DependencyBanner';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import type { PaletteCommand } from './core/commandPalette';
 import { SignalStrip, type Signal } from './components/stage/SignalStrip';
 import TopPersonaSelector from './components/TopPersonaSelector';
@@ -1258,7 +1259,9 @@ function PagePane({ page, active, children }: { page: PageKey; active: boolean; 
         inert={!active}
         className={cn('odsa-page min-h-0 flex-1 flex-col overflow-hidden', active ? 'flex' : 'hidden')}
       >
-        <FrozenWhenHidden frozen={!active}>{children}</FrozenWhenHidden>
+        <FrozenWhenHidden frozen={!active}>
+          <ErrorBoundary scope="panel" label={NAV_LABELS[page]}>{children}</ErrorBoundary>
+        </FrozenWhenHidden>
       </section>
     </PageActivity>
   );

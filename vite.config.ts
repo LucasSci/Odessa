@@ -162,6 +162,9 @@ export default defineConfig(() => {
           // mantém seus chunks lazy.
           manualChunks(id: string) {
             if (!id.includes('node_modules')) return undefined;
+            // @sentry/react casaria com /react/ abaixo e iria para o vendor
+            // carregado sempre — ele é lazy (src/lib/observability.ts).
+            if (id.includes('@sentry')) return undefined;
             if (id.includes('react-dom') || id.includes('/scheduler/') || /[\\/]react[\\/]/.test(id)) {
               return 'vendor-react';
             }

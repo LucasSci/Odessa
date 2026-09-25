@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from server.config import GEMINI_API_KEY, OPENAI_API_KEY  # noqa: F401 (mantido p/ compat de import)
 from server.core import auth as auth_core
 from server.core.atomic_json import recovery_events
+from server.core.observability import init_sentry
 from server.core.request_guard import RequestGuard
 from server.api.v1.api import api_router
 from server.api.v1.endpoints import auth, obs, webhooks, proxy as proxy_router, agent as agent_router
@@ -23,6 +24,9 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("odessa")
+
+# Antes de criar o app: a integração FastAPI do Sentry se registra no init.
+init_sentry()
 
 
 @asynccontextmanager
