@@ -8,8 +8,9 @@ Tipos de evento registrados:
 - chat.received / gift.received
 - trigger.fired
 - video.generated
-- ai.reply / ai.reply.sent
+- ai.reply / ai.reply.sent / ai.reply.skipped (motivo do governador)
 - message.sent
+- persona.selfconfig.* (propostas de autoajuste da persona)
 
 O serviço é totalmente defensivo: falhas de histórico nunca interrompem o
 fluxo da live (chat, vídeo, automação).
@@ -47,7 +48,14 @@ EVENT_TYPES = {
     "video.generated",
     "ai.reply",
     "ai.reply.sent",
+    # Sem estes o backend respondia 400 e os motivos de bloqueio do governador
+    # e as propostas de autoajuste nunca chegavam ao histórico (#160, #166).
+    "ai.reply.skipped",
     "message.sent",
+    "persona.selfconfig.proposed",
+    "persona.selfconfig.applied",
+    "persona.selfconfig.rejected",
+    "persona.selfconfig.photoRequested",
 }
 
 # Colunas comuns do CSV (extraídas de data quando presentes) + data_json.

@@ -131,12 +131,14 @@ function publicReplyText(action: AutopilotAction) {
   return String(action.payload?.message || action.payload?.text || '').trim();
 }
 
-function containsBlockedPublicTopic(text: string) {
+/** Texto toca tema bloqueado para conversa pública (dinheiro fora da plataforma, contato, conteúdo adulto, ódio…). */
+export function containsBlockedPublicTopic(text: string) {
   const normalized = normalizePublicText(text);
   return PUBLIC_REPLY_BLOCKED_TERMS.some((term) => normalized.includes(normalizePublicText(term)));
 }
 
-function pressuresSpendOrPlatformAction(text: string) {
+/** Texto pressiona gasto, presentes ou ações fora das regras da plataforma. */
+export function pressuresSpendOrPlatformAction(text: string) {
   return PUBLIC_REPLY_SPEND_PRESSURE_PATTERNS.some((pattern) => pattern.test(text));
 }
 

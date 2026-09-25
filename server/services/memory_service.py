@@ -2,6 +2,7 @@ import logging
 import json
 import re
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
@@ -175,6 +176,15 @@ class MemoryService:
             connection.commit()
         return {"status": "cleared", "userId": user_id}
 
+    def clear_all(self) -> Dict[str, Any]:
+        """Apaga todos os perfis e interações (botão "Resetar aprendizado")."""
+        with db.get_connection() as connection:
+            users = connection.execute("SELECT COUNT(*) AS total FROM users").fetchone()["total"]
+            connection.execute("DELETE FROM interaction_logs")
+            connection.execute("DELETE FROM users")
+            connection.commit()
+        return {"status": "cleared", "usersCleared": users}
+
     def upsert_round_memory(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:
         recognized_users = []
         now = datetime.now(timezone.utc).isoformat()
@@ -215,7 +225,9 @@ class MemoryService:
                     returning = False
 
                 # Log interaction
-                log_id = f"log-{int(time.time() * 1000)}-{user_id[:8]}"
+                # uuid: duas mensagens do mesmo usuário no mesmo milissegundo
+                # (lote vindo da bridge) colidiam na chave primária.
+                log_id = f"log-{int(time.time() * 1000)}-{uuid.uuid4().hex[:12]}"
                 connection.execute(
                     """
                     INSERT INTO interaction_logs (id, user_id, username, kind, source, text, metadata_json, created_at)

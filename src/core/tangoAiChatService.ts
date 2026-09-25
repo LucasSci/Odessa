@@ -13,6 +13,7 @@ import { getAiConfig, hasActiveGeminiKey, resolveEffectiveProvider } from './aiC
 import { apiUrl } from '../lib/api';
 import { PUBLIC_REPLY_BLOCKED_TERMS } from './liveAutonomyGovernor';
 import { buildChatInsightsContext } from './chatLearning';
+import { buildUserMemoryContext, getUserMemory } from './chatMemory';
 import { generateLocalReply } from './tangoReplyFallback';
 
 export interface TangoChatMessage {
@@ -38,6 +39,8 @@ export interface GeneratedReplyResult {
   blocked?: boolean;
   blockedReason?: string;
   confidence: number;
+  /** Memórias (usuário e tendências do chat) que entraram no prompt. */
+  memoriesUsed?: string[];
 }
 
 export interface PersonaChatOptions {
@@ -285,7 +288,11 @@ export async function generateTangoChatReply(
   const config = getAiConfig();
   const identityPrompt = customPrompt || config.systemPrompt || DEFAULT_TANGO_IDENTITY;
   const basePrompt = `${identityPrompt}\n\n${TANGO_RESPONSE_RULES}`;
-  const insightsContext = buildChatInsightsContext();
+  const userMemory = buildUserMemoryContext(incoming.username, await getUserMemory(incoming.username));
+  const chatTrends = buildChatInsightsContext();
+  const insightsContext = [userMemory.context, chatTrends].filter(Boolean).join('\n');
+  const memoriesUsed = [...userMemory.used, ...(chatTrends ? ['Tendências do chat (tópicos e pedidos recentes)'] : [])];
+  const withMemories = (result: GeneratedReplyResult): GeneratedReplyResult => ({ ...result, memoriesUsed });
   const useDirectGemini = config.provider === 'gemini' && hasActiveGeminiKey();
 
   const detectedLanguage = detectMessageLanguage(incoming.text);
@@ -302,22 +309,22 @@ export async function generateTangoChatReply(
       const cleanReply = sanitizeTangoReply(backendResult.text, options.maxLength || 140);
       const safety = checkSafetyRestrictions(cleanReply);
       if (safety.safe) {
-        return {
+        return withMemories({
           ok: true,
           reply: cleanReply,
           confidence: 0.9,
           reason: 'Resposta gerada pela IA local no backend (Ollama)',
-        };
+        });
       }
     }
-    return {
+    return withMemories({
       ok: false,
       reply: '',
       reason: backendResult.error
         ? `Ollama não respondeu: ${backendResult.error}`
         : `Ollama não respondeu. Verifique se está ativo e se o modelo ${config.localModelName} está instalado.`,
       confidence: 0,
-    };
+    });
   }
 
   const historyContext = recentHistory
@@ -345,43 +352,43 @@ export async function generateTangoChatReply(
     if (!rawReply || !rawReply.trim()) {
       // IA não devolveu texto → usa resposta pronta local contextual
       const local = generateLocalReply(incoming, recentHistory);
-      return {
+      return withMemories({
         ok: true,
         reply: local.reply,
         confidence: 0.55,
         reason: 'Resposta pronta local (IA não retornou texto)',
-      };
+      });
     }
 
     const cleanReply = sanitizeTangoReply(rawReply);
     const safety = checkSafetyRestrictions(cleanReply);
 
     if (!safety.safe) {
-      return {
+      return withMemories({
         ok: false,
         reply: cleanReply,
         blocked: true,
         blockedReason: `Termo bloqueado por segurança: "${safety.blockedTerm}"`,
         confidence: 0,
-      };
+      });
     }
 
-    return {
+    return withMemories({
       ok: true,
       reply: cleanReply,
       confidence: 0.92,
       reason: `Resposta contextual gerada para @${incoming.username}`,
-    };
+    });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     // Erro na chamada de IA → usa resposta pronta local para não parar o chat
     const local = generateLocalReply(incoming, recentHistory);
-    return {
+    return withMemories({
       ok: true,
       reply: local.reply,
       reason: `IA indisponível (${errorMessage}) — resposta pronta local`,
       confidence: 0.5,
-    };
+    });
   }
 }
 
