@@ -502,7 +502,7 @@ function PersonaList({
                 {/* Avatar */}
                 <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg bg-sky-500/20">
                   {p.avatarUrl ? (
-                    <img src={p.avatarUrl} alt={p.name} className="h-full w-full object-cover" />
+                    <img loading="lazy" decoding="async" src={p.avatarUrl} alt={p.name} className="h-full w-full object-cover" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-xs font-bold text-sky-300">
                       {p.name.charAt(0).toUpperCase()}
@@ -608,7 +608,7 @@ function PersonaDetail({
         {/* Avatar */}
         <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-sky-500/20">
           {avatarUrl ? (
-            <img src={avatarUrl} alt={name} className="h-full w-full object-cover" />
+            <img loading="lazy" decoding="async" src={avatarUrl} alt={name} className="h-full w-full object-cover" />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-xl font-bold text-sky-300">
               {name.charAt(0).toUpperCase()}

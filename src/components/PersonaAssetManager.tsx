@@ -309,6 +309,8 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
                   >
                     <div className="relative aspect-[3/4]">
                       <img
+                        loading="lazy"
+                        decoding="async"
                         src={assetUrl(personaId, activeCategory, asset.id)}
                         alt={asset.label}
                         className="h-full w-full object-cover"

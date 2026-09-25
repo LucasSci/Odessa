@@ -257,6 +257,8 @@ export function VideoGenPanel({ className }: { className?: string }) {
             {state.frameHistory.slice(-8).map((name) => (
               <div key={name} className="flex flex-col items-center gap-0.5">
                 <img
+                  loading="lazy"
+                  decoding="async"
                   src={apiUrl(`/api/video-gen/frame`)}
                   alt={name}
                   className="h-12 w-8 rounded border border-white/10 object-cover"

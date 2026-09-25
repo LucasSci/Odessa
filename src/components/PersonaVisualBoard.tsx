@@ -181,6 +181,8 @@ function PersonaVisualCard({
           <p className={COLUMN_TITLE_CLS}>Rosto</p>
           {face ? (
             <img
+              loading="lazy"
+              decoding="async"
               src={assetUrl(persona.id, 'faces', face.id)}
               alt={face.label}
               title={face.label}
@@ -196,6 +198,8 @@ function PersonaVisualCard({
           <p className={COLUMN_TITLE_CLS}>Cenário atual</p>
           {env ? (
             <img
+              loading="lazy"
+              decoding="async"
               src={assetUrl(persona.id, 'environments', env.id)}
               alt={env.label}
               title={env.label}
@@ -223,6 +227,8 @@ function PersonaVisualCard({
                 if (!piece) return null;
                 return (
                   <img
+                    loading="lazy"
+                    decoding="async"
                     key={pid}
                     src={assetUrl(persona.id, 'wardrobe', pid)}
                     alt={piece.label}

@@ -437,7 +437,7 @@ function ContentCard({ item }: { item: PersonaContentItem }) {
     <div className="overflow-hidden rounded-xl border border-white/10 bg-black/20">
       <div className="flex aspect-square items-center justify-center bg-black/30">
         {item.kind === 'image' && item.url ? (
-          <img src={item.url} alt={item.label} className="h-full w-full object-cover" />
+          <img loading="lazy" decoding="async" src={item.url} alt={item.label} className="h-full w-full object-cover" />
         ) : item.kind === 'video' && item.url ? (
           <video src={item.url} className="h-full w-full object-cover" muted />
         ) : (
