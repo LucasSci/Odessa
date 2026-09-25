@@ -54,11 +54,6 @@ export function hashForPage(page: PageKey): string {
   return `#/${PAGE_SLUGS[page]}`;
 }
 
-/** True para os hashes de rota do shell (`#/…`); o App ignora estes. */
-export function isRouteHash(hash: string): boolean {
-  return hash.startsWith('#/');
-}
-
 /** Alt+1…Alt+8 → página correspondente; qualquer outra tecla → null. */
 export function pageForShortcut(event: Pick<KeyboardEvent, 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'key' | 'code'>): PageKey | null {
   if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return null;

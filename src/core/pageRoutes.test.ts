@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PAGE_ORDER, hashForPage, isRouteHash, pageForShortcut, pageFromHash, pageOfTab } from './pageRoutes';
+import { PAGE_ORDER, hashForPage, pageForShortcut, pageFromHash, pageOfTab } from './pageRoutes';
 
 describe('pageRoutes', () => {
   it('ida e volta entre página e hash para todas as páginas', () => {
@@ -20,7 +20,6 @@ describe('pageRoutes', () => {
 
   it('não confunde os hashes antigos (#overlay do OBS, #settings, #login) com rotas', () => {
     for (const hash of ['#overlay', '#settings', '#canvas', '#login', '', '#']) {
-      expect(isRouteHash(hash)).toBe(false);
       expect(pageFromHash(hash)).toBeNull();
     }
     expect(pageFromHash('#/nao-existe')).toBeNull();

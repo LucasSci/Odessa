@@ -8,7 +8,7 @@ import { useAutopilotRuntime } from './core/useAutopilotRuntime';
 import { TangoChatSessionProvider } from './core/tangoChatSession';
 import { apiUrl } from './lib/api';
 import { getActivePersona } from './core/personaManager';
-import { isRouteHash, pageOfTab } from './core/pageRoutes';
+import { pageOfTab } from './core/pageRoutes';
 import { installCredentialedFetch } from './lib/fetchCredentials';
 import { startAutoLogin } from './lib/autoLogin';
 import { connectObs, disconnectObs } from './lib/obsWebSocket';
@@ -169,12 +169,10 @@ export default function App() {
   }, [liveConfig]);
 
   useEffect(() => {
-    // Rotas de página (#/biblioteca…) são do OdessaLiveCenter; aqui só os hashes
-    // antigos/especiais (#overlay, #settings, #login…).
-    const handleHashChange = () => {
-      if (isRouteHash(window.location.hash)) return;
-      setRequestedPanel(getPanelFromHash());
-    };
+    // Rotas de página (#/biblioteca…) viram 'overview' aqui — o OdessaLiveCenter
+    // ignora 'overview' e segue a rota; sair do #overlay para uma rota também
+    // precisa passar por aqui para o painel voltar a aparecer.
+    const handleHashChange = () => setRequestedPanel(getPanelFromHash());
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
