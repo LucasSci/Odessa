@@ -116,7 +116,9 @@ exigir PR, exigir os checks acima como obrigatórios e bloquear push direto.
   e **aprovados pelo jurídico** (issue #248). Agentes não redigem nem publicam
   texto legal final por conta própria. O inventário técnico de dados para o
   jurídico está em `docs/legal/INVENTARIO-DE-DADOS.md` — atualize-o sempre que
-  um dado novo for coletado, guardado ou enviado a um terceiro.
+  um dado novo for coletado, guardado ou enviado a um terceiro. A publicação é
+  travada no CI: nada em `public/legal/` passa sem aprovação registrada em
+  `src/core/legalDocuments.ts` (passo a passo em `docs/legal/README.md`).
 
 ---
 

@@ -12,6 +12,14 @@ Todas as mudanças relevantes do projeto Odessa.
   respostas, "memórias usadas" e reset do aprendizado. (#165)
 - **Espectadores na memória**: buscar, ocultar das respostas ou esquecer um
   espectador específico, na Central da Live → Insights. (#252)
+- **Envio confirmado no chat**: a bridge só chama de "Enviada" a mensagem que
+  apareceu no chat do Tango; "sem confirmação" e "falhou" (com a etapa) ficam
+  visíveis na fila, na Prontidão e no teste do Passo 4. Envios simultâneos não
+  se misturam e o eco da própria Odessa não vira fala de espectador. (#158)
+- **Termos e Política prontos para o jurídico**: rascunhos (não publicáveis)
+  com as decisões em aberto marcadas, inventário de dados completado e
+  publicação travada no CI até a aprovação ser registrada; os links aparecem
+  sozinhos no login e na barra lateral depois disso. (#248)
 - **Governador da bridge**: duplicadas, moderação e prioridade de presentes;
   status "simulada" e "falhou" na fila. (#156, #158–#160)
 - **Padrões de engenharia e esteira de qualidade** — fluxo Issue → Pull
@@ -85,6 +93,9 @@ Todas as mudanças relevantes do projeto Odessa.
   personas, testes).
 
 ### Corrigido
+- Em desenvolvimento, o stream de mensagens do chat (SSE) ia direto na porta
+  da bridge e levava 401: nenhuma mensagem chegava ao app. Agora passa pelo
+  proxy do backend, como no build. (#158)
 - Chave Gemini inválida (`MY_GEMINI_API_KEY` placeholder) — o chat caía em
   respostas prontas locais. Agora usa a RouteLLM configurada.
 - Bridge do Tango apontando para site de teste (`pt.anotepad.com`) — corrigido

@@ -63,6 +63,7 @@ import { PageActivity, usePageActive } from './core/pageActivity';
 import { usePolling } from './core/usePolling';
 import { useLiveSupervisor } from './core/useLiveSupervisor';
 import { PAGE_ORDER, hashForPage, pageFromHash, pageForShortcut, pageOfTab, type PageKey } from './core/pageRoutes';
+import { LegalLinks } from './components/LegalLinks';
 
 const loadReactiveFlowBoard = () => import('./ReactiveFlowBoard');
 const loadPlanningCanvas = () => import('./PlanningCanvas');
@@ -954,6 +955,7 @@ export default function OdessaLiveCenter({
         </nav>
 
         <DirectorStatusCard runtime={runtime} onOpen={() => { setActiveTab('personas'); }} />
+        <LegalLinks className="px-4 pb-3" />
       </aside>
 
       {/* Coluna principal: topbar + conteúdo */}

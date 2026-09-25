@@ -34,6 +34,7 @@ export function useLiveReadiness(runtime: AutopilotRuntimeState): LiveSupervisor
       inputReady,
       lastSendStatus: (lastSend?.status as 'sent' | 'simulated' | 'failed' | undefined) ?? null,
       lastSendError: lastSend?.status === 'failed' ? lastSend.blockedReason || null : null,
+      lastSendConfirmed: lastSend?.status === 'sent' ? (lastSend.confirmed ?? null) : null,
     },
     obs: {
       connected: !runtime.obsError && runtime.obsScenes.length > 0,

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { apiUrl } from './lib/api';
 import { setAutoLoginCredentials, clearAutoLogin } from './lib/autoLogin';
+import { LegalLinks } from './components/LegalLinks';
 
 type LoginScreenProps = {
   onLogin: () => void;
@@ -200,6 +201,7 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
         >
           {loading ? 'Entrando...' : 'Entrar'}
         </button>
+        <LegalLinks className="mt-4 justify-center" />
       </form>
     </div>
   );

@@ -19,9 +19,14 @@
 | Dado | Finalidade | Onde fica | Retenção hoje | Código |
 |---|---|---|---|---|
 | Nome de usuário e texto das mensagens do chat | Mostrar o feed, decidir e gerar respostas | Memória do navegador (últimas 400) | Até fechar a página | `src/core/tangoChatSession.tsx` |
-| Histórico da sessão (mensagens, presentes, respostas, motivos de bloqueio) | Auditoria e exportação JSON/CSV | Arquivos em `server/runtime/session-history/` | **Indefinida** (sem limpeza automática) | `server/services/session_history.py` |
+| Histórico da sessão (texto das mensagens a que a IA respondeu ou deixou de responder, **sem máscara** e inclusive as de moderação; presentes; respostas; motivos de bloqueio) | Auditoria e exportação JSON/CSV | Arquivos em `server/runtime/session-history/` | **Indefinida** (sem limpeza automática) | `server/services/session_history.py` |
 | Perfil por usuário do chat: nº de mensagens, nº de presentes, últimas interações (texto) | Reconhecer recorrência nas respostas (#165) | SQLite `server/runtime/odessa.db` (tabelas `users`, `interaction_logs`) | **Indefinida** até "Resetar aprendizado" ou exclusão do perfil | `server/services/memory_service.py`, `src/core/chatMemory.ts` |
 | Tendências do chat (tópicos, pedidos, elogios agregados) | Contexto da IA | `localStorage` do navegador (`odessa:chat-learning:v1`) | Até "Resetar aprendizado" | `src/core/chatLearning.ts` |
+| Fatos por espectador (ex.: `pedido: …`, `gosta: …`, com o nome do espectador) | Contexto da Diretora | `localStorage` (`odessa:rag-memory:v1`) | **Indefinida e sem teto.** Hoje **não** é apagado por "Resetar aprendizado" nem por "Esquecer" (correção em #254) | `src/core/longTermMemory.ts`, `src/core/chatLearning.ts` |
+| Últimos eventos da live (mensagens com nome, presentes) | Rodadas da Diretora | `localStorage` (`odessa:event-bus:v1`) | Últimos 200 eventos | `src/core/eventBus.ts` |
+| Respostas da IA enviadas/bloqueadas (texto da resposta e motivo) | Limites de ritmo e auditoria | `localStorage` (`odessa:auto-chat:history:v1`, `odessa:audit-session:v1`) | Últimas 80 | `src/core/liveAutonomyGovernor.ts`, `src/core/personaRuntime.ts` |
+| Conversas do laboratório (operador ↔ persona) | Testar a persona | `localStorage` (`odessa.conversationLab.*`) | Últimas 200 mensagens por persona | `src/core/conversationLab.ts` |
+| Token de sessão do painel | Manter o operador logado | `localStorage` (`odessa:admin-session-token:v1`) | Até sair ou o token expirar | `src/LoginScreen.tsx`, `src/lib/autoLogin.ts` |
 | Mensagens com e-mail/telefone | — | São **mascaradas** antes de ir para a memória; mensagens de moderação (links, contatos, golpes) não são guardadas | — | `src/core/chatMemory.ts` |
 | Sessão logada do Tango (cookies do navegador da bridge) | Ler e escrever no chat da live | Perfil do Chromium da bridge (`PROFILE_DIR`) na máquina da live | Até apagar o perfil | `tango_chat/tango_chat.py` |
 | Fotos e assets de persona | Identidade visual e geração de mídia | Pastas de persona no servidor | Até remoção pelo operador | `server/core/persona_assets.py` |
@@ -47,7 +52,7 @@ Vários desses provedores processam dados fora do Brasil (transferência interna
 
 ## 4. Controles que já existem
 
-- Reset do aprendizado (tendências + memória por usuário) na Central da Live → Diagnóstico → Insights.
+- Reset do aprendizado (tendências + memória por usuário no backend) na Central da Live → Diagnóstico → Insights. Os fatos por espectador no navegador ainda ficam (#254).
 - Ver, ocultar ou esquecer um espectador específico na Central da Live → Diagnóstico → Insights → "Espectadores na memória" (#252). Ocultar tira o espectador do contexto da IA sem apagar; esquecer apaga perfil e interações (`DELETE /api/v1/memory/profiles/{usuario}`).
 - Mascaramento de e-mail/telefone e descarte de mensagens de moderação antes de guardar.
 - Sentry opt-in e sem dados pessoais.
@@ -67,4 +72,4 @@ Vários desses provedores processam dados fora do Brasil (transferência interna
 ## 6. Próximos passos técnicos (dependem das respostas acima)
 
 - Retenção automática configurável para histórico e memória.
-- Links para Termos e Política no login e no rodapé, com versão e data de aprovação.
+- ~~Links para Termos e Política no login e no rodapé, com versão e data de aprovação.~~ Mecanismo pronto e travado até a aprovação: ver `docs/legal/README.md`.

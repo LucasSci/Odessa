@@ -29,6 +29,7 @@ import random
 import struct
 import sys
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -121,6 +122,13 @@ TYPING_DELAY_MAX_MS: int = 160
 WAIT_TIMEOUT_S: int = 30
 MAX_HISTORY: int = 500
 
+# Envio (#158): quanto esperar o campo do chat (com uma nova tentativa antes
+# de digitar) e quanto esperar a própria mensagem aparecer no chat depois do
+# Enter — é essa volta pelo observer que confirma que ela saiu de verdade.
+SEND_INPUT_TIMEOUT_S: float = float(os.environ.get("TANGO_SEND_INPUT_TIMEOUT_S", "8"))
+SEND_INPUT_ATTEMPTS: int = 2
+SEND_CONFIRM_TIMEOUT_S: float = float(os.environ.get("TANGO_SEND_CONFIRM_TIMEOUT_S", "8"))
+
 # =====================================================================
 #  LOGGING (com buffer para endpoint /logs)
 # =====================================================================
@@ -161,13 +169,51 @@ class ChatMessage:
     timestamp: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+    # Eco de uma mensagem que a própria bridge acabou de enviar (#158): a UI
+    # não pode tratá-la como fala de espectador (a IA responderia a si mesma).
+    own: bool = False
 
     def to_dict(self) -> dict:
         return {
             "username": self.username,
             "text": self.text,
             "timestamp": self.timestamp,
+            "own": self.own,
         }
+
+
+class SendError(RuntimeError):
+    """Envio que não dá para afirmar que saiu, com a etapa em que parou."""
+
+    def __init__(self, message: str, stage: str, command_id: str, attempts: int) -> None:
+        super().__init__(message)
+        self.stage = stage  # input | typing | not_submitted
+        self.command_id = command_id
+        self.attempts = attempts
+
+
+def _for_log(value: object) -> str:
+    """Texto do chat em uma linha só: com quebra de linha, uma mensagem poderia
+    forjar linhas no log da bridge (ex.: um falso "confirmada no chat")."""
+    return str(value).replace("\r", "\\r").replace("\n", "\\n")
+
+
+def _normalize_chat_text(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def _is_echo_of(sent: str, seen: str) -> bool:
+    """A mensagem vista no chat é a que acabamos de enviar?
+
+    Igualdade (ignorando espaços e maiúsculas) ou, para textos longos, um
+    contido no outro — o chat pode cortar ou enfeitar a mensagem exibida.
+    """
+    if not sent or not seen:
+        return False
+    if sent == seen:
+        return True
+    shorter, longer = sorted((sent, seen), key=len)
+    return len(shorter) >= 12 and shorter in longer
 
 
 # =====================================================================
@@ -214,6 +260,11 @@ class TangoChatBridge:
         # CDP que o usuario pediu explicitamente ("Acoplar a Aba Aberta") as
         # vezes virava standalone sem nenhum erro visivel.
         self._connect_lock: asyncio.Lock = asyncio.Lock()
+        # Dois /send ao mesmo tempo (ex.: modo Autônomo respondendo duas
+        # mensagens seguidas) intercalariam as teclas no mesmo campo.
+        self._send_lock: asyncio.Lock = asyncio.Lock()
+        # Mensagens enviadas esperando aparecer no chat: (texto normalizado, evento).
+        self._pending_echoes: list[tuple[str, asyncio.Event]] = []
 
     # == Conectar =====================================================
 
@@ -657,7 +708,8 @@ class TangoChatBridge:
                 username=data.get("username", "???"),
                 text=data.get("text", ""),
             )
-            log.info("MSG | %s: %s", msg.username, msg.text)
+            msg.own = self._resolve_echo(msg.text)
+            log.info("MSG | %s: %s", _for_log(msg.username), _for_log(msg.text))
             self._message_count += 1
             self.history.append(msg)
             await self.incoming.put(msg)
@@ -679,34 +731,114 @@ class TangoChatBridge:
 
     # == Escrita: envio de mensagens ===================================
 
-    async def send_message(self, text: str) -> None:
-        """Envia uma mensagem no chat do Tango."""
+    def _resolve_echo(self, text: str) -> bool:
+        """Marca como confirmada a mensagem enviada que acabou de aparecer no chat."""
+        seen = _normalize_chat_text(text)
+        for sent, event in self._pending_echoes:
+            if not event.is_set() and _is_echo_of(sent, seen):
+                event.set()
+                return True
+        return False
+
+    @staticmethod
+    async def _read_input(input_el: Any) -> str:
+        try:
+            value = await input_el.evaluate("el => ('value' in el ? el.value : el.textContent) || ''")
+            return value if isinstance(value, str) else ""
+        except Exception:
+            return ""
+
+    async def send_message(self, text: str) -> dict:
+        """Envia uma mensagem no chat do Tango e confirma que ela apareceu.
+
+        Retorna ``{"commandId", "confirmed", "attempts", "durationMs"}``:
+        - ``confirmed=True``: a própria mensagem voltou pelo observer do chat;
+        - ``confirmed=False``: o campo esvaziou (o Tango aceitou o Enter), mas
+          a mensagem não apareceu no chat a tempo — pode ser só o seletor das
+          mensagens desatualizado; confira no Tango.
+        Levanta ``SendError`` quando não dá para afirmar que saiu.
+        """
         if not self._page:
             raise RuntimeError("Bridge nao conectada.")
+        async with self._send_lock:
+            return await self._send_locked(self._page, text)
 
-        log.info("SEND | %s", text)
+    async def _send_locked(self, page: Page, text: str) -> dict:
+        command_id = uuid.uuid4().hex[:12]
+        started = time.monotonic()
+        log.info("SEND %s | %s", command_id, _for_log(text))
 
-        input_el = self._page.locator(SELETOR_INPUT_TEXTO)
-        await input_el.wait_for(state="visible", timeout=WAIT_TIMEOUT_S * 1000)
-        await input_el.click()
+        # 1) Achar o campo. Só aqui existe nova tentativa: nada foi digitado
+        #    ainda, então tentar de novo não duplica a mensagem no chat.
+        input_el = page.locator(SELETOR_INPUT_TEXTO)
+        attempts = 0
+        while True:
+            attempts += 1
+            try:
+                await input_el.wait_for(state="visible", timeout=SEND_INPUT_TIMEOUT_S * 1000)
+                await input_el.click()
+                break
+            except Exception as exc:
+                if attempts >= SEND_INPUT_ATTEMPTS:
+                    raise SendError(
+                        f"Campo do chat não encontrado ({exc}).", "input", command_id, attempts
+                    ) from exc
+                log.warning("SEND %s | campo indisponivel, nova tentativa: %s", command_id, _for_log(exc))
+                await asyncio.sleep(1)
 
-        await asyncio.sleep(random.uniform(0.1, 0.3))
+        # Texto que sobrou no campo (tentativa anterior, rascunho) iria junto.
+        leftover = await self._read_input(input_el)
+        if leftover.strip():
+            log.warning("SEND %s | limpando texto que ja estava no campo: %s", command_id, _for_log(leftover))
+            await input_el.fill("")
 
-        for char in text:
-            await self._page.keyboard.type(
-                char,
-                delay=random.randint(TYPING_DELAY_MIN_MS, TYPING_DELAY_MAX_MS),
-            )
+        # 2) Digitar e enviar. Daqui em diante NUNCA repetir: o Enter pode ter
+        #    saído, e uma segunda tentativa duplicaria a mensagem no chat.
+        expected = _normalize_chat_text(text)
+        echo = (expected, asyncio.Event())
+        self._pending_echoes.append(echo)
+        try:
+            try:
+                await asyncio.sleep(random.uniform(0.1, 0.3))
+                for char in text:
+                    await page.keyboard.type(
+                        char,
+                        delay=random.randint(TYPING_DELAY_MIN_MS, TYPING_DELAY_MAX_MS),
+                    )
+                await asyncio.sleep(random.uniform(0.15, 0.4))
+                if SELETOR_BOTAO_ENVIAR:
+                    await page.locator(SELETOR_BOTAO_ENVIAR).click()
+                else:
+                    await page.keyboard.press("Enter")
+            except Exception as exc:
+                raise SendError(f"Falha ao digitar no chat ({exc}).", "typing", command_id, attempts) from exc
 
-        await asyncio.sleep(random.uniform(0.15, 0.4))
+            # 3) Confirmar: a mensagem precisa voltar pelo observer do chat.
+            try:
+                await asyncio.wait_for(echo[1].wait(), timeout=SEND_CONFIRM_TIMEOUT_S)
+                confirmed = True
+            except asyncio.TimeoutError:
+                confirmed = False
+            if not confirmed and expected and expected in _normalize_chat_text(await self._read_input(input_el)):
+                raise SendError(
+                    "O Tango não aceitou o envio: o texto ficou no campo do chat.",
+                    "not_submitted",
+                    command_id,
+                    attempts,
+                )
+        finally:
+            self._pending_echoes.remove(echo)
 
-        if SELETOR_BOTAO_ENVIAR:
-            btn = self._page.locator(SELETOR_BOTAO_ENVIAR)
-            await btn.click()
+        duration_ms = int((time.monotonic() - started) * 1000)
+        if confirmed:
+            log.info("SEND %s | confirmada no chat em %d ms.", command_id, duration_ms)
         else:
-            await self._page.keyboard.press("Enter")
-
-        log.info("SEND | Mensagem enviada.")
+            log.warning(
+                "SEND %s | enviada, mas nao apareceu no chat em %.0f s (confira o seletor das mensagens).",
+                command_id,
+                SEND_CONFIRM_TIMEOUT_S,
+            )
+        return {"commandId": command_id, "confirmed": confirmed, "attempts": attempts, "durationMs": duration_ms}
 
     # == Status ========================================================
 
@@ -796,8 +928,14 @@ async def handle_send(request: web.Request) -> web.Response:
             {"ok": False, "error": "Texto vazio"}, status=400
         )
     try:
-        await bridge.send_message(text)
-        return web.json_response({"ok": True})
+        result = await bridge.send_message(text)
+        return web.json_response({"ok": True, **result})
+    except SendError as exc:
+        log.error("SEND %s | falhou na etapa %s: %s", exc.command_id, exc.stage, _for_log(exc))
+        return web.json_response(
+            {"ok": False, "error": str(exc), "stage": exc.stage, "commandId": exc.command_id, "attempts": exc.attempts},
+            status=500,
+        )
     except Exception as exc:
         return web.json_response(
             {"ok": False, "error": str(exc)}, status=500

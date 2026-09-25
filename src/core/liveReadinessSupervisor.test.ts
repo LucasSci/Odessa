@@ -81,6 +81,22 @@ describe('liveReadinessSupervisor', () => {
     expect(subsystem(baseInput(), 'chat').detail).toMatch(/Campo do chat validado/);
   });
 
+  it('mensagem que não apareceu no chat vira aviso, sem pausar o chat; confirmada vira prova (#158)', () => {
+    const unconfirmed = subsystem(
+      baseInput({ chat: { sendMode: 'real', bridgeConnected: true, inputReady: true, lastSendStatus: 'sent', lastSendConfirmed: false } }),
+      'chat',
+    );
+    expect(unconfirmed).toMatchObject({ state: 'warning', recoveryActions: [] });
+    expect(unconfirmed.detail).toMatch(/não apareceu no chat/);
+    expect(unconfirmed.suggestedAction).toMatch(/seletor das mensagens/);
+
+    const confirmed = subsystem(
+      baseInput({ chat: { sendMode: 'real', bridgeConnected: true, inputReady: true, lastSendStatus: 'sent', lastSendConfirmed: true } }),
+      'chat',
+    );
+    expect(confirmed).toMatchObject({ state: 'healthy', detail: 'Última mensagem confirmada no chat do Tango.' });
+  });
+
   it('asks to reconnect OBS and reduce autonomy when OBS is down', () => {
     const snapshot = buildLiveSupervisorSnapshot(baseInput({ obs: { connected: false, scenes: [], error: 'OBS off' } }));
     expect(snapshot.recoveryActions).toEqual(expect.arrayContaining(['reconnect_obs', 'reduce_autonomy']));

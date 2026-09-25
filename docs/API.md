@@ -230,10 +230,19 @@ A bridge expõe um servidor aiohttp próprio:
 
 | Método | Rota | Descrição |
 |---|---|---|
-| GET | `/messages` | SSE — stream de mensagens do chat |
+| GET | `/messages` | SSE — stream de mensagens do chat (`own: true` = eco de uma mensagem que a própria bridge enviou) |
 | GET | `/history?limit=N` | Histórico de mensagens |
 | GET | `/screenshot` | Captura de tela (JPEG) |
 | GET | `/viewport` | Viewport e URL atual |
 | POST | `/send` | Envia mensagem no chat |
 | POST | `/connect` | Conecta ao Tango |
 | POST | `/disconnect` | Desconecta |
+
+`POST /send` (#158) digita, envia e só responde depois de conferir o chat:
+
+- `200 {"ok": true, "confirmed": true, "commandId", "attempts", "durationMs"}`: a mensagem apareceu no chat.
+- `200 {"ok": true, "confirmed": false, ...}`: o campo esvaziou (o Tango aceitou o Enter), mas a mensagem não apareceu em `TANGO_SEND_CONFIRM_TIMEOUT_S` (padrão 8 s). Normalmente é o seletor das mensagens desatualizado; confira no Tango.
+- `500 {"ok": false, "error", "stage", "commandId", "attempts"}`: `stage` é `input` (campo não apareceu, com uma nova tentativa antes de digitar), `typing` (falhou ao digitar; nunca repete, para não duplicar) ou `not_submitted` (o texto ficou no campo).
+
+Envios simultâneos são feitos um de cada vez, e o texto que sobrou no campo é apagado antes de digitar. O `commandId` aparece nos logs da bridge (`SEND <commandId> | …`).
+
