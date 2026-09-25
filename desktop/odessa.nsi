@@ -152,6 +152,32 @@ Section "Instalar"
         StrCpy $R1 "1"
     skip_backup:
 
+    ; Login do Tango: o perfil do navegador da bridge morava em
+    ; server\runtime\chrome-debug-profile e era apagado a cada atualizacao
+    ; (o Tango pedia login de novo). Move para fora da pasta do programa, onde
+    ; o backend novo procura (BROWSER_PROFILES_DIR em server\config.py).
+    IfFileExists "$INSTDIR\server\runtime\chrome-debug-profile\*.*" 0 skip_profile_move
+    IfFileExists "$LOCALAPPDATA\Odessa\browser-profiles\chrome\*.*" skip_profile_move
+        DetailPrint "Preservando o login do Tango (perfil do navegador da live)..."
+        CreateDirectory "$LOCALAPPDATA\Odessa\browser-profiles"
+        nsExec::ExecToLog 'robocopy "$INSTDIR\server\runtime\chrome-debug-profile" "$LOCALAPPDATA\Odessa\browser-profiles\chrome" /E /MOVE /R:1 /W:1 /NFL /NDL /NJH /NJS'
+        Pop $R2
+    skip_profile_move:
+
+    ; server\runtime tambem e do usuario (config do OBS e da bridge, token,
+    ; banco local): guarda e devolve como server\data.
+    StrCpy $R3 "$TEMP\odessa-runtime-bak"
+    RMDir /r "$R3"
+    StrCpy $R4 "0"
+    IfFileExists "$INSTDIR\server\runtime\*.*" 0 skip_runtime_backup
+        DetailPrint "Preservando configuracoes locais (server\runtime)..."
+        nsExec::ExecToLog 'robocopy "$INSTDIR\server\runtime" "$R3" /E /XD chrome-debug-profile /R:1 /W:1 /NFL /NDL /NJH /NJS'
+        Pop $R2
+        IntCmp $R2 8 skip_runtime_backup runtime_backup_ok skip_runtime_backup
+        runtime_backup_ok:
+        StrCpy $R4 "1"
+    skip_runtime_backup:
+
     ; Remove o codigo antigo antes de copiar o novo: File /r so sobrescreve, e
     ; arquivos que sairam de uma versao ficariam para tras. Os dados do usuario
     ; ja estao guardados em $R0 e voltam abaixo; o .env fica na raiz e nao e tocado.
@@ -169,6 +195,13 @@ Section "Instalar"
         nsExec::ExecToLog 'robocopy "$R0" "$INSTDIR\server\data" /E /R:1 /W:1 /NFL /NDL /NJH /NJS'
         RMDir /r "$R0"
     skip_restore:
+
+    StrCmp $R4 "1" 0 skip_runtime_restore
+        DetailPrint "Restaurando configuracoes locais..."
+        nsExec::ExecToLog 'robocopy "$R3" "$INSTDIR\server\runtime" /E /R:1 /W:1 /NFL /NDL /NJH /NJS'
+        Pop $R2
+        RMDir /r "$R3"
+    skip_runtime_restore:
 
     ; Reinstalacao depois de desinstalar mantendo os dados: devolve a copia.
     StrCmp $R1 "1" skip_reuse

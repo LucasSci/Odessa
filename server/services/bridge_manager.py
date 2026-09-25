@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
 import subprocess
 import sys
 import threading
@@ -418,11 +419,24 @@ def resolve_live_browser(browser: str | None = None) -> dict[str, Any] | None:
 def debug_profile_dir_for(browser_id: str) -> Path:
     """Perfil dedicado por navegador (a porta de depuração não funciona no perfil
     padrão, e perfis de navegadores diferentes não podem ser compartilhados).
-    O do Chrome mantém o caminho antigo para não perder o login do Tango."""
-    if browser_id == "chrome":
-        path = RUNTIME_DIR / "chrome-debug-profile"
-    else:
-        path = RUNTIME_DIR / "browser-profiles" / browser_id
+
+    Fica em BROWSER_PROFILES_DIR, fora da pasta do programa, para o login do
+    Tango sobreviver às atualizações. O perfil antigo do Chrome
+    (server/runtime/chrome-debug-profile) é movido na primeira vez.
+    """
+    from server.config import BROWSER_PROFILES_DIR
+
+    path = BROWSER_PROFILES_DIR / browser_id
+    legacy = RUNTIME_DIR / "chrome-debug-profile"
+    if browser_id == "chrome" and not path.exists() and legacy.exists():
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(legacy), str(path))
+            log.info("Perfil do Chrome (login do Tango) movido para %s", path)
+        except OSError as exc:
+            # Chrome aberto com esse perfil segura os arquivos: usa o antigo por ora.
+            log.warning("Não deu para mover o perfil do Chrome (%s); usando o antigo.", exc)
+            return legacy
     path.mkdir(parents=True, exist_ok=True)
     return path
 

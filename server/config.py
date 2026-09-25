@@ -11,6 +11,15 @@ RUNTIME_DIR.mkdir(exist_ok=True)
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(SERVER_DIR / ".env", override=False)
 
+# Perfis de navegador da bridge (guardam o LOGIN DO TANGO). Ficam fora da pasta
+# do programa: o instalador substitui server/ a cada atualização e, quando o
+# perfil morava em server/runtime, todo update apagava o login.
+_local_app_data = os.getenv("LOCALAPPDATA", "").strip()
+BROWSER_PROFILES_DIR = Path(
+    os.getenv("ODESSA_BROWSER_PROFILES_DIR", "").strip()
+    or (Path(_local_app_data) / "Odessa" / "browser-profiles" if _local_app_data else RUNTIME_DIR / "browser-profiles")
+)
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()

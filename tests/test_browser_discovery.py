@@ -45,3 +45,25 @@ def test_config_da_bridge_valida_o_navegador(tmp_path, monkeypatch):
     assert bm.save_bridge_config({"browser": "edge"})["browser"] == "edge"
     assert bm.save_bridge_config({"port": 7555})["browser"] == "edge"  # sem o campo: mantém
     assert bm.save_bridge_config({"browser": "firefox"})["browser"] == "auto"  # não suportado
+
+
+def test_perfil_antigo_do_chrome_e_movido_para_fora_da_pasta_do_programa(tmp_path, monkeypatch):
+    """O login do Tango ficava em server/runtime e o instalador apagava a cada update."""
+    from server import config
+    from server.services import bridge_manager as bm
+
+    runtime = tmp_path / "runtime"
+    legacy = runtime / "chrome-debug-profile" / "Default"
+    legacy.mkdir(parents=True)
+    (legacy / "Cookies").write_text("login do tango")
+    monkeypatch.setattr(bm, "RUNTIME_DIR", runtime)
+    monkeypatch.setattr(config, "BROWSER_PROFILES_DIR", tmp_path / "perfis")
+
+    path = bm.debug_profile_dir_for("chrome")
+
+    assert path == tmp_path / "perfis" / "chrome"
+    assert (path / "Default" / "Cookies").read_text() == "login do tango"
+    assert not (runtime / "chrome-debug-profile").exists()
+    # Chamadas seguintes reutilizam o perfil novo, sem mexer em nada.
+    assert bm.debug_profile_dir_for("chrome") == path
+    assert bm.debug_profile_dir_for("edge") == tmp_path / "perfis" / "edge"
