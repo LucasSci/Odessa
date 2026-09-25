@@ -1,4 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
+import type { ReactNode } from 'react';
+import { PageActivity } from './pageActivity';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextPollDelay, usePolling } from './usePolling';
 
@@ -145,5 +147,25 @@ describe('usePolling', () => {
     unmount();
     await advance(5000);
     expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('pausa com a página escondida pelo shell e consulta na hora ao voltar', async () => {
+    const fn = vi.fn().mockResolvedValue(undefined);
+    let active = true;
+    const wrapper = ({ children }: { children: ReactNode }) => <PageActivity active={active}>{children}</PageActivity>;
+    const { rerender } = renderHook(() => usePolling(fn, 1000, { immediate: false }), { wrapper });
+    await advance(1000);
+    expect(fn).toHaveBeenCalledTimes(1);
+
+    active = false;
+    rerender();
+    await advance(5000);
+    expect(fn).toHaveBeenCalledTimes(1);
+
+    // Volta à página: não espera o intervalo, mesmo com immediate:false.
+    active = true;
+    rerender();
+    await advance(0);
+    expect(fn).toHaveBeenCalledTimes(2);
   });
 });

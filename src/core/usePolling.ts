@@ -1,7 +1,11 @@
 import { useEffect, useRef } from 'react';
+import { usePageActive } from './pageActivity';
 
 export interface PollingOptions {
-  /** Liga/desliga o polling (ex.: só quando a aba do painel está ativa). Padrão: true. */
+  /**
+   * Liga/desliga o polling. Padrão: true. Além disso, pausa sozinho quando a
+   * página do componente está escondida pelo shell (ver pageActivity).
+   */
   enabled?: boolean;
   /** Roda uma vez logo ao ligar, sem esperar o primeiro intervalo. Padrão: true. */
   immediate?: boolean;
@@ -38,14 +42,22 @@ export function usePolling(
   intervalMs: number,
   options: PollingOptions = {},
 ): void {
-  const { enabled = true, immediate = true, pauseWhenHidden = true, maxBackoffMs, restartKey } = options;
+  const { enabled: enabledOption = true, immediate = true, pauseWhenHidden = true, maxBackoffMs, restartKey } = options;
+  // Página escondida pelo shell (aba inativa mantida montada) = polling pausado;
+  // ao voltar, consulta na hora para a tela não mostrar dado velho.
+  const pageActive = usePageActive();
+  const enabled = enabledOption && pageActive;
+  const pausedByPageRef = useRef(false);
   const latest = useRef(callback);
   useEffect(() => {
     latest.current = callback;
   });
 
   useEffect(() => {
+    if (!pageActive) pausedByPageRef.current = true;
     if (!enabled || intervalMs <= 0) return;
+    const resuming = pausedByPageRef.current;
+    pausedByPageRef.current = false;
     const maxMs = maxBackoffMs ?? intervalMs * 8;
     let stopped = false;
     let timer: number | undefined;
@@ -84,7 +96,7 @@ export function usePolling(
     };
 
     if (pauseWhenHidden) document.addEventListener('visibilitychange', onVisibility);
-    if (immediate) void tick();
+    if (immediate || resuming) void tick();
     else schedule();
 
     return () => {
@@ -93,5 +105,5 @@ export function usePolling(
       controller.abort();
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [enabled, intervalMs, immediate, pauseWhenHidden, maxBackoffMs, restartKey]);
+  }, [enabled, pageActive, intervalMs, immediate, pauseWhenHidden, maxBackoffMs, restartKey]);
 }

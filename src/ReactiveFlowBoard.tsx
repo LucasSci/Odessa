@@ -46,6 +46,7 @@ import { ANY_GIFT_KEY, giftLabel } from './core/knownGifts';
 import { apiUrl } from './lib/api';
 import { callFlowDesigner } from './core/aiDecisionContract';
 import { cn } from './lib/utils';
+import { usePageActive } from './core/pageActivity';
 
 type VideoEntry = {
   id: string;
@@ -754,12 +755,16 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     }
   }, []);
 
+  // Página escondida pelo shell (outra aba aberta) = sem polling; ao voltar,
+  // sincroniza na hora.
+  const pageActive = usePageActive();
   useEffect(() => {
+    if (!pageActive) return;
     void refreshFlowState();
     // Keep the canvas in sync with the live playback in near real time.
     const interval = window.setInterval(refreshFlowState, 600);
     return () => window.clearInterval(interval);
-  }, [refreshFlowState]);
+  }, [pageActive, refreshFlowState]);
 
   useEffect(() => {
     if (!config) return;

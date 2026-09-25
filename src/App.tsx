@@ -8,6 +8,7 @@ import { useAutopilotRuntime } from './core/useAutopilotRuntime';
 import { TangoChatSessionProvider } from './core/tangoChatSession';
 import { apiUrl } from './lib/api';
 import { getActivePersona } from './core/personaManager';
+import { isRouteHash, pageOfTab } from './core/pageRoutes';
 import { installCredentialedFetch } from './lib/fetchCredentials';
 import { startAutoLogin } from './lib/autoLogin';
 import { connectObs, disconnectObs } from './lib/obsWebSocket';
@@ -168,7 +169,12 @@ export default function App() {
   }, [liveConfig]);
 
   useEffect(() => {
-    const handleHashChange = () => setRequestedPanel(getPanelFromHash());
+    // Rotas de página (#/biblioteca…) são do OdessaLiveCenter; aqui só os hashes
+    // antigos/especiais (#overlay, #settings, #login…).
+    const handleHashChange = () => {
+      if (isRouteHash(window.location.hash)) return;
+      setRequestedPanel(getPanelFromHash());
+    };
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
@@ -288,7 +294,7 @@ export default function App() {
         obsSettingsFromApp={obsSettings}
         onLiveConfigOpenChange={setLiveConfigOpen}
         onLiveConfigChange={setLiveConfig}
-        onActiveTabChange={(tab) => setIsLiveTabActive(tab === 'live')}
+        onActiveTabChange={(tab) => setIsLiveTabActive(pageOfTab(tab) === 'live')}
         onStartLive={startLiveWithConfig}
         onEndLive={() => {
           window.dispatchEvent(new CustomEvent('odessa:end-live'));

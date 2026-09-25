@@ -1836,6 +1836,14 @@ button:active:not(:disabled) {
   animation: odessa-fade-in-up 0.35s var(--ease-out) both;
 }
 
+/* Troca de página do shell: a página já está montada (só estava escondida),
+   então basta um fade curto — sem deslocamento e sem começar invisível por
+   350 ms como antes. A animação reinicia sozinha quando a página volta a ser
+   exibida (sai de display:none). */
+.odsa-page:not([hidden]) {
+  animation: odessa-fade-in 0.14s ease-out;
+}
+
 /* Sidebar nav staggered entrance */
 .anim-slide-in {
   animation: odessa-slide-in-left 0.4s var(--ease-out) both;

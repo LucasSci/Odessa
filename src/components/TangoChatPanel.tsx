@@ -48,6 +48,7 @@ import { Badge, Button, ConfirmButton } from './ui';
 import { EmptyState } from './common/OperationalState';
 import { routeStopTransmission } from '../lib/obsCommandRouter';
 import { cn } from '../lib/utils';
+import { usePageActive } from '../core/pageActivity';
 import {
   generateTangoChatReply,
   generateTangoProactiveMessage,
@@ -335,10 +336,12 @@ export function TangoChatPanel({
     }
   }, []);
 
+  // Página escondida pelo shell (outra aba do Odessa aberta) também pausa.
+  const pageActive = usePageActive();
   useEffect(() => {
     // Only poll Chrome tabs when the user is on the setup tab — avoids
     // continuous background fetches when the live view is active.
-    if (subTab !== 'setup') return;
+    if (subTab !== 'setup' || !pageActive) return;
 
     let timeoutId: number | undefined;
     let cancelled = false;
@@ -370,7 +373,7 @@ export function TangoChatPanel({
       window.clearTimeout(timeoutId);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [refreshChromeStatus, subTab]);
+  }, [refreshChromeStatus, subTab, pageActive]);
 
   const handleLaunchChrome = async () => {
     setLaunchingChrome(true);

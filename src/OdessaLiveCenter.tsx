@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import {
   Brain,
@@ -57,10 +57,16 @@ import VideoEditor from './components/VideoEditor';
 
 import { applyVideoEdit, getVideoEdit, hasVideoEdit, persistVideoEditDebounced, syncVideoEditsFromServer, defaultVideoEdit, type VideoSegment } from './core/videoEdits';
 import { getAiConfig, hasActiveGeminiKey, type AiAutonomyLevel } from './core/aiConfig';
+import { PageActivity, usePageActive } from './core/pageActivity';
+import { usePolling } from './core/usePolling';
+import { PAGE_ORDER, hashForPage, pageFromHash, pageForShortcut, pageOfTab, type PageKey } from './core/pageRoutes';
 
-const ReactiveFlowBoard = lazy(() => import('./ReactiveFlowBoard'));
-const PlanningCanvas = lazy(() => import('./PlanningCanvas'));
-const ReactiveFlowLogLab = lazy(() => import('./components/ReactiveFlowLogLab'));
+const loadReactiveFlowBoard = () => import('./ReactiveFlowBoard');
+const loadPlanningCanvas = () => import('./PlanningCanvas');
+const loadReactiveFlowLogLab = () => import('./components/ReactiveFlowLogLab');
+const ReactiveFlowBoard = lazy(loadReactiveFlowBoard);
+const PlanningCanvas = lazy(loadPlanningCanvas);
+const ReactiveFlowLogLab = lazy(loadReactiveFlowLogLab);
 // VideoEditor e TangoChatPanel são importados de forma normal (não-lazy): no Palco o
 // stream de vídeo ao vivo segura conexões HTTP/1.1 e o chunk lazy ficava "pending" para sempre.
 //
@@ -87,6 +93,21 @@ function prefetchTabChunks() {
   const idle = (window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback;
   if (idle) idle(run, { timeout: 6000 });
   else window.setTimeout(run, 3000);
+}
+
+// Pré-carrega o código da página quando o mouse/foco chega no item do menu:
+// até o clique (~100–300 ms depois) o chunk já está pronto e a página abre sem
+// o "Carregando…". Cobre também o Fluxo e o Mural, que ficam fora do prefetch ocioso.
+const PAGE_PREFETCH: Partial<Record<PageKey, Array<() => Promise<unknown>>>> = {
+  flow: [loadReactiveFlowBoard, loadReactiveFlowLogLab],
+  conversation: [loadPersonaChatLab],
+  personas: [loadPersonasPanel],
+  history: [loadSessionHistoryPanel],
+  settings: [loadSettingsPanel, loadAiConfigPanel, loadPlanningCanvas],
+  admin: [loadAdminPanel],
+};
+function prefetchPage(page: PageKey) {
+  PAGE_PREFETCH[page]?.forEach((load) => void load().catch(() => undefined));
 }
 
 // ─── Gift detection ───────────────────────────────────────────────────────────
@@ -415,7 +436,21 @@ export default function OdessaLiveCenter({
   obsSettingsFromApp = null,
   onObsSettingsChanged,
 }: OdessaLiveCenterProps) {
-  const [activeTab, setActiveTab] = useState<TabKey>(() => tabFromPanel(requestedPanel));
+  // A rota na URL (#/biblioteca) tem prioridade: recarregar a página ou abrir um
+  // link volta para a mesma tela, em vez de sempre cair no Ao Vivo.
+  const [activeTab, setActiveTab] = useState<TabKey>(() => pageFromHash(window.location.hash) ?? tabFromPanel(requestedPanel));
+  const activePage = pageOfTab(activeTab);
+
+  // Páginas já abertas continuam montadas (escondidas) — voltar a elas é
+  // instantâneo e preserva rolagem, subaba e rascunhos. Estado derivado no
+  // render (padrão do React para "lembrar do render anterior").
+  const [visitedPages, setVisitedPages] = useState<ReadonlySet<PageKey>>(() => new Set([activePage]));
+  if (!visitedPages.has(activePage)) setVisitedPages(new Set(visitedPages).add(activePage));
+
+  /** Vai para a página; se já está nela (inclusive por um apelido), não mexe. */
+  const goToPage = useCallback((page: PageKey) => {
+    setActiveTab((current) => (pageOfTab(current) === page ? current : page));
+  }, []);
 
   useEffect(() => {
     onActiveTabChange?.(activeTab);
@@ -425,6 +460,29 @@ export default function OdessaLiveCenter({
     // não só quando a aba realmente muda.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
+
+  // URL ⇄ página: cada troca vira uma entrada no histórico (voltar/avançar do
+  // navegador e do mouse funcionam); a 1ª sincronização só substitui a URL.
+  const routeSyncedRef = useRef(false);
+  useEffect(() => {
+    const target = hashForPage(activePage);
+    if (window.location.hash === target) {
+      routeSyncedRef.current = true;
+      return;
+    }
+    const url = `${window.location.pathname}${window.location.search}${target}`;
+    if (routeSyncedRef.current) window.history.pushState(null, '', url);
+    else window.history.replaceState(null, '', url);
+    routeSyncedRef.current = true;
+  }, [activePage]);
+  useEffect(() => {
+    const onPopState = () => {
+      const page = pageFromHash(window.location.hash);
+      if (page) setActiveTab((current) => (pageOfTab(current) === page ? current : page));
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   const [settingsSubTab, setSettingsSubTab] = useState<'general' | 'ai' | 'canvas'>('general');
   const [flowSubTab, setFlowSubTab] = useState<'board' | 'logs'>('board');
@@ -446,6 +504,13 @@ export default function OdessaLiveCenter({
       if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         setPaletteOpen((open) => !open);
+        return;
+      }
+      // Alt+1…Alt+8 = páginas na ordem da barra lateral (funciona até digitando).
+      const page = pageForShortcut(event);
+      if (page) {
+        event.preventDefault();
+        setActiveTab((current) => (pageOfTab(current) === page ? current : page));
       }
     };
     window.addEventListener('keydown', onKey);
@@ -629,33 +694,29 @@ export default function OdessaLiveCenter({
     [drainReactiveQueue, refreshAutomationLogs, refreshVideoState, setCapturedText],
   );
 
+  // Carga inicial — uma vez. Antes este efeito dependia da aba ativa e refazia
+  // config + estado + logs a cada troca de página.
   useEffect(() => {
     const initialLoadTimer = window.setTimeout(() => {
       void loadConfig();
       void refreshVideoState();
       void refreshAutomationLogs();
     }, 0);
+    return () => window.clearTimeout(initialLoadTimer);
+  }, [loadConfig, refreshAutomationLogs, refreshVideoState]);
 
-    // Poll video state continuously, on every tab, so Início, Palco e Fluxo
-    // Reativo refletem a mesma reproducao em tempo real.
-    const videoTimer = window.setInterval(() => {
-      void refreshVideoState();
-    }, 600);
-    const logsTimer =
-      activeTab === 'logs'
-        ? window.setInterval(() => {
-            void refreshAutomationLogs();
-          }, 5000)
-        : null;
-
-    return () => {
-      window.clearTimeout(initialLoadTimer);
-      window.clearInterval(videoTimer);
-      if (logsTimer !== null) window.clearInterval(logsTimer);
-    };
-  }, [activeTab, loadConfig, refreshAutomationLogs, refreshVideoState]);
+  // Estado da reprodução em tempo real (600 ms) onde ela aparece — Ao Vivo e
+  // Automações; nas demais páginas 3 s bastam para a barra superior. Continua
+  // com a aba do navegador em segundo plano (o OBS costuma ficar na frente).
+  const playbackVisible = activePage === 'live' || activePage === 'flow';
+  usePolling(() => refreshVideoState(), playbackVisible ? 600 : 3000, { immediate: playbackVisible, pauseWhenHidden: false });
+  usePolling(() => refreshAutomationLogs(), 5000, { enabled: activePage === 'flow' && flowSubTab === 'logs' });
 
   useEffect(() => {
+    // Só os hashes antigos (#settings, #canvas…) chegam aqui como painel pedido;
+    // 'overview' = sem hash ou rota #/… — quem manda aí é a rota (estado inicial
+    // e popstate acima), senão abrir #/biblioteca voltaria para o Ao Vivo.
+    if (requestedPanel === 'overview') return;
     const timer = window.setTimeout(() => {
       const target = tabFromPanel(requestedPanel);
       setActiveTab(target);
@@ -867,73 +928,21 @@ export default function OdessaLiveCenter({
           </div>
         </div>
 
-        <nav className="odsa-side-nav">
+        <nav className="odsa-side-nav" aria-label="Páginas">
           <div className="odsa-nav-group">
             <span className="odsa-nav-label">Estúdio</span>
-            <div className="anim-slide-in anim-stagger-1">
-            <SideNavButton
-              icon={<RadioTower />}
-              label="Ao Vivo"
-              active={activeTab === 'live' || activeTab === 'chat' || activeTab === 'home' || activeTab === 'stage'}
-              onClick={() => setActiveTab('live')}
-            />
-            </div>
-            <div className="anim-slide-in anim-stagger-2">
-            <SideNavButton
-              icon={<Film />}
-              label="Biblioteca"
-              active={activeTab === 'library'}
-              onClick={() => setActiveTab('library')}
-            />
-            </div>
-            <div className="anim-slide-in anim-stagger-3">
-            <SideNavButton
-              icon={<Link2 />}
-              label="Automações"
-              active={activeTab === 'flow' || activeTab === 'logs'}
-              onClick={() => setActiveTab('flow')}
-            />
-            </div>
-            <div className="anim-slide-in anim-stagger-4">
-            <SideNavButton
-              icon={<MessageCircle />}
-              label="Conversar"
-              active={activeTab === 'conversation'}
-              onClick={() => setActiveTab('conversation')}
-            />
-            </div>
-            <div className="anim-slide-in anim-stagger-4">
-            <SideNavButton
-              icon={<Users />}
-              label="Personas"
-              active={activeTab === 'personas'}
-              onClick={() => setActiveTab('personas')}
-            />
-            </div>
-            <div className="anim-slide-in anim-stagger-5">
-            <SideNavButton
-              icon={<History />}
-              label="Histórico"
-              active={activeTab === 'history'}
-              onClick={() => setActiveTab('history')}
-            />
-            </div>
-            <div className="anim-slide-in anim-stagger-6">
-            <SideNavButton
-              icon={<Settings />}
-              label="Configurações"
-              active={activeTab === 'settings' || activeTab === 'ai' || activeTab === 'canvas'}
-              onClick={() => setActiveTab('settings')}
-            />
-            </div>
-            <div className="anim-slide-in anim-stagger-6">
-            <SideNavButton
-              icon={<Stethoscope />}
-              label="Diagnóstico"
-              active={activeTab === 'admin'}
-              onClick={() => setActiveTab('admin')}
-            />
-            </div>
+            {PAGE_ORDER.map((page, index) => (
+              <div key={page} className={cn('anim-slide-in', `anim-stagger-${Math.min(index + 1, 6)}`)}>
+                <SideNavButton
+                  icon={NAV_ICONS[page]}
+                  label={NAV_LABELS[page]}
+                  hint={`Alt+${index + 1}`}
+                  active={activePage === page}
+                  onClick={() => goToPage(page)}
+                  onIntent={() => prefetchPage(page)}
+                />
+              </div>
+            ))}
           </div>
         </nav>
 
@@ -1011,37 +1020,25 @@ export default function OdessaLiveCenter({
       <DependencyBanner />
 
       <div className="flex gap-1 overflow-x-auto border-b border-[var(--border)] px-3 py-1.5 lg:hidden" style={{ background: 'rgba(6,7,10,0.86)', backdropFilter: 'blur(20px)' }}>
-        {([
-          { id: 'live', label: 'Ao Vivo' },
-          { id: 'library', label: 'Biblioteca' },
-          { id: 'flow', label: 'Automações' },
-          { id: 'personas', label: 'Personas' },
-          { id: 'history', label: 'Histórico' },
-          { id: 'admin', label: 'Diagnóstico' },
-          { id: 'settings', label: 'Configurações' },
-        ] as { id: TabKey; label: string }[]).map(({ id, label }) => {
-          const isActive =
-            activeTab === id ||
-            (id === 'live' && (activeTab === 'chat' || activeTab === 'home' || activeTab === 'stage')) ||
-            (id === 'flow' && activeTab === 'logs') ||
-            (id === 'settings' && (activeTab === 'ai' || activeTab === 'canvas'));
-          return (
-            <button
-              key={id}
-              onClick={() => setActiveTab(id)}
-              className={cn('od-tab od-tab-sm shrink-0', isActive && 'is-active')}
-              style={{ height: 28, fontSize: 11.5, padding: '0 10px' }}
-            >
-              {label}
-            </button>
-          );
-        })}
+        {PAGE_ORDER.map((page) => (
+          <button
+            key={page}
+            onClick={() => goToPage(page)}
+            onPointerEnter={() => prefetchPage(page)}
+            onFocus={() => prefetchPage(page)}
+            aria-current={activePage === page ? 'page' : undefined}
+            className={cn('od-tab od-tab-sm shrink-0', activePage === page && 'is-active')}
+            style={{ height: 28, fontSize: 11.5, padding: '0 10px' }}
+          >
+            {NAV_LABELS[page]}
+          </button>
+        ))}
       </div>
 
-      <section key={activeTab} className="anim-tab-enter flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* 1. AO VIVO (Palco + Central da Live) */}
-        {(activeTab === 'live' || activeTab === 'chat' || activeTab === 'home' || activeTab === 'stage') && (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {visitedPages.has('live') && (
+          <PagePane page="live" active={activePage === 'live'}>
             <div className="flex items-center justify-between border-b border-white/5 bg-black/40 px-4 py-1.5 text-xs">
               <Tabs
                 size="sm"
@@ -1077,17 +1074,19 @@ export default function OdessaLiveCenter({
                 />
               )}
             </div>
-          </div>
+          </PagePane>
         )}
 
         {/* 2. BIBLIOTECA */}
-        {activeTab === 'library' && (
-          <VideoLibraryPanel config={config} onChanged={loadConfig} onOpenEditor={openVideoEditor} onGenerate={() => setActiveTab('personas')} />
+        {visitedPages.has('library') && (
+          <PagePane page="library" active={activePage === 'library'}>
+            <VideoLibraryPanel config={config} onChanged={loadConfig} onOpenEditor={openVideoEditor} onGenerate={() => goToPage('personas')} />
+          </PagePane>
         )}
 
         {/* 3. AUTOMAÇÕES (Fluxo Reativo + Logs) */}
-        {(activeTab === 'flow' || activeTab === 'logs') && (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {visitedPages.has('flow') && (
+          <PagePane page="flow" active={activePage === 'flow'}>
             <div className="flex items-center gap-2 border-b border-white/5 bg-black/40 px-4 py-1.5 text-xs">
               <Tabs
                 size="sm"
@@ -1129,31 +1128,38 @@ export default function OdessaLiveCenter({
                 </Suspense>
               </PageSurface>
             )}
-          </div>
+          </PagePane>
         )}
 
         {/* 4. PERSONAS */}
-        {activeTab === 'personas' && (
-          <Suspense fallback={<PanelLoading label="Carregando personas" />}>
-            <PersonasPanel />
-          </Suspense>
+        {visitedPages.has('personas') && (
+          <PagePane page="personas" active={activePage === 'personas'}>
+            <Suspense fallback={<PanelLoading label="Carregando personas" />}>
+              <PersonasPanel />
+            </Suspense>
+          </PagePane>
         )}
 
         {/* 5. CONVERSA LOCAL */}
-        {activeTab === 'conversation' && (
-          <Suspense fallback={<PanelLoading label="Carregando conversa" />}>
-            <PersonaChatLab />
-          </Suspense>
+        {visitedPages.has('conversation') && (
+          <PagePane page="conversation" active={activePage === 'conversation'}>
+            <Suspense fallback={<PanelLoading label="Carregando conversa" />}>
+              <PersonaChatLab />
+            </Suspense>
+          </PagePane>
         )}
 
-        {activeTab === 'admin' && (
-          <Suspense fallback={<PanelLoading label="Carregando administração" />}>
-            <AdminPanel />
-          </Suspense>
+        {visitedPages.has('admin') && (
+          <PagePane page="admin" active={activePage === 'admin'}>
+            <Suspense fallback={<PanelLoading label="Carregando administração" />}>
+              <AdminPanel />
+            </Suspense>
+          </PagePane>
         )}
 
         {/* 6. HISTÓRICO */}
-        {activeTab === 'history' && (
+        {visitedPages.has('history') && (
+          <PagePane page="history" active={activePage === 'history'}>
           <PageSurface
             icon={<History className="h-4 w-4" />}
             title="Histórico da Live"
@@ -1161,15 +1167,16 @@ export default function OdessaLiveCenter({
           >
             <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
               <Suspense fallback={<PanelLoading label="Carregando histórico" />}>
-                <SessionHistoryPanel active={activeTab === 'history'} />
+                <SessionHistoryPanel active={activePage === 'history'} />
               </Suspense>
             </div>
           </PageSurface>
+          </PagePane>
         )}
 
         {/* 5. CONFIGURAÇÕES (OBS, IA, Mural) */}
-        {(activeTab === 'settings' || activeTab === 'ai' || activeTab === 'canvas') && (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {visitedPages.has('settings') && (
+          <PagePane page="settings" active={activePage === 'settings'}>
             <div className="flex items-center gap-1.5 border-b border-white/5 bg-black/40 px-4 py-2 text-xs">
               <Tabs
                 size="sm"
@@ -1213,10 +1220,10 @@ export default function OdessaLiveCenter({
                 </Suspense>
               )}
             </div>
-          </div>
+          </PagePane>
         )}
 
-      </section>
+      </div>
       </div>
 
       {/* Editor de vídeo canônico (Fase 5b) — aberto do Palco ou da Biblioteca */}
@@ -1234,11 +1241,55 @@ export default function OdessaLiveCenter({
   );
 }
 
-function PanelLoading({ label }: { label: string }) {
+/**
+ * Página do shell: montada na 1ª visita e depois só escondida. `inert` tira a
+ * página escondida do Tab e do leitor de tela; o PageActivity avisa os filhos
+ * para pausar polling, players de vídeo e atalhos de teclado.
+ */
+function PagePane({ page, active, children }: { page: PageKey; active: boolean; children: ReactNode }) {
   return (
-    <div className="flex h-full min-h-[320px] items-center justify-center bg-[#07080a] text-sm font-semibold text-slate-400">
-      <RefreshCw className="mr-2 h-4 w-4 animate-spin text-[var(--gold)]" />
-      {label}
+    <PageActivity active={active}>
+      <section
+        data-page={page}
+        aria-label={NAV_LABELS[page]}
+        hidden={!active}
+        inert={!active}
+        className={cn('odsa-page min-h-0 flex-1 flex-col overflow-hidden', active ? 'flex' : 'hidden')}
+      >
+        <FrozenWhenHidden frozen={!active}>{children}</FrozenWhenHidden>
+      </section>
+    </PageActivity>
+  );
+}
+
+/**
+ * Escondida, a página "congela": o memo diz ao React que nada mudou e ele pula
+ * a subárvore inteira nos renders do shell (que acontecem a cada atualização do
+ * estado do vídeo). Quem precisa saber que ficou inativa — polling, player,
+ * atalhos — recebe pelo contexto do PageActivity, que atravessa o memo.
+ */
+const FrozenWhenHidden = memo(
+  function FrozenWhenHidden({ children }: { frozen: boolean; children: ReactNode }) {
+    return <>{children}</>;
+  },
+  (_previous, next) => next.frozen,
+);
+
+/** Aparece só se o carregamento passar de 150 ms — carregamento rápido não pisca. */
+function PanelLoading({ label }: { label: string }) {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setVisible(true), 150);
+    return () => window.clearTimeout(timer);
+  }, []);
+  return (
+    <div role="status" aria-live="polite" className="flex h-full min-h-[320px] items-center justify-center bg-[#07080a] text-sm font-semibold text-slate-400">
+      {visible && (
+        <>
+          <RefreshCw className="mr-2 h-4 w-4 animate-spin text-[var(--gold)]" />
+          {label}
+        </>
+      )}
     </div>
   );
 }
@@ -1406,9 +1457,38 @@ const TAB_META: Record<TabKey, { group: string; title: string }> = {
   logs:     { group: 'Sistema',  title: 'Logs' },
 };
 
-function SideNavButton({ icon, label, active, onClick }: { icon: ReactNode; label: string; active: boolean; onClick: () => void; }) {
+const NAV_LABELS: Record<PageKey, string> = {
+  live: 'Ao Vivo',
+  library: 'Biblioteca',
+  flow: 'Automações',
+  conversation: 'Conversar',
+  personas: 'Personas',
+  history: 'Histórico',
+  settings: 'Configurações',
+  admin: 'Diagnóstico',
+};
+
+const NAV_ICONS: Record<PageKey, ReactNode> = {
+  live: <RadioTower />,
+  library: <Film />,
+  flow: <Link2 />,
+  conversation: <MessageCircle />,
+  personas: <Users />,
+  history: <History />,
+  settings: <Settings />,
+  admin: <Stethoscope />,
+};
+
+function SideNavButton({ icon, label, hint, active, onClick, onIntent }: { icon: ReactNode; label: string; hint?: string; active: boolean; onClick: () => void; onIntent?: () => void; }) {
   return (
-    <button onClick={onClick} className={cn('odsa-side-item', active && 'is-active')}>
+    <button
+      onClick={onClick}
+      onPointerEnter={onIntent}
+      onFocus={onIntent}
+      aria-current={active ? 'page' : undefined}
+      title={hint ? `${label} (${hint})` : label}
+      className={cn('odsa-side-item', active && 'is-active')}
+    >
       <span className="odsa-side-ico [&_svg]:h-[17px] [&_svg]:w-[17px] [&_svg]:stroke-[1.75]">{icon}</span>
       {label}
     </button>
@@ -1857,6 +1937,10 @@ function StagePanel({
   const [obsBusy, setObsBusy] = useState('');
   const toast = useToast();
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // Com o Palco escondido (outra página aberta) o player sai da tela: ele segura
+  // conexões HTTP/1.1 do vídeo e avança o fluxo ao fim do clip — o mesmo que
+  // acontecia antes, quando trocar de aba desmontava o Palco inteiro.
+  const pageActive = usePageActive();
 
   const runRoutedCommand = async (label: string, fn: () => Promise<CommandResult>) => {
     setObsBusy(label);
@@ -1949,6 +2033,8 @@ function StagePanel({
   // Atalhos: 1-9 = pad do deck, Esc Esc = voltar ao idle, F = tela cheia.
   const lastEscRef = useRef(0);
   useEffect(() => {
+    // Escondido, o Palco não pode reagir a 1-9/Esc/F digitados em outra página.
+    if (!pageActive) return;
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
@@ -1969,7 +2055,7 @@ function StagePanel({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deckFlat, forceVideo, backToIdle]);
+  }, [pageActive, deckFlat, forceVideo, backToIdle]);
 
   const signals: Signal[] = [
     {
@@ -2062,7 +2148,9 @@ function StagePanel({
         {/* Programa */}
         <div className="flex flex-col gap-3">
           <div className="relative overflow-hidden rounded-2xl border border-[var(--sky)]/40 bg-black shadow-[var(--shadow-live)]" style={{ aspectRatio: '9 / 16', maxHeight: 560 }}>
-            <ContinuityPlayer clip={activeClip} nextClip={videoState?.nextClip ? applyVideoEdit(videoState.nextClip) : null} videos={view.videos} onEnded={advanceVideo} fit="contain" className="h-full w-full" publishProgress />
+            {pageActive && (
+              <ContinuityPlayer clip={activeClip} nextClip={videoState?.nextClip ? applyVideoEdit(videoState.nextClip) : null} videos={view.videos} onEnded={advanceVideo} fit="contain" className="h-full w-full" publishProgress />
+            )}
             <div className="pointer-events-none absolute left-2 top-2 flex items-center gap-1.5 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-white">
               <span className={cn('h-1.5 w-1.5 rounded-full', runtime.autopilotEnabled ? 'animate-pulse bg-red-500' : 'bg-[var(--t3)]')} />
               No ar

@@ -46,6 +46,7 @@ import {
 import { Button } from './components/ui';
 import { apiUrl } from './lib/api';
 import { cn } from './lib/utils';
+import { usePageActive } from './core/pageActivity';
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -834,7 +835,11 @@ function PlanningCanvasInner() {
   }, [toastMsg]);
 
   // ── Keyboard shortcuts ──
+  // Só com a página visível: escondido (outra página aberta), Delete/Backspace
+  // apagariam nós do mural enquanto você digita em outro lugar.
+  const pageActive = usePageActive();
   useEffect(() => {
+    if (!pageActive) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         // Don't delete when editing text
@@ -849,7 +854,7 @@ function PlanningCanvasInner() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [deleteSelected, saveCanvas]);
+  }, [pageActive, deleteSelected, saveCanvas]);
 
   // ── Track selected node ──
   const onSelectionChange = useCallback(({ nodes: sel }: { nodes: Node[] }) => {
