@@ -29,6 +29,13 @@ import { recordSessionEvent } from '../core/sessionHistory';
 import { cn } from '../lib/utils';
 
 const DEFAULT_PERSONA_PROMPT = 'Responda em portugues brasileiro, com naturalidade, brevidade e personalidade.';
+/** Mensagens de exemplo para testar a persona com um clique (conversa vazia). */
+const SUGGESTED_MESSAGES = [
+  'Oi! Acabei de chegar na live 👋',
+  'Mandei uma rosa pra você 🌹',
+  'Qual seu jogo favorito?',
+  'Você é uma IA?',
+];
 /** A cada N respostas da persona, dispara a reflexão de evolução automática. */
 const EVOLVE_EVERY = 6;
 const NO_MESSAGES: LabMessage[] = [];
@@ -51,6 +58,9 @@ export function PersonaChatLab() {
   const [pendingByPersona, setPendingByPersona] = useState<Record<string, PendingSelfConfigChange | null>>({});
   const assistantCountRef = useRef(0);
   const reflectingRef = useRef(false);
+  // Cancelar a espera: a IA local pode levar muitos segundos (ou travar).
+  const abortRef = useRef<AbortController | null>(null);
+  const [elapsedSec, setElapsedSec] = useState(0);
   const endRef = useRef<HTMLDivElement>(null);
   const draftRef = useRef<HTMLTextAreaElement>(null);
 
@@ -118,6 +128,14 @@ export function PersonaChatLab() {
     endRef.current?.scrollIntoView?.({ block: 'end' });
   }, [messages.length, sending, pending]);
 
+  // Contador "pensando… N s" enquanto espera a resposta.
+  useEffect(() => {
+    if (!sending) return;
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => setElapsedSec(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [sending]);
+
   // O campo fica desabilitado enquanto a IA responde e perde o foco: devolve ao terminar.
   const wasSendingRef = useRef(false);
   useEffect(() => {
@@ -142,8 +160,11 @@ export function PersonaChatLab() {
     history: LabMessage[],
   ) => {
     setError(null);
+    setElapsedSec(0);
     setSending(true);
     const context = chatHistoryFor(history);
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const systemPrompt = [
         persona.personality?.trim() || DEFAULT_PERSONA_PROMPT,
@@ -160,9 +181,13 @@ export function PersonaChatLab() {
         { username: 'Voce', text: userMessage.text, timestamp: userMessage.timestamp },
         context,
         systemPrompt,
-        { maxLength: 320, timeoutMs: 150_000 },
+        { maxLength: 320, timeoutMs: 150_000, signal: controller.signal },
       );
 
+      if (controller.signal.aborted) {
+        pushSystemMessage(personaId, 'Resposta cancelada.');
+        return;
+      }
       if (!result.ok) {
         // Falha não é fala da persona: aparece como aviso, com "Tentar de novo".
         pushSystemMessage(personaId, result.blockedReason || result.reason || 'A IA não conseguiu responder.', true);
@@ -237,14 +262,18 @@ export function PersonaChatLab() {
           .finally(() => { reflectingRef.current = false; });
       }
     } catch (err) {
-      pushSystemMessage(personaId, err instanceof Error ? err.message : 'Falha ao conversar com a persona.', true);
+      if (controller.signal.aborted) pushSystemMessage(personaId, 'Resposta cancelada.');
+      else pushSystemMessage(personaId, err instanceof Error ? err.message : 'Falha ao conversar com a persona.', true);
     } finally {
+      if (abortRef.current === controller) abortRef.current = null;
       setSending(false);
     }
   };
 
-  const sendMessage = () => {
-    const text = draft.trim();
+  const sendMessage = () => sendText(draft);
+
+  const sendText = (raw: string) => {
+    const text = raw.trim();
     if (!text || !selectedPersona || sending || pending) return;
 
     const userMessage: LabMessage = {
@@ -376,7 +405,7 @@ export function PersonaChatLab() {
       <div className="mb-5 rounded-2xl border border-white/10 bg-[#101114] p-5">
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-emerald-200/70">
           <MessageCircle className="h-4 w-4" />
-          Laboratorio local
+          Laboratório local
         </div>
         <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-white">Converse com uma persona</h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-400">
@@ -463,7 +492,24 @@ export function PersonaChatLab() {
           </header>
 
           <div role="log" aria-live="polite" aria-label="Conversa" className="flex-1 space-y-3 overflow-y-auto p-4">
-            {!messages.length && <div className="flex h-full min-h-[300px] items-center justify-center text-center text-sm text-slate-500">Envie uma mensagem para iniciar esta conversa.</div>}
+            {!messages.length && (
+              <div className="flex h-full min-h-[300px] flex-col items-center justify-center gap-3 text-center text-sm text-slate-500">
+                <span>Envie uma mensagem para iniciar esta conversa — ou teste com um exemplo:</span>
+                <div className="flex max-w-xl flex-wrap justify-center gap-2">
+                  {SUGGESTED_MESSAGES.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      disabled={blocked}
+                      onClick={() => sendText(suggestion)}
+                      className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-200 transition hover:border-emerald-400/40 hover:bg-emerald-400/10 disabled:opacity-40"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {messages.map((message, index) =>
               message.role === 'system' ? (
                 <div key={`${message.timestamp}-${index}`} className="flex flex-col items-center gap-1.5">
@@ -511,7 +557,21 @@ export function PersonaChatLab() {
               </div>
               )
             )}
-            {sending && <div className="text-xs text-slate-500">{selectedPersona?.name} está pensando...</div>}
+            {sending && (
+              <div role="status" className="flex items-center gap-3 text-xs text-slate-500">
+                <span>
+                  {selectedPersona?.name} está pensando… {elapsedSec > 0 && `${elapsedSec} s`}
+                  {elapsedSec >= 20 && ' (a IA local pode demorar no primeiro uso)'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => abortRef.current?.abort()}
+                  className="inline-flex items-center gap-1 rounded-lg border border-white/15 px-2 py-0.5 font-semibold text-slate-300 transition hover:bg-white/10"
+                >
+                  <X className="h-3 w-3" /> Cancelar
+                </button>
+              </div>
+            )}
             {pending && (
               <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-3">
                 <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-300">

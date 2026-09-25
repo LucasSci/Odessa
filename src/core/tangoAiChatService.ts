@@ -44,6 +44,16 @@ export interface PersonaChatOptions {
   maxLength?: number;
   conversationMode?: boolean;
   timeoutMs?: number;
+  /** Cancela a espera (ex.: botão "Cancelar" do Laboratório); soma-se ao timeout. */
+  signal?: AbortSignal;
+}
+
+/** Timeout + cancelamento manual num sinal só (AbortSignal.any quando existe). */
+function requestSignal(options: PersonaChatOptions): AbortSignal {
+  const timeout = AbortSignal.timeout(options.timeoutMs ?? 60_000);
+  if (!options.signal) return timeout;
+  const any = (AbortSignal as typeof AbortSignal & { any?: (signals: AbortSignal[]) => AbortSignal }).any;
+  return any ? any([timeout, options.signal]) : options.signal;
 }
 
 /**
@@ -250,7 +260,7 @@ async function callBackendAiRespond(
       // 20-30s+ só pra carregar o modelo — o timeout batia ANTES do backend
       // (que já tem 120s + retry) sequer terminar, matando a resposta em
       // silêncio a cada vez que o chat ficava um tempo sem atividade.
-      signal: AbortSignal.timeout(options.timeoutMs ?? 60_000),
+      signal: requestSignal(options),
     });
     if (!res.ok) {
       const detail = await res.text();
