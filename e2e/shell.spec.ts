@@ -47,9 +47,15 @@ test('navega por todas as páginas e cada uma sai do carregamento', async ({ pag
 });
 
 test('painel lazy mostra skeleton enquanto o chunk baixa', async ({ page }) => {
-  // Rede lenta simulada só para o chunk da página Histórico.
+  // Segura o chunk da página Histórico até o teste ver o skeleton. Um atraso
+  // fixo não serve: o app pré-carrega os chunks quando o navegador fica ocioso
+  // e, com a máquina carregada, o chunk chegava antes do clique.
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   await page.route(/\/assets\/SessionHistoryPanel-.*\.js$/, async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    await released;
     await route.continue();
   });
   await page.goto('/');
@@ -58,6 +64,7 @@ test('painel lazy mostra skeleton enquanto o chunk baixa', async ({ page }) => {
   const skeleton = section.locator('[data-skeleton="panel"]');
   await expect(skeleton).toBeVisible();
   await expect(skeleton).toHaveAttribute('aria-busy', 'true');
+  release();
   await expect(skeleton).toHaveCount(0, { timeout: 15_000 });
 });
 

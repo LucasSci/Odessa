@@ -36,3 +36,23 @@ def test_resetar_aprendizado_apaga_tudo(service):
     assert service.clear_all() == {"status": "cleared", "usersCleared": 2}
     assert service.get_profile("ana") is None
     assert service.list_profiles()["profiles"] == []
+
+
+def test_ocultado_nao_entra_no_contexto_da_ia(service):
+    service.upsert_round_memory([_event("ana", "oi")])
+    service.hide_profile("ana", True)
+    context = service.build_user_context("ana")
+    assert context["hidden"] is True and context["context"] == ""
+    summary = service.upsert_round_memory([_event("ana", "voltei")])
+    assert summary["usersRecognized"] == 0 and summary["context"] == ""
+    # Os contadores continuam: ocultar não apaga.
+    assert service.get_profile("ana")["profile"]["total_messages"] == 2
+    service.hide_profile("ana", False)
+    assert service.build_user_context("ana")["context"].startswith("Usuario @ana")
+
+
+def test_esquecer_um_espectador_nao_afeta_os_outros(service):
+    service.upsert_round_memory([_event("ana", "oi"), _event("bia", "olá")])
+    assert service.clear_profile("ana")["status"] == "cleared"
+    assert service.get_profile("ana") is None
+    assert service.get_profile("bia") is not None

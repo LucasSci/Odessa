@@ -46,6 +46,7 @@ import {
 } from 'lucide-react';
 import { Badge, Button, ConfirmButton, Modal } from './ui';
 import { LiveReadinessPanel } from './LiveReadinessPanel';
+import { ChatMemoryProfiles } from './ChatMemoryProfiles';
 import { MemoriesUsed, ReplyCardFrame, ReplyStatusBadge } from './ReplyStatus';
 import { describeChatAutonomy } from '../core/chatConversationGovernor';
 import { EmptyState } from './common/OperationalState';
@@ -220,6 +221,7 @@ export function TangoChatPanel({
   // ── Logs e Diagnósticos ───────────────────────────
   const [logs, setLogs] = useState<string[]>([]);
   const [insights, setInsights] = useState(() => getChatInsights());
+  const [memoryResetCount, setMemoryResetCount] = useState(0);
   // ── Chrome Live Helpers State ─────────────────────
   const [chromeStatus, setChromeStatus] = useState<ChromeStatus | null>(null);
   const [launchingChrome, setLaunchingChrome] = useState(false);
@@ -1714,6 +1716,7 @@ export function TangoChatPanel({
               onConfirm={async () => {
                 const { usersCleared } = await resetChatMemory();
                 setInsights(getChatInsights());
+                setMemoryResetCount((count) => count + 1);
                 toast.success(
                   usersCleared === null
                     ? 'Tendências do chat apagadas. A memória por usuário não respondeu — tente de novo com o backend ligado.'
@@ -1724,6 +1727,7 @@ export function TangoChatPanel({
               <RotateCcw className="h-3.5 w-3.5" /> Resetar aprendizado
             </ConfirmButton>
           </div>
+          <ChatMemoryProfiles key={memoryResetCount} />
           <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-4 space-y-3">
             <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400">Tópicos Mais Falados</h4>
             <div className="space-y-1.5">
