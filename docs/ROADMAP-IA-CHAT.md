@@ -37,8 +37,8 @@ Legenda: ✅ atendido e testado · 🟡 atendido, validação manual pendente ·
 | Critério | Status | Evidência |
 |---|---|---|
 | Em cloud o backend enfileira e não mexe no mouse | ✅ | `/chat-automation/send` → `queued: true` (`chatAutomationApi.test.ts`); `/chat-automation/web-send` responde 501 em nuvem (#249) |
-| No computador da live a mensagem é digitada e enviada | ✅ / 🟡 | `send_message` da bridge: clica no campo, digita e envia (Enter ou botão) — `server/tests/test_tango_bridge_send.py`, inclusive em Chromium real. **Falta validar uma vez no Tango de verdade** (depende de login na conta) |
-| Painel mostra enfileirada/executada/bloqueada/falhou | ✅ | Status Aguardando / Enviando / Enviada / Simulada / Bloqueada / **Falhou no envio** (com motivo e "Tentar de novo") |
+| No computador da live a mensagem é digitada e enviada | ✅ / 🟡 | `send_message` da bridge: clica no campo, digita, envia (Enter ou botão) e **confirma que a mensagem apareceu no chat** pelo observer; um envio por vez, nova tentativa só antes de digitar, sobra no campo apagada — `server/tests/test_tango_bridge_send.py`, inclusive em Chromium real com o observer da bridge. Rodado também de ponta a ponta (UI → backend → processo da bridge via CDP → página com o DOM do Tango). **Falta validar uma vez no Tango de verdade** (depende de login na conta): Configuração Automática → Passo 4 → "Testar envio no chat" com Envio Real; o resultado "Enviada e confirmada no chat do Tango" fecha o critério |
+| Painel mostra enfileirada/executada/bloqueada/falhou | ✅ | Status Aguardando / Enviando / Enviada / **Enviada · sem confirmação** / Simulada / Bloqueada / **Falhou no envio** (com motivo, etapa e "Tentar de novo"); Prontidão avisa quando a última não apareceu no chat; histórico registra confirmada/sem confirmação e falhas com `commandId` |
 
 ## #159 — Fila de respostas públicas
 
@@ -132,6 +132,6 @@ Legenda: ✅ atendido e testado · 🟡 atendido, validação manual pendente ·
 | Decisão com fala/resposta/vídeo sem duplicação | ✅ |
 | Governador bloqueia spam, baixa confiança, moderação e falta de alvo | ✅ (alvo = bridge conectada/campo validado) |
 | Em dry-run tudo testável sem enviar | ✅ status "Simulada" |
-| Em modo real, digita e envia no chat do Tango | 🟡 código e testes (inclusive Chromium) ok; **validar uma vez numa live real** |
+| Em modo real, digita e envia no chat do Tango | 🟡 código, testes (inclusive Chromium) e execução de ponta a ponta com a bridge ok; o envio agora é **confirmado no chat**. **Validar uma vez numa live real** (Passo 4 → "Testar envio no chat") |
 | Pausa/reduz autonomia quando algo falha | ✅ |
 | Operador entende e audita cada decisão | ✅ |

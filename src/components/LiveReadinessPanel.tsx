@@ -74,11 +74,14 @@ export function LiveReadinessPanel({ runtime }: { runtime: AutopilotRuntimeState
   const bridgeReady = capture.state === 'healthy' && chat.metrics.bridgeConnected === true && chat.metrics.inputReady === true;
   const canGoReal = bridgeReady && ai.tone !== 'blocked';
   const firstIssue = readiness.checklist.find((item) => item.state !== 'healthy' && (item.id === 'capture' || item.id === 'chat'));
+  const realBlocked = chat.state === 'blocked' || capture.state === 'blocked' || ai.tone === 'blocked';
   const verdict: { tone: Tone; title: string; detail: string } =
     executionMode === 'real'
-      ? chat.state === 'healthy' && capture.state === 'healthy' && ai.tone !== 'blocked'
-        ? { tone: 'ready', title: 'Envio real ligado e pronto', detail: 'A Odessa pode escrever no chat do Tango.' }
-        : { tone: 'blocked', title: 'Envio real ligado, mas não vai sair nada', detail: firstIssue?.detail ?? ai.detail }
+      ? realBlocked
+        ? { tone: 'blocked', title: 'Envio real ligado, mas não vai sair nada', detail: firstIssue?.detail ?? ai.detail }
+        : firstIssue
+          ? { tone: 'warning', title: 'Envio real ligado — confira o aviso', detail: firstIssue.detail }
+          : { tone: 'ready', title: 'Envio real ligado e pronto', detail: 'A Odessa pode escrever no chat do Tango.' }
       : canGoReal
         ? { tone: 'simulated', title: 'Modo teste — o envio real já pode ser ligado', detail: 'Tudo verde: bridge lendo o chat e campo de digitação confirmado.' }
         : {
@@ -136,6 +139,8 @@ export function LiveReadinessPanel({ runtime }: { runtime: AutopilotRuntimeState
               <>
                 <span className="text-slate-200">“{lastSent.text}”</span> → @{lastSent.sourceMessage.username}{' '}
                 {lastSent.status === 'simulated' && <span className="text-violet-300">(simulada) </span>}
+                {lastSent.status === 'sent' && lastSent.confirmed === true && <span className="text-emerald-300">(confirmada no chat) </span>}
+                {lastSent.status === 'sent' && lastSent.confirmed === false && <span className="text-amber-300">(sem confirmação) </span>}
                 {ageLabel(lastSent.sentAt)}
               </>
             ) : (

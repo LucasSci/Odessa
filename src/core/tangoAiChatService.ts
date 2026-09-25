@@ -20,6 +20,8 @@ export interface TangoChatMessage {
   username: string;
   text: string;
   timestamp?: string;
+  /** Eco de uma mensagem que a própria bridge enviou (não é fala de espectador). */
+  own?: boolean;
 }
 
 /**

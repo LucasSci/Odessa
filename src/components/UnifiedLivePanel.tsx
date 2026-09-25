@@ -286,7 +286,7 @@ export function UnifiedLivePanel({
                       <span className="text-[10px] font-bold text-sky-300 truncate">
                         @{item.sourceMessage.username}
                       </span>
-                      <ReplyStatusBadge status={item.status} />
+                      <ReplyStatusBadge status={item.status} confirmed={item.confirmed} />
                     </div>
                     <p className="text-xs text-slate-200 leading-relaxed mb-2">{item.text}</p>
                     {item.blockedReason && (

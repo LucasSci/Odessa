@@ -38,6 +38,7 @@ import {
 import { getAiConfig } from './aiConfig';
 import { routeChatToTriggers } from './chatToTriggerBridge';
 import { rememberBridgeMessage } from './chatMemory';
+import { createOwnEchoFilter } from './ownEchoFilter';
 import {
   classifyIncomingMessage,
   shouldReplyToMessage,
@@ -107,8 +108,20 @@ export type ExecutionMode = 'dry_run' | 'real';
  */
 export type ReplyQueueStatus = 'draft' | 'sending' | 'sent' | 'simulated' | 'blocked' | 'failed' | 'discarded';
 
-/** Resultado de um envio: o que de fato aconteceu com a mensagem. */
-export type SendOutcome = { status: 'sent' | 'simulated' | 'failed'; error?: string };
+/**
+ * Resultado de um envio: o que de fato aconteceu com a mensagem (#158).
+ * `confirmed`: a bridge viu a própria mensagem aparecer no chat do Tango
+ * (false = o Tango aceitou o Enter, mas ela não apareceu a tempo; ausente =
+ * bridge antiga, que não confirma). `commandId` liga a tela aos logs da bridge.
+ */
+export type SendOutcome = {
+  status: 'sent' | 'simulated' | 'failed';
+  error?: string;
+  confirmed?: boolean;
+  commandId?: string;
+};
+
+type BridgeSendResponse = { ok?: boolean; error?: string; confirmed?: boolean; commandId?: string };
 
 /** Última resposta que a IA deixou de mandar e por quê (para a Central). */
 export type SkippedReply = { username?: string; text: string; reason: string; at: string };
@@ -128,6 +141,8 @@ export type TangoReplyItem = {
   memoriesUsed?: string[];
   createdAt: string;
   sentAt?: string;
+  /** Envio real confirmado no chat (ver SendOutcome.confirmed). */
+  confirmed?: boolean;
 };
 
 export type BridgeProcessStatus = {
@@ -243,7 +258,7 @@ export type TangoChatSessionValue = {
   handleApproveReply: (item: TangoReplyItem) => Promise<void>;
   handleDiscardReply: (id: string) => void;
   handleRegenerateReply: (item: TangoReplyItem) => Promise<void>;
-  executeSendMessage: (text: string) => Promise<boolean>;
+  sendWithOutcome: (text: string) => Promise<SendOutcome>;
   // Autoconfigurações pendentes de aprovação (Área 4)
   pendingSelfConfig: PendingSelfConfigChange[];
   approveSelfConfig: (id: string) => Promise<void>;
@@ -306,22 +321,10 @@ export function TangoChatSessionProvider({
   // quando algo chega aqui (ver o bloco de reflexão de evolução abaixo);
   // só fica pendente até o operador aceitar/rejeitar pela UI.
   const [pendingSelfConfig, setPendingSelfConfig] = useState<PendingSelfConfigChange[]>([]);
-  // O observer de DOM da bridge (tango_chat.py) não distingue "mensagem de um
-  // espectador" de "mensagem que a própria Barbara acabou de enviar" — ele
-  // simplesmente captura qualquer texto novo que aparece no chat. Sem isso, a
-  // fala da própria persona ecoava de volta pelo SSE como se fosse uma
-  // mensagem de outra pessoa: duplicava no histórico (já adicionado por
-  // executeSendMessage) e, em modo Autônomo, disparava a IA respondendo a si
-  // mesma — o que explica repetição e respostas sem contexto/continuidade.
-  const recentlySentRef = useRef<{ text: string; at: number }[]>([]);
-  const SELF_ECHO_WINDOW_MS = 8_000;
-  const normalizeForEchoCheck = (text: string) => text.trim().toLowerCase().replace(/\s+/g, ' ');
-  const isOwnEcho = useCallback((incomingText: string) => {
-    const now = Date.now();
-    const normalized = normalizeForEchoCheck(incomingText);
-    recentlySentRef.current = recentlySentRef.current.filter((entry) => now - entry.at < SELF_ECHO_WINDOW_MS);
-    return recentlySentRef.current.some((entry) => entry.text === normalized);
-  }, []);
+  // Eco da própria persona no chat (ver ownEchoFilter): sem isso a fala dela
+  // voltava pelo SSE como se fosse de espectador e, no Autônomo, a IA
+  // respondia a si mesma.
+  const [ownEcho] = useState(createOwnEchoFilter);
   const [generatingForId, setGeneratingForId] = useState<string | null>(null);
   // Timestamp de quando a IA começou a gerar a resposta ATUAL (manual ou
   // autônoma) — null quando ociosa. Não dá pra saber uma % real de progresso
@@ -468,10 +471,6 @@ export function TangoChatSessionProvider({
           ...prev.slice(-399),
           { username: activePersona?.name || 'Você', text: clean, timestamp: new Date().toISOString() },
         ]);
-        // Marca esse texto como "acabei de enviar" para o filtro de eco do
-        // SSE (isOwnEcho) descartar a versão que o observer da bridge captura
-        // de volta do próprio DOM do chat.
-        recentlySentRef.current.push({ text: normalizeForEchoCheck(clean), at: Date.now() });
       };
 
       if (executionMode === 'dry_run') {
@@ -481,28 +480,38 @@ export function TangoChatSessionProvider({
         return { status: 'simulated' };
       }
 
+      // Antes de enviar: a bridge só responde depois de ver a mensagem no
+      // chat, então o eco chega pelo SSE antes desta resposta.
+      const forgetEcho = ownEcho.expect(clean);
       try {
-        const res = await fetchJson<{ ok: boolean; error?: string }>(`${BRIDGE_URL}/send`, {
+        const response = await fetch(`${BRIDGE_URL}/send`, {
           method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: clean }),
         });
-        if (res?.ok) {
+        // Em erro a bridge também responde JSON com o motivo e a etapa.
+        const res = (await response.json().catch(() => null)) as BridgeSendResponse | null;
+        if (response.ok && res?.ok) {
           setLastSentAt(Date.now());
           recordOwnReply();
-          return { status: 'sent' };
+          return {
+            status: 'sent',
+            confirmed: typeof res.confirmed === 'boolean' ? res.confirmed : undefined,
+            commandId: res.commandId,
+          };
         }
-        return { status: 'failed', error: res?.error || 'A bridge não confirmou o envio.' };
+        forgetEcho();
+        return {
+          status: 'failed',
+          error: res?.error || `A bridge não enviou (HTTP ${response.status}).`,
+          commandId: res?.commandId,
+        };
       } catch (error) {
+        forgetEcho();
         return { status: 'failed', error: error instanceof Error ? error.message : 'Bridge inacessível.' };
       }
     },
-    [executionMode, activePersona],
-  );
-
-  // Compatibilidade: telas que só precisam saber se "deu certo".
-  const executeSendMessage = useCallback(
-    async (text: string): Promise<boolean> => (await sendWithOutcome(text)).status !== 'failed',
-    [sendWithOutcome],
+    [executionMode, activePersona, ownEcho],
   );
 
   // ── Geração de Resposta por IA ─────────────────────
@@ -635,19 +644,33 @@ export function TangoChatSessionProvider({
 
       const outcome = await sendWithOutcome(result.reply);
       const sent = outcome.status !== 'failed';
+      if (!sent) {
+        recordSessionEvent('ai.reply.skipped', {
+          username: msg.username,
+          text: msg.text,
+          reason: 'send_failed',
+          error: outcome.error,
+          commandId: outcome.commandId,
+          kind: decision.kind,
+          source: 'bridge',
+        });
+      }
       if (sent) {
         recordChatReplySent(msg.username);
         recordSessionEvent('ai.reply.sent', {
           username: msg.username,
           sourceText: msg.text,
           reply: result.reply,
+          simulated: outcome.status === 'simulated',
+          confirmed: outcome.confirmed,
+          commandId: outcome.commandId,
         });
 
         // Aprendizado automático: a cada N respostas autônomas enviadas de
         // verdade, a persona reflete sobre a conversa recente e pode propor
         // um traço duradouro (mesmo protocolo do PersonaChatLab). Área 4:
         // isto só ENFILEIRA — não aplica nada sozinho. O envio da resposta
-        // acima (executeSendMessage) já terminou, então enfileirar aqui não
+        // acima (sendWithOutcome) já terminou, então enfileirar aqui não
         // atrasa a live em nada; o operador aprova/rejeita quando puder.
         autonomousReplyCountRef.current += 1;
         if (activePersona && autonomousReplyCountRef.current % AUTO_LEARN_EVERY_N_REPLIES === 0) {
@@ -683,6 +706,7 @@ export function TangoChatSessionProvider({
                 ...item,
                 status: outcome.status,
                 blockedReason: outcome.status === 'failed' ? outcome.error : undefined,
+                confirmed: outcome.confirmed,
                 sentAt: new Date().toISOString(),
               }
             : item,
@@ -705,6 +729,18 @@ export function TangoChatSessionProvider({
           source: 'approved_reply',
           username: item.sourceMessage.username,
           simulated: outcome.status === 'simulated',
+          confirmed: outcome.confirmed,
+          commandId: outcome.commandId,
+        });
+      } else {
+        recordSessionEvent('ai.reply.skipped', {
+          username: item.sourceMessage.username,
+          text: item.sourceMessage.text,
+          reason: 'send_failed',
+          error: outcome.error,
+          commandId: outcome.commandId,
+          kind: item.kind,
+          source: 'bridge',
         });
       }
 
@@ -715,6 +751,7 @@ export function TangoChatSessionProvider({
                 ...i,
                 status: outcome.status,
                 blockedReason: outcome.status === 'failed' ? outcome.error : i.blockedReason,
+                confirmed: outcome.confirmed,
                 sentAt: new Date().toISOString(),
               }
             : i,
@@ -888,11 +925,6 @@ export function TangoChatSessionProvider({
     autoTriggerRef.current = handleAutoTriggerAi;
   }, [handleAutoTriggerAi]);
 
-  const bridgePortRef = useRef(bridgeConfig.port);
-  useEffect(() => {
-    bridgePortRef.current = bridgeConfig.port;
-  }, [bridgeConfig.port]);
-
   useEffect(() => {
     if (!bridgeConnected) {
       // Nota: o cleanup do effect anterior ja fecha o ES; o estado 'stopped'
@@ -908,17 +940,11 @@ export function TangoChatSessionProvider({
 
     const connect = () => {
       if (disposed) return;
-      // Em dev, o proxy do Vite (server.proxy, /tango-bridge → 127.0.0.1:7555)
-      // nunca entrega os headers/bytes de uma resposta SSE (text/event-stream,
-      // chunked, sem fim) — a conexão fica presa em CONNECTING para sempre,
-      // então NENHUMA mensagem nova chega ao app e o modo autônomo nunca
-      // dispara, mesmo com a bridge e o Ollama funcionando perfeitamente.
-      // Como a bridge já libera CORS (Access-Control-Allow-Origin: *), em dev
-      // conectamos direto nela, sem passar pelo proxy quebrado.
-      const sseUrl = import.meta.env.DEV
-        ? `http://${window.location.hostname}:${bridgePortRef.current}/messages`
-        : `${BRIDGE_URL}/messages`;
-      const es = new EventSource(sseUrl);
+      // Sempre pelo proxy do backend (em dev, o Vite repassa /tango-bridge ao
+      // backend): só ele tem o token da bridge. Conectar direto na porta 7555
+      // dava 401 desde que a bridge passou a exigir token e deixou de liberar
+      // CORS — em dev nenhuma mensagem do chat chegava ao app.
+      const es = new EventSource(`${BRIDGE_URL}/messages`);
       sseRef.current = es;
 
       es.onopen = () => {
@@ -938,7 +964,10 @@ export function TangoChatSessionProvider({
           // pessoa: duplicava no histórico e, em modo Autônomo, disparava a
           // IA gerando resposta pra si mesma — causando repetição e perda de
           // contexto/continuidade na conversa.
-          if (isOwnEcho(msg.text)) return;
+          // `own`: a bridge reconheceu o eco do próprio envio. O filtro local
+          // cobre bridges antigas; consome o registro nos dois casos.
+          const echoed = ownEcho.consume(msg.text);
+          if (msg.own || echoed) return;
 
           setMessages((prev) => [...prev.slice(-399), msg]);
 
@@ -987,7 +1016,7 @@ export function TangoChatSessionProvider({
       setSseState('stopped');
       setSseAttempts(0);
     };
-  }, [bridgeConnected, isOwnEcho]);
+  }, [bridgeConnected, ownEcho]);
 
   // O botão principal da live dispara a bridge sem exigir que o usuário abra
   // primeiro a aba de configurações do chat.
@@ -1040,7 +1069,7 @@ export function TangoChatSessionProvider({
     handleApproveReply,
     handleDiscardReply,
     handleRegenerateReply,
-    executeSendMessage,
+    sendWithOutcome,
     pendingSelfConfig,
     approveSelfConfig,
     rejectSelfConfig,

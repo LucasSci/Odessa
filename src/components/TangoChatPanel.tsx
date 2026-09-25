@@ -47,6 +47,7 @@ import {
 import { Badge, Button, ConfirmButton, Modal } from './ui';
 import { LiveReadinessPanel } from './LiveReadinessPanel';
 import { ChatMemoryProfiles } from './ChatMemoryProfiles';
+import { describeSendOutcome, SEND_OUTCOME_ICON } from '../core/sendOutcome';
 import { MemoriesUsed, ReplyCardFrame, ReplyStatusBadge } from './ReplyStatus';
 import { describeChatAutonomy } from '../core/chatConversationGovernor';
 import { EmptyState } from './common/OperationalState';
@@ -131,6 +132,15 @@ export type TangoChatPanelProps = {
   obsSettings?: Record<string, unknown> | null;
 };
 
+/** Cor do resultado dos testes da configuração pelo ícone com que ele começa. */
+function wizardResultToneClass(result: string) {
+  if (result.startsWith('✅') || result.startsWith('🎉')) return 'border-emerald-500/30 bg-emerald-500/10';
+  if (result.startsWith('⚠️')) return 'border-amber-500/30 bg-amber-500/10';
+  if (result.startsWith('❌')) return 'border-red-500/30 bg-red-500/10';
+  if (result.startsWith('🧪')) return 'border-violet-500/30 bg-violet-500/10';
+  return 'border-sky-500/30 bg-sky-500/10';
+}
+
 export function TangoChatPanel({
   capturedText: odessaCapturedText,
   runtime: odessaRuntime,
@@ -168,7 +178,7 @@ export function TangoChatPanel({
     handleApproveReply,
     handleDiscardReply,
     handleRegenerateReply,
-    executeSendMessage,
+    sendWithOutcome,
     autonomyMode,
     setAutonomyMode,
     executionMode,
@@ -461,12 +471,10 @@ export function TangoChatPanel({
 
       if (aiRes.ok && aiRes.reply) {
         // Tenta enviar a resposta pela bridge (só funciona se conectado de verdade)
-        const sent = await executeSendMessage(aiRes.reply);
-        if (sent) {
-          setWizardTestResult(
-            `🎉 Configuração 100% Concluída e Validada!\n` +
-            `A bridge se conectou à página e o robô digitou:\n"${aiRes.reply}"`,
-          );
+        const outcome = await sendWithOutcome(aiRes.reply);
+        if (outcome.status !== 'failed') {
+          const { tone, message } = describeSendOutcome(outcome, aiRes.reply);
+          setWizardTestResult(`${SEND_OUTCOME_ICON[tone]} ${message}\nBridge conectada à página.`);
         } else {
           // Bridge conectou mas o envio falhou — reporta honestamente
           setWizardTestResult(
@@ -503,12 +511,17 @@ export function TangoChatPanel({
     setWizardTestSending(true);
     setWizardTestResult(null);
     try {
-      const ok = await executeSendMessage(sampleText);
-      if (ok) {
-        setWizardTestResult(`✅ Mensagem digitada com sucesso no navegador: "${sampleText}"`);
-      } else {
-        setWizardTestResult('❌ Não foi possível enviar. Verifique se o Chrome está aberto e conectado.');
-      }
+      const outcome = await sendWithOutcome(sampleText);
+      const { tone, message } = describeSendOutcome(outcome, sampleText);
+      setWizardTestResult(`${SEND_OUTCOME_ICON[tone]} ${message}`);
+      recordSessionEvent('message.sent', {
+        text: sampleText,
+        source: 'send_test',
+        simulated: outcome.status === 'simulated',
+        confirmed: outcome.confirmed,
+        commandId: outcome.commandId,
+        ok: outcome.status !== 'failed',
+      });
     } finally {
       setWizardTestSending(false);
     }
@@ -525,15 +538,9 @@ export function TangoChatPanel({
       };
       const result = await generateTangoChatReply(sampleMsg, unifiedMessages, aiPrompt);
       if (result.ok && result.reply) {
-        const sent = await executeSendMessage(result.reply);
-        if (sent) {
-          setWizardTestResult(`🎉 Sucesso! A IA gerou a resposta e o robô digitou no alvo:\n"${result.reply}"`);
-        } else {
-          setWizardTestResult(
-            `⚠️ IA gerou a resposta: "${result.reply}", mas o envio falhou.\n` +
-            'Verifique se a bridge está conectada à aba.',
-          );
-        }
+        const outcome = await sendWithOutcome(result.reply);
+        const { tone, message } = describeSendOutcome(outcome, result.reply);
+        setWizardTestResult(`${SEND_OUTCOME_ICON[tone]} ${message}\n(Resposta gerada pela IA para um espectador simulado.)`);
       } else {
         setWizardTestResult('❌ Erro na geração da IA: ' + (result.blockedReason || result.reason));
       }
@@ -557,11 +564,20 @@ export function TangoChatPanel({
     if (!text || sending) return;
     setSending(true);
     try {
-      const ok = await executeSendMessage(text);
-      if (ok) {
+      const outcome = await sendWithOutcome(text);
+      if (outcome.status !== 'failed') {
         setDraftText('');
-        recordSessionEvent('message.sent', { text, source: 'manual' });
+        recordSessionEvent('message.sent', {
+          text,
+          source: 'manual',
+          simulated: outcome.status === 'simulated',
+          confirmed: outcome.confirmed,
+          commandId: outcome.commandId,
+        });
       }
+      const { tone, message } = describeSendOutcome(outcome, text);
+      if (tone === 'failed') toast.error(message);
+      else if (tone === 'unconfirmed') toast.warning(message);
     } finally {
       setSending(false);
     }
@@ -1129,10 +1145,10 @@ export function TangoChatPanel({
                 <div className="rounded-xl border border-white/10 bg-black/40 p-4 space-y-3">
                   <div className="flex items-center gap-2">
                     <Send className="h-4 w-4 text-sky-400" />
-                    <span className="text-xs font-bold text-white">Teste 1: Digitação do Robô</span>
+                    <span className="text-xs font-bold text-white">Teste 1: Envio no chat</span>
                   </div>
                   <p className="text-xs text-slate-400">
-                    Envia uma frase teste fixa para confirmar que o robô consegue digitar no campo da página.
+                    Envia uma frase de teste e confere se ela apareceu no chat do Tango. No modo teste, nada é enviado.
                   </p>
                   <Button
                     size="sm"
@@ -1142,7 +1158,7 @@ export function TangoChatPanel({
                     onClick={() => void handleRunWizardTestSend('Teste de automação Odessa funcionando perfeitamente! ✨')}
                   >
                     {wizardTestSending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Send className="h-3.5 w-3.5 mr-1" />}
-                    Testar Digitação no Alvo
+                    Testar envio no chat
                   </Button>
                 </div>
 
@@ -1170,7 +1186,13 @@ export function TangoChatPanel({
 
               {/* Resultado do Teste */}
               {wizardTestResult && (
-                <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-xs text-slate-200 whitespace-pre-line leading-relaxed">
+                <div
+                  role="status"
+                  className={cn(
+                    'anim-fade-in rounded-xl border p-3 text-xs text-slate-200 whitespace-pre-line leading-relaxed',
+                    wizardResultToneClass(wizardTestResult),
+                  )}
+                >
                   {wizardTestResult}
                 </div>
               )}
@@ -1264,7 +1286,7 @@ export function TangoChatPanel({
                               </span>
                               <span className="flex shrink-0 items-center gap-1.5">
                                 <span className="text-[10px] text-slate-500">{Math.round(item.confidence * 100)}%</span>
-                                <ReplyStatusBadge status={item.status} />
+                                <ReplyStatusBadge status={item.status} confirmed={item.confirmed} />
                               </span>
                             </div>
                             <p className="text-[11px] text-slate-400 italic line-clamp-1 border-l-2 border-white/20 pl-2">

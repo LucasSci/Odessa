@@ -13,10 +13,30 @@ const REPLY_STATUS: Record<ReplyQueueStatus, { label: string; badge: string; car
   discarded: { label: 'Descartada', badge: 'text-slate-400 bg-white/5 border-white/10', card: 'border-white/10 bg-white/[0.02]' },
 };
 
-export function ReplyStatusBadge({ status, className }: { status: ReplyQueueStatus; className?: string }) {
-  const meta = REPLY_STATUS[status];
+/** Enviada, mas a mensagem não apareceu no chat a tempo (#158): o operador confere no Tango. */
+const SENT_UNCONFIRMED = {
+  label: 'Enviada · sem confirmação',
+  badge: 'text-amber-300 bg-amber-500/10 border-amber-400/30',
+  title: 'O Tango aceitou o envio, mas a mensagem não apareceu no chat a tempo. Confira no Tango.',
+};
+
+export function ReplyStatusBadge({
+  status,
+  confirmed,
+  className,
+}: {
+  status: ReplyQueueStatus;
+  /** Só importa para "sent": false = não apareceu no chat. */
+  confirmed?: boolean;
+  className?: string;
+}) {
+  const unconfirmed = status === 'sent' && confirmed === false;
+  const meta = unconfirmed ? SENT_UNCONFIRMED : { ...REPLY_STATUS[status], title: undefined };
   return (
-    <span className={cn('inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-bold', meta.badge, className)}>
+    <span
+      title={meta.title}
+      className={cn('inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-bold', meta.badge, className)}
+    >
       {meta.label}
     </span>
   );

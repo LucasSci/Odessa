@@ -77,6 +77,8 @@ export interface LiveSupervisorInput {
     inputReady: boolean;
     lastSendStatus?: 'sent' | 'simulated' | 'failed' | null;
     lastSendError?: string | null;
+    /** A última enviada apareceu no chat? false = o Tango aceitou, mas ela não apareceu (#158). */
+    lastSendConfirmed?: boolean | null;
   };
   autonomyLevel: AiAutonomyLevel;
   autoChatEnabled: boolean;
@@ -180,6 +182,18 @@ function chatReadiness(input: LiveSupervisorInput): SubsystemReadiness {
       metrics,
     };
   }
+  if (chat.lastSendStatus === 'sent' && chat.lastSendConfirmed === false) {
+    return {
+      id: 'chat',
+      label: 'Envio no chat',
+      state: 'warning',
+      detail: 'A última mensagem não apareceu no chat a tempo. Confira no Tango se ela saiu.',
+      suggestedAction:
+        'Se saiu, ajuste o seletor das mensagens em Configurações; se não saiu, rode o teste de envio da Configuração Automática.',
+      recoveryActions: [],
+      metrics,
+    };
+  }
   if (!chat.inputReady) {
     return {
       id: 'chat',
@@ -195,7 +209,10 @@ function chatReadiness(input: LiveSupervisorInput): SubsystemReadiness {
     id: 'chat',
     label: 'Envio no chat',
     state: 'healthy',
-    detail: 'Campo do chat validado: pronto para enviar de verdade.',
+    detail:
+      chat.lastSendStatus === 'sent' && chat.lastSendConfirmed
+        ? 'Última mensagem confirmada no chat do Tango.'
+        : 'Campo do chat validado: pronto para enviar de verdade.',
     recoveryActions: [],
     metrics,
   };

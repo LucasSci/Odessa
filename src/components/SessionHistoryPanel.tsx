@@ -59,6 +59,14 @@ const TYPE_COLORS: Record<string, string> = {
   'persona.selfconfig.photoRequested': 'bg-fuchsia-500/20 text-fuchsia-300',
 };
 
+/** Entrega de uma mensagem enviada (#158): simulada, confirmada no chat ou sem confirmação. */
+function deliveryNote(d: Record<string, unknown>): string {
+  if (d.simulated) return ' (simulada)';
+  if (d.confirmed === true) return ' (confirmada no chat)';
+  if (d.confirmed === false) return ' (sem confirmação no chat)';
+  return '';
+}
+
 function eventSummary(e: SessionEvent): string {
   // `data` tem formato diferente por tipo de evento (chat/gift/trigger/vídeo/IA)
   // — any é intencional aqui: é só pra montar uma linha de texto de histórico,
@@ -90,11 +98,11 @@ function eventSummary(e: SessionEvent): string {
       return `${d.username ?? 'desconhecido'} → ${d.reply ?? ''}${details.length ? ` (${details.join(' | ')})` : ''}`;
     }
     case 'ai.reply.sent':
-      return `${d.username ?? 'desconhecido'} → ${d.reply ?? ''}`;
+      return `${d.username ?? 'desconhecido'} → ${d.reply ?? ''}${deliveryNote(d)}`;
     case 'ai.reply.skipped':
-      return `${d.username ?? 'desconhecido'}: "${d.text ?? ''}" — ${describeReplyBlock(String(d.reason ?? ''))}`;
+      return `${d.username ?? 'desconhecido'}: "${d.text ?? ''}" — ${describeReplyBlock(String(d.reason ?? ''))}${d.error ? ` (${d.error})` : ''}`;
     case 'message.sent':
-      return d.text ?? '';
+      return `${d.text ?? ''}${deliveryNote(d)}`;
     case 'persona.selfconfig.proposed':
       return `${d.summary ?? ''} (${d.source === 'evolution' ? 'evolução automática' : 'conversa'})`;
     case 'persona.selfconfig.applied': {
