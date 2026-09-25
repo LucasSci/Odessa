@@ -144,7 +144,7 @@ class BridgeProcessManager:
         if mode:
             effective_config["mode"] = mode
         port = int(effective_config.get("port", 7555))
-        existing = self._probe_bridge(port)
+        existing = await asyncio.to_thread(self._probe_bridge, port)
         if existing is not None:
             self._adopted = True
             self._started_at = existing.get("startedAt") or datetime.now(timezone.utc).isoformat()
@@ -252,7 +252,10 @@ class BridgeProcessManager:
 
         # Sempre sonda a porta: mesmo sem processo gerenciado (ex.: bridge órfã
         # de uma execução anterior), reflete a realidade da conectividade.
-        bridge_status = self._probe_bridge(port)
+        # Numa thread: no Windows uma conexão recusada em localhost leva ~2 s, e
+        # a sonda síncrona aqui dentro congelava o servidor inteiro (Palco,
+        # overlay do OBS e painel travavam a cada consulta de status).
+        bridge_status = await asyncio.to_thread(self._probe_bridge, port)
         bridge_reachable = bridge_status is not None
 
         if self._adopted and not bridge_reachable:
@@ -429,7 +432,13 @@ async def launch_chrome_for_live(url: str = "https://tango.me/stream/broadcast",
 
 
 async def get_chrome_debug_tabs(port: int = 9222) -> dict[str, Any]:
-    """Verifica se o Chrome está aberto com debug e lista as abas abertas."""
+    """Verifica se o Chrome está aberto com debug e lista as abas abertas.
+
+    Roda numa thread para não bloquear o servidor (ver get_status)."""
+    return await asyncio.to_thread(_chrome_debug_tabs_sync, port)
+
+
+def _chrome_debug_tabs_sync(port: int) -> dict[str, Any]:
     import urllib.request
     try:
         url = f"http://127.0.0.1:{port}/json/list"
