@@ -62,3 +62,6 @@ reports/
 .stryker-tmp/
 test-results/
 playwright-report/
+
+# Cópia temporária do handler catch-all gerada pelo hostinger-server.mjs
+api/_odessa_handler_*.mjs

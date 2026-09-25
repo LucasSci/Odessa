@@ -1,0 +1,23 @@
+# Cobertura publicada pelo CI (frontend: Vitest/lcov, backend: pytest-cov/xml).
+coverage:
+  status:
+    project:
+      default:
+        # O total não pode cair mais que 1 ponto num PR.
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        # Linhas novas/alteradas do PR precisam de 70% de cobertura.
+        target: 70%
+        informational: false
+flags:
+  frontend:
+    paths: [src/]
+    carryforward: true
+  backend:
+    paths: [server/]
+    carryforward: true
+comment:
+  layout: "condensed_header, diff, flags"
+  require_changes: true

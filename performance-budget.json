@@ -1,0 +1,10 @@
+{
+  "$comment": "Orçamento de performance do build (KB gzip). Verificado por `pnpm budget` depois do `pnpm build`. Subir um limite exige justificativa no PR.",
+  "rules": [
+    { "name": "Entrada (index-*.js)", "match": "^index-.*\\.js$", "maxKbGzip": 140 },
+    { "name": "vendor-react", "match": "^vendor-react-.*\\.js$", "maxKbGzip": 130 },
+    { "name": "CSS total", "match": "\\.css$", "maxKbGzip": 35, "aggregate": true },
+    { "name": "Qualquer chunk lazy", "match": "\\.js$", "maxKbGzip": 60, "exclude": "^(index|vendor-react)-" },
+    { "name": "JS total", "match": "\\.js$", "maxKbGzip": 460, "aggregate": true }
+  ]
+}
