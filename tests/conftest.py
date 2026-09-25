@@ -41,3 +41,12 @@ def _dev_auth_by_default(monkeypatch):
     aplicado depois da fixture e vence.
     """
     monkeypatch.setattr(auth_core, "AUTH_DISABLED", True)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_login_rate_limit(monkeypatch):
+    """Cada teste começa com o limite de tentativas de login zerado."""
+    from server.api.v1.endpoints import auth as auth_endpoint
+    from server.core.rate_limit import KeyedRateLimiter
+
+    monkeypatch.setattr(auth_endpoint, "_login_limiter", KeyedRateLimiter(limit=10, window_s=60.0))

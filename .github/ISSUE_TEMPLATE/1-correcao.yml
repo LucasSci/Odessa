@@ -1,0 +1,32 @@
+name: Correção
+description: Algo que deveria funcionar e não funciona (bug, regressão, comportamento errado).
+title: "[Correção] "
+labels: ["correcao"]
+body:
+  - type: textarea
+    id: problema
+    attributes:
+      label: Problema
+      description: O que acontece hoje e o que deveria acontecer.
+    validations:
+      required: true
+  - type: textarea
+    id: reproducao
+    attributes:
+      label: Como reproduzir
+      placeholder: |
+        1. Abrir '...'
+        2. Clicar em '...'
+        3. Ver o erro
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / prints
+      render: shell
+  - type: textarea
+    id: aceite
+    attributes:
+      label: Critérios de aceite
+      placeholder: "- [ ] ..."

@@ -1,0 +1,24 @@
+name: Melhoria
+description: Algo que já existe e pode ficar melhor (UX, desempenho, qualidade, processo).
+title: "[Melhoria] "
+labels: ["melhoria"]
+body:
+  - type: textarea
+    id: contexto
+    attributes:
+      label: Contexto
+      description: Como funciona hoje e por que precisa melhorar.
+    validations:
+      required: true
+  - type: textarea
+    id: objetivo
+    attributes:
+      label: Objetivo
+      description: O resultado esperado depois da melhoria.
+    validations:
+      required: true
+  - type: textarea
+    id: aceite
+    attributes:
+      label: Critérios de aceite
+      placeholder: "- [ ] ..."

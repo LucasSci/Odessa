@@ -5,6 +5,17 @@ Todas as mudanças relevantes do projeto Odessa.
 ## [1.1.0] — Em desenvolvimento
 
 ### Adicionado
+- **Padrões de engenharia e esteira de qualidade** — fluxo Issue → Pull
+  Request para qualquer agente, CI com ESLint, arch-contract, Knip,
+  Commitlint, cobertura no Codecov, orçamento de performance, auditoria de
+  dependências, E2E com Playwright, CodeQL e testes de mutação (Stryker).
+  (`docs/ENGINEERING-STANDARDS.md`, #239–#242)
+- **Observabilidade opt-in com Sentry** no frontend e no backend, sem dados
+  pessoais, e ErrorBoundary por página. (#243)
+- **Rate limit** por IP na borda da API e no login. (#247)
+- **Sistema de motion** (skill Design Motion Principles): skeletons, entrada e
+  saída animadas em modais/menus/avisos, estados de progresso e tokens únicos;
+  remove ripple/bounce/loops decorativos. (#244, #245)
 - **Instalador desktop (Windows)** — `OdessaStudioSetup.exe` autocontido:
   empacota o backend Python, o frontend buildado e um runtime Python completo
   (interpretador + dependências + Chromium do Playwright). Quem instala não

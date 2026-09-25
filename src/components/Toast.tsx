@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react';
+import { EXIT_MS } from '../core/usePresence';
 import { cn } from '../lib/utils';
 
 export type ToastKind = 'success' | 'error' | 'warning' | 'info';
@@ -22,6 +23,8 @@ interface ToastItem {
   message: string;
   kind: ToastKind;
   action?: ToastAction;
+  /** Saindo: fica montado por EXIT_MS para a animação de saída. */
+  leaving?: boolean;
 }
 
 interface ToastApi {
@@ -52,8 +55,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const dismiss = useCallback((id: number) => {
     const timer = timers.current.get(id);
     if (timer) clearTimeout(timer);
-    timers.current.delete(id);
-    setItems((prev) => prev.filter((t) => t.id !== id));
+    setItems((prev) => prev.map((t) => (t.id === id ? { ...t, leaving: true } : t)));
+    timers.current.set(
+      id,
+      setTimeout(() => {
+        timers.current.delete(id);
+        setItems((prev) => prev.filter((t) => t.id !== id));
+      }, EXIT_MS),
+    );
   }, []);
 
   const toast = useCallback(
@@ -101,8 +110,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             <div
               key={item.id}
               role={item.kind === 'error' ? 'alert' : 'status'}
+              data-state={item.leaving ? 'closed' : 'open'}
               className={cn(
-                'pointer-events-auto flex items-start gap-2.5 rounded-2xl border bg-[var(--bg2)] px-3.5 py-3 text-[13px] text-[var(--t1)] shadow-[var(--shadow-3)] anim-slide-in',
+                'od-toast pointer-events-auto flex items-start gap-2.5 rounded-2xl border bg-[var(--bg2)] px-3.5 py-3 text-[13px] text-[var(--t1)] shadow-[var(--shadow-3)]',
                 style.box,
               )}
             >

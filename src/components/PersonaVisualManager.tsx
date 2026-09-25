@@ -17,6 +17,7 @@ import {
   type PersonaAssets,
   type PersonaVisual,
 } from '../core/personaAssets';
+import { SkeletonList } from './ui';
 
 type Props = {
   personaId: string;
@@ -125,9 +126,7 @@ export default function PersonaVisualManager({ personaId, assets }: Props) {
 
   if (loading) {
     return (
-      <p className="p-4 text-center text-sm text-slate-400">
-        Carregando kits e cenários...
-      </p>
+      <SkeletonList label="Carregando kits e cenários" rows={3} className="p-4" itemClassName="h-16" />
     );
   }
 
@@ -164,6 +163,8 @@ export default function PersonaVisualManager({ personaId, assets }: Props) {
                     if (!piece) return null;
                     return (
                       <img
+                        loading="lazy"
+                        decoding="async"
                         key={pid}
                         src={assetUrl(personaId, 'wardrobe', pid)}
                         alt={piece.label}
@@ -226,6 +227,8 @@ export default function PersonaVisualManager({ personaId, assets }: Props) {
                     }`}
                   >
                     <img
+                      loading="lazy"
+                      decoding="async"
                       src={assetUrl(personaId, 'wardrobe', piece.id)}
                       alt={piece.label}
                       className="aspect-square h-full w-full object-cover"
@@ -274,6 +277,8 @@ export default function PersonaVisualManager({ personaId, assets }: Props) {
                   <div className="flex gap-1.5">
                     {face && (
                       <img
+                        loading="lazy"
+                        decoding="async"
                         src={assetUrl(personaId, 'faces', face.id)}
                         alt={face.label}
                         title={`Rosto: ${face.label}`}
@@ -282,6 +287,8 @@ export default function PersonaVisualManager({ personaId, assets }: Props) {
                     )}
                     {env && (
                       <img
+                        loading="lazy"
+                        decoding="async"
                         src={assetUrl(personaId, 'environments', env.id)}
                         alt={env.label}
                         title={`Ambiente: ${env.label}`}

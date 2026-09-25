@@ -43,7 +43,7 @@ import {
   Check,
   RefreshCw,
 } from 'lucide-react';
-import { Button } from './components/ui';
+import { Button, PanelSkeleton } from './components/ui';
 import { apiUrl } from './lib/api';
 import { cn } from './lib/utils';
 import { usePageActive } from './core/pageActivity';
@@ -878,9 +878,7 @@ function PlanningCanvasInner() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full text-[var(--t3)]">
-        <RefreshCw size={20} className="animate-spin mr-2" /> Carregando canvas...
-      </div>
+      <PanelSkeleton label="Carregando canvas" />
     );
   }
 

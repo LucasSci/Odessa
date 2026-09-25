@@ -1,5 +1,7 @@
+import os
+
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from server.core import auth as auth_core
 from server.core.auth import (
@@ -10,9 +12,16 @@ from server.core.auth import (
     set_session_cookie,
     verify_admin_credentials,
 )
+from server.core.rate_limit import KeyedRateLimiter
 
 router = APIRouter(tags=["auth"])
 AUTH_BUILD = "auth-session-2026-09-09"
+
+# Contra força bruta de senha: tentativas de login por IP por minuto.
+_login_limiter = KeyedRateLimiter(
+    limit=int(os.getenv("ODESSA_RATE_LIMIT_LOGIN_PER_MIN", "10")),
+    window_s=60.0,
+)
 
 
 class LoginRequest(BaseModel):
@@ -26,8 +35,16 @@ class ChangePasswordRequest(BaseModel):
 
 
 @router.post("/login")
-async def login(request: LoginRequest, response: Response):
+async def login(request: LoginRequest, response: Response, http_request: Request):
     clear_session_cookie(response)
+    client_ip = http_request.client.host if http_request.client else "unknown"
+    if not auth_core.AUTH_DISABLED and not _login_limiter.allow(client_ip):
+        retry_after = _login_limiter.retry_after(client_ip)
+        raise HTTPException(
+            status_code=429,
+            detail="Muitas tentativas de login. Aguarde um instante.",
+            headers={"Retry-After": str(retry_after)},
+        )
     if auth_core.AUTH_DISABLED:
         # Modo dev (ODESSA_AUTH_DISABLED=1): login sempre abre a sessão.
         return {

@@ -116,29 +116,14 @@ button:disabled,
 }
 
 /* ── 7. Micro-interações de navegação ─────────────────────────────── */
-/* Ícone da sidebar dá um "nudge" sutil ao passar o mouse */
-.odsa-side-ico svg {
-  transition: transform var(--dur-med) var(--ease-out);
-}
-.odsa-side-item:hover .odsa-side-ico svg {
-  transform: translateX(2px) scale(1.08);
-}
-
-/* Tab pills: leve escala no ativo para dar vida */
-.od-tab.is-active,
-.odsa-tab.is-active {
-  transform: scale(1.02);
-}
-
-/* Card da Diretora: lift sutil no hover (borda já existia) */
+/* Navegação é a interação mais frequente do app: só cor e fundo mudam,
+   nada se move (sem nudge de ícone, sem escala na aba ativa). */
 .odsa-director-card {
   transition:
-    border-color 0.15s,
-    transform var(--dur-med) var(--ease-out),
-    box-shadow var(--dur-med) var(--ease-out);
+    border-color var(--motion-state) var(--ease-out),
+    box-shadow var(--motion-state) var(--ease-out);
 }
 .odsa-director-card:hover {
-  transform: translateY(-1px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
 }
 
@@ -153,132 +138,145 @@ a:not([class]):hover {
   text-decoration-color: var(--sky);
 }
 
-/* ── 8. Botões — animações de hover globais ───────────────────────── */
-/* Transição suave padrão para todos os botões interativos.
-   Cores (background, border-color) usam 300ms para uma mudança gradual
-   e profissional; transform e filter continuam rápidos (180ms) para
-   manter o lift e o press responsivos ao toque. */
-button:not(:disabled),
-[role='button']:not(:disabled),
+.od-tab,
+.odsa-tab {
+  transition:
+    color var(--motion-state) var(--ease-out),
+    background-color var(--motion-state) var(--ease-out),
+    box-shadow var(--motion-state) var(--ease-out);
+}
+
+/* ── 8. Botões — um único sistema de feedback ─────────────────────── */
+/* Hover: só cor, borda e sombra (160 ms). Press: scale(0.97) imediato.
+   Só o CTA primário ganha 1 px de lift no hover. Sem shimmer, sem bounce,
+   sem ripple — num app usado centenas de vezes por sessão, feedback bom é
+   o que ninguém percebe como "animação". */
+button,
+[role='button'],
 .od-btn,
 .odsa-btn,
 .btn,
 .od-iconbtn {
   transition:
-    transform 0.18s var(--ease-out),
-    background 0.3s var(--ease-out),
-    border-color 0.3s var(--ease-out),
-    box-shadow 0.3s var(--ease-out),
-    filter 0.22s var(--ease-out),
-    color 0.3s var(--ease-out);
+    transform 120ms var(--ease-out),
+    background-color var(--motion-state) var(--ease-out),
+    border-color var(--motion-state) var(--ease-out),
+    box-shadow var(--motion-state) var(--ease-out),
+    color var(--motion-state) var(--ease-out),
+    opacity var(--motion-state) var(--ease-out),
+    filter var(--motion-state) var(--ease-out);
 }
 
-/* Lift sutil ao passar o mouse — aplica a todos os botões habilitados */
-button:not(:disabled):not(.od-ripple-host):hover,
-[role='button']:not(:disabled):hover,
-.od-btn:not(:disabled):hover,
-.odsa-btn:not(:disabled):hover,
-.btn:not(:disabled):hover,
-.od-iconbtn:not(:disabled):hover {
-  transform: translateY(-1px);
-}
-
-/* Press: comprime ao clicar */
-button:not(:disabled):active,
-[role='button']:not(:disabled):active,
-.od-btn:not(:disabled):active,
-.odsa-btn:not(:disabled):active,
-.btn:not(:disabled):active,
-.od-iconbtn:not(:disabled):active {
-  transform: translateY(0) scale(0.96);
-}
-
-/* ── Shine sweep — efeito de brilho que atravessa o botão ─────────── */
-/* Funciona em botões primários/accent com fundo gradiente. O ::before
-   cria uma barra diagonal translúcida que varre da esquerda para a
-   direita no hover. overflow:hidden no botão garante o recorte. */
-.od-btn-primary,
-.odsa-btn-primary,
-.btn-accent,
-.odsa-live-pill.is-on {
-  position: relative;
-  overflow: hidden;
-}
-
-.od-btn-primary::before,
-.odsa-btn-primary::before,
-.btn-accent::before,
-.odsa-live-pill.is-on::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -60%;
-  width: 40%;
-  height: 100%;
-  background: linear-gradient(
-    100deg,
-    transparent,
-    rgba(255, 255, 255, 0.22),
-    transparent
-  );
-  transform: skewX(-18deg);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.18s var(--ease-out);
-}
-
-.od-btn-primary:hover::before,
-.odsa-btn-primary:hover::before,
-.btn-accent:hover::before,
-.odsa-live-pill.is-on:hover::before {
-  opacity: 1;
-  animation: odessa-shine-sweep 0.7s var(--ease-out) forwards;
-}
-
-@keyframes odessa-shine-sweep {
-  0% {
-    left: -60%;
-  }
-  100% {
-    left: 120%;
-  }
-}
-
-/* ── Glow intensificado no hover dos botões primários ────────────── */
-.od-btn-primary:hover,
-.odsa-btn-primary:hover {
-  filter: brightness(1.10);
-  box-shadow:
-    0 0 36px rgba(59, 130, 246, 0.42),
-    inset 0 1px 0 rgba(255, 255, 255, 0.25);
-}
-
-/* ── Icon buttons: leve pulso de brilho no hover ─────────────────── */
-.od-iconbtn:hover,
-.odsa-btn-icon:hover {
-  box-shadow: 0 0 16px rgba(125, 211, 252, 0.18);
-}
-
-.od-iconbtn:active,
-.odsa-btn-icon:active {
-  transform: scale(0.90);
-}
-
-/* ── Tabs: transição suave de cor e fundo no hover ────────────────── */
-.od-tab,
-.odsa-tab {
-  transition:
-    color 0.3s var(--ease-out),
-    background 0.3s var(--ease-out),
-    transform 0.18s var(--ease-out);
-}
-
-.od-tab:not(.is-active):hover,
-.odsa-tab:not(.is-active):hover {
-  transform: translateY(-1px);
-}
-
-.od-tab:active,
-.odsa-tab:active {
+:is(button, [role='button'], .od-btn, .odsa-btn, .btn, .od-iconbtn):not(:disabled):active {
   transform: scale(0.97);
+}
+
+.od-btn-primary:not(:disabled):hover,
+.odsa-btn-primary:not(:disabled):hover,
+.btn-accent:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+.od-btn-primary:not(:disabled):active,
+.odsa-btn-primary:not(:disabled):active,
+.btn-accent:active {
+  transform: translateY(0) scale(0.97);
+}
+
+/* ── 9. Sistema de motion ─────────────────────────────────────────── */
+/* Tokens únicos (lente "Emil" da skill design-motion-principles: produto de
+   uso intenso → rápido e discreto). Use estes em vez de números soltos. */
+:root {
+  --motion-enter: 200ms;   /* algo aparece (modal, menu, toast, conteúdo) */
+  --motion-exit: 140ms;    /* algo some — sempre mais curto e sutil        */
+  --motion-state: 160ms;   /* mudança de estado visível (hover, cor, aba)  */
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+}
+
+@keyframes od-pop-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+}
+@keyframes od-pop-out {
+  to { opacity: 0; transform: translateY(2px) scale(0.99); }
+}
+@keyframes od-fade-in {
+  from { opacity: 0; }
+}
+@keyframes od-fade-out {
+  to { opacity: 0; }
+}
+@keyframes od-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+@keyframes od-toast-out {
+  to { opacity: 0; transform: translateX(6px); }
+}
+
+/* Painéis flutuantes (modais, menus, popovers) — usar com usePresence():
+   <div className="od-pop" data-state={presence.state}> */
+.od-pop[data-state='open'] {
+  animation: od-pop-in var(--motion-enter) var(--ease-out) both;
+}
+.od-pop[data-state='closed'] {
+  animation: od-pop-out var(--motion-exit) var(--ease-exit) both;
+  pointer-events: none;
+}
+/* Menus nascem do gatilho (canto superior direito por padrão). */
+.od-pop.od-origin-top-right { transform-origin: top right; }
+.od-pop.od-origin-top-left { transform-origin: top left; }
+.od-pop.od-origin-top { transform-origin: top center; }
+
+/* Fundo escurecido de modais */
+.od-backdrop[data-state='open'] {
+  animation: od-fade-in var(--motion-enter) var(--ease-out) both;
+}
+.od-backdrop[data-state='closed'] {
+  animation: od-fade-out var(--motion-exit) var(--ease-exit) both;
+  pointer-events: none;
+}
+
+/* Avisos (Toast) */
+.od-toast[data-state='open'] {
+  animation: od-toast-in var(--motion-enter) var(--ease-out) both;
+}
+.od-toast[data-state='closed'] {
+  animation: od-toast-out var(--motion-exit) var(--ease-exit) both;
+  pointer-events: none;
+}
+
+/* Skeleton → conteúdo: o esqueleto entra com fade (sem "piscar" se o
+   carregamento for rápido — ver PanelSkeleton, que espera 150 ms). */
+.od-skeleton-in {
+  animation: od-fade-in var(--motion-enter) var(--ease-out) both;
+}
+
+/* Tooltip: a primeira dica espera um pouco (evita dicas piscando ao passar
+   o mouse pela tela); some na hora. */
+.od-tooltip {
+  transition:
+    opacity var(--motion-exit) var(--ease-exit),
+    scale var(--motion-exit) var(--ease-exit);
+}
+.group:hover > .od-tooltip,
+.group:focus-within > .od-tooltip {
+  transition:
+    opacity var(--motion-enter) var(--ease-out) 350ms,
+    scale var(--motion-enter) var(--ease-out) 350ms;
+}
+
+/* ConfirmButton: barra que esvazia nos 3 s em que a confirmação vale. */
+@keyframes od-confirm-countdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+.od-confirm-timer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: currentColor;
+  opacity: 0.55;
+  transform-origin: left center;
+  animation: od-confirm-countdown 3s linear forwards;
 }

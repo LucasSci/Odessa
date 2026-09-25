@@ -79,3 +79,20 @@ def test_dev_mode_env_var_disables_auth(monkeypatch):
         assert login.status_code == 200
         assert login.json()["authDisabled"] is True
         assert client.get("/api/v1/video/config").status_code == 200
+
+
+def test_login_bloqueia_forca_bruta_com_429(monkeypatch):
+    from server.api.v1.endpoints import auth as auth_endpoint
+    from server.core.rate_limit import KeyedRateLimiter
+
+    _enable_auth(monkeypatch)
+    monkeypatch.setattr(auth_endpoint, "_login_limiter", KeyedRateLimiter(limit=3, window_s=60.0))
+    with TestClient(app) as client:
+        statuses = [
+            client.post("/auth/login", json={"email": "admin@teste.local", "password": "errada"}).status_code
+            for _ in range(4)
+        ]
+        assert statuses == [401, 401, 401, 429]
+        blocked = client.post("/auth/login", json={"email": "admin@teste.local", "password": "senha-super-secreta"})
+        assert blocked.status_code == 429
+        assert int(blocked.headers["Retry-After"]) > 0

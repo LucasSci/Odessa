@@ -16,6 +16,7 @@ import {
   type PersonaAssets,
   type PersonaVisual,
 } from '../core/personaAssets';
+import { SkeletonList } from './ui';
 
 const EMPTY_ASSETS: PersonaAssets = { faces: [], environments: [], wardrobe: [] };
 
@@ -118,8 +119,8 @@ function PersonaVisualCard({
 
   if (loading) {
     return (
-      <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-xs text-slate-500">
-        Carregando {persona.name}...
+      <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <SkeletonList label={`Carregando ${persona.name}`} rows={3} itemClassName="h-10" />
       </div>
     );
   }
@@ -180,6 +181,8 @@ function PersonaVisualCard({
           <p className={COLUMN_TITLE_CLS}>Rosto</p>
           {face ? (
             <img
+              loading="lazy"
+              decoding="async"
               src={assetUrl(persona.id, 'faces', face.id)}
               alt={face.label}
               title={face.label}
@@ -195,6 +198,8 @@ function PersonaVisualCard({
           <p className={COLUMN_TITLE_CLS}>Cenário atual</p>
           {env ? (
             <img
+              loading="lazy"
+              decoding="async"
               src={assetUrl(persona.id, 'environments', env.id)}
               alt={env.label}
               title={env.label}
@@ -222,6 +227,8 @@ function PersonaVisualCard({
                 if (!piece) return null;
                 return (
                   <img
+                    loading="lazy"
+                    decoding="async"
                     key={pid}
                     src={assetUrl(persona.id, 'wardrobe', pid)}
                     alt={piece.label}

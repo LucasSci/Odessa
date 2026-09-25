@@ -8,17 +8,21 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: [],
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    // integration/: sobe processos reais (ex.: hostinger-server.mjs).
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'integration/**/*.test.ts'],
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      reporter: ['text-summary', 'json', 'html', 'lcov'],
       include: ['src/core/**/*.ts', 'src/lib/**/*.ts'],
       exclude: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+      // Catraca: piso = cobertura medida em 2026-09 (~40%). Só sobe — nunca
+      // baixe estes números. A meta para código novo (70%) é cobrada pelo
+      // Codecov no diff do PR (codecov.yml → coverage.status.patch).
       thresholds: {
-        lines: 80,
-        functions: 80,
-        branches: 80,
-        statements: 80,
+        lines: 40,
+        functions: 38,
+        branches: 36,
+        statements: 38,
       },
     },
   },

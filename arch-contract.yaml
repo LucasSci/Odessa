@@ -1,0 +1,39 @@
+# Contrato de arquitetura do frontend (validado no CI por `pnpm arch`).
+# Camadas:
+#   ui    → telas e componentes React (src/*.tsx, src/components/**)
+#   core  → regras de negócio, hooks, estado e clientes HTTP (src/core/**, src/lib/**, src/types.ts)
+# A UI pode usar o core; o core nunca importa UI. Nada em src/ importa o
+# backend (server/) nem as funções serverless (api/) — a comunicação é só HTTP.
+# A regra "api/ é autocontido" (arquivos .js) fica no eslint.config.js.
+version: 1
+project:
+  name: odessa
+  language: typescript
+  packageManager: pnpm
+  tsconfig: tsconfig.json
+
+paths:
+  include: [src]
+  exclude:
+    - "**/*.test.ts"
+    - "**/*.test.tsx"
+    - "**/__fixtures__/**"
+    - "**/*.d.ts"
+
+layers:
+  - name: ui
+    match: ["src/*.tsx", "src/components/**"]
+  - name: core
+    match: ["src/core/**", "src/lib/**", "src/types.ts"]
+
+ruleset:
+  ui: { mayDependOn: [core] }
+  core: { mayDependOn: [] }
+
+rules:
+  - name: frontend-nao-importa-backend
+    type: forbidden-import
+    from: { match: "src/**" }
+    to: { match: ["server/**", "api/**"] }
+
+unassignedFiles: error

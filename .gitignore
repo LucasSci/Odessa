@@ -29,7 +29,9 @@ uploads/
 # Vercel (nao usado mais)
 .vercel
 .env*.local
-.claude/
+# .claude/: estado local das sessões; só as skills do projeto são versionadas.
+.claude/*
+!.claude/skills/
 
 # Deploy artifacts
 deploy.zip
@@ -55,3 +57,11 @@ server/data/*.bak
 server/data/**/*.bak
 *.json.corrupt-*
 server/runtime/**/*.bak
+# Relatórios locais de testes (Stryker, Playwright)
+reports/
+.stryker-tmp/
+test-results/
+playwright-report/
+
+# Cópia temporária do handler catch-all gerada pelo hostinger-server.mjs
+api/_odessa_handler_*.mjs

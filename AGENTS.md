@@ -46,18 +46,30 @@ To verify the bridge end-to-end:
 `curl -sf http://localhost:3000/tango-bridge/screenshot -o /tmp/live.jpg` →
 returns a JPEG of the live page.
 
-## Branch policy: work directly on `main`
+## Workflow: Issue → Pull Request → merge → deploy
 
-This project is also edited via **Codex** (which pushes to `main` directly).
-To keep both agents in sync, Codex should also work on `main` — **not** in worktrees or feature branches.
+> **Read `docs/ENGINEERING-STANDARDS.md` before implementing anything** — it is
+> the single source of truth for every agent (Codex, Claude Code or any other
+> model): Issues, Pull Requests, quality pipeline, tests, observability,
+> security, architecture and UI/motion rules.
 
-**Every session:**
+1. **Every task starts as a GitHub Issue** classified as **Correção** (`correcao`),
+   **Melhoria** (`melhoria`) or **Nova função** (`nova-funcao`), using the templates
+   in `.github/ISSUE_TEMPLATE`. Search for duplicates first.
+2. **Work on a branch — never commit or push directly to `main`.**
+3. **Open a Pull Request** to `main` using `.github/PULL_REQUEST_TEMPLATE.md`. Every PR must
+   mention the related Issue (`Closes #N`), explain what changed, describe how it was
+   validated, and record risks, limitations and next steps.
+4. Commits follow Conventional Commits with the description in Portuguese (Commitlint on CI).
+5. **Merge only with the pipeline green.** Before pushing run `pnpm check`,
+   `pnpm build && pnpm budget`, `pnpm test:e2e` (UI changes) and
+   `PYTHONPATH=. pytest server/tests tests` (backend changes).
+6. **Deploy only from `main`, after the PR is merged.**
 
-1. At the start: `git checkout main && git pull --ff-only`
-2. Make changes and commit on `main`
-3. After every commit: `git push`
-
-Do **not** create worktrees. Do **not** create feature branches unless the user explicitly asks. If the harness opens a worktree by default, `cd` back to the main repo (`C:\Users\Lucas\Desktop\Odessa`) and operate there.
+UI work follows the Design Motion Principles skill in
+`.claude/skills/design-motion-principles` (skeletons, lazy loading, enter/exit
+motion, progress and feedback states, motion tokens) and reuses the existing
+components listed in `docs/ENGINEERING-STANDARDS.md` §6.
 
 ## Deploy
 
@@ -71,6 +83,10 @@ Compress-Archive -Path dist, api, public, src, workflows, package.json, package-
 ```
 
 Then call `mcp__hostinger-mcp__hosting_deployJsApplication` with `archivePath` pointing at `deploy.zip` and `domain` = `darkgrey-shark-457698.hostingersite.com`.
+
+Deploy only from `main` after the PR is merged. Known issue: `api/[...path].js`
+imports `server/automation/sendController.js`, which is not in the zip above —
+see issue #249.
 
 ## Cloud-mode API URL alignment (Base44 preview)
 
@@ -100,7 +116,7 @@ preview gets **404** on every OBS-related call.
 Hostinger only invokes API handlers that exist as physical files in `api/`.
 The catch-all `api/[...path].js` is **not** picked up for routes that don't have a matching file (e.g. `/api/v1/workflow/profiles` needs `api/v1/workflow/profiles.js`).
 
-When adding a new endpoint, **always create a dedicated file** with the handler logic self-contained (no shared imports from app code — Vercel-style serverless functions don't reliably resolve those on Hostinger).
+When adding a new endpoint, **always create a dedicated file** with the handler logic self-contained (no shared imports from app code — Vercel-style serverless functions don't reliably resolve those on Hostinger). ESLint enforces this (`no-restricted-imports` for `api/**/*.js`).
 
 ## Auth (for testing endpoints)
 

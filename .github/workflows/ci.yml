@@ -1,12 +1,131 @@
 name: Odessa CI
 
+# Esteira de qualidade: todo PR para a main precisa passar por todos os jobs
+# abaixo antes do merge (marque-os como obrigatórios na proteção da branch —
+# ver docs/ENGINEERING-STANDARDS.md).
+
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
+  commitlint:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Install pnpm
+      run: npm install -g pnpm@10
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+
+    # Só os commits do PR: o histórico antigo da main é anterior ao padrão.
+    - name: Lint commit messages
+      run: pnpm exec commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
+
+  frontend-quality:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Install pnpm
+      run: npm install -g pnpm@10
+
+    # Lockfile congelado: o CI falha se package.json e pnpm-lock.yaml divergirem.
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+
+    # Erros antigos ficam em eslint-suppressions.json (issue #246); erro novo quebra.
+    - name: Lint
+      run: pnpm lint
+
+    - name: Type check
+      run: pnpm typecheck
+
+    - name: Architecture contract
+      run: pnpm arch --format github
+
+    - name: Unused files, exports and dependencies (Knip)
+      run: pnpm knip
+
+    - name: Unit tests with coverage
+      run: pnpm test:coverage
+
+    - name: Build
+      run: pnpm build
+
+    - name: Performance budget
+      run: pnpm budget
+
+    - name: Dependency audit
+      run: pnpm audit --prod --audit-level=high
+
+    - name: Upload coverage to Codecov
+      if: ${{ !cancelled() }}
+      uses: codecov/codecov-action@v5
+      with:
+        files: coverage/lcov.info
+        flags: frontend
+        token: ${{ secrets.CODECOV_TOKEN }}
+        fail_ci_if_error: false
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: frontend-quality
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Install pnpm
+      run: npm install -g pnpm@10
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+
+    - name: Install Chromium
+      run: pnpm exec playwright install --with-deps chromium
+
+    - name: Build
+      run: pnpm build
+
+    - name: End-to-end tests (Playwright)
+      run: pnpm test:e2e
+
+    - name: Upload Playwright report
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-report
+        path: |
+          playwright-report/
+          test-results/
+        retention-days: 7
+
   backend-tests:
     runs-on: ubuntu-latest
     steps:
@@ -34,7 +153,16 @@ jobs:
         ODESSA_SESSION_SECRET: test-secret-only-for-ci
         ODESSA_AGENT_TOKEN: test
       run: |
-        PYTHONPATH=. pytest --cov=server server/tests tests
+        PYTHONPATH=. pytest --cov=server --cov-report=xml:coverage-backend.xml server/tests tests
+
+    - name: Upload coverage to Codecov
+      if: ${{ !cancelled() }}
+      uses: codecov/codecov-action@v5
+      with:
+        files: coverage-backend.xml
+        flags: backend
+        token: ${{ secrets.CODECOV_TOKEN }}
+        fail_ci_if_error: false
 
   installer-scripts:
     # Launcher e verify-stage sao PowerShell do instalador Windows: so rodam la.
@@ -52,29 +180,3 @@ jobs:
 
     - name: Run installer script tests
       run: python -m pytest server/tests/test_launcher_script.py server/tests/test_verify_stage.py -q
-
-  frontend-tests:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '22'
-
-    - name: Install pnpm
-      run: npm install -g pnpm@9
-
-    # Lockfile congelado: o CI falha se package.json e pnpm-lock.yaml divergirem.
-    - name: Install dependencies
-      run: pnpm install --frozen-lockfile
-
-    - name: Type check
-      run: pnpm exec tsc --noEmit
-
-    - name: Run Frontend Tests
-      run: pnpm vitest run
-
-    - name: Build
-      run: pnpm build

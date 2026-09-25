@@ -5,6 +5,7 @@
  * Este módulo lista, cria, troca e exclui personas via /api/v1/personas.
  */
 import { apiUrl } from '../lib/api';
+import { httpErrorMessage } from '../lib/apiFetch';
 
 export type PersonaMeta = {
   id: string;
@@ -31,10 +32,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     ...init,
   });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(detail || `HTTP ${res.status}`);
-  }
+  if (!res.ok) throw new Error(await httpErrorMessage(res));
   return (await res.json()) as T;
 }
 

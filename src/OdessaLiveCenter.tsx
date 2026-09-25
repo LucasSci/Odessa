@@ -14,7 +14,6 @@ import {
   Pause,
   Play,
   RadioTower,
-  RefreshCw,
   Repeat,
   Rewind,
   Search,
@@ -40,7 +39,7 @@ import {
 import { cn } from './lib/utils';
 import type { AutopilotRuntimeState } from './core/useAutopilotRuntime';
 import type { CapturedMessage } from './types';
-import { Badge, Button, Card, ConfirmButton, Tabs } from './components/ui';
+import { Badge, Button, Card, ConfirmButton, PanelSkeleton, Tabs } from './components/ui';
 import { useToast } from './components/Toast';
 import { clampFadeMs, clipProgress, effectiveSegments, nextSegmentStep, segmentSpeed } from './core/playback/clipTimeline';
 import { publishProgress } from './core/playback/progressStore';
@@ -51,6 +50,7 @@ import { ContentHub } from './components/library/ContentHub';
 import { VideoThumb } from './components/VideoThumb';
 import { CommandPalette } from './components/CommandPalette';
 import { DependencyBanner } from './components/DependencyBanner';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import type { PaletteCommand } from './core/commandPalette';
 import { SignalStrip, type Signal } from './components/stage/SignalStrip';
 import TopPersonaSelector from './components/TopPersonaSelector';
@@ -1053,7 +1053,8 @@ export default function OdessaLiveCenter({
               />
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
+            {/* key: a troca Palco ↔ Central remonta o conteúdo com um fade curto */}
+            <div key={liveMode} className="anim-content-swap min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
               {liveMode === 'central' && (
                 <TangoChatPanel
                   capturedText={capturedText}
@@ -1192,7 +1193,7 @@ export default function OdessaLiveCenter({
               />
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div key={settingsSubTab} className="anim-content-swap min-h-0 flex-1 overflow-y-auto">
               {settingsSubTab === 'general' && (
                 <Suspense fallback={<PanelLoading label="Carregando configurações" />}>
                   <SettingsPanel
@@ -1258,7 +1259,9 @@ function PagePane({ page, active, children }: { page: PageKey; active: boolean; 
         inert={!active}
         className={cn('odsa-page min-h-0 flex-1 flex-col overflow-hidden', active ? 'flex' : 'hidden')}
       >
-        <FrozenWhenHidden frozen={!active}>{children}</FrozenWhenHidden>
+        <FrozenWhenHidden frozen={!active}>
+          <ErrorBoundary scope="panel" label={NAV_LABELS[page]}>{children}</ErrorBoundary>
+        </FrozenWhenHidden>
       </section>
     </PageActivity>
   );
@@ -1277,23 +1280,9 @@ const FrozenWhenHidden = memo(
   (_previous, next) => next.frozen,
 );
 
-/** Aparece só se o carregamento passar de 150 ms — carregamento rápido não pisca. */
+/** Fallback dos painéis lazy: skeleton da página (aparece só depois de 150 ms). */
 function PanelLoading({ label }: { label: string }) {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setVisible(true), 150);
-    return () => window.clearTimeout(timer);
-  }, []);
-  return (
-    <div role="status" aria-live="polite" className="flex h-full min-h-[320px] items-center justify-center bg-[#07080a] text-sm font-semibold text-slate-400">
-      {visible && (
-        <>
-          <RefreshCw className="mr-2 h-4 w-4 animate-spin text-[var(--gold)]" />
-          {label}
-        </>
-      )}
-    </div>
-  );
+  return <PanelSkeleton label={label} className="bg-[#07080a]" />;
 }
 
 function PageSurface({

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Gift, Pencil, Plus, Trash2, Upload, X } from 'lucide-react';
-import { Button, Input } from './components/ui';
+import { Button, Input, Modal } from './components/ui';
 import {
   type GiftCatalogEntry,
   loadGiftCatalog,
@@ -8,6 +8,7 @@ import {
   saveGiftCatalog,
   upsertGift,
 } from './core/giftCatalog';
+import { safeImageSrc } from './lib/utils';
 
 const MAX_IMAGE_BYTES = 512 * 1024; // 512 KB — gift icons are tiny
 
@@ -58,8 +59,6 @@ export default function GiftCatalogModal({
     () => entries.reduce((sum, entry) => sum + (Number(entry.price) || 0), 0),
     [entries],
   );
-
-  if (!open) return null;
 
   const persist = (next: GiftCatalogEntry[]) => {
     setEntries(next);
@@ -145,108 +144,105 @@ export default function GiftCatalogModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-      onClick={onClose}
+    <Modal
+      open={open}
+      onClose={onClose}
+      label="Catálogo de presentes"
+      className="flex max-h-[88vh] max-w-3xl flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#0b0d10] shadow-2xl"
     >
-      <div
-        className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#0b0d10] shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3 border-b border-white/10 px-5 py-4">
-          <div className="flex items-center gap-2">
-            <Gift className="h-5 w-5 text-[var(--gold)]" />
-            <div>
-              <div className="text-sm font-semibold text-white">Catalogo de presentes</div>
-              <div className="text-[11px] text-[var(--t3)]">
-                {entries.length} presente(s) · {total.toLocaleString('pt-BR')} moedas no catalogo
-              </div>
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 border-b border-white/10 px-5 py-4">
+        <div className="flex items-center gap-2">
+          <Gift className="h-5 w-5 text-[var(--gold)]" />
+          <div>
+            <div className="text-sm font-semibold text-white">Catalogo de presentes</div>
+            <div className="text-[11px] text-[var(--t3)]">
+              {entries.length} presente(s) · {total.toLocaleString('pt-BR')} moedas no catalogo
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
-            title="Fechar"
-          >
-            <X className="h-5 w-5" />
-          </button>
         </div>
+        <button
+          onClick={onClose}
+          className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+          title="Fechar"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      </div>
 
-        {error && (
-          <div className="mx-5 mt-3 rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs text-red-100">
-            {error}
+      {error && (
+        <div className="mx-5 mt-3 rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs text-red-100">
+          {error}
+        </div>
+      )}
+
+      {/* Body */}
+      <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        {draft ? (
+          <GiftForm
+            draft={draft}
+            setDraft={setDraft}
+            fileInputRef={fileInputRef}
+            onFile={handleFile}
+            onSave={saveDraft}
+            onCancel={() => {
+              setDraft(null);
+              setError(null);
+            }}
+            onDelete={draft.id ? () => handleDelete(draft.id as string) : undefined}
+          />
+        ) : (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {entries.map((entry) => (
+              <div
+                key={entry.id}
+                className="group relative flex flex-col items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-center"
+              >
+                <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl bg-black/40">
+                  {entry.imageUrl ? (
+                    <img loading="lazy" decoding="async" src={safeImageSrc(entry.imageUrl)} alt={entry.name} className="h-full w-full object-contain" />
+                  ) : (
+                    <span className="text-3xl">{entry.emoji || '🎁'}</span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-white">{entry.name}</div>
+                  <div className="truncate font-mono text-[10px] text-[var(--t3)]">{entry.key}</div>
+                  {entry.price != null && (
+                    <div className="mt-0.5 text-[11px] font-semibold text-[var(--gold)]">
+                      {entry.price.toLocaleString('pt-BR')} moedas
+                    </div>
+                  )}
+                </div>
+                <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                  <button
+                    onClick={() => startEdit(entry)}
+                    className="rounded-md bg-black/70 p-1 text-slate-300 hover:text-sky-300"
+                    title="Editar"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(entry.id)}
+                    className="rounded-md bg-black/70 p-1 text-slate-300 hover:text-red-400"
+                    title="Remover"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+            <button
+              onClick={startAdd}
+              className="flex min-h-[148px] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-white/15 text-[var(--t3)] transition-colors hover:border-[var(--gold)]/45 hover:text-white"
+            >
+              <Plus className="h-6 w-6" />
+              <span className="text-xs font-semibold">Adicionar presente</span>
+            </button>
           </div>
         )}
-
-        {/* Body */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          {draft ? (
-            <GiftForm
-              draft={draft}
-              setDraft={setDraft}
-              fileInputRef={fileInputRef}
-              onFile={handleFile}
-              onSave={saveDraft}
-              onCancel={() => {
-                setDraft(null);
-                setError(null);
-              }}
-              onDelete={draft.id ? () => handleDelete(draft.id as string) : undefined}
-            />
-          ) : (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              {entries.map((entry) => (
-                <div
-                  key={entry.id}
-                  className="group relative flex flex-col items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-center"
-                >
-                  <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl bg-black/40">
-                    {entry.imageUrl ? (
-                      <img src={entry.imageUrl} alt={entry.name} className="h-full w-full object-contain" />
-                    ) : (
-                      <span className="text-3xl">{entry.emoji || '🎁'}</span>
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-white">{entry.name}</div>
-                    <div className="truncate font-mono text-[10px] text-[var(--t3)]">{entry.key}</div>
-                    {entry.price != null && (
-                      <div className="mt-0.5 text-[11px] font-semibold text-[var(--gold)]">
-                        {entry.price.toLocaleString('pt-BR')} moedas
-                      </div>
-                    )}
-                  </div>
-                  <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                    <button
-                      onClick={() => startEdit(entry)}
-                      className="rounded-md bg-black/70 p-1 text-slate-300 hover:text-sky-300"
-                      title="Editar"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(entry.id)}
-                      className="rounded-md bg-black/70 p-1 text-slate-300 hover:text-red-400"
-                      title="Remover"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-              <button
-                onClick={startAdd}
-                className="flex min-h-[148px] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-white/15 text-[var(--t3)] transition-colors hover:border-[var(--gold)]/45 hover:text-white"
-              >
-                <Plus className="h-6 w-6" />
-                <span className="text-xs font-semibold">Adicionar presente</span>
-              </button>
-            </div>
-          )}
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -277,7 +273,7 @@ function GiftForm({
         <div className="flex flex-col items-center gap-2">
           <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-black/40">
             {draft.imageUrl ? (
-              <img src={draft.imageUrl} alt="" className="h-full w-full object-contain" />
+              <img loading="lazy" decoding="async" src={safeImageSrc(draft.imageUrl)} alt="" className="h-full w-full object-contain" />
             ) : (
               <span className="text-4xl">{draft.emoji || '🎁'}</span>
             )}

@@ -9,6 +9,7 @@ Source no OBS.
 
 | Documento | Conteúdo |
 |---|---|
+| [ENGINEERING-STANDARDS.md](ENGINEERING-STANDARDS.md) | **Leia primeiro.** Fluxo Issue → PR, esteira de qualidade, testes, segurança, arquitetura e padrões de interface/motion |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Arquitetura do sistema, os runtimes, fluxo de dados e decisões |
 | [SETUP.md](SETUP.md) | Setup e execução em desenvolvimento local |
 | [../desktop/README.md](../desktop/README.md) | Instalador desktop Windows — como gerar, assinar e distribuir |

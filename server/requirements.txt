@@ -14,3 +14,4 @@ simpleobsws
 soundfile
 uvicorn[standard]
 python-multipart
+sentry-sdk[fastapi]

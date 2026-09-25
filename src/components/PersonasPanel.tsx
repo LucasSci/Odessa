@@ -28,7 +28,7 @@ import {
   Save,
   X,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, safeImageSrc } from '../lib/utils';
 import {
   listPersonas,
   setActivePersona,
@@ -44,6 +44,7 @@ import PersonaVisualBoard from './PersonaVisualBoard';
 import PersonaAssetManager from './PersonaAssetManager';
 import TransmissionConfigPanel from './TransmissionConfigPanel';
 import { VIDEO_ROTEIRO, categorizeVideo } from '../core/videoRoteiro';
+import { SkeletonList } from './ui';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -241,9 +242,12 @@ export function PersonasPanel() {
                     </p>
 
                     {configLoading ? (
-                      <div className="flex items-center gap-2 py-4 text-xs text-slate-500">
-                        <Loader2 className="h-4 w-4 animate-spin" /> Carregando vídeos da persona...
-                      </div>
+                      <SkeletonList
+                        label="Carregando vídeos da persona"
+                        rows={4}
+                        className="grid gap-3 space-y-0 sm:grid-cols-2"
+                        itemClassName="h-24"
+                      />
                     ) : (
                       <div className="grid gap-3 sm:grid-cols-2">
                         {VIDEO_ROTEIRO.map((cat) => {
@@ -481,9 +485,7 @@ function PersonaList({
       )}
 
       {loading ? (
-        <div className="flex items-center gap-2 py-4 text-xs text-slate-500">
-          <Loader2 className="h-4 w-4 animate-spin" /> Carregando...
-        </div>
+        <SkeletonList label="Carregando personas" rows={3} itemClassName="h-14" />
       ) : (
         <div className="space-y-2">
           {personas.map((p) => (
@@ -499,8 +501,8 @@ function PersonaList({
               <div className="flex items-center gap-2.5 p-2.5">
                 {/* Avatar */}
                 <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg bg-sky-500/20">
-                  {p.avatarUrl ? (
-                    <img src={p.avatarUrl} alt={p.name} className="h-full w-full object-cover" />
+                  {safeImageSrc(p.avatarUrl) ? (
+                    <img loading="lazy" decoding="async" src={safeImageSrc(p.avatarUrl)} alt={p.name} className="h-full w-full object-cover" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-xs font-bold text-sky-300">
                       {p.name.charAt(0).toUpperCase()}
@@ -605,8 +607,8 @@ function PersonaDetail({
       <div className="flex items-start gap-4">
         {/* Avatar */}
         <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-sky-500/20">
-          {avatarUrl ? (
-            <img src={avatarUrl} alt={name} className="h-full w-full object-cover" />
+          {safeImageSrc(avatarUrl) ? (
+            <img loading="lazy" decoding="async" src={safeImageSrc(avatarUrl)} alt={name} className="h-full w-full object-cover" />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-xl font-bold text-sky-300">
               {name.charAt(0).toUpperCase()}

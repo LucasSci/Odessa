@@ -4,13 +4,12 @@ import logging
 import re
 import shutil
 import subprocess
-import time
-from collections import deque
 from typing import Any
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from server.config import GEMINI_API_KEY
+from server.core.rate_limit import RateLimiter
 from server.models import AIRespondRequest, AIDecideRequest
 from server.services.ai_errors import AIUnavailableError
 from server.utils.text_utils import extract_json_object
@@ -20,25 +19,6 @@ logger = logging.getLogger("odessa.routes.ai")
 
 # Nome de modelo vira parte do caminho da URL do Google: só caracteres seguros.
 GEMINI_MODEL_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
-
-
-class RateLimiter:
-    """Janela deslizante em memória (por processo): no máximo `limit` chamadas em `window_s`."""
-
-    def __init__(self, limit: int, window_s: float, clock=time.monotonic):
-        self._limit = limit
-        self._window = window_s
-        self._clock = clock
-        self._hits: deque[float] = deque()
-
-    def allow(self) -> bool:
-        now = self._clock()
-        while self._hits and now - self._hits[0] >= self._window:
-            self._hits.popleft()
-        if len(self._hits) >= self._limit:
-            return False
-        self._hits.append(now)
-        return True
 
 
 _gemini_rate_limiter = RateLimiter(limit=30, window_s=60.0)
