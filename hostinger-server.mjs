@@ -48,6 +48,66 @@ async function getApiHandler() {
   }
   return _apiHandler;
 }
+// ── Rate limit por IP (issue #247) ─────────────────────────────────────────
+// Janela fixa de 1 minuto, em memória. Autocontido de propósito: este arquivo
+// é o único servidor de produção na Hostinger. 0 desliga o limite.
+//   ODESSA_RATE_LIMIT_API_PER_MIN   (padrão 600) — qualquer /api/*
+//   ODESSA_RATE_LIMIT_LOGIN_PER_MIN (padrão 10)  — POST /api/auth/login
+// O app faz polling em várias rotas, por isso o limite geral é folgado: ele
+// existe para conter abuso, não para moldar o uso normal.
+function readLimit(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+const RATE_LIMITS = {
+  api: readLimit('ODESSA_RATE_LIMIT_API_PER_MIN', 600),
+  login: readLimit('ODESSA_RATE_LIMIT_LOGIN_PER_MIN', 10),
+};
+const RATE_WINDOW_MS = 60_000;
+const rateBuckets = new Map();
+
+// Atrás do proxy da Hostinger o IP real é o ÚLTIMO item do X-Forwarded-For
+// (o proxy acrescenta ao final; os anteriores vêm do cliente e são forjáveis).
+function clientIp(req) {
+  if (process.env.ODESSA_TRUST_PROXY !== '0') {
+    const forwarded = String(req.headers['x-forwarded-for'] || '')
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (forwarded.length) return forwarded[forwarded.length - 1];
+  }
+  return req.socket.remoteAddress || 'unknown';
+}
+
+function takeRateToken(kind, ip, now = Date.now()) {
+  const limit = RATE_LIMITS[kind];
+  if (!limit) return { ok: true };
+  const key = `${kind}:${ip}`;
+  let bucket = rateBuckets.get(key);
+  if (!bucket || now >= bucket.resetAt) {
+    bucket = { count: 0, resetAt: now + RATE_WINDOW_MS };
+    rateBuckets.set(key, bucket);
+  }
+  bucket.count += 1;
+  if (bucket.count <= limit) return { ok: true };
+  return { ok: false, retryAfter: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)) };
+}
+
+// Limpa janelas vencidas para o Map não crescer sem limite.
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of rateBuckets) if (now >= bucket.resetAt) rateBuckets.delete(key);
+}, RATE_WINDOW_MS).unref();
+
+function rejectRateLimited(res, retryAfter) {
+  send(res, 429, JSON.stringify({ detail: 'Muitas requisições. Aguarde um instante e tente de novo.' }), {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Retry-After': String(retryAfter),
+  });
+}
+
 const distDir = path.join(__dirname, 'dist');
 const port = Number(process.env.PORT || process.env.HOSTINGER_PORT || 3000);
 const host = process.env.HOST || '0.0.0.0';
@@ -148,9 +208,24 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
+      const ip = clientIp(req);
+      const isLogin = req.method === 'POST' && url.pathname.replace(/\/+$/, '') === '/api/auth/login';
+      const verdict = isLogin ? takeRateToken('login', ip) : takeRateToken('api', ip);
+      if (!verdict.ok) {
+        rejectRateLimited(res, verdict.retryAfter);
+        return;
+      }
       applyApiPath(req, url.pathname);
       const handler = await getApiHandler();
-      if (handler) await handler(req, res);
+      if (handler) {
+        await handler(req, res);
+      } else {
+        // Sem isto a requisição ficava pendurada até o timeout do cliente.
+        send(res, 503, JSON.stringify({ detail: 'API indisponível: o handler não carregou (ver logs do servidor).' }), {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+      }
       return;
     }
     if (url.pathname.startsWith('/uploads/')) {
