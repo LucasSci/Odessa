@@ -79,8 +79,16 @@ function eventSummary(e: SessionEvent): string {
     }
     case 'video.generated':
       return d.ok ? `Vídeo ${d.videoId ?? ''} gerado` : `Falha: ${d.error ?? 'erro'}`;
-    case 'ai.reply':
-      return `${d.username ?? 'desconhecido'} → ${d.reply ?? ''}`;
+    case 'ai.reply': {
+      // Origem, confiança e memórias usadas: dá para auditar por que a IA respondeu assim.
+      const details = [
+        typeof d.confidence === 'number' ? `confiança ${Math.round(d.confidence * 100)}%` : '',
+        d.source ? `origem: ${d.source}` : '',
+        d.kind && d.kind !== 'chat' ? `tipo: ${d.kind}` : '',
+        Array.isArray(d.memoriesUsed) && d.memoriesUsed.length ? `memórias: ${d.memoriesUsed.join(' · ')}` : '',
+      ].filter(Boolean);
+      return `${d.username ?? 'desconhecido'} → ${d.reply ?? ''}${details.length ? ` (${details.join(' | ')})` : ''}`;
+    }
     case 'ai.reply.sent':
       return `${d.username ?? 'desconhecido'} → ${d.reply ?? ''}`;
     case 'ai.reply.skipped':

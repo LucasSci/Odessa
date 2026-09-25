@@ -172,6 +172,22 @@ export function describeReplyBlock(reason: string): string {
   return reason;
 }
 
+/** O que a IA pode fazer sozinha no modo atual (#164) — uma frase, sem jargão. */
+export function describeChatAutonomy(
+  autonomy: 'off' | 'assistido' | 'auto',
+  execution: 'dry_run' | 'real',
+): string {
+  if (autonomy === 'off') return 'IA desligada no chat: ela não sugere nem responde.';
+  if (autonomy === 'assistido') {
+    return execution === 'real'
+      ? 'Assistido: a IA sugere respostas e nada sai no chat sem você aprovar.'
+      : 'Assistido em modo teste: a IA sugere; aprovar só simula o envio.';
+  }
+  return execution === 'real'
+    ? 'Autônomo: a IA escreve sozinha no chat quando o governador e a prontidão permitem.'
+    : 'Autônomo em modo teste: a IA responde sozinha, mas só aqui — nada sai no chat.';
+}
+
 /** Só para testes: zera cooldowns, janelas e duplicadas. */
 export function resetChatConversationGovernor(): void {
   state.sentAt = [];

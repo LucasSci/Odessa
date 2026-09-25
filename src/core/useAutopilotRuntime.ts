@@ -96,6 +96,28 @@ interface VideoBridgeStatus {
   error: string | null;
 }
 
+/**
+ * Normaliza o GET /video/state para o supervisor. O backend responde em
+ * snake_case (current_video_id, queue_len, start_ts em segundos) e informa o
+ * idle pelo `state: 'IDLE'`; ler só camelCase deixava idle/fila/horário
+ * vazios e o supervisor via um "vídeo travado" com a Odessa parada no idle.
+ */
+export function parseVideoState(data: Record<string, unknown>): Omit<VideoBridgeStatus, 'error'> {
+  const currentClip = (data.currentClip || {}) as Record<string, unknown>;
+  const currentVideoId = String(data.current_video_id || data.currentVideoId || currentClip.videoId || '') || null;
+  const isIdle = String(data.state || '').toUpperCase() === 'IDLE';
+  const startedSec = Number(data.start_ts || data.lastTransitionAt || 0);
+  const updatedAt =
+    String(data.updatedAt || data.startedAt || '') ||
+    (Number.isFinite(startedSec) && startedSec > 0 ? new Date(startedSec * 1000).toISOString() : null);
+  return {
+    currentVideoId,
+    idleVideoId: String(data.idleVideoId || data.idle_video_id || '') || (isIdle ? currentVideoId : null),
+    queueSize: Number(data.queue_len ?? data.queueSize ?? data.triggerQueueSize ?? data.pendingQueueSize ?? 0) || 0,
+    updatedAt: updatedAt || null,
+  };
+}
+
 interface ChatAutomationMonitor {
   allowlistReady: boolean;
   lastSendStatus: string | null;
@@ -483,14 +505,7 @@ export function useAutopilotRuntime({
       const response = await fetch(apiUrl('/video/state'));
       const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
       if (!response.ok) throw new Error(String(data.detail || `HTTP ${response.status}`));
-      const currentClip = (data.currentClip || {}) as Record<string, unknown>;
-      setVideoMonitor({
-        currentVideoId: String(data.current_video_id || data.currentVideoId || currentClip.videoId || '') || null,
-        idleVideoId: String(data.idleVideoId || data.idle_video_id || '') || null,
-        queueSize: Number(data.queueSize || data.triggerQueueSize || data.pendingQueueSize || 0) || 0,
-        updatedAt: String(data.updatedAt || data.startedAt || data.timestamp || '') || null,
-        error: null,
-      });
+      setVideoMonitor({ ...parseVideoState(data), error: null });
     } catch (err) {
       setVideoMonitor((current) => ({
         ...current,

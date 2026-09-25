@@ -209,7 +209,7 @@ function obsReadiness(input: LiveSupervisorInput): SubsystemReadiness {
       label: 'OBS',
       state: 'blocked',
       detail: obs.error || 'OBS desconectado.',
-      suggestedAction: 'Reconectar OBS antes de iniciar a live.',
+      suggestedAction: 'Reconecte o OBS antes de iniciar a live.',
       recoveryActions: ['reconnect_obs', 'reduce_autonomy'],
       metrics: obs as unknown as Record<string, unknown>,
     };
@@ -241,10 +241,10 @@ function videoReadiness(input: LiveSupervisorInput): SubsystemReadiness {
   if (video.error) {
     return {
       id: 'video',
-      label: 'Video',
+      label: 'Vídeo',
       state: 'blocked',
       detail: video.error,
-      suggestedAction: 'Voltar ao idle e conferir a fila.',
+      suggestedAction: 'Volte ao idle e confira a fila.',
       recoveryActions: ['return_to_idle'],
       metrics: video as unknown as Record<string, unknown>,
     };
@@ -252,10 +252,10 @@ function videoReadiness(input: LiveSupervisorInput): SubsystemReadiness {
   if (video.currentVideoId && staleMinutes > 3 && video.currentVideoId !== video.idleVideoId) {
     return {
       id: 'video',
-      label: 'Video',
+      label: 'Vídeo',
       state: 'recovering',
-      detail: 'Video sem avancar ha mais de 3 minutos.',
-      suggestedAction: 'Forcar retorno ao idle.',
+      detail: 'Vídeo sem avançar há mais de 3 minutos.',
+      suggestedAction: 'Forçar retorno ao idle.',
       recoveryActions: ['return_to_idle'],
       metrics: { ...video, staleMinutes },
     };
@@ -263,19 +263,19 @@ function videoReadiness(input: LiveSupervisorInput): SubsystemReadiness {
   if ((video.queueSize || 0) > 8) {
     return {
       id: 'video',
-      label: 'Video',
+      label: 'Vídeo',
       state: 'warning',
-      detail: 'Fila de video alta; risco de atraso nas reacoes.',
-      suggestedAction: 'Acompanhe a fila antes de aumentar autonomia.',
+      detail: 'Fila de vídeo alta: risco de atraso nas reações.',
+      suggestedAction: 'Acompanhe a fila antes de aumentar a autonomia.',
       recoveryActions: [],
       metrics: video as unknown as Record<string, unknown>,
     };
   }
   return {
     id: 'video',
-    label: 'Video',
+    label: 'Vídeo',
     state: 'healthy',
-    detail: video.currentVideoId ? `Atual: ${video.currentVideoId}.` : 'Aguardando estado de video.',
+    detail: video.currentVideoId ? `Atual: ${video.currentVideoId}.` : 'Aguardando estado do vídeo.',
     recoveryActions: [],
     metrics: video as unknown as Record<string, unknown>,
   };
@@ -303,7 +303,7 @@ export function buildLiveSupervisorSnapshot(input: LiveSupervisorInput): LiveSup
       state === 'healthy'
         ? 'Pronto para iniciar a live.'
         : riskyAutonomy
-          ? 'Autonomia alta com subsistema instavel; reducao recomendada.'
+          ? 'Autonomia alta com subsistema instável: redução recomendada.'
           : 'Revise os itens pendentes antes de iniciar.',
     checklist,
     recoveryActions,
