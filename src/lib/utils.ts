@@ -15,5 +15,12 @@ const SAFE_IMAGE_SRC = /^(https?:\/\/|blob:|data:image\/(png|jpe?g|gif|webp|avif
  */
 export function safeImageSrc(url: string | null | undefined): string | undefined {
   const value = (url ?? '').trim();
-  return value && SAFE_IMAGE_SRC.test(value) ? value : undefined;
+  if (!value || !SAFE_IMAGE_SRC.test(value)) return undefined;
+  // Normaliza a codificação (decode + encode): URLs válidas saem iguais e
+  // qualquer caractere de marcação (<, >, ") sai escapado.
+  try {
+    return encodeURI(decodeURI(value));
+  } catch {
+    return undefined; // sequência % malformada
+  }
 }
