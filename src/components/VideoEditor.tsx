@@ -116,11 +116,13 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
   });
   const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
   const [versions, setVersions] = useState<VideoEditVersion[] | null>(null);
-  const [loadingVersions, setLoadingVersions] = useState(false);
+  const [loadingVersions, setLoadingVersions] = useState(true);
 
   useEffect(() => {
     if (pendingDraft) return; // não sobrescreve o rascunho antes de o usuário decidir
-    if (!dirty) { clearEditDraft(videoId); setDraftSavedAt(null); return; }
+    // Sem alteração: descarta o rascunho. A hora do último rascunho só aparece
+    // enquanto há alteração (ver cabeçalho), então não precisa ser zerada aqui.
+    if (!dirty) { clearEditDraft(videoId); return; }
     const timer = window.setTimeout(() => {
       if (saveEditDraft(edit)) setDraftSavedAt(new Date());
     }, 800);
@@ -133,7 +135,14 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
     setLoadingVersions(false);
   }, [videoId]);
 
-  useEffect(() => { void refreshVersions(); }, [refreshVersions]);
+  // Histórico ao abrir o editor (o componente é montado com key=videoId).
+  useEffect(() => {
+    let alive = true;
+    fetchVideoEditHistory(videoId)
+      .then((list) => { if (alive) setVersions(list); })
+      .finally(() => { if (alive) setLoadingVersions(false); });
+    return () => { alive = false; };
+  }, [videoId]);
 
   // Alguns MP4 transmitidos só informam a duração no evento durationchange (às
   // vezes como Infinity até tocar). Trata ambos os eventos e força resolução.
@@ -157,10 +166,10 @@ export default function VideoEditor({ videoId, label, onClose }: VideoEditorProp
   // expõe duração/range confiável. Com o blob local, a duração resolve e o
   // corte fica frame-a-frame.
   useEffect(() => {
+    // Uma instância por vídeo (key=videoId no chamador): blobSrc começa null e
+    // loadingVideo começa true, sem precisar reiniciar aqui.
     let url = '';
     let cancelled = false;
-    setLoadingVideo(true);
-    setBlobSrc(null);
     durationInitRef.current = false;
     fetch(src)
       .then((r) => r.blob())

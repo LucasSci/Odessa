@@ -61,6 +61,7 @@ import { applyVideoEdit, getVideoEdit, hasVideoEdit, persistVideoEditDebounced, 
 import { getAiConfig, hasActiveGeminiKey, type AiAutonomyLevel } from './core/aiConfig';
 import { PageActivity, usePageActive } from './core/pageActivity';
 import { usePolling } from './core/usePolling';
+import { useLiveSupervisor } from './core/useLiveSupervisor';
 import { PAGE_ORDER, hashForPage, pageFromHash, pageForShortcut, pageOfTab, type PageKey } from './core/pageRoutes';
 
 const loadReactiveFlowBoard = () => import('./ReactiveFlowBoard');
@@ -497,6 +498,10 @@ export default function OdessaLiveCenter({
 
   // Paleta de comandos (Ctrl+K / Cmd+K), disponível em qualquer tela.
   const toast = useToast();
+  // Supervisor da live (#162): com a live no ar, pausa o chat autônomo, volta
+  // ao idle ou reconecta o OBS quando algo falha.
+  const warnAutoChatPaused = useCallback((reason: string) => toast.warning(`Chat autônomo pausado: ${reason}`), [toast]);
+  useLiveSupervisor(runtime, warnAutoChatPaused);
   const [paletteOpen, setPaletteOpen] = useState(false);
   useEffect(() => {
     prefetchTabChunks();
@@ -1233,6 +1238,7 @@ export default function OdessaLiveCenter({
       {editingVideoId && (
         <Suspense fallback={null}>
           <VideoEditor
+            key={editingVideoId}
             videoId={editingVideoId}
             label={editingVideoLabel}
             onClose={() => setEditingVideoId(null)}
@@ -1620,7 +1626,6 @@ export function ContinuityPlayer({
 }) {
   const firstVideoRef = useRef<HTMLVideoElement>(null);
   const secondVideoRef = useRef<HTMLVideoElement>(null);
-  const refs = useMemo(() => [firstVideoRef, secondVideoRef] as const, []);
   const [activeSlot, setActiveSlot] = useState<0 | 1>(0);
   const activeSlotRef = useRef<0 | 1>(0);
   // Duração do crossfade de entrada do clip que acabou de assumir (transitionMs).
@@ -1649,11 +1654,11 @@ export function ContinuityPlayer({
       // O clip que saiu segue tocando por baixo durante o fade; depois dele,
       // pausa (senão continua decodificando e, com áudio original, soaria junto).
       window.setTimeout(() => {
-        if (activeSlotRef.current !== previous) refs[previous].current?.pause();
+        if (activeSlotRef.current !== previous) (previous === 0 ? firstVideoRef : secondVideoRef).current?.pause();
       }, fade + 60);
     }
     setActiveSlot(slot);
-  }, [refs]);
+  }, []);
 
   const primeElement = useCallback((element: HTMLVideoElement, slotClip: VideoClip, slot: 0 | 1) => {
     element.muted = (slotClip.audio?.mode || 'muted') !== 'original';
@@ -1674,7 +1679,7 @@ export function ContinuityPlayer({
   // just buffers it (first frame decoded, paused) so a later cut is instant.
   const loadSlot = useCallback(
     (slot: 0 | 1, slotClip: VideoClip, autoplay: boolean) => {
-      const element = refs[slot].current;
+      const element = (slot === 0 ? firstVideoRef : secondVideoRef).current;
       if (!element) return;
       // videoId obsoleto (vídeo removido da Biblioteca, config desatualizada
       // etc.) nunca deve gerar uma requisição de rede — o backend devolveria
@@ -1712,7 +1717,7 @@ export function ContinuityPlayer({
       if (element.readyState >= 1) ready();
       else element.addEventListener('loadedmetadata', ready, { once: true });
     },
-    [activateSlot, primeElement, refs, videos],
+    [activateSlot, primeElement, videos],
   );
 
   // Instant hard-cut to a slot whose clip is already buffered. No fade.
@@ -1721,16 +1726,16 @@ export function ContinuityPlayer({
       // Cutting to the slot that is already active would re-seek a video
       // mid-playback and visibly restart/jump it — never do that.
       if (activeSlotRef.current === slot) return;
-      const element = refs[slot].current;
+      const element = (slot === 0 ? firstVideoRef : secondVideoRef).current;
       const slotClip = slotClipRef.current[slot];
       if (!element || !slotClip) return;
       primeElement(element, slotClip, slot);
       void element.play().catch(() => undefined);
-      const other = refs[slot === 0 ? 1 : 0].current;
+      const other = (slot === 0 ? secondVideoRef : firstVideoRef).current;
       if (other) other.pause();
       activateSlot(slot, slotClip);
     },
-    [activateSlot, primeElement, refs],
+    [activateSlot, primeElement],
   );
 
   // Keep the active slot playing the current clip.
@@ -1799,13 +1804,13 @@ export function ContinuityPlayer({
   // Watchdog — recover a stalled active video (e.g. inside OBS Browser Source).
   useEffect(() => {
     const interval = window.setInterval(() => {
-      const element = refs[activeSlotRef.current].current;
+      const element = (activeSlotRef.current === 0 ? firstVideoRef : secondVideoRef).current;
       if (element && element.paused && !element.ended && element.readyState >= 2) {
         void element.play().catch(() => undefined);
       }
     }, 1500);
     return () => window.clearInterval(interval);
-  }, [refs]);
+  }, []);
 
   // Trilha/efeito sonoro do clipe ativo (Fase 4). Assinatura estável evita
   // reiniciar o áudio a cada render (o clip é recriado por applyVideoEdit).
@@ -1841,11 +1846,11 @@ export function ContinuityPlayer({
   // Registra a captura do frame ativo para o pipeline de geração de vídeo.
   useEffect(() => {
     registerFrameCapture(() => {
-      const element = refs[activeSlotRef.current].current;
+      const element = (activeSlotRef.current === 0 ? firstVideoRef : secondVideoRef).current;
       return Promise.resolve(captureVideoFrame(element));
     });
     return () => unregisterFrameCapture();
-  }, [refs]);
+  }, []);
 
   return (
     <div className={cn('relative h-full w-full overflow-hidden bg-black', className)}>
@@ -1854,7 +1859,7 @@ export function ContinuityPlayer({
       {[0, 1].map((index) => (
         <video
           key={index}
-          ref={refs[index]}
+          ref={index === 0 ? firstVideoRef : secondVideoRef}
           muted
           playsInline
           disablePictureInPicture
@@ -2314,9 +2319,6 @@ function VideoLibraryPanel({
     }
   }, []);
 
-  useEffect(() => {
-    if (personaFilter === 'all') void refreshLibrary();
-  }, [personaFilter, refreshLibrary]);
 
   const sourceVideos = personaFilter === 'all' ? libraryVideos : videos;
   const hubVideos = useMemo(
@@ -2538,7 +2540,11 @@ function VideoLibraryPanel({
           <Tabs
             size="sm"
             value={personaFilter}
-            onChange={(id) => setPersonaFilter(id as 'active' | 'all')}
+            onChange={(id) => {
+              // A biblioteca de todas as personas carrega quando o usuário pede.
+              setPersonaFilter(id as 'active' | 'all');
+              if (id === 'all') void refreshLibrary();
+            }}
             items={[
               { id: 'active', label: 'Persona ativa' },
               { id: 'all', label: 'Todas as personas' },

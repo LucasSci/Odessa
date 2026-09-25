@@ -14,19 +14,24 @@ export default function TopPersonaSelector({ onPersonaChanged }: Props) {
   const [switching, setSwitching] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const refresh = useCallback(async () => {
-    try {
-      const data = await listPersonas();
-      setPersonas(data.personas);
-      setActiveId(data.activePersonaId);
-    } catch {
-      /* silencioso — o seletor não bloqueia a UI */
-    }
+  const applyList = useCallback((data: Awaited<ReturnType<typeof listPersonas>>) => {
+    setPersonas(data.personas);
+    setActiveId(data.activePersonaId);
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    let alive = true;
+    listPersonas()
+      .then((data) => {
+        if (alive) applyList(data);
+      })
+      .catch(() => {
+        /* silencioso — o seletor não bloqueia a UI se a lista falhar */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [applyList]);
 
   // Fecha o dropdown ao clicar fora
   useEffect(() => {

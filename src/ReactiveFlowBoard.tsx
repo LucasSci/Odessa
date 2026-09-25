@@ -48,7 +48,7 @@ import { ANY_GIFT_KEY, giftLabel } from './core/knownGifts';
 import { apiUrl } from './lib/api';
 import { callFlowDesigner } from './core/aiDecisionContract';
 import { cn, safeImageSrc } from './lib/utils';
-import { usePageActive } from './core/pageActivity';
+import { usePolling } from './core/usePolling';
 import { VideoThumb } from './components/VideoThumb';
 
 type VideoEntry = {
@@ -452,6 +452,22 @@ function VideoFlowNode({ data, selected }: NodeProps<VideoFlowNodeType>) {
 
 const nodeTypes = { videoNode: VideoFlowNode };
 
+// Perfis de workflow salvos no navegador (cada um é um snapshot completo).
+const WF_PROFILES_KEY = 'odessa:wf-profiles:v1';
+
+type WorkflowProfileMeta = { id: string; name: string; updatedAt?: string };
+
+// Snapshot salvo pelo próprio app; o formato completo é validado ao aplicar.
+function readProfilesFromStorage() {
+  try {
+    const raw = window.localStorage.getItem(WF_PROFILES_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function ReactiveFlowBoard({ onSaved }: { onSaved?: () => void }) {
   return (
     <ReactFlowProvider>
@@ -479,10 +495,10 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   const [pendingWorkflow, setPendingWorkflow] = useState<Record<string, unknown> | null>(null);
   const [publishPreview, setPublishPreview] = useState<Record<string, unknown> | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [wfProfiles, setWfProfiles] = useState<Array<{ id: string; name: string; updatedAt?: string }>>([]);
+  const [wfProfiles, setWfProfiles] = useState<WorkflowProfileMeta[]>(() => readProfilesFromStorage());
   const [wfProfileName, setWfProfileName] = useState('');
   const [activeWfProfileId, setActiveWfProfileId] = useState('');
-  const [giftCatalog, setGiftCatalog] = useState<GiftCatalogEntry[]>([]);
+  const [giftCatalog, setGiftCatalog] = useState<GiftCatalogEntry[]>(loadGiftCatalog);
   const [giftCatalogOpen, setGiftCatalogOpen] = useState(false);
   const [schedulesOpen, setSchedulesOpen] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
@@ -579,28 +595,10 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   // Profiles are persisted in localStorage (per-device) so they work
   // independently of backend caching/sync issues. Each profile holds a full
   // workflow snapshot.
-  const WF_PROFILES_KEY = 'odessa:wf-profiles:v1';
-
-  const readProfilesFromStorage = () => {
-    try {
-      const raw = window.localStorage.getItem(WF_PROFILES_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch { return []; }
-  };
 
   const writeProfilesToStorage = (list: typeof wfProfiles) => {
     try { window.localStorage.setItem(WF_PROFILES_KEY, JSON.stringify(list)); } catch { /* ignore */ }
   };
-
-  const loadWfProfiles = useCallback(async () => {
-    if (typeof window === 'undefined') return;
-    try {
-      const raw = window.localStorage.getItem(WF_PROFILES_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      if (Array.isArray(parsed)) setWfProfiles(parsed);
-    } catch { /* ignore */ }
-  }, []);
 
   const saveWfProfile = async (name: string) => {
     if (!name.trim()) return;
@@ -690,9 +688,6 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     } catch { /* ignore */ }
   };
 
-  useEffect(() => { void loadWfProfiles(); }, [loadWfProfiles]);
-
-  useEffect(() => { setGiftCatalog(loadGiftCatalog()); }, []);
 
   const videos = useMemo(() => config?.videos || [], [config?.videos]);
   const triggers = useMemo(() => config?.triggers || [], [config?.triggers]);
@@ -751,14 +746,8 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
 
   // Página escondida pelo shell (outra aba aberta) = sem polling; ao voltar,
   // sincroniza na hora.
-  const pageActive = usePageActive();
-  useEffect(() => {
-    if (!pageActive) return;
-    void refreshFlowState();
-    // Keep the canvas in sync with the live playback in near real time.
-    const interval = window.setInterval(refreshFlowState, 600);
-    return () => window.clearInterval(interval);
-  }, [pageActive, refreshFlowState]);
+  // Keep the canvas in sync with the live playback in near real time.
+  usePolling(refreshFlowState, 600);
 
   useEffect(() => {
     if (!config) return;

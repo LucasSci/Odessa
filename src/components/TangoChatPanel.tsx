@@ -44,17 +44,22 @@ import {
   XCircle,
   Zap,
 } from 'lucide-react';
-import { Badge, Button, ConfirmButton } from './ui';
+import { Badge, Button, ConfirmButton, Modal } from './ui';
+import { LiveReadinessPanel } from './LiveReadinessPanel';
+import { MemoriesUsed, ReplyCardFrame, ReplyStatusBadge } from './ReplyStatus';
+import { describeChatAutonomy } from '../core/chatConversationGovernor';
 import { EmptyState } from './common/OperationalState';
 import { routeStopTransmission } from '../lib/obsCommandRouter';
 import { cn } from '../lib/utils';
-import { usePageActive } from '../core/pageActivity';
+import { usePolling } from '../core/usePolling';
 import {
   generateTangoChatReply,
   generateTangoProactiveMessage,
   type TangoChatMessage,
 } from '../core/tangoAiChatService';
 import { getChatInsights } from '../core/chatLearning';
+import { resetChatMemory } from '../core/chatMemory';
+import { useToast } from './Toast';
 import { getAiConfig, saveAiConfig } from '../core/aiConfig';
 import {
   useTangoChatSession,
@@ -177,21 +182,20 @@ export function TangoChatPanel({
   // ── Indicador de geração da IA (sem % real — o Ollama não expõe isso na
   // chamada não-streaming — mas o tempo decorrido já mostra "está
   // escrevendo" x "travou" na prática) ──
-  const [aiElapsedSeconds, setAiElapsedSeconds] = useState(0);
+  const [clockNow, setClockNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!aiGenerationStartedAt) {
-      setAiElapsedSeconds(0);
-      return;
-    }
-    setAiElapsedSeconds(Math.floor((Date.now() - aiGenerationStartedAt) / 1000));
-    const id = window.setInterval(() => {
-      setAiElapsedSeconds(Math.floor((Date.now() - aiGenerationStartedAt) / 1000));
-    }, 1000);
+    if (!aiGenerationStartedAt) return;
+    const id = window.setInterval(() => setClockNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [aiGenerationStartedAt]);
+  const aiElapsedSeconds = aiGenerationStartedAt
+    ? Math.max(0, Math.floor((clockNow - aiGenerationStartedAt) / 1000))
+    : 0;
 
   // ── Navegação & Modos ─────────────────────────────
   const [subTab, setSubTab] = useState<SubTab>('live');
+  const [confirmRealOpen, setConfirmRealOpen] = useState(false);
+  const toast = useToast();
 
   const [showAdvancedSelectors, setShowAdvancedSelectors] = useState(false);
   const [configSection, setConfigSection] = useState<'ai' | 'bridge'>('ai');
@@ -238,78 +242,26 @@ export function TangoChatPanel({
   const bridgeReachable = processStatus?.bridgeReachable ?? false;
   const bridgeConnected = processStatus?.bridgeStatus?.status === 'connected';
 
-  // ── Logs & Insights Polling com backoff e pausa quando inativo ──
-  const inFlightLogsRef = useRef(false);
-  const logsBackoffMsRef = useRef(3000);
-
-  useEffect(() => {
-    if (subTab === 'diagnostics' && diagSection === 'insights') {
-      setInsights(getChatInsights());
-    }
-    if (subTab !== 'diagnostics' || !processRunning) {
-      return;
-    }
-
-    let timeoutId: number | undefined;
-    let cancelled = false;
-
-    const pollLogs = async () => {
-      if (inFlightLogsRef.current || (typeof document !== 'undefined' && document.hidden)) {
-        return;
-      }
-      inFlightLogsRef.current = true;
-      try {
-        const data = await fetchJson<{ lines: string[] }>(`${BRIDGE_API}/logs?limit=150`);
-        if (data?.lines) {
-          setLogs(data.lines);
-          logsBackoffMsRef.current = 3000;
-        } else {
-          logsBackoffMsRef.current = Math.min(logsBackoffMsRef.current * 1.5, 30000);
-        }
-      } catch {
-        logsBackoffMsRef.current = Math.min(logsBackoffMsRef.current * 1.5, 30000);
-      } finally {
-        inFlightLogsRef.current = false;
-      }
-    };
-
-    const schedulePoll = () => {
-      if (cancelled) return;
-      timeoutId = window.setTimeout(async () => {
-        await pollLogs();
-        schedulePoll();
-      }, logsBackoffMsRef.current);
-    };
-
-    void pollLogs();
-    schedulePoll();
-
-    const handleVisibility = () => {
-      if (typeof document !== 'undefined' && !document.hidden && !cancelled) {
-        logsBackoffMsRef.current = 3000;
-        window.clearTimeout(timeoutId);
-        void pollLogs();
-        schedulePoll();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibility);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, [subTab, processRunning, diagSection]);
+  // ── Logs da bridge: só na aba Diagnóstico com a bridge rodando. usePolling
+  // cuida do espaçamento após falhas, da pausa com a aba oculta e de não
+  // empilhar pedidos. ──
+  usePolling(
+    async () => {
+      const data = await fetchJson<{ lines: string[] }>(`${BRIDGE_API}/logs?limit=150`);
+      if (!data?.lines) throw new Error('logs da bridge indisponíveis');
+      setLogs(data.lines);
+    },
+    3000,
+    { enabled: subTab === 'diagnostics' && processRunning, maxBackoffMs: 30_000 },
+  );
 
   // ── Auto-scrolls (o feed do chat gerencia o Smart Auto-scroll internamente) ──
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
-  // ── Polling de Abas do Chrome com backoff e pausa quando inativo ──
+  // ── Abas do Chrome (aba Configuração Automática) ──
   const inFlightChromeRef = useRef(false);
-  const chromeBackoffMsRef = useRef(4000);
 
   const chromeStatusRef = useRef<ChromeStatus | null>(null);
 
@@ -322,58 +274,23 @@ export function TangoChatPanel({
       const data = await fetchJson<ChromeStatus>(`${BRIDGE_API}/chrome-tabs?port=9222`);
       setChromeStatus(data);
       chromeStatusRef.current = data;
-      if (data) {
-        chromeBackoffMsRef.current = 4000;
-      } else {
-        chromeBackoffMsRef.current = Math.min(chromeBackoffMsRef.current * 1.5, 30000);
-      }
       return data;
     } catch {
-      chromeBackoffMsRef.current = Math.min(chromeBackoffMsRef.current * 1.5, 30000);
       return chromeStatusRef.current;
     } finally {
       inFlightChromeRef.current = false;
     }
   }, []);
 
-  // Página escondida pelo shell (outra aba do Odessa aberta) também pausa.
-  const pageActive = usePageActive();
-  useEffect(() => {
-    // Only poll Chrome tabs when the user is on the setup tab — avoids
-    // continuous background fetches when the live view is active.
-    if (subTab !== 'setup' || !pageActive) return;
-
-    let timeoutId: number | undefined;
-    let cancelled = false;
-
-    const schedulePoll = () => {
-      if (cancelled) return;
-      timeoutId = window.setTimeout(async () => {
-        await refreshChromeStatus();
-        schedulePoll();
-      }, chromeBackoffMsRef.current);
-    };
-
-    void refreshChromeStatus();
-    schedulePoll();
-
-    const handleVisibility = () => {
-      if (typeof document !== 'undefined' && !document.hidden && !cancelled) {
-        chromeBackoffMsRef.current = 4000;
-        window.clearTimeout(timeoutId);
-        void refreshChromeStatus();
-        schedulePoll();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibility);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, [refreshChromeStatus, subTab, pageActive]);
+  // Só consulta na aba de configuração — nada de fetch contínuo durante a live.
+  // usePolling pausa também quando a página do shell está escondida.
+  usePolling(
+    async () => {
+      if (!(await refreshChromeStatus())) throw new Error('Chrome sem resposta');
+    },
+    4000,
+    { enabled: subTab === 'setup', maxBackoffMs: 30_000 },
+  );
 
   const handleLaunchChrome = async () => {
     setLaunchingChrome(true);
@@ -686,6 +603,46 @@ export function TangoChatPanel({
   // ── Render ─────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
+      {/* Aviso forte antes de ligar o envio real (#168) */}
+      <Modal
+        open={confirmRealOpen}
+        onClose={() => setConfirmRealOpen(false)}
+        label="Ligar envio real no chat"
+        className="max-w-md rounded-2xl border border-amber-400/30 bg-[#0c0e12] p-5 shadow-2xl"
+      >
+        <div className="flex items-start gap-3">
+          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
+          <div className="min-w-0 space-y-2">
+            <h2 className="text-sm font-bold text-white">Ligar envio real no chat do Tango?</h2>
+            <p className="text-xs leading-relaxed text-slate-300">
+              A partir daqui, respostas aprovadas{autonomyMode === 'auto' ? ' e as respostas autônomas' : ''} serão
+              <strong className="text-amber-200"> digitadas e enviadas de verdade</strong> no chat da live, com o nome da persona.
+            </p>
+            <p className="text-xs text-slate-400">{describeChatAutonomy(autonomyMode, 'real')}</p>
+            {!bridgeConnected && (
+              <p className="rounded-lg border border-red-400/30 bg-red-500/10 px-2.5 py-1.5 text-[11px] text-red-200">
+                A bridge está desconectada: nada será enviado até ela conectar.
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button size="sm" variant="secondary" onClick={() => setConfirmRealOpen(false)}>
+            Continuar em teste
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => {
+              setExecutionMode('real');
+              setConfirmRealOpen(false);
+            }}
+          >
+            <ShieldCheck className="h-3.5 w-3.5" /> Ligar envio real
+          </Button>
+        </div>
+      </Modal>
+
       {/* ── 1. Barra de Controle Superior (Cockpit Bar) ─────────────── */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#090a0d] p-4 shadow-xl">
         <div className="flex items-center gap-2.5">
@@ -764,7 +721,11 @@ export function TangoChatPanel({
                 ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
                 : 'border-amber-500/40 bg-amber-500/10 text-amber-300'
             )}
-            onClick={() => setExecutionMode((prev) => (prev === 'real' ? 'dry_run' : 'real'))}
+            onClick={() => {
+              // Desligar o envio real é imediato; ligar pede confirmação.
+              if (executionMode === 'real') setExecutionMode('dry_run');
+              else setConfirmRealOpen(true);
+            }}
             title={executionMode === 'real' ? 'Envio real ativo no Tango' : 'Modo simulação (não digita no Tango)'}
           >
             <ShieldCheck className="h-3.5 w-3.5" />
@@ -856,7 +817,10 @@ export function TangoChatPanel({
               'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition',
               subTab === t.id ? 'bg-white/15 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'
             )}
-            onClick={() => setSubTab(t.id)}
+            onClick={() => {
+              setSubTab(t.id);
+              if (t.id === 'diagnostics' && diagSection === 'insights') setInsights(getChatInsights());
+            }}
           >
             {t.icon}
             {t.label}
@@ -1230,6 +1194,7 @@ export function TangoChatPanel({
       {/* ── ABA: AO VIVO (Live + Chat lado a lado) ──────────────────── */}
       {subTab === 'live' && (
         <div className="space-y-4">
+          {odessaRuntime && <LiveReadinessPanel runtime={odessaRuntime} />}
           {bridgeConnected ? (
             <>
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
@@ -1290,22 +1255,14 @@ export function TangoChatPanel({
                         />
                       ) : (
                         replyQueue.map((item) => (
-                          <div
-                            key={item.id}
-                            className={cn(
-                              'rounded-xl border p-3 space-y-2 transition',
-                              item.status === 'sent' && 'border-emerald-500/30 bg-emerald-500/5',
-                              item.status === 'sending' && 'border-sky-500/30 bg-sky-500/5 animate-pulse',
-                              item.status === 'blocked' && 'border-red-500/30 bg-red-500/5',
-                              item.status === 'draft' && 'border-sky-500/30 bg-sky-500/5'
-                            )}
-                          >
-                            <div className="flex items-center justify-between text-[11px]">
+                          <ReplyCardFrame key={item.id} status={item.status} className="space-y-2">
+                            <div className="flex items-center justify-between gap-2 text-[11px]">
                               <span className="font-bold text-sky-300 truncate">
                                 Para: @{item.sourceMessage.username}
                               </span>
-                              <span className="text-[10px] text-slate-500 shrink-0">
-                                {Math.round(item.confidence * 100)}%
+                              <span className="flex shrink-0 items-center gap-1.5">
+                                <span className="text-[10px] text-slate-500">{Math.round(item.confidence * 100)}%</span>
+                                <ReplyStatusBadge status={item.status} />
                               </span>
                             </div>
                             <p className="text-[11px] text-slate-400 italic line-clamp-1 border-l-2 border-white/20 pl-2">
@@ -1347,6 +1304,19 @@ export function TangoChatPanel({
                               <p className="text-[10px] text-red-400 flex items-center gap-1">
                                 <ShieldAlert className="h-3 w-3 shrink-0" /> {item.blockedReason}
                               </p>
+                            )}
+                            {item.reason && <p className="text-[10px] text-slate-500">Por quê: {item.reason}</p>}
+                            <MemoriesUsed items={item.memoriesUsed} />
+
+                            {item.status === 'failed' && (
+                              <div className="flex items-center gap-1.5 pt-1">
+                                <Button size="sm" variant="secondary" className="h-7 text-[11px]" onClick={() => void handleApproveReply(item)}>
+                                  <RotateCcw className="h-3 w-3" /> Tentar de novo
+                                </Button>
+                                <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => handleDiscardReply(item.id)}>
+                                  Descartar
+                                </Button>
+                              </div>
                             )}
 
                             {item.status === 'draft' && editingItemId !== item.id && (
@@ -1391,7 +1361,7 @@ export function TangoChatPanel({
                                 </Button>
                               </div>
                             )}
-                          </div>
+                          </ReplyCardFrame>
                         ))
                       )}
                     </div>
@@ -1716,7 +1686,10 @@ export function TangoChatPanel({
                 'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition',
                 diagSection === 'insights' ? 'bg-white/15 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'
               )}
-              onClick={() => setDiagSection('insights')}
+              onClick={() => {
+                setDiagSection('insights');
+                setInsights(getChatInsights());
+              }}
             >
               <Sparkles className="h-3.5 w-3.5" />
               Insights
@@ -1729,6 +1702,28 @@ export function TangoChatPanel({
 
           {diagSection === 'insights' && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/10 bg-[#0c0e12] px-4 py-3 lg:col-span-3">
+            <p className="text-xs text-slate-400">
+              O que a Odessa aprendeu do chat (tópicos, pedidos, elogios) e quem já falou com ela — usado para
+              reconhecer recorrência nas respostas.
+            </p>
+            <ConfirmButton
+              size="sm"
+              variant="danger"
+              confirmLabel="Apagar tudo?"
+              onConfirm={async () => {
+                const { usersCleared } = await resetChatMemory();
+                setInsights(getChatInsights());
+                toast.success(
+                  usersCleared === null
+                    ? 'Tendências do chat apagadas. A memória por usuário não respondeu — tente de novo com o backend ligado.'
+                    : `Aprendizado resetado: tendências e ${usersCleared} perfil(is) de usuário apagados.`,
+                );
+              }}
+            >
+              <RotateCcw className="h-3.5 w-3.5" /> Resetar aprendizado
+            </ConfirmButton>
+          </div>
           <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-4 space-y-3">
             <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400">Tópicos Mais Falados</h4>
             <div className="space-y-1.5">

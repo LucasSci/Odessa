@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Loader2, RadioTower, Save } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
@@ -32,27 +32,31 @@ const TRANSMISSION_MODES = [
 
 export default function TransmissionConfigPanel({ personaId, personaName }: Props) {
   const [config, setConfig] = useState<TransmissionConfig>(DEFAULT_CONFIG);
-  const [loading, setLoading] = useState(true);
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const loading = loadedFor !== personaId;
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getPersonaTransmission(personaId);
-      setConfig({ ...DEFAULT_CONFIG, ...data.transmissionConfig });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Falha ao carregar configuração');
-    } finally {
-      setLoading(false);
-    }
-  }, [personaId]);
-
+  // Carga ao abrir ou trocar de persona; `alive` descarta respostas antigas.
   useEffect(() => {
-    void load();
-  }, [load]);
+    let alive = true;
+    getPersonaTransmission(personaId)
+      .then((data) => {
+        if (!alive) return;
+        setConfig({ ...DEFAULT_CONFIG, ...data.transmissionConfig });
+        setError(null);
+      })
+      .catch((e) => {
+        if (alive) setError(e instanceof Error ? e.message : 'Falha ao carregar configuração');
+      })
+      .finally(() => {
+        if (alive) setLoadedFor(personaId);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [personaId]);
 
   const handleSave = async () => {
     setSaving(true);

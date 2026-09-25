@@ -17,11 +17,7 @@ import {
   prepareChatReplyQueue,
   updateChatReplyQueueFromAction,
 } from './chatReplyQueue';
-import {
-  buildLiveSupervisorSnapshot,
-  type LiveSupervisorSnapshot,
-  type RecoveryAction,
-} from './liveReadinessSupervisor';
+import { type RecoveryAction } from './liveReadinessSupervisor';
 import {
   applyLiveActionPolicy,
   eventPriorityScore,
@@ -100,6 +96,28 @@ interface VideoBridgeStatus {
   error: string | null;
 }
 
+/**
+ * Normaliza o GET /video/state para o supervisor. O backend responde em
+ * snake_case (current_video_id, queue_len, start_ts em segundos) e informa o
+ * idle pelo `state: 'IDLE'`; ler só camelCase deixava idle/fila/horário
+ * vazios e o supervisor via um "vídeo travado" com a Odessa parada no idle.
+ */
+export function parseVideoState(data: Record<string, unknown>): Omit<VideoBridgeStatus, 'error'> {
+  const currentClip = (data.currentClip || {}) as Record<string, unknown>;
+  const currentVideoId = String(data.current_video_id || data.currentVideoId || currentClip.videoId || '') || null;
+  const isIdle = String(data.state || '').toUpperCase() === 'IDLE';
+  const startedSec = Number(data.start_ts || data.lastTransitionAt || 0);
+  const updatedAt =
+    String(data.updatedAt || data.startedAt || '') ||
+    (Number.isFinite(startedSec) && startedSec > 0 ? new Date(startedSec * 1000).toISOString() : null);
+  return {
+    currentVideoId,
+    idleVideoId: String(data.idleVideoId || data.idle_video_id || '') || (isIdle ? currentVideoId : null),
+    queueSize: Number(data.queue_len ?? data.queueSize ?? data.triggerQueueSize ?? data.pendingQueueSize ?? 0) || 0,
+    updatedAt: updatedAt || null,
+  };
+}
+
 interface ChatAutomationMonitor {
   allowlistReady: boolean;
   lastSendStatus: string | null;
@@ -131,7 +149,8 @@ export interface AutopilotRuntimeState {
   localAgentMessage: string;
   videoMonitor: VideoBridgeStatus;
   chatAutomationMonitor: ChatAutomationMonitor;
-  readiness: LiveSupervisorSnapshot;
+  /** Executa uma ação de recuperação (usado pelo useLiveSupervisor). */
+  runRecoveryAction: (action: RecoveryAction) => Promise<void>;
   completedCycles: number;
   failedCycles: number;
   averageConfidence: number;
@@ -410,52 +429,6 @@ export function useAutopilotRuntime({
     };
   }, [cycles]);
 
-  const readiness = useMemo(() => {
-    const target = loadChatAutomationTarget();
-    const visualTargetReady = Boolean(
-      target.mode === 'visual' &&
-        target.inputPoint &&
-        typeof target.inputPoint.x === 'number' &&
-        typeof target.inputPoint.y === 'number' &&
-        target.viewport &&
-        typeof target.viewport.width === 'number' &&
-        typeof target.viewport.height === 'number',
-    );
-    return buildLiveSupervisorSnapshot({
-      now: Date.now(),
-      capturedEvents: capturedText,
-      healthError,
-      obs: {
-        connected: !obsError && (isObsDirectAvailable() || obsScenes.length > 0),
-        currentScene: currentObsScene,
-        scenes: obsScenes,
-        error: obsError,
-        hasOcrSource: obsScenes.length > 0 ? true : undefined,
-        hasStageSource: obsScenes.length > 0 ? true : undefined,
-        streaming: undefined,
-      },
-      video: videoMonitor,
-      chat: {
-        visualTargetReady,
-        allowlistReady: chatAutomationMonitor.allowlistReady,
-        localAgentReady,
-        lastSendStatus: chatAutomationMonitor.lastSendStatus,
-        lastSendError: chatAutomationMonitor.lastSendError,
-      },
-      autonomyLevel,
-      autoChatEnabled: getAiConfig().autoChatReplyEnabled,
-    });
-  }, [
-    capturedText,
-    healthError,
-    obsError,
-    obsScenes,
-    currentObsScene,
-    videoMonitor,
-    chatAutomationMonitor,
-    localAgentReady,
-    autonomyLevel,
-  ]);
 
   const refreshHealth = useCallback(async () => {
     try {
@@ -532,14 +505,7 @@ export function useAutopilotRuntime({
       const response = await fetch(apiUrl('/video/state'));
       const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
       if (!response.ok) throw new Error(String(data.detail || `HTTP ${response.status}`));
-      const currentClip = (data.currentClip || {}) as Record<string, unknown>;
-      setVideoMonitor({
-        currentVideoId: String(data.current_video_id || data.currentVideoId || currentClip.videoId || '') || null,
-        idleVideoId: String(data.idleVideoId || data.idle_video_id || '') || null,
-        queueSize: Number(data.queueSize || data.triggerQueueSize || data.pendingQueueSize || 0) || 0,
-        updatedAt: String(data.updatedAt || data.startedAt || data.timestamp || '') || null,
-        error: null,
-      });
+      setVideoMonitor({ ...parseVideoState(data), error: null });
     } catch (err) {
       setVideoMonitor((current) => ({
         ...current,
@@ -727,12 +693,8 @@ export function useAutopilotRuntime({
     [refreshObsScenes, refreshVideoMonitor, videoMonitor.idleVideoId],
   );
 
-  useEffect(() => {
-    if (readiness.state === 'healthy') return;
-    readiness.recoveryActions.forEach((action) => {
-      void runRecoveryAction(action);
-    });
-  }, [readiness.state, readiness.recoveryActions, runRecoveryAction]);
+  // A avaliação de prontidão e a recuperação automática ficam em
+  // useLiveSupervisor (precisa da bridge do Tango, que vive no provider do chat).
 
   useEffect(() => {
     if (!autopilotEnabled) return;
@@ -1260,7 +1222,7 @@ export function useAutopilotRuntime({
     localAgentMessage,
     videoMonitor,
     chatAutomationMonitor,
-    readiness,
+    runRecoveryAction,
     completedCycles,
     failedCycles,
     averageConfidence,

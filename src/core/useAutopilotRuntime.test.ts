@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveEvent } from '../types';
-import { normalizeDirectorEvent, partitionDirectorEvents } from './useAutopilotRuntime';
+import { normalizeDirectorEvent, parseVideoState, partitionDirectorEvents } from './useAutopilotRuntime';
 
 function event(patch: Partial<LiveEvent>): LiveEvent {
   return {
@@ -42,5 +42,28 @@ describe('useAutopilotRuntime event preparation', () => {
 
     expect(batch.map((item) => item.id)).toEqual(['moderation', 'gift', 'alert', 'chat']);
     expect(batch[1].kind).toBe('gift');
+  });
+});
+
+describe('parseVideoState', () => {
+  it('lê o formato real do backend (snake_case e state IDLE)', () => {
+    const parsed = parseVideoState({
+      current_video_id: '01_FLUXO_idle',
+      state: 'IDLE',
+      queue_len: 2,
+      start_ts: 1790359473.69,
+    });
+    expect(parsed).toEqual({
+      currentVideoId: '01_FLUXO_idle',
+      idleVideoId: '01_FLUXO_idle',
+      queueSize: 2,
+      updatedAt: new Date(1790359473.69 * 1000).toISOString(),
+    });
+  });
+
+  it('reação tocando não é confundida com idle', () => {
+    const parsed = parseVideoState({ current_video_id: 'gift-rosa', state: 'ACTION', queue_len: 0, start_ts: 1 });
+    expect(parsed.idleVideoId).toBeNull();
+    expect(parsed.currentVideoId).toBe('gift-rosa');
   });
 });

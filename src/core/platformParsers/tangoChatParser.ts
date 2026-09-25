@@ -39,6 +39,17 @@ const OCR_UI_RE =
   /^(ao vivo|live|seguir|presente|presentes|top gifters|ranking|coment[aá]rios?|digite|enviar|send|share|compartilhar|host|tango)$/i;
 const EMOJI_ONLY_RE = /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]+$/u;
 
+/** Mensagem com sinal de risco (spam, golpe, link, contato externo, ofensa). */
+export function isModerationRisk(text: string): boolean {
+  return MODERATION_RE.test(text);
+}
+
+/** Linha do chat que é um presente ("fulano enviou Rosa x3"). */
+export function isGiftText(text: string): boolean {
+  const clean = cleanText(String(text || ''));
+  return GIFT_RE.test(clean) || TANGO_GIFT_RE.test(clean);
+}
+
 function cleanText(rawText: string) {
   return rawText
     .replace(/^(OCR|Chat|Tango|Comentários?|Comentarios?|Presentes|Gifts|Alertas):\s*/i, '')

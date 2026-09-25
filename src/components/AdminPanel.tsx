@@ -193,6 +193,7 @@ export function AdminPanel() {
   const [connectingOllama, setConnectingOllama] = useState(false);
   const [ollamaConnectMessage, setOllamaConnectMessage] = useState<string | null>(null);
 
+  // Botão "Reexecutar diagnóstico".
   const refresh = useCallback(() => {
     setLoading(true);
     void runDiagnostics()
@@ -200,7 +201,20 @@ export function AdminPanel() {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // Primeira verificação ao abrir a página (loading já começa true).
+  useEffect(() => {
+    let alive = true;
+    void runDiagnostics()
+      .then((data) => {
+        if (alive) setResult(data);
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const connectOllama = useCallback(async () => {
     setConnectingOllama(true);

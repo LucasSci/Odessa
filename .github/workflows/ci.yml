@@ -57,7 +57,6 @@ jobs:
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
 
-    # Erros antigos ficam em eslint-suppressions.json (issue #246); erro novo quebra.
     - name: Lint
       run: pnpm lint
 
@@ -137,12 +136,16 @@ jobs:
         # Mesma versao do runtime embutido no instalador (desktop/build-runtime.ps1).
         python-version: '3.12'
         cache: 'pip'
-        cache-dependency-path: server/requirements.txt
+        cache-dependency-path: |
+          server/requirements.txt
+          tango_chat/requirements.txt
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r server/requirements.txt
+        # Bridge do Tango (playwright/aiohttp): só os pacotes, sem baixar navegador.
+        pip install -r tango_chat/requirements.txt
         pip install pytest pytest-asyncio pytest-cov
 
     # As duas pastas: server/tests (unidade/seguranca/dados) e tests/ (API).

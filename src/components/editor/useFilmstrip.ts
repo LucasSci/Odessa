@@ -8,12 +8,17 @@ const SEEK_TIMEOUT_MS = 2500;
  * fora da tela, então não mexe no player do editor. Publica de 4 em 4 quadros
  * para a faixa ir aparecendo enquanto gera.
  */
+const NO_FRAMES: string[] = [];
+
 export function useFilmstrip(src: string | null, duration: number, count = 32): string[] {
-  const [frames, setFrames] = useState<string[]>([]);
+  // Os quadros ficam guardados junto com a chave do vídeo que os gerou: trocar
+  // de vídeo devolve lista vazia na hora, sem precisar zerar estado no efeito.
+  const key = src && duration > 0 ? `${src}|${duration}|${count}` : null;
+  const [strip, setStrip] = useState<{ key: string | null; frames: string[] }>({ key: null, frames: NO_FRAMES });
 
   useEffect(() => {
-    setFrames([]);
     if (!src || !(duration > 0)) return;
+    const stripKey = `${src}|${duration}|${count}`;
     let cancelled = false;
     const video = document.createElement('video');
     video.muted = true;
@@ -49,9 +54,9 @@ export function useFilmstrip(src: string | null, duration: number, count = 32): 
         await seek(Math.min(Math.max(0, duration - 0.05), ((i + 0.5) * duration) / count));
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         out.push(canvas.toDataURL('image/jpeg', 0.6));
-        if (i % 4 === 3 && !cancelled) setFrames(out.slice());
+        if (i % 4 === 3 && !cancelled) setStrip({ key: stripKey, frames: out.slice() });
       }
-      if (!cancelled) setFrames(out);
+      if (!cancelled) setStrip({ key: stripKey, frames: out });
     };
     run().catch(() => undefined);
 
@@ -65,5 +70,5 @@ export function useFilmstrip(src: string | null, duration: number, count = 32): 
     };
   }, [src, duration, count]);
 
-  return frames;
+  return strip.key === key ? strip.frames : NO_FRAMES;
 }

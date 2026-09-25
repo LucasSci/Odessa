@@ -9,6 +9,8 @@ Source no OBS.
 
 | Documento | Conteúdo |
 |---|---|
+| [ROADMAP-IA-CHAT.md](ROADMAP-IA-CHAT.md) | Rastreabilidade do roadmap "IA conversa com o chat" (#169): critério → código → teste |
+| [legal/INVENTARIO-DE-DADOS.md](legal/INVENTARIO-DE-DADOS.md) | Inventário de dados tratados (insumo para o jurídico, #248) |
 | [ENGINEERING-STANDARDS.md](ENGINEERING-STANDARDS.md) | **Leia primeiro.** Fluxo Issue → PR, esteira de qualidade, testes, segurança, arquitetura e padrões de interface/motion |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Arquitetura do sistema, os runtimes, fluxo de dados e decisões |
 | [SETUP.md](SETUP.md) | Setup e execução em desenvolvimento local |

@@ -8,7 +8,9 @@ export type LiveEventSource =
   | 'obs'
   | 'media'
   | 'chat_api'
-  | 'n8n';
+  | 'n8n'
+  /** Chat do Tango capturado pela bridge (Chromium headless). */
+  | 'bridge';
 
 export interface LiveEvent {
   id: string;

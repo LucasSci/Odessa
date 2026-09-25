@@ -23,6 +23,7 @@ import {
   type SessionEvent,
   type SessionInfo,
 } from '../core/sessionHistory';
+import { describeReplyBlock } from '../core/chatConversationGovernor';
 
 const TYPE_LABELS: Record<string, string> = {
   'session.started': 'Sessão iniciada',
@@ -33,7 +34,7 @@ const TYPE_LABELS: Record<string, string> = {
   'video.generated': 'Vídeo gerado',
   'ai.reply': 'Resposta IA',
   'ai.reply.sent': 'Resposta IA enviada',
-  'ai.reply.skipped': 'Resposta pulada (cooldown/limite)',
+  'ai.reply.skipped': 'Resposta não enviada (governador)',
   'message.sent': 'Mensagem enviada',
   'persona.selfconfig.proposed': 'Autoconfig proposta',
   'persona.selfconfig.applied': 'Autoconfig aplicada',
@@ -58,18 +59,6 @@ const TYPE_COLORS: Record<string, string> = {
   'persona.selfconfig.photoRequested': 'bg-fuchsia-500/20 text-fuchsia-300',
 };
 
-/** Traduz o `reason` de shouldReplyToMessage (chatConversationGovernor.ts) pra algo legível. */
-function skipReasonLabel(reason: string): string {
-  if (reason === 'max_per_minute') return 'limite de respostas por minuto atingido';
-  if (reason === 'repeated_message') return 'mensagem repetida (ignorada)';
-  const cooldownMatch = reason.match(/^(global|user)_cooldown_(\d+)s$/);
-  if (cooldownMatch) {
-    const [, scope, seconds] = cooldownMatch;
-    return `cooldown ${scope === 'global' ? 'geral' : 'do usuário'} (${seconds}s restantes)`;
-  }
-  return reason;
-}
-
 function eventSummary(e: SessionEvent): string {
   // `data` tem formato diferente por tipo de evento (chat/gift/trigger/vídeo/IA)
   // — any é intencional aqui: é só pra montar uma linha de texto de histórico,
@@ -90,12 +79,20 @@ function eventSummary(e: SessionEvent): string {
     }
     case 'video.generated':
       return d.ok ? `Vídeo ${d.videoId ?? ''} gerado` : `Falha: ${d.error ?? 'erro'}`;
-    case 'ai.reply':
-      return `${d.username ?? 'desconhecido'} → ${d.reply ?? ''}`;
+    case 'ai.reply': {
+      // Origem, confiança e memórias usadas: dá para auditar por que a IA respondeu assim.
+      const details = [
+        typeof d.confidence === 'number' ? `confiança ${Math.round(d.confidence * 100)}%` : '',
+        d.source ? `origem: ${d.source}` : '',
+        d.kind && d.kind !== 'chat' ? `tipo: ${d.kind}` : '',
+        Array.isArray(d.memoriesUsed) && d.memoriesUsed.length ? `memórias: ${d.memoriesUsed.join(' · ')}` : '',
+      ].filter(Boolean);
+      return `${d.username ?? 'desconhecido'} → ${d.reply ?? ''}${details.length ? ` (${details.join(' | ')})` : ''}`;
+    }
     case 'ai.reply.sent':
       return `${d.username ?? 'desconhecido'} → ${d.reply ?? ''}`;
     case 'ai.reply.skipped':
-      return `${d.username ?? 'desconhecido'}: "${d.text ?? ''}" — ${skipReasonLabel(String(d.reason ?? ''))}`;
+      return `${d.username ?? 'desconhecido'}: "${d.text ?? ''}" — ${describeReplyBlock(String(d.reason ?? ''))}`;
     case 'message.sent':
       return d.text ?? '';
     case 'persona.selfconfig.proposed':

@@ -85,7 +85,8 @@ export function PersonasPanel() {
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [personaConfig, setPersonaConfig] = useState<PersonaConfigData | null>(null);
-  const [configLoading, setConfigLoading] = useState(false);
+  const [configLoadedFor, setConfigLoadedFor] = useState<string | null>(null);
+  const configLoading = !!selectedId && configLoadedFor !== selectedId;
   const [showRoteiro, setShowRoteiro] = useState(true);
   // Painel visual de TODAS as personas: 2 requisições por persona. Só monta
   // (e busca) quando aberto — antes ficava no topo e atrasava a página inteira.
@@ -97,44 +98,66 @@ export function PersonasPanel() {
     detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
-  const refresh = useCallback(async () => {
-    try {
-      const data = await listPersonas();
-      setPersonas(data.personas);
-      setActiveId(data.activePersonaId);
-      if (!selectedId) setSelectedId(data.activePersonaId);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Falha ao carregar personas');
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedId]);
-
-  const loadConfig = useCallback(async (id: string) => {
-    setConfigLoading(true);
-    try {
-      const data = await getPersonaConfig(id);
-      const cfg = data.config as PersonaConfigData;
-      setPersonaConfig({
-        videos: Array.isArray(cfg?.videos) ? cfg.videos : [],
-        idleVideoId: cfg?.idleVideoId || '',
-        triggers: Array.isArray(cfg?.triggers) ? cfg.triggers : [],
-      });
-    } catch {
-      setPersonaConfig({ videos: [], idleVideoId: '', triggers: [] });
-    } finally {
-      setConfigLoading(false);
-    }
+  const applyList = useCallback((data: Awaited<ReturnType<typeof listPersonas>>) => {
+    setPersonas(data.personas);
+    setActiveId(data.activePersonaId);
+    // Sem seleção ainda: começa pela persona ativa (sem depender de selectedId,
+    // para trocar de persona não recarregar a lista inteira).
+    setSelectedId((current) => current || data.activePersonaId);
+    setError(null);
   }, []);
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  // Recarrega depois de criar/editar/ativar uma persona.
+  const refresh = useCallback(async () => {
+    try {
+      applyList(await listPersonas());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Falha ao carregar personas');
+    }
+  }, [applyList]);
 
   useEffect(() => {
-    if (selectedId) void loadConfig(selectedId);
-  }, [selectedId, loadConfig]);
+    let alive = true;
+    listPersonas()
+      .then((data) => {
+        if (alive) applyList(data);
+      })
+      .catch((e) => {
+        if (alive) setError(e instanceof Error ? e.message : 'Falha ao carregar personas');
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [applyList]);
+
+  // Vídeos/gatilhos da persona selecionada. "Carregando" é derivado da persona
+  // cujos dados já chegaram; `alive` descarta a resposta de uma seleção anterior.
+  useEffect(() => {
+    if (!selectedId) return;
+    let alive = true;
+    getPersonaConfig(selectedId)
+      .then((data) => {
+        if (!alive) return;
+        const cfg = data.config as PersonaConfigData;
+        setPersonaConfig({
+          videos: Array.isArray(cfg?.videos) ? cfg.videos : [],
+          idleVideoId: cfg?.idleVideoId || '',
+          triggers: Array.isArray(cfg?.triggers) ? cfg.triggers : [],
+        });
+      })
+      .catch(() => {
+        if (alive) setPersonaConfig({ videos: [], idleVideoId: '', triggers: [] });
+      })
+      .finally(() => {
+        if (alive) setConfigLoadedFor(selectedId);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [selectedId]);
 
   const handleActivate = async (id: string) => {
     try {
@@ -577,12 +600,17 @@ function PersonaDetail({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => {
+  // Persona trocada ou atualizada no backend: o formulário acompanha
+  // (ajuste durante o render, sem efeito).
+  const personaSignature = [persona.id, persona.name, persona.description, persona.avatarUrl, persona.personality].join('\u0000');
+  const [syncedSignature, setSyncedSignature] = useState(personaSignature);
+  if (personaSignature !== syncedSignature) {
+    setSyncedSignature(personaSignature);
     setName(persona.name);
     setDescription(persona.description || '');
     setAvatarUrl(persona.avatarUrl || '');
     setPersonalityState(persona.personality || '');
-  }, [persona.id, persona.name, persona.description, persona.avatarUrl, persona.personality]);
+  }
 
   const handleSave = async () => {
     setSaving(true);

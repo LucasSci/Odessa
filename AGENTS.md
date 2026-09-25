@@ -84,9 +84,7 @@ Compress-Archive -Path dist, api, public, src, workflows, package.json, package-
 
 Then call `mcp__hostinger-mcp__hosting_deployJsApplication` with `archivePath` pointing at `deploy.zip` and `domain` = `darkgrey-shark-457698.hostingersite.com`.
 
-Deploy only from `main` after the PR is merged. Known issue: `api/[...path].js`
-imports `server/automation/sendController.js`, which is not in the zip above —
-see issue #249.
+Deploy only from `main` after the PR is merged.
 
 ## Cloud-mode API URL alignment (Base44 preview)
 

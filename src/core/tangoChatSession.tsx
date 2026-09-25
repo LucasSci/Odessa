@@ -37,10 +37,13 @@ import {
 } from './tangoAiChatService';
 import { getAiConfig } from './aiConfig';
 import { routeChatToTriggers } from './chatToTriggerBridge';
+import { rememberBridgeMessage } from './chatMemory';
 import {
+  classifyIncomingMessage,
   shouldReplyToMessage,
   recordChatReplySent,
   recordIncomingMessage,
+  type ChatMessageKind,
 } from './chatConversationGovernor';
 import { recordSessionEvent } from './sessionHistory';
 import { getActivePersona, type PersonaMeta } from './personaManager';
@@ -52,6 +55,7 @@ import {
   type PendingSelfConfigChange,
 } from './personaSelfConfig';
 import type { CapturedMessage } from '../types';
+import { usePolling } from './usePolling';
 
 // ─── Config & Endpoints ──────────────────────────────────────────────
 export const BRIDGE_URL = '/tango-bridge';
@@ -96,7 +100,18 @@ function saveStoredAutonomy(autonomyMode: AutonomyMode, executionMode: Execution
 export type AutonomyMode = 'off' | 'assistido' | 'auto';
 export type ExecutionMode = 'dry_run' | 'real';
 
-export type ReplyQueueStatus = 'draft' | 'sending' | 'sent' | 'blocked' | 'discarded';
+/**
+ * draft: aguardando aprovação · sending: enviando · sent: enviada de verdade ·
+ * simulated: modo teste, nada saiu no chat · blocked: barrada pelo governador ·
+ * failed: aprovada mas a bridge não conseguiu enviar · discarded: descartada.
+ */
+export type ReplyQueueStatus = 'draft' | 'sending' | 'sent' | 'simulated' | 'blocked' | 'failed' | 'discarded';
+
+/** Resultado de um envio: o que de fato aconteceu com a mensagem. */
+export type SendOutcome = { status: 'sent' | 'simulated' | 'failed'; error?: string };
+
+/** Última resposta que a IA deixou de mandar e por quê (para a Central). */
+export type SkippedReply = { username?: string; text: string; reason: string; at: string };
 
 export type TangoReplyItem = {
   id: string;
@@ -107,6 +122,10 @@ export type TangoReplyItem = {
   confidence: number;
   reason?: string;
   blockedReason?: string;
+  /** Tipo da mensagem de origem (conversa, presente…). */
+  kind?: ChatMessageKind;
+  /** Memórias do usuário/chat que entraram no prompt desta resposta. */
+  memoriesUsed?: string[];
   createdAt: string;
   sentAt?: string;
 };
@@ -240,6 +259,8 @@ export type TangoChatSessionValue = {
   lastSentAt: number;
   // SSE
   sseState: SseConnectionState;
+  /** Última mensagem que a IA deixou de responder e o motivo. */
+  lastSkipped: SkippedReply | null;
   sseAttempts: number;
 };
 
@@ -359,6 +380,8 @@ export function TangoChatSessionProvider({
     })();
   }, []);
 
+  const [lastSkipped, setLastSkipped] = useState<SkippedReply | null>(null);
+
   // ── SSE ───────────────────────────────────────────
   const [sseState, setSseState] = useState<SseConnectionState>('stopped');
   const [sseAttempts, setSseAttempts] = useState(0);
@@ -374,9 +397,8 @@ export function TangoChatSessionProvider({
     return messages;
   }, [messages]);
 
-  // ── Polling de Status com backoff exponencial e pausa quando inativo ──
+  // ── Status da bridge (consultado pelo usePolling mais abaixo) ──
   const inFlightStatusRef = useRef(false);
-  const statusBackoffMsRef = useRef(3500);
 
   const refreshStatus = useCallback(async (): Promise<BridgeProcessStatus | null> => {
     if (inFlightStatusRef.current || (typeof document !== 'undefined' && document.hidden)) {
@@ -387,54 +409,24 @@ export function TangoChatSessionProvider({
       const data = await fetchJson<BridgeProcessStatus>(`${BRIDGE_API}/status`);
       setProcessStatus(data);
       processStatusRef.current = data;
-      if (data) {
-        statusBackoffMsRef.current = 3500; // Reset backoff no sucesso
-      } else {
-        statusBackoffMsRef.current = Math.min(statusBackoffMsRef.current * 1.5, 30000);
-      }
       return data;
     } catch {
-      statusBackoffMsRef.current = Math.min(statusBackoffMsRef.current * 1.5, 30000);
       return processStatusRef.current;
     } finally {
       inFlightStatusRef.current = false;
     }
   }, []);
 
-  useEffect(() => {
-    let timeoutId: number | undefined;
-    let cancelled = false;
-
-    const schedulePoll = () => {
-      if (cancelled) return;
-      timeoutId = window.setTimeout(async () => {
-        await refreshStatus();
-        schedulePoll();
-      }, statusBackoffMsRef.current);
-    };
-
-    // Dispara imediatamente e agenda ciclo recursivo
-    void refreshStatus();
-    schedulePoll();
-
-    // Quando o usuário volta à aba do navegador, acorda imediatamente
-    const handleVisibility = () => {
-      if (typeof document !== 'undefined' && !document.hidden && !cancelled) {
-        statusBackoffMsRef.current = 3500;
-        window.clearTimeout(timeoutId);
-        void refreshStatus();
-        schedulePoll();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibility);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, [refreshStatus]);
+  // Consulta contínua enquanto o app está aberto. usePolling espaça as
+  // tentativas quando a bridge não responde (até 30 s), pausa com a aba do
+  // navegador oculta e consulta na hora ao voltar.
+  usePolling(
+    async () => {
+      if (!(await refreshStatus())) throw new Error('bridge sem status');
+    },
+    3500,
+    { maxBackoffMs: 30_000 },
+  );
 
   // ── Carregar Configurações ────────────────────────
   useEffect(() => {
@@ -461,10 +453,10 @@ export function TangoChatSessionProvider({
   }, []);
 
   // ── Envio no Tango ────────────────────────────────
-  const executeSendMessage = useCallback(
-    async (text: string): Promise<boolean> => {
+  const sendWithOutcome = useCallback(
+    async (text: string): Promise<SendOutcome> => {
       const clean = text.trim();
-      if (!clean) return false;
+      if (!clean) return { status: 'failed', error: 'Mensagem vazia.' };
 
       // Registra a própria fala no histórico local — sem isso a IA nunca via
       // o que ela mesma tinha dito, só as mensagens do público. Isso é o que
@@ -483,10 +475,10 @@ export function TangoChatSessionProvider({
       };
 
       if (executionMode === 'dry_run') {
-        console.log('[DRY-RUN] Simulação de envio no Tango:', clean);
+        // Modo teste: registra como a IA teria respondido, sem tocar no chat.
         setLastSentAt(Date.now());
         recordOwnReply();
-        return true;
+        return { status: 'simulated' };
       }
 
       try {
@@ -497,14 +489,20 @@ export function TangoChatSessionProvider({
         if (res?.ok) {
           setLastSentAt(Date.now());
           recordOwnReply();
-          return true;
+          return { status: 'sent' };
         }
-        return false;
-      } catch {
-        return false;
+        return { status: 'failed', error: res?.error || 'A bridge não confirmou o envio.' };
+      } catch (error) {
+        return { status: 'failed', error: error instanceof Error ? error.message : 'Bridge inacessível.' };
       }
     },
     [executionMode, activePersona],
+  );
+
+  // Compatibilidade: telas que só precisam saber se "deu certo".
+  const executeSendMessage = useCallback(
+    async (text: string): Promise<boolean> => (await sendWithOutcome(text)).status !== 'failed',
+    [sendWithOutcome],
   );
 
   // ── Geração de Resposta por IA ─────────────────────
@@ -514,6 +512,7 @@ export function TangoChatSessionProvider({
       setAiGenerationStartedAt(Date.now());
       try {
         const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt);
+        const kind = classifyIncomingMessage(msg);
         recordSessionEvent('ai.reply', {
           username: msg.username,
           sourceText: msg.text,
@@ -521,6 +520,9 @@ export function TangoChatSessionProvider({
           confidence: result.confidence,
           blocked: result.blocked,
           reason: result.reason,
+          kind,
+          source: 'bridge',
+          memoriesUsed: result.memoriesUsed,
         });
         const newItem: TangoReplyItem = {
           id: `reply-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -531,6 +533,8 @@ export function TangoChatSessionProvider({
           confidence: result.confidence,
           reason: result.reason,
           blockedReason: result.blockedReason,
+          kind,
+          memoriesUsed: result.memoriesUsed,
           createdAt: new Date().toISOString(),
         };
 
@@ -554,17 +558,27 @@ export function TangoChatSessionProvider({
         cooldownMs: config.chatReplyCooldownMs || 15_000,
         maxPerMinute: config.chatReplyMaxPerMinute || 4,
       });
-      if (!decision.allowed) {
+      // Envio real só com a bridge pronta: sem ela, nada sai no chat — melhor
+      // registrar o motivo do que gerar uma resposta que vai falhar.
+      const skipReason = !decision.allowed
+        ? decision.reason
+        : executionMode === 'real' && !bridgeConnected
+          ? 'bridge_not_ready'
+          : undefined;
+      if (skipReason) {
         // Visibilidade: sem isto, uma mensagem real ficava sem resposta em
         // silêncio (cooldown/limite/repetida) sem nenhum rastro de por quê —
         // só registra os motivos "de verdade" (não os triviais de validação
         // de entrada, que são ruído: mensagem vazia ou curta demais).
-        if (decision.reason && decision.reason !== 'empty_message' && decision.reason !== 'too_short') {
+        if (skipReason !== 'empty_message' && skipReason !== 'too_short') {
           recordSessionEvent('ai.reply.skipped', {
             username: msg.username,
             text: msg.text,
-            reason: decision.reason,
+            reason: skipReason,
+            kind: decision.kind,
+            source: 'bridge',
           });
+          setLastSkipped({ username: msg.username, text: msg.text, reason: skipReason, at: new Date().toISOString() });
         }
         return;
       }
@@ -578,7 +592,20 @@ export function TangoChatSessionProvider({
         setGeneratingForId(null);
         setAiGenerationStartedAt(null);
       }
-      if (!result.ok || result.blocked || !result.reply) return;
+      if (!result.ok || result.blocked || !result.reply) {
+        // Resposta barrada pela checagem de segurança ou IA indisponível: fica
+        // registrado por quê, em vez de a mensagem ficar sem resposta calada.
+        const reason = result.blockedReason || result.reason || 'ai_unavailable';
+        recordSessionEvent('ai.reply.skipped', {
+          username: msg.username,
+          text: msg.text,
+          reason,
+          kind: decision.kind,
+          source: 'bridge',
+        });
+        setLastSkipped({ username: msg.username, text: msg.text, reason, at: new Date().toISOString() });
+        return;
+      }
 
       recordSessionEvent('ai.reply', {
         username: msg.username,
@@ -586,6 +613,9 @@ export function TangoChatSessionProvider({
         reply: result.reply,
         confidence: result.confidence,
         autonomous: true,
+        kind: decision.kind,
+        source: 'bridge',
+        memoriesUsed: result.memoriesUsed,
       });
 
       const newItem: TangoReplyItem = {
@@ -595,13 +625,16 @@ export function TangoChatSessionProvider({
         originalText: result.reply,
         status: 'sending',
         confidence: result.confidence,
-        reason: 'Resposta autônoma enviada pela IA',
+        reason: 'Resposta autônoma da IA',
+        kind: decision.kind,
+        memoriesUsed: result.memoriesUsed,
         createdAt: new Date().toISOString(),
       };
 
       setReplyQueue((prev) => [newItem, ...prev].slice(0, 30));
 
-      const sent = await executeSendMessage(result.reply);
+      const outcome = await sendWithOutcome(result.reply);
+      const sent = outcome.status !== 'failed';
       if (sent) {
         recordChatReplySent(msg.username);
         recordSessionEvent('ai.reply.sent', {
@@ -646,12 +679,17 @@ export function TangoChatSessionProvider({
       setReplyQueue((prev) =>
         prev.map((item) =>
           item.id === newItem.id
-            ? { ...item, status: sent ? 'sent' : 'blocked', sentAt: new Date().toISOString() }
+            ? {
+                ...item,
+                status: outcome.status,
+                blockedReason: outcome.status === 'failed' ? outcome.error : undefined,
+                sentAt: new Date().toISOString(),
+              }
             : item,
         ),
       );
     },
-    [unifiedMessages, aiPrompt, executeSendMessage, activePersona],
+    [unifiedMessages, aiPrompt, sendWithOutcome, activePersona, executionMode, bridgeConnected],
   );
 
   const handleApproveReply = useCallback(
@@ -660,24 +698,30 @@ export function TangoChatSessionProvider({
         prev.map((i) => (i.id === item.id ? { ...i, status: 'sending' } : i)),
       );
 
-      const ok = await executeSendMessage(item.text);
-      if (ok) {
+      const outcome = await sendWithOutcome(item.text);
+      if (outcome.status !== 'failed') {
         recordSessionEvent('message.sent', {
           text: item.text,
           source: 'approved_reply',
           username: item.sourceMessage.username,
+          simulated: outcome.status === 'simulated',
         });
       }
 
       setReplyQueue((prev) =>
         prev.map((i) =>
           i.id === item.id
-            ? { ...i, status: ok ? 'sent' : 'blocked', sentAt: new Date().toISOString() }
+            ? {
+                ...i,
+                status: outcome.status,
+                blockedReason: outcome.status === 'failed' ? outcome.error : i.blockedReason,
+                sentAt: new Date().toISOString(),
+              }
             : i,
         ),
       );
     },
-    [executeSendMessage],
+    [sendWithOutcome],
   );
 
   const handleDiscardReply = useCallback((id: string) => {
@@ -898,6 +942,9 @@ export function TangoChatSessionProvider({
 
           setMessages((prev) => [...prev.slice(-399), msg]);
 
+          // Memória do chat (#165): tendências + perfil por usuário.
+          rememberBridgeMessage(msg, classifyIncomingMessage(msg));
+
           // Roteia a mensagem para o trigger engine do backend (palavra-chave/
           // presente -> vídeo do fluxo publicado), com dedupe e cooldown.
           void routeChatToTriggers(msg);
@@ -928,7 +975,8 @@ export function TangoChatSessionProvider({
       };
     };
 
-    setSseState('connecting');
+    // Estado "connecting" é derivado (ver sseStateView): nada de setState
+    // síncrono aqui.
     connect();
 
     return () => {
@@ -1003,8 +1051,10 @@ export function TangoChatSessionProvider({
     aiPrompt,
     setAiPrompt,
     lastSentAt,
-    sseState,
+    // Bridge conectada e stream ainda não aberto = conectando.
+    sseState: bridgeConnected && sseState === 'stopped' ? 'connecting' : sseState,
     sseAttempts,
+    lastSkipped,
   };
 
   return <TangoChatSessionContext.Provider value={value}>{children}</TangoChatSessionContext.Provider>;

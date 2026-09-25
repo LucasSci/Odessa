@@ -28,6 +28,11 @@ def list_memory_profiles(
     return memory_service.list_profiles(q, limit, includeHidden)
 
 
+@router.delete("/profiles")
+def clear_all_memory_profiles():
+    return memory_service.clear_all()
+
+
 @router.get("/profiles/{user_id}")
 def get_memory_profile(user_id: str):
     profile = memory_service.get_profile(user_id)

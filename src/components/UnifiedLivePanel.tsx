@@ -36,6 +36,7 @@ import type { TangoChatMessage } from '../core/tangoAiChatService';
 import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
 import type { CapturedMessage } from '../types';
 import type { TangoReplyItem } from './TangoChatPanel';
+import { MemoriesUsed, ReplyCardFrame, ReplyStatusBadge } from './ReplyStatus';
 
 export type VideoStateLite = {
   current_video_id?: string;
@@ -113,9 +114,9 @@ export function UnifiedLivePanel({
     return messages;
   }, [messages]);
 
-  // Fila de respostas IA pendentes (draft + blocked)
+  // Fila que pede atenção: aguardando aprovação, bloqueadas e falhas de envio.
   const pendingReplies = useMemo(
-    () => replyQueue.filter((r) => r.status === 'draft' || r.status === 'blocked'),
+    () => replyQueue.filter((r) => r.status === 'draft' || r.status === 'blocked' || r.status === 'failed'),
     [replyQueue],
   );
 
@@ -280,32 +281,20 @@ export function UnifiedLivePanel({
 
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {pendingReplies.slice(0, 5).map((item) => (
-                  <div
-                    key={item.id}
-                    className={cn(
-                      'rounded-xl border p-3 transition',
-                      item.status === 'blocked'
-                        ? 'border-red-500/30 bg-red-500/[0.06]'
-                        : 'border-white/8 bg-white/[0.02]',
-                    )}
-                  >
+                  <ReplyCardFrame key={item.id} status={item.status}>
                     <div className="flex items-start justify-between gap-2 mb-1.5">
                       <span className="text-[10px] font-bold text-sky-300 truncate">
                         @{item.sourceMessage.username}
                       </span>
-                      <span
-                        className={cn(
-                          'text-[10px] font-bold uppercase shrink-0',
-                          item.status === 'blocked' ? 'text-red-400' : 'text-amber-400',
-                        )}
-                      >
-                        {item.status === 'blocked' ? 'Bloqueada' : 'Pendente'}
-                      </span>
+                      <ReplyStatusBadge status={item.status} />
                     </div>
                     <p className="text-xs text-slate-200 leading-relaxed mb-2">{item.text}</p>
                     {item.blockedReason && (
                       <p className="text-[10px] text-red-400 mb-2">{item.blockedReason}</p>
                     )}
+                    <div className="mb-2">
+                      <MemoriesUsed items={item.memoriesUsed} />
+                    </div>
                     <div className="flex gap-2">
                       <Button
                         size="sm"
@@ -315,7 +304,7 @@ export function UnifiedLivePanel({
                         onClick={() => onApproveReply(item)}
                       >
                         <Check className="h-3 w-3 mr-1" />
-                        Aprovar
+                        {item.status === 'failed' ? 'Tentar de novo' : 'Aprovar'}
                       </Button>
                       <Button
                         size="sm"
@@ -327,7 +316,7 @@ export function UnifiedLivePanel({
                         Descartar
                       </Button>
                     </div>
-                  </div>
+                  </ReplyCardFrame>
                 ))}
               </div>
             </div>
