@@ -1,5 +1,5 @@
-import { useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react';
-import { Loader2 } from 'lucide-react';
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react';
+import { Loader2, MoreHorizontal } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 export function Button({
@@ -271,5 +271,74 @@ export function ConfirmButton({
       {loading && <Loader2 className="h-4 w-4 animate-spin" />}
       {confirming ? confirmLabel : children}
     </button>
+  );
+}
+
+export interface OverflowMenuItem {
+  label: string;
+  icon?: ReactNode;
+  onSelect: () => void;
+  disabled?: boolean;
+  /** Ação que mexe em dados (ex.: Reverter) — aparece em vermelho. */
+  danger?: boolean;
+}
+
+/**
+ * OverflowMenu — botão "Mais" com as ações secundárias de uma barra de
+ * ferramentas. Fecha ao escolher um item, com Esc ou clicando fora.
+ */
+export function OverflowMenu({ items, label = 'Mais', size = 'md' }: { items: OverflowMenuItem[]; label?: string; size?: 'sm' | 'md' }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <Button size={size} variant="secondary" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <MoreHorizontal className="h-4 w-4" />
+        {label}
+      </Button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-50 mt-1.5 min-w-[190px] overflow-hidden rounded-2xl border border-[var(--border2)] bg-[#13151a] p-1 shadow-2xl"
+        >
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              disabled={item.disabled}
+              onClick={() => {
+                setOpen(false);
+                item.onSelect();
+              }}
+              className={cn(
+                'flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition disabled:cursor-not-allowed disabled:opacity-50',
+                item.danger ? 'text-red-300 hover:bg-red-500/10' : 'text-[var(--t1)] hover:bg-white/[0.06]',
+              )}
+            >
+              {item.icon && <span className="[&_svg]:h-4 [&_svg]:w-4">{item.icon}</span>}
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

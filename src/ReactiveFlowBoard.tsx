@@ -20,6 +20,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import {
   BellRing,
+  CheckCircle2,
   CircleDot,
   Clock,
   Download,
@@ -30,6 +31,7 @@ import {
   Plus,
   RadioTower,
   RefreshCw,
+  RotateCcw,
   Save,
   Scissors,
   Sparkles,
@@ -38,7 +40,7 @@ import {
   Video,
   X,
 } from 'lucide-react';
-import { Badge, Button, Input, Skeleton, StatusDot } from './components/ui';
+import { Badge, Button, Input, OverflowMenu, Skeleton, StatusDot } from './components/ui';
 import GiftCatalogModal from './GiftCatalogModal';
 import { type GiftCatalogEntry, loadGiftCatalog } from './core/giftCatalog';
 import { loadRulesFromFlowTriggers } from './core/giftEventBus';
@@ -1428,13 +1430,15 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   };
 
   const resetDraft = async () => {
+    // Descarta todas as edições do rascunho e não tem desfazer.
+    if (!window.confirm('Descartar todas as mudanças do rascunho e voltar para a versão publicada?')) return;
     setSaving(true);
     setError(null);
     try {
       const response = await fetch(apiUrl('/workflow/draft/reset-from-published'), { method: 'POST' });
       const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
       if (!response.ok) throw new Error(String(data.detail || `HTTP ${response.status}`));
-      setStatusMessage('Rascunho revertido para a versao publicada.');
+      setStatusMessage('Rascunho revertido para a versão publicada.');
       setPublishPreview(data);
       await loadConfig();
     } catch (err) {
@@ -1645,13 +1649,13 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   }
 
   return (
-    <div className="grid h-[calc(100dvh-64px)] grid-rows-[1fr] gap-4 overflow-hidden p-4 xl:grid-cols-[280px_minmax(640px,1fr)_360px]">
+    <div className="grid min-h-0 flex-1 grid-rows-[1fr] gap-4 overflow-hidden p-4 xl:grid-cols-[240px_minmax(0,1fr)_300px] 2xl:grid-cols-[280px_minmax(0,1fr)_360px]">
       <aside className="odessa-panel flex min-h-0 flex-col overflow-hidden p-4">
         <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
           <Video className="h-4 w-4 text-sky-200" />
           Biblioteca
         </div>
-        <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar videos..." />
+        <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar vídeos…" aria-label="Buscar vídeos" />
         <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
           {filteredVideos.map((video) => {
             const copies = nodeCountByVideoId.get(video.id) || 0;
@@ -1674,7 +1678,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
                     <div className="mt-1 truncate text-[10px] text-[var(--t3)]">{video.group || video.id}</div>
                     <div className="mt-1 flex gap-1">
                       {video.id === idleVideoId && <Badge variant="gold">Idle</Badge>}
-                      {copies > 0 && <Badge variant="lavender">{copies} no canvas</Badge>}
+                      {copies > 0 && <Badge variant="default">{copies === 1 ? 'no canvas' : `${copies}× no canvas`}</Badge>}
                       {video.missingFile && <Badge variant="warning">placeholder</Badge>}
                     </div>
                   </div>
@@ -1685,31 +1689,29 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
           {filteredVideos.length === 0 && (
             <p className="px-2 py-4 text-center text-xs text-[var(--t3)]">
               {videos.length === 0
-                ? 'Nenhum video. Adicione na Biblioteca.'
-                : 'Nenhum video corresponde a busca.'}
+                ? 'Nenhum vídeo. Adicione na Biblioteca.'
+                : 'Nenhum vídeo corresponde à busca.'}
             </p>
           )}
         </div>
       </aside>
 
       <section className="signal-lane-surface relative flex min-h-0 flex-col overflow-hidden rounded-[34px] border border-[var(--border)] bg-[var(--bg)]">
-        <div className="absolute inset-x-5 top-5 z-20 flex items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-sky-200/70">
-              <RadioTower className="h-4 w-4" />
-              Fluxo Reativo
-            </div>
-            <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-white">
-              Use instancias independentes para montar rotas alternativas.
-            </h1>
-            <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
-              Editando rascunho - live usando versao publicada
+        <div className="relative z-30 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <RadioTower className="h-4 w-4 shrink-0 text-sky-200" />
+            <span className="text-sm font-semibold text-white">Fluxo reativo</span>
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-200"
+              title="Você edita um rascunho; a live só muda quando você publica."
+            >
+              Rascunho · a live usa a versão publicada
               {config.workflowMeta?.version !== undefined && (
                 <span className="text-emerald-100/60">v{config.workflowMeta.version}</span>
               )}
-            </div>
+            </span>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <input
               ref={importInputRef}
               type="file"
@@ -1717,27 +1719,26 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
               className="hidden"
               onChange={(event) => void validateWorkflowFile(event.target.files?.[0])}
             />
-            <Button onClick={() => importInputRef.current?.click()} variant="secondary">
-              <Upload className="h-4 w-4" />
-              Importar
-            </Button>
-            <Button onClick={exportWorkflow} variant="secondary">
-              <Download className="h-4 w-4" />
-              Exportar
-            </Button>
-            <Button onClick={() => setGiftCatalogOpen(true)} variant="secondary">
+            <Button size="sm" onClick={() => setGiftCatalogOpen(true)} variant="secondary" title="Catálogo de presentes">
               <Gift className="h-4 w-4" />
               Presentes
             </Button>
-            <Button onClick={() => setSchedulesOpen(true)} variant="secondary">
+            <Button size="sm" onClick={() => setSchedulesOpen(true)} variant="secondary" title="Ações em horários programados">
               <Clock className="h-4 w-4" />
-              Automações
-            </Button>
-            <Button onClick={toggleAnimateFlow} variant={animateFlow ? 'success' : 'secondary'}>
-              <Eye className="h-4 w-4" />
-              Fluxo
+              Agendamentos
             </Button>
             <Button
+              size="sm"
+              onClick={toggleAnimateFlow}
+              variant={animateFlow ? 'success' : 'secondary'}
+              aria-pressed={animateFlow}
+              title="Destacar no canvas o caminho que a live está tocando"
+            >
+              <Eye className="h-4 w-4" />
+              Animar
+            </Button>
+            <Button
+              size="sm"
               onClick={() => void generateFlowWithAi()}
               loading={aiGenerating}
               variant="secondary"
@@ -1747,33 +1748,34 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
               <Sparkles className="h-4 w-4" />
               Gerar com IA
             </Button>
-            <Button onClick={loadConfig} variant="secondary">
-              <RefreshCw className="h-4 w-4" />
-              Recarregar
-            </Button>
-            <Button onClick={() => void resetDraft()} loading={saving} variant="secondary">
-              Reverter
-            </Button>
-            <Button onClick={() => void testDraft()} loading={testing === 'draft'} variant="secondary">
+            <span className="mx-1 hidden h-5 w-px bg-white/10 sm:block" aria-hidden="true" />
+            <Button size="sm" onClick={() => void testDraft()} loading={testing === 'draft'} variant="secondary" title="Simular o rascunho sem afetar a live">
               <Play className="h-4 w-4" />
-              Testar rascunho
+              Testar
             </Button>
-            <Button onClick={() => void validateDraft()} loading={saving} variant="secondary">
-              Validar
-            </Button>
-            <Button onClick={saveConfig} loading={saving} variant="primary">
+            <Button size="sm" onClick={saveConfig} loading={saving} variant="primary">
               <Save className="h-4 w-4" />
               Salvar rascunho
             </Button>
-            <Button onClick={() => void publishDraft()} loading={saving} variant="success">
+            <Button size="sm" onClick={() => void publishDraft()} loading={saving} variant="success" title="Colocar o rascunho na live">
               <RadioTower className="h-4 w-4" />
-              Publicar fluxo
+              Publicar
             </Button>
+            <OverflowMenu
+              size="sm"
+              items={[
+                { label: 'Validar rascunho', icon: <CheckCircle2 />, onSelect: () => void validateDraft(), disabled: saving },
+                { label: 'Importar workflow…', icon: <Upload />, onSelect: () => importInputRef.current?.click() },
+                { label: 'Exportar workflow', icon: <Download />, onSelect: exportWorkflow },
+                { label: 'Recarregar do servidor', icon: <RefreshCw />, onSelect: () => void loadConfig() },
+                { label: 'Reverter para a versão publicada', icon: <RotateCcw />, onSelect: () => void resetDraft(), disabled: saving, danger: true },
+              ]}
+            />
           </div>
         </div>
 
         <div
-          className="absolute left-5 top-[120px] z-30 flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#0b0d10]/85 px-2.5 py-1.5 backdrop-blur"
+          className="relative z-20 flex items-center gap-1.5 border-b border-[var(--border)] px-4 py-1.5"
           onPointerDown={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
@@ -1814,10 +1816,11 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
           </Button>
         </div>
 
+        <div className="relative min-h-0 flex-1">
         {(error || statusMessage) && (
           <div
             className={cn(
-              'absolute left-5 right-5 top-40 z-30 rounded-2xl border px-4 py-3 text-sm',
+              'absolute left-4 right-4 top-3 z-30 rounded-2xl border px-4 py-3 text-sm',
               error
                 ? 'border-red-400/30 bg-red-500/10 text-red-100'
                 : 'border-emerald-400/25 bg-emerald-500/10 text-emerald-100',
@@ -1828,10 +1831,10 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
         )}
 
         {(selectedNodeIds.length > 1 || selectedEdgeIds.length > 0) && (
-          <div className="absolute left-5 right-5 top-48 z-30 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-200/25 bg-[#0b0d10]/95 px-4 py-3 shadow-2xl backdrop-blur">
+          <div className="absolute left-4 right-4 top-16 z-30 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-200/25 bg-[#0b0d10]/95 px-4 py-3 shadow-2xl backdrop-blur">
             <div className="flex items-center gap-2 text-sm font-semibold text-white">
               <MousePointer2 className="h-4 w-4 text-sky-200" />
-              {selectedNodeIds.length} no(s), {selectedEdgeIds.length} conexao(oes) selecionados
+              {selectedNodeIds.length} {selectedNodeIds.length === 1 ? 'nó' : 'nós'}, {selectedEdgeIds.length} {selectedEdgeIds.length === 1 ? 'conexão' : 'conexões'} selecionados
             </div>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="secondary" onClick={duplicateSelectedNodes} disabled={!selectedNodeIds.length}>
@@ -1854,7 +1857,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
 
         {publishPreview && (
           <div className="absolute bottom-5 left-5 z-30 max-w-xl rounded-2xl border border-[var(--border)] bg-[rgba(0,0,0,0.70)] px-4 py-3 text-xs text-[var(--t2)] backdrop-blur">
-            <div className="mb-1 font-semibold text-white">Resumo do rascunho/publicacao</div>
+            <div className="mb-1 font-semibold text-white">Resumo do rascunho/publicação</div>
             {JSON.stringify(
               (publishPreview.comparison as Record<string, unknown>) ||
                 (publishPreview.validation as Record<string, unknown>) ||
@@ -1867,18 +1870,18 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
           const s = (workflowPreview.summary || {}) as Record<string, unknown>;
           const warnings = Array.isArray(workflowPreview.warnings) ? workflowPreview.warnings as string[] : [];
           return (
-            <div className="absolute left-5 right-5 top-24 z-40 rounded-3xl border border-sky-200/25 bg-[#0b0d10]/95 p-4 shadow-2xl backdrop-blur">
+            <div className="absolute left-4 right-4 top-3 z-40 rounded-3xl border border-sky-200/25 bg-[#0b0d10]/95 p-4 shadow-2xl backdrop-blur">
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <div className="text-sm font-semibold text-white">Importar workflow</div>
                   <div className="flex gap-2 text-xs text-[var(--t3)]">
-                    <span>{String(s.videos ?? 0)} videos</span>
+                    <span>{String(s.videos ?? 0)} vídeos</span>
                     <span>·</span>
-                    <span>{String(s.flowNodes ?? 0)} nodes</span>
+                    <span>{String(s.flowNodes ?? 0)} nós</span>
                     <span>·</span>
-                    <span>{String(s.triggers ?? 0)} triggers</span>
+                    <span>{String(s.triggers ?? 0)} gatilhos</span>
                     <span>·</span>
-                    <span>{String(s.flowConnections ?? 0)} conexoes</span>
+                    <span>{String(s.flowConnections ?? 0)} conexões</span>
                   </div>
                   {warnings.length > 0 && (
                     <span className="text-xs text-amber-200" title={warnings.join('\n')}>
@@ -1900,20 +1903,20 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
         })()}
 
         {nodes.length === 0 && (
-          <div className="pointer-events-none absolute inset-0 top-40 z-10 flex flex-col items-center justify-center gap-3 text-center">
+          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-center">
             <Video className="h-10 w-10 text-[var(--t3)]" />
             <p className="text-sm font-semibold text-[var(--t2)]">Canvas vazio</p>
             <p className="text-xs text-[var(--t3)]">
               {videos.length > 0
-                ? 'Arraste um video da lista lateral para comecar.'
-                : 'Adicione videos na Biblioteca primeiro.'}
+                ? 'Arraste um vídeo da lista lateral (ou clique nele) para começar. Cada cópia no canvas pode ter cortes e retorno próprios.'
+                : 'Adicione vídeos na Biblioteca primeiro.'}
             </p>
           </div>
         )}
 
         <div
           ref={wrapperRef}
-          className="flex-1 pt-24"
+          className="h-full"
           onDrop={onDrop}
           onDragOver={(event) => event.preventDefault()}
         >
@@ -1943,6 +1946,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
             minZoom={0.25}
             maxZoom={1.5}
             proOptions={{ hideAttribution: true }}
+            colorMode="dark"
             className="odessa-react-flow"
           >
             <Background color="rgba(125,211,252,0.16)" gap={28} variant={BackgroundVariant.Dots} />
@@ -1956,13 +1960,14 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
             <Controls />
           </ReactFlow>
         </div>
+        </div>
       </section>
 
       <aside className="odessa-panel flex min-h-0 flex-col overflow-hidden p-4">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
             <BellRing className="h-4 w-4 text-rose-200" />
-            {selectedFlowNode ? 'Instancia do video' : 'Regra da conexao'}
+            {selectedFlowNode ? 'Instância do vídeo' : 'Regra da conexão'}
           </div>
           <Badge>{connections.length} rotas</Badge>
         </div>
