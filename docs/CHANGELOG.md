@@ -16,6 +16,10 @@ Todas as mudanças relevantes do projeto Odessa.
   apareceu no chat do Tango; "sem confirmação" e "falhou" (com a etapa) ficam
   visíveis na fila, na Prontidão e no teste do Passo 4. Envios simultâneos não
   se misturam e o eco da própria Odessa não vira fala de espectador. (#158)
+- **Termos e Política prontos para o jurídico**: rascunhos (não publicáveis)
+  com as decisões em aberto marcadas, inventário de dados completado e
+  publicação travada no CI até a aprovação ser registrada; os links aparecem
+  sozinhos no login e na barra lateral depois disso. (#248)
 - **Governador da bridge**: duplicadas, moderação e prioridade de presentes;
   status "simulada" e "falhou" na fila. (#156, #158–#160)
 - **Padrões de engenharia e esteira de qualidade** — fluxo Issue → Pull
