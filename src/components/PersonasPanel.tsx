@@ -86,6 +86,9 @@ export function PersonasPanel() {
   const [personaConfig, setPersonaConfig] = useState<PersonaConfigData | null>(null);
   const [configLoading, setConfigLoading] = useState(false);
   const [showRoteiro, setShowRoteiro] = useState(true);
+  // Painel visual de TODAS as personas: 2 requisições por persona. Só monta
+  // (e busca) quando aberto — antes ficava no topo e atrasava a página inteira.
+  const [showVisualBoard, setShowVisualBoard] = useState(false);
   const detailRef = useRef<HTMLDivElement | null>(null);
 
   const handleManage = useCallback((id: string) => {
@@ -161,30 +164,17 @@ export function PersonasPanel() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
-      {/* Header */}
-      <div className="mb-5 rounded-2xl border border-white/10 bg-[#101114] p-5">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-sky-200/70">
-          <Users className="h-4 w-4" />
-          Personas de IA
-        </div>
-        <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-white">
-          Gestão de Personas
-        </h1>
-        <p className="mt-1 max-w-3xl text-sm text-slate-400">
-          As personas são o coração do projeto. Cada uma tem sua imagem, personalidade, inteligência e roteiro
-          de vídeos. Com um clique, a persona assume o controle da live — respondendo ao chat, reagindo a
-          presentes e executando seu roteiro automaticamente.
-        </p>
-      </div>
+      {/* O título da página já está na barra superior; aqui só o contexto. */}
+      <p className="mb-4 max-w-3xl text-sm text-slate-400">
+        Cada persona tem imagem, personalidade e roteiro de vídeos próprios. Ativar uma persona faz ela assumir a
+        live — respondendo ao chat, reagindo a presentes e seguindo o roteiro.
+      </p>
 
       {error && (
         <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-300">
           {error}
         </div>
       )}
-
-      {/* Painel Visual: rosto, cenário atual e peças do kit de cada persona */}
-      <PersonaVisualBoard onManage={handleManage} />
 
       <div className="grid gap-4 lg:grid-cols-12">
         {/* ─── Lista de Personas ─── */}
@@ -358,6 +348,27 @@ export function PersonasPanel() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Painel Visual: rosto, cenário atual e peças do kit de cada persona */}
+      <div className="mt-4 rounded-2xl border border-white/10 bg-[#0c0e12]">
+        <button
+          type="button"
+          aria-expanded={showVisualBoard}
+          onClick={() => setShowVisualBoard((open) => !open)}
+          className="flex w-full items-center justify-between px-5 py-4 text-left"
+        >
+          <span className="text-sm font-bold text-white">Painel visual de todas as personas</span>
+          <span className="flex items-center gap-2 text-xs text-slate-400">
+            Rosto, cenário e kit de roupas lado a lado
+            {showVisualBoard ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </span>
+        </button>
+        {showVisualBoard && (
+          <div className="px-2 pb-2">
+            <PersonaVisualBoard onManage={handleManage} />
+          </div>
+        )}
       </div>
     </div>
   );
