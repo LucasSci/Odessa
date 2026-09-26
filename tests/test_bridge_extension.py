@@ -171,7 +171,7 @@ def test_preparar_extensao_gera_pasta_carregavel(client, tmp_path, monkeypatch):
     assert response.status_code == 200
     data = response.json()
     folder = Path(data["path"])
-    for name in ("manifest.json", "background.js", "content.js", "chat_observer.js", "popup.html", "popup.js", "config.js"):
+    for name in ("manifest.json", "background.js", "content.js", "chat_observer.js", "popup.html", "popup.js", "offscreen.html", "offscreen.js", "config.js"):
         assert (folder / name).exists(), name
     manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["manifest_version"] == 3

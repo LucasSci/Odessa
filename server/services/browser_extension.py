@@ -37,7 +37,7 @@ log = logging.getLogger("odessa.browser_extension")
 _ROOT = Path(__file__).resolve().parents[2]
 EXTENSION_SOURCE_DIR = _ROOT / "tango_chat" / "extension"
 CHAT_OBSERVER_SOURCE = _ROOT / "tango_chat" / "chat_observer.js"
-EXTENSION_FILES = ("manifest.json", "background.js", "content.js", "popup.html", "popup.js")
+EXTENSION_FILES = ("manifest.json", "background.js", "content.js", "popup.html", "popup.js", "offscreen.html", "offscreen.js")
 EXTENSION_ORIGIN_PREFIXES = ("chrome-extension://", "extension://")
 EXTENSION_MODE = "extension"
 

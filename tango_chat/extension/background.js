@@ -23,6 +23,11 @@ const CAPTURE_MAX_WIDTH = 1280;
 
 /** tabId -> { port, url, ws, timer, ping, closed, status, detail } */
 const tabs = new Map();
+/**
+ * Abas com captura via chrome.tabCapture ativa (iniciada pelo botão do popup).
+ * Independe da porta do content script: a captura sobrevive ao F5 da aba.
+ */
+const tabCaptures = new Set();
 
 function browserName() {
   const brands = (navigator.userAgentData && navigator.userAgentData.brands) || [];
@@ -159,8 +164,66 @@ function setScreencast(tabId, entry, on) {
   clearInterval(entry.capture);
   entry.capture = null;
   entry.captureWarning = '';
+  entry.screencastOn = on;
+  if (tabCaptures.has(tabId)) {
+    // Captura de aba (funciona minimizada): o offscreen só gera quadro com alguém assistindo.
+    chrome.runtime.sendMessage({ type: 'offscreen_emit', tabId, on }).catch(() => {});
+    return;
+  }
   if (on) entry.capture = setInterval(() => void captureFrame(tabId, entry), CAPTURE_MS);
 }
+
+// ── Captura de aba (chrome.tabCapture + documento offscreen) ──
+
+async function ensureOffscreen() {
+  if (chrome.offscreen.hasDocument && (await chrome.offscreen.hasDocument())) return;
+  try {
+    await chrome.offscreen.createDocument({
+      url: 'offscreen.html',
+      reasons: ['USER_MEDIA'],
+      justification: 'Capturar a aba do Tango para o painel Ao Vivo do Odessa, inclusive com a janela minimizada.',
+    });
+  } catch (err) {
+    if (!String(err).includes('single offscreen')) throw err;
+  }
+}
+
+async function startTabCapture(tabId, streamId) {
+  await ensureOffscreen();
+  const entry = tabs.get(tabId);
+  await chrome.runtime.sendMessage({ type: 'offscreen_start', tabId, streamId, emit: Boolean(entry && entry.screencastOn) });
+}
+
+function onTabCaptureStarted(tabId) {
+  tabCaptures.add(tabId);
+  const entry = tabs.get(tabId);
+  if (!entry) return;
+  clearInterval(entry.capture); // o captureVisibleTab deixa de ser necessário
+  entry.capture = null;
+  entry.captureWarning = '';
+  chrome.runtime.sendMessage({ type: 'offscreen_emit', tabId, on: Boolean(entry.screencastOn) }).catch(() => {});
+}
+
+function onTabCaptureEnded(tabId, error) {
+  tabCaptures.delete(tabId);
+  const entry = tabs.get(tabId);
+  if (!entry) return;
+  if (error) captureWarning(entry, `${error} Clique no ícone da extensão e em "Transmitir esta aba" para voltar.`);
+  if (entry.screencastOn) setScreencast(tabId, entry, true); // volta ao captureVisibleTab
+}
+
+function forwardTabFrame(msg) {
+  tabCaptures.add(msg.tabId); // o service worker pode ter reiniciado com a captura ativa
+  const entry = tabs.get(msg.tabId);
+  if (!entry || !entry.screencastOn || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) return;
+  entry.captureWarning = '';
+  entry.ws.send(JSON.stringify({ type: 'frame', data: msg.data, w: msg.w, h: msg.h }));
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabCaptures.has(tabId)) chrome.runtime.sendMessage({ type: 'offscreen_stop', tabId }).catch(() => {});
+  tabCaptures.delete(tabId);
+});
 
 function captureWarning(entry, text) {
   if (entry.captureWarning === text) return;
@@ -197,7 +260,10 @@ async function captureFrame(tabId, entry) {
     const tab = await chrome.tabs.get(tabId);
     const win = await chrome.windows.get(tab.windowId);
     if (!tab.active || win.state === 'minimized') {
-      captureWarning(entry, 'A aba do Tango não está visível: deixe-a como aba ativa numa janela não minimizada para o vídeo aparecer no Odessa.');
+      captureWarning(
+        entry,
+        'A aba do Tango está minimizada ou em segundo plano. Para capturá-la assim, clique no ícone da extensão do Odessa (com a aba do Tango aberta) e em "Transmitir esta aba".',
+      );
       return;
     }
     const shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 60 });
@@ -260,11 +326,28 @@ chrome.runtime.onConnect.addListener((port) => {
 
 // Popup: estado de cada aba conectada.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg && msg.type === 'odessa_popup_status') {
+  if (!msg || typeof msg !== 'object') return;
+  if (msg.type === 'odessa_popup_status') {
     sendResponse({
       configured: Boolean(CFG.wsUrl && CFG.pairToken),
       preparedAt: CFG.preparedAt || null,
+      capturing: [...tabCaptures],
       tabs: [...tabs.entries()].map(([tabId, e]) => ({ tabId, url: e.url, status: e.status, detail: e.detail })),
     });
+  } else if (msg.type === 'odessa_start_tab_capture') {
+    startTabCapture(msg.tabId, msg.streamId).then(
+      () => sendResponse({ ok: true }),
+      (err) => sendResponse({ ok: false, error: String(err && err.message ? err.message : err) }),
+    );
+    return true; // resposta assíncrona
+  } else if (msg.type === 'odessa_stop_tab_capture') {
+    chrome.runtime.sendMessage({ type: 'offscreen_stop', tabId: msg.tabId }).catch(() => {});
+    sendResponse({ ok: true });
+  } else if (msg.type === 'offscreen_frame') {
+    forwardTabFrame(msg);
+  } else if (msg.type === 'offscreen_started') {
+    onTabCaptureStarted(msg.tabId);
+  } else if (msg.type === 'offscreen_ended') {
+    onTabCaptureEnded(msg.tabId, msg.error);
   }
 });
