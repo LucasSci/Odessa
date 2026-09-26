@@ -17,7 +17,9 @@ from server.config import (
     OPENAI_TEXT_MODEL,
     OPENAI_BASE_URL,
     OLLAMA_BASE_URL,
+    OLLAMA_KEEP_ALIVE,
     OLLAMA_MODEL,
+    OLLAMA_NUM_THREAD,
     OLLAMA_TIMEOUT,
 )
 
@@ -179,7 +181,13 @@ class AIService:
             # repeat_penalty acima do padrão do Ollama (1.1) para reduzir o
             # modelo travando em repetição de palavras/frases dentro da mesma
             # resposta — sintoma relatado com respostas tipo "oi oi, legal legal".
-            "options": {"temperature": temperature, "num_predict": num_predict, "repeat_penalty": 1.3},
+            "options": {
+                "temperature": temperature,
+                "num_predict": num_predict,
+                "repeat_penalty": 1.3,
+                # Limita os núcleos usados (ver OLLAMA_NUM_THREAD em config.py).
+                "num_thread": OLLAMA_NUM_THREAD,
+            },
             # Mantém o modelo carregado na memória por mais tempo (padrão do
             # Ollama é ~5min). Numa live o chat pode ficar minutos sem gerar
             # nada; o modelo descarrega e a PRÓXIMA chamada precisa recarregar
@@ -188,8 +196,9 @@ class AIService:
             # (RemoteProtocolError / "Server disconnected without sending a
             # response") mesmo bem dentro do OLLAMA_TIMEOUT configurado; curl
             # com a mesma requisição não reproduz isso de forma confiável.
-            # Um keep_alive maior reduz a frequência do cold-start em si.
-            "keep_alive": "30m",
+            # Um keep_alive maior reduz a frequência do cold-start em si — mas
+            # segura GBs de RAM; 10 min cobre as pausas normais do chat.
+            "keep_alive": OLLAMA_KEEP_ALIVE,
         }
         if json_mode:
             payload["format"] = "json"
@@ -357,31 +366,43 @@ class AIService:
 ai_service = AIService()
 
 
-async def ollama_keepalive_loop(interval_seconds: int = 20 * 60) -> None:
+async def _live_session_active() -> bool:
+    """Há live em andamento? (bridge do Tango conectada a uma aba)."""
+    try:
+        from server.services.bridge_manager import bridge_manager
+
+        status = await bridge_manager.get_status()
+        return ((status.get("bridgeStatus") or {}).get("status")) == "connected"
+    except Exception:
+        return False
+
+
+async def ollama_keepalive_loop(interval_seconds: int = 5 * 60) -> None:
     """Mantém o modelo do Ollama carregado na memória em segundo plano.
 
-    O modelo descarrega depois de ~30min sem uso (keep_alive configurado em
-    generate_ollama_text), e uma live pode ficar bastante tempo entre
-    mensagens — a PRÓXIMA mensagem então paga um cold-start de 15-35s antes
-    de a persona conseguir responder. Chamando /api/generate com um prompt
-    vazio periodicamente (bem abaixo dos 30min) o modelo nunca chega a
-    descarregar durante uma sessão ativa do backend, e só a primeiríssima
-    mensagem depois de o backend subir paga esse custo.
+    O modelo descarrega depois de OLLAMA_KEEP_ALIVE sem uso, e uma live pode
+    ficar bastante tempo entre mensagens — a PRÓXIMA mensagem então paga um
+    cold-start de 15-35s. O ping periódico evita isso, mas SÓ durante uma live
+    (bridge do Tango conectada): antes o modelo (GBs de RAM) ficava carregado
+    o tempo todo com o Odessa aberto, mesmo sem live, pesando no PC inteiro.
     """
     import asyncio
     import httpx
-    from server.config import AI_PROVIDER, OLLAMA_BASE_URL, OLLAMA_MODEL
+    from server.config import AI_PROVIDER, OLLAMA_BASE_URL, OLLAMA_KEEP_ALIVE, OLLAMA_MODEL
 
     if AI_PROVIDER not in ("ollama", "local"):
         return
 
     url = OLLAMA_BASE_URL.strip().rstrip("/")
     while True:
+        if not await _live_session_active():
+            await asyncio.sleep(interval_seconds)
+            continue
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 await client.post(
                     f"{url}/api/generate",
-                    json={"model": OLLAMA_MODEL, "prompt": "", "keep_alive": "30m"},
+                    json={"model": OLLAMA_MODEL, "prompt": "", "keep_alive": OLLAMA_KEEP_ALIVE},
                 )
             logger.info("[OLLAMA] keep-alive ping ok (model=%s)", OLLAMA_MODEL)
         except Exception as exc:

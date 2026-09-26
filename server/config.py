@@ -84,6 +84,12 @@ ENABLE_LOCAL_FALLBACK = os.getenv("ENABLE_LOCAL_FALLBACK", "false").lower() == "
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip().rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:latest").strip()
 OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "90"))
+# Consumo da IA local. Sem limite o Ollama usa todos os núcleos físicos e, num
+# notebook, a live inteira (OBS, navegador) trava enquanto a persona "pensa".
+# Padrão: 1/3 das threads lógicas (4 num Ryzen 5 5500U), sobrando CPU para o resto.
+OLLAMA_NUM_THREAD = int(os.getenv("OLLAMA_NUM_THREAD", "0") or 0) or max(2, (os.cpu_count() or 6) // 3)
+# Quanto tempo o modelo fica na RAM depois da última resposta (antes: 30 min).
+OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "10m").strip() or "10m"
 
 ENABLE_TTS = os.getenv("ENABLE_TTS", "false").lower() == "true"
 TTS_SIMULATION_MODE = os.getenv("TTS_SIMULATION_MODE", "true").lower() == "true"
