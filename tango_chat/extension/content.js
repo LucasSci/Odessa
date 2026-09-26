@@ -67,6 +67,8 @@
       );
     } else if (msg.type === 'send') {
       void sendToChat(msg);
+    } else if (msg.type === 'input') {
+      handleInput(msg);
     } else if (msg.type === 'odessa_status') {
       console.info('[Odessa] extensão:', msg.status, msg.detail || '');
     }
@@ -100,6 +102,92 @@
       if (button) return button;
     }
     return null;
+  }
+
+  // ── Interação vinda do painel Ao Vivo do Odessa (coordenadas CSS da aba) ──
+
+  function mouseInit(x, y, extra) {
+    return { bubbles: true, cancelable: true, composed: true, view: window, clientX: x, clientY: y, button: 0, ...extra };
+  }
+
+  function clickAt(x, y) {
+    const target = document.elementFromPoint(x, y);
+    if (!target) return;
+    const pointer = { pointerId: 1, pointerType: 'mouse', isPrimary: true };
+    target.dispatchEvent(new PointerEvent('pointerover', mouseInit(x, y, pointer)));
+    target.dispatchEvent(new PointerEvent('pointerdown', mouseInit(x, y, { ...pointer, buttons: 1 })));
+    target.dispatchEvent(new MouseEvent('mousedown', mouseInit(x, y, { buttons: 1 })));
+    const focusable = target.closest('input, textarea, select, button, a, [contenteditable="true"], [tabindex]');
+    if (focusable && typeof focusable.focus === 'function') focusable.focus();
+    target.dispatchEvent(new PointerEvent('pointerup', mouseInit(x, y, pointer)));
+    target.dispatchEvent(new MouseEvent('mouseup', mouseInit(x, y)));
+    target.dispatchEvent(new MouseEvent('click', mouseInit(x, y, { detail: 1 })));
+  }
+
+  function scrollableAt(x, y) {
+    let el = document.elementFromPoint(x, y);
+    while (el && el !== document.body && el !== document.documentElement) {
+      const style = getComputedStyle(el);
+      if (/(auto|scroll|overlay)/.test(style.overflowY + style.overflowX) && (el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth)) {
+        return el;
+      }
+      el = el.parentElement;
+    }
+    return document.scrollingElement || document.documentElement;
+  }
+
+  function keyEvents(target, key) {
+    const codes = { Enter: 13, Backspace: 8, Tab: 9, Escape: 27, Delete: 46, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, ' ': 32 };
+    const init = { key, code: key, keyCode: codes[key] || 0, which: codes[key] || 0, bubbles: true, cancelable: true, composed: true };
+    const down = target.dispatchEvent(new KeyboardEvent('keydown', init));
+    if (key === 'Enter') target.dispatchEvent(new KeyboardEvent('keypress', init));
+    target.dispatchEvent(new KeyboardEvent('keyup', init));
+    return down; // false = a página tratou (preventDefault)
+  }
+
+  function editable(el) {
+    return el && (el.isContentEditable || /^(INPUT|TEXTAREA)$/.test(el.tagName));
+  }
+
+  function typeText(text) {
+    const el = document.activeElement;
+    if (!editable(el)) return;
+    if (!document.execCommand('insertText', false, text) && 'value' in el) setNativeValue(el, readInput(el) + text);
+  }
+
+  function pressKey(key) {
+    const el = document.activeElement || document.body;
+    const notHandled = keyEvents(el, key);
+    if (!notHandled) return;
+    // Efeito padrão que eventos sintéticos não têm: aplicado à mão.
+    if (key === 'Backspace' && editable(el)) document.execCommand('delete');
+    else if (key === 'Delete' && editable(el)) document.execCommand('forwardDelete');
+    else if (key === 'Tab') {
+      const focusables = [...document.querySelectorAll('a[href], button, input, textarea, select, [tabindex]:not([tabindex="-1"])')].filter((f) => !f.disabled && f.offsetParent !== null);
+      const next = focusables[(focusables.indexOf(el) + 1) % Math.max(focusables.length, 1)];
+      if (next) next.focus();
+    } else if (key === 'Escape' && el !== document.body) el.blur();
+    else if ((key === 'ArrowUp' || key === 'ArrowDown') && !editable(el)) window.scrollBy({ top: key === 'ArrowDown' ? 120 : -120 });
+  }
+
+  function handleInput(msg) {
+    try {
+      const x = Number(msg.x) || 0;
+      const y = Number(msg.y) || 0;
+      if (msg.kind === 'mouse') clickAt(x, y);
+      else if (msg.kind === 'wheel') {
+        const deltaX = Number(msg.deltaX) || 0;
+        const deltaY = Number(msg.deltaY) || 0;
+        const target = document.elementFromPoint(x, y) || document.body;
+        const wheel = new WheelEvent('wheel', { ...mouseInit(x, y), deltaX, deltaY, deltaMode: 0 });
+        if (target.dispatchEvent(wheel)) scrollableAt(x, y).scrollBy({ left: deltaX, top: deltaY });
+      } else if (msg.kind === 'key') {
+        if (msg.text && msg.text.length === 1) typeText(msg.text);
+        else if (msg.key) pressKey(msg.key);
+      } else if (msg.kind === 'type' && msg.text) typeText(String(msg.text));
+    } catch (err) {
+      console.warn('[Odessa] interação do painel falhou:', err);
+    }
   }
 
   function stillInField(input, text) {

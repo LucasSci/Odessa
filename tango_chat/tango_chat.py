@@ -779,6 +779,20 @@ class TangoChatBridge:
             viewer.put_nowait({"type": "error", "error": "A aba do Tango desconectou; aguardando a extensão."})
         log.info("Extensão desconectada; aguardando reconexão.")
 
+    async def forward_extension_input(self, data: dict) -> None:
+        """Clique/rolagem/tecla do painel → extensão (arrastar não é suportado)."""
+        kind = data.get("type")
+        if kind == "mouse" and data.get("action") != "click":
+            return
+        if kind not in ("mouse", "wheel", "key", "type"):
+            return
+        ws = self._extension_ws
+        if ws and not ws.closed:
+            try:
+                await ws.send_json({**data, "type": "input", "kind": kind})
+            except Exception:
+                pass
+
     def extension_supports_video(self) -> bool:
         try:
             major, minor = (int(x) for x in self._extension_version.split(".")[:2])
@@ -1173,6 +1187,8 @@ async def handle_click(request: web.Request) -> web.Response:
 
 async def handle_type_text(request: web.Request) -> web.Response:
     """POST /type - Digita um texto no elemento atualmente focado da pagina."""
+    if bridge and bridge._mode == "extension" and not bridge._page:
+        return await _type_via_extension(request)
     if not bridge or not bridge._page:
         return web.json_response({"error": "Sem pagina conectada"}, status=400)
     try:
@@ -1214,6 +1230,17 @@ async def handle_scroll(request: web.Request) -> web.Response:
         return web.json_response({"ok": True, "deltaY": delta_y})
     except Exception as exc:
         return web.json_response({"error": str(exc)}, status=500)
+
+async def _type_via_extension(request: web.Request) -> web.Response:
+    body = await request.json()
+    text = str(body.get("text") or "")
+    if not text:
+        return web.json_response({"error": "Texto vazio"}, status=400)
+    if not bridge._extension_ws or bridge._extension_ws.closed:
+        return web.json_response({"error": "A aba do Tango com a extensão não está conectada."}, status=409)
+    await bridge.forward_extension_input({"type": "type", "text": text})
+    return web.json_response({"ok": True})
+
 
 async def handle_goto(request: web.Request) -> web.Response:
     """POST /goto - Navega o robo para uma URL especifica"""
@@ -1321,9 +1348,10 @@ async def _cdp_key(cdp, data: dict) -> None:
 
 
 async def _live_ws_via_extension(request: web.Request) -> web.WebSocketResponse:
-    """/live no modo extensão: só vídeo (a extensão captura a aba visível).
+    """/live no modo extensão: vídeo da aba (capturado pela extensão) + interação.
 
-    Interação (clique/teclado) não passa: a aba é do usuário, no navegador dele.
+    Clique, rolagem e teclado do painel vão para a extensão, que os executa na
+    aba do usuário (eventos de DOM pelo content script).
     """
     ws = web.WebSocketResponse(max_msg_size=0)
     await ws.prepare(request)
@@ -1360,7 +1388,13 @@ async def _live_ws_via_extension(request: web.Request) -> web.WebSocketResponse:
         async for msg in ws:
             if msg.type == web.WSMsgType.ERROR:
                 break
-            # Eventos de mouse/teclado são ignorados neste modo (somente vídeo).
+            if msg.type != web.WSMsgType.TEXT:
+                continue
+            try:
+                data = json.loads(msg.data)
+            except json.JSONDecodeError:
+                continue
+            await bridge.forward_extension_input(data)
     finally:
         # Sem await antes disto: o aiohttp cancela o handler quando o
         # espectador desconecta, e a captura ficaria ligada para sempre.

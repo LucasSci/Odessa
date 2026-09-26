@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Odessa — Chat do Tango",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Liga a aba do Tango em que você já está logado ao Odessa: lê o chat da live e envia as respostas da persona.",
   "minimum_chrome_version": "116",
   "permissions": ["tabCapture", "offscreen"],

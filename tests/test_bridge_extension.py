@@ -241,3 +241,28 @@ def test_barra_de_endereco_do_painel_navega_a_aba_da_extensao(tango):
         await ext.close()
 
     asyncio.run(_with_bridge(tango, scenario))
+
+
+def test_clique_rolagem_e_teclado_do_painel_chegam_a_extensao(tango):
+    async def scenario(client, bridge):
+        ext, _ = await _hello(client)
+        viewer = await client.ws_connect("/live")
+        assert (await asyncio.wait_for(ext.receive_json(), 5))["type"] == "screencast"
+
+        await viewer.send_json({"type": "mouse", "action": "move", "x": 1, "y": 1})  # arrastar/mover: ignorado
+        await viewer.send_json({"type": "mouse", "action": "click", "x": 10, "y": 20, "button": "left"})
+        got = await asyncio.wait_for(ext.receive_json(), 5)
+        assert got == {"type": "input", "kind": "mouse", "action": "click", "x": 10, "y": 20, "button": "left"}
+
+        await viewer.send_json({"type": "wheel", "x": 5, "y": 5, "deltaY": 800})
+        assert (await asyncio.wait_for(ext.receive_json(), 5))["kind"] == "wheel"
+        await viewer.send_json({"type": "key", "key": "Enter"})
+        assert (await asyncio.wait_for(ext.receive_json(), 5)) == {"type": "input", "kind": "key", "key": "Enter"}
+
+        typed = await client.post("/type", json={"text": "olá"})
+        assert typed.status == 200
+        assert (await asyncio.wait_for(ext.receive_json(), 5)) == {"type": "input", "kind": "type", "text": "olá"}
+        await viewer.close()
+        await ext.close()
+
+    asyncio.run(_with_bridge(tango, scenario))
