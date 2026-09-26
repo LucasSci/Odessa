@@ -51,12 +51,17 @@ class BridgePaused(RuntimeError):
 
 def extension_install_dir() -> Path:
     """Pasta fixa, fora da instalação: o Edge guarda o caminho da extensão
-    "sem pacote", e uma atualização do Odessa não pode apagá-la."""
+    "sem pacote", e uma atualização do Odessa não pode apagá-la.
+
+    Fica na pasta do usuário, visível: AppData é oculta no seletor de pasta do
+    navegador, e processos de apps empacotados (MSIX) têm AppData\\Local
+    redirecionada — a pasta "existia" para o Odessa e não para o Edge.
+    """
     explicit = os.getenv("ODESSA_EXTENSION_DIR", "").strip()
     if explicit:
         return Path(explicit)
-    local = os.getenv("LOCALAPPDATA", "").strip()
-    return Path(local) / "Odessa" / "edge-extension" if local else RUNTIME_DIR / "browser-extension"
+    home = os.getenv("USERPROFILE", "").strip() or str(Path.home())
+    return Path(home) / "Odessa-Extensao-Edge" if home else RUNTIME_DIR / "browser-extension"
 
 
 def get_pairing_token() -> str:

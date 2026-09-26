@@ -39,7 +39,14 @@ from typing import Any, Callable, Coroutine
 from aiohttp import web
 from aiohttp.web import middleware
 
-import bridge_guard
+# O Python embutido do instalador (python312._pth) não põe a pasta do script no
+# sys.path: sem isto `import bridge_guard` falhava e a bridge morria ao subir
+# só na versão instalada.
+_HERE = str(Path(__file__).resolve().parent)
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+
+import bridge_guard  # noqa: E402
 
 from playwright.async_api import (
     Browser,
