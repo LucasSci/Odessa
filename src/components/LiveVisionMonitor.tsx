@@ -75,6 +75,11 @@ export function LiveVisionMonitor({ connected }: Props) {
   const [busy, setBusy] = useState(false);
   const [lastClick, setLastClick] = useState<{ x: number; y: number } | null>(null);
   const [maximized, setMaximized] = useState(false);
+  // Aviso da bridge/extensão (ex.: extensão desatualizada, aba escondida).
+  // Fica sobre a tela preta até chegar imagem — antes ia só para o console.
+  const [streamNotice, setStreamNotice] = useState<string | null>(null);
+  const [hasFrame, setHasFrame] = useState(false);
+  const hasFrameRef = useRef(false);
 
   // Log de ações pra depuração — nada na UI exibe isso hoje, então usar
   // console em vez de estado React evita acumular um valor que nunca é lido.
@@ -162,6 +167,11 @@ export function LiveVisionMonitor({ connected }: Props) {
           const jpeg = new Uint8Array(ev.data, 4);
           const canvas = canvasRef.current;
           if (!canvas || jpeg.length === 0) return;
+          if (!hasFrameRef.current) {
+            hasFrameRef.current = true;
+            setHasFrame(true);
+            setStreamNotice(null);
+          }
           if (canvas.width !== fw) canvas.width = fw;
           if (canvas.height !== fh) canvas.height = fh;
           try {
@@ -194,7 +204,12 @@ export function LiveVisionMonitor({ connected }: Props) {
             setGotoUrl(data.url as string);
           }
         } else if (type === 'error') {
-          logAction(`Erro: ${(data.error as string) || 'desconhecido'}`);
+          const text = (data.error as string) || 'desconhecido';
+          logAction(`Erro: ${text}`);
+          setStreamNotice(text);
+          // A aba pode ter sumido (escondida, outra aba ativa): volta a mostrar o aviso.
+          hasFrameRef.current = false;
+          setHasFrame(false);
         }
       };
 
@@ -492,6 +507,19 @@ export function LiveVisionMonitor({ connected }: Props) {
         )}
 
 
+
+        {/* Sem imagem ainda: diz o porquê em vez de só uma tela preta */}
+        {live && !hasFrame && (
+          <div data-state="open" className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center p-6 text-center od-pop">
+            <Eye className="mb-3 h-10 w-10 text-slate-600" />
+            <p className="text-sm font-semibold text-slate-300">
+              {streamNotice ? 'Sem imagem da aba' : 'Aguardando a imagem da aba…'}
+            </p>
+            <p className="mt-1 max-w-md text-xs text-slate-400">
+              {streamNotice ?? 'A primeira imagem aparece em alguns segundos.'}
+            </p>
+          </div>
+        )}
 
         {/* Conectando */}
         {connecting && (

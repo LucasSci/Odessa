@@ -42,9 +42,12 @@ async def _with_bridge(tango, scenario):
         await client.close()
 
 
-async def _hello(client, url="https://tango.me/stream/abc"):
+async def _hello(client, url="https://tango.me/stream/abc", version="1.1.0"):
     ws = await client.ws_connect("/extension")
-    await ws.send_json({"type": "hello", "url": url, "browser": "Microsoft Edge"})
+    hello = {"type": "hello", "url": url, "browser": "Microsoft Edge"}
+    if version:
+        hello["version"] = version
+    await ws.send_json(hello)
     config = await asyncio.wait_for(ws.receive_json(), 5)
     return ws, config
 
@@ -208,6 +211,33 @@ def test_video_da_aba_pela_extensao_chega_ao_live(tango):
         # último espectador saiu: a extensão para de capturar
         await viewer.close()
         assert (await asyncio.wait_for(ext.receive_json(), 5)) == {"type": "screencast", "on": False}
+        await ext.close()
+
+    asyncio.run(_with_bridge(tango, scenario))
+
+
+def test_extensao_antiga_sem_video_avisa_o_painel(tango):
+    async def scenario(client, bridge):
+        ext, _ = await _hello(client, version=None)  # 1.0.0 não mandava versão
+        assert bridge.get_status()["extensionVersion"] == "1.0.0"
+        viewer = await client.ws_connect("/live")
+        notice = await asyncio.wait_for(viewer.receive_json(), 5)
+        assert notice["type"] == "error"
+        assert "desatualizada" in notice["error"] and "Recarregar" in notice["error"]
+        await viewer.close()
+        await ext.close()
+
+    asyncio.run(_with_bridge(tango, scenario))
+
+
+def test_barra_de_endereco_do_painel_navega_a_aba_da_extensao(tango):
+    async def scenario(client, bridge):
+        ext, _ = await _hello(client)
+        ok = await client.post("/goto", json={"url": "https://www.tango.me/stream/xyz"})
+        assert ok.status == 200
+        assert (await asyncio.wait_for(ext.receive_json(), 5)) == {"type": "navigate", "url": "https://www.tango.me/stream/xyz"}
+        blocked = await client.post("/goto", json={"url": "https://evil.example/"})
+        assert blocked.status == 400
         await ext.close()
 
     asyncio.run(_with_bridge(tango, scenario))

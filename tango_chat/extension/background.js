@@ -78,7 +78,15 @@ function openSocket(tabId, entry) {
   if (entry.status !== 'erro') setStatus(tabId, entry, 'conectando');
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({ type: 'hello', pairToken: CFG.pairToken, url: entry.url, browser: browserName() }));
+    ws.send(
+      JSON.stringify({
+        type: 'hello',
+        pairToken: CFG.pairToken,
+        url: entry.url,
+        browser: browserName(),
+        version: chrome.runtime.getManifest().version,
+      }),
+    );
     // O content script manda o tamanho da aba antes do WebSocket abrir: reenvia.
     if (entry.page) ws.send(JSON.stringify(entry.page));
     clearInterval(entry.ping);
@@ -97,6 +105,16 @@ function openSocket(tabId, entry) {
     if (data.type === 'pong') return;
     if (data.type === 'screencast') {
       setScreencast(tabId, entry, Boolean(data.on));
+      return;
+    }
+    if (data.type === 'navigate') {
+      // A bridge já validou (só tango.me); confere de novo antes de mexer na aba.
+      try {
+        const host = new URL(data.url).hostname;
+        if (host === 'tango.me' || host.endsWith('.tango.me')) chrome.tabs.update(tabId, { url: data.url }).catch(() => {});
+      } catch (_) {
+        /* URL inválida */
+      }
       return;
     }
     if (data.type === 'config') setStatus(tabId, entry, 'conectado');

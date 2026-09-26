@@ -292,6 +292,10 @@ class TangoChatBridge:
         # (captureVisibleTab) só enquanto alguém assiste ao /live.
         self._live_viewers: set[asyncio.Queue] = set()
         self._extension_viewport: dict = {}
+        # 1.0.0 não mandava versão nem capturava vídeo.
+        self._extension_version: str = ""
+        self._capture_warning: str = ""
+        self._frame_logged: bool = False
 
     # == Conectar =====================================================
 
@@ -738,16 +742,28 @@ class TangoChatBridge:
     async def attach_extension(self, ws: web.WebSocketResponse, hello: dict) -> None:
         self._extension_ws = ws
         self._extension_browser = str(hello.get("browser") or "navegador")
+        self._extension_version = str(hello.get("version") or "1.0.0")
+        self._extension_viewport = {}
+        self._capture_warning = ""
+        self._frame_logged = False
         self._mode = "extension"
         self._status = "connected"
         self._error_message = ""
         self._page_url = str(hello.get("url") or "")
         self._observer_injected = True
         self._started_at = datetime.now(timezone.utc).isoformat()
-        log.info("Extensão conectada (%s) | URL: %s", self._extension_browser, _for_log(self._page_url))
+        log.info(
+            "Extensão %s conectada (%s) | URL: %s",
+            self._extension_version, self._extension_browser, _for_log(self._page_url),
+        )
+        if not self.extension_supports_video():
+            log.warning("Extensão %s não captura vídeo: recarregue-a no navegador.", self._extension_version)
         await self.push_extension_config()
         if self._live_viewers:
             await ws.send_json({"type": "screencast", "on": True})
+            if not self.extension_supports_video():
+                for viewer in list(self._live_viewers):
+                    viewer.put_nowait({"type": "error", "error": self.outdated_extension_message()})
 
     def detach_extension(self, ws: web.WebSocketResponse) -> None:
         if self._extension_ws is not ws:
@@ -762,6 +778,27 @@ class TangoChatBridge:
         for viewer in list(self._live_viewers):
             viewer.put_nowait({"type": "error", "error": "A aba do Tango desconectou; aguardando a extensão."})
         log.info("Extensão desconectada; aguardando reconexão.")
+
+    def extension_supports_video(self) -> bool:
+        try:
+            major, minor = (int(x) for x in self._extension_version.split(".")[:2])
+        except ValueError:
+            return False
+        return (major, minor) >= (1, 1)
+
+    def outdated_extension_message(self) -> str:
+        return (
+            f"A extensão do Odessa aberta no {self._extension_browser or 'navegador'} está desatualizada "
+            f"(versão {self._extension_version}) e não envia o vídeo da aba. Em edge://extensions, clique em "
+            "Recarregar na extensão \"Odessa — Chat do Tango\" e depois aperte F5 na aba do Tango."
+        )
+
+    def _warn_capture(self, text: str) -> None:
+        if text != self._capture_warning:
+            self._capture_warning = text
+            log.warning("Captura da aba: %s", _for_log(text))
+        for viewer in list(self._live_viewers):
+            viewer.put_nowait({"type": "error", "error": text})
 
     async def _set_extension_screencast(self, on: bool) -> None:
         ws = self._extension_ws
@@ -783,6 +820,10 @@ class TangoChatBridge:
         w = int(data.get("w") or self._extension_viewport.get("w") or 1280)
         h = int(data.get("h") or self._extension_viewport.get("h") or 720)
         packet = struct.pack(">HH", min(w, 65535), min(h, 65535)) + jpeg
+        self._capture_warning = ""
+        if not self._frame_logged:
+            self._frame_logged = True
+            log.info("Captura da aba: primeiro quadro recebido (%dx%d, %d KB).", w, h, len(jpeg) // 1024)
         for viewer in list(self._live_viewers):
             if viewer.qsize() < 3:  # quem está lento perde frame, não acumula atraso
                 viewer.put_nowait(packet)
@@ -880,6 +921,7 @@ class TangoChatBridge:
             "profileDir": PROFILE_DIR,
             "browserName": self._extension_browser if self._mode == "extension" else BROWSER_NAME,
             "extensionConnected": bool(self._extension_ws and not self._extension_ws.closed),
+            "extensionVersion": self._extension_version or None,
         }
 
 
@@ -1175,6 +1217,17 @@ async def handle_scroll(request: web.Request) -> web.Response:
 
 async def handle_goto(request: web.Request) -> web.Response:
     """POST /goto - Navega o robo para uma URL especifica"""
+    if bridge and bridge._mode == "extension" and not bridge._page:
+        # Modo extensão: quem navega é a própria aba do usuário.
+        body = await request.json()
+        url = body.get("url")
+        if not url or not bridge_guard.navigation_allowed(url):
+            return web.json_response({"error": "Navegacao permitida apenas para tango.me"}, status=400)
+        ws = bridge._extension_ws
+        if not ws or ws.closed:
+            return web.json_response({"error": "A aba do Tango com a extensão não está conectada."}, status=409)
+        await ws.send_json({"type": "navigate", "url": url})
+        return web.json_response({"ok": True, "url": url})
     if not bridge or not bridge._page:
         return web.json_response({"error": "Sem pagina conectada"}, status=400)
     try:
@@ -1281,6 +1334,10 @@ async def _live_ws_via_extension(request: web.Request) -> web.WebSocketResponse:
         queue.put_nowait({"type": "viewport", **bridge._extension_viewport})
     if not bridge._extension_ws:
         queue.put_nowait({"type": "error", "error": "Aguardando a aba do Tango com a extensão do Odessa."})
+    elif not bridge.extension_supports_video():
+        queue.put_nowait({"type": "error", "error": bridge.outdated_extension_message()})
+    elif bridge._capture_warning:
+        queue.put_nowait({"type": "error", "error": bridge._capture_warning})
     if first:
         await bridge._set_extension_screencast(True)
     log.info("Live WS (extensão): espectador conectado")
@@ -1542,8 +1599,7 @@ async def handle_extension_ws(request: web.Request) -> web.WebSocketResponse:
             elif kind == "frame":
                 bridge._publish_extension_frame(data)
             elif kind == "capture_error":
-                for viewer in list(bridge._live_viewers):
-                    viewer.put_nowait({"type": "error", "error": str(data.get("error") or "Captura da aba indisponível.")})
+                bridge._warn_capture(str(data.get("error") or "Captura da aba indisponível."))
             elif kind == "send_result":
                 future = bridge._extension_pending.get(str(data.get("id")))
                 if future and not future.done():
