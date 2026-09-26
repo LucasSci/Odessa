@@ -863,14 +863,15 @@ export async function runPersonaRound(
       ];
     }
 
+    const executedIds = new Set(executedActions.map((a) => a.id));
+
     cycle = {
       ...cycle,
       stage: 'concluido' as CycleStage,
       actions: [
         ...executedActions,
-        ...plannedActions.filter(
-          (planned) => !executedActions.some((executed) => executed.id === planned.id),
-        ),
+        // ⚡ Bolt: Using Set for O(1) lookups instead of .filter().some() O(N*M) chain
+        ...plannedActions.filter((planned) => !executedIds.has(planned.id)),
       ],
       completedAt: new Date().toISOString(),
       logs: [...cycle.logs, log('Ciclo concluido e registrado', 'done')],
