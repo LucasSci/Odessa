@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 from server.main import app
 from server.services.video_service import video_service
 
-client = TestClient(app)
+client = TestClient(app, base_url="http://localhost")
 
 
 def setup_module(module):

@@ -49,7 +49,11 @@ def test_launch_nao_dispara_processo_com_url_maliciosa(monkeypatch):
 
 def test_launch_valido_usa_dois_hifens_antes_da_url(monkeypatch, tmp_path):
     captured = {}
-    monkeypatch.setattr(bridge_manager, "find_chrome_executable", lambda: "C:/chrome.exe")
+    from server.services import browser_discovery
+    class DummyBrowser:
+        def to_dict(self):
+            return {"id": "test_browser", "name": "Test Browser", "path": "C:/chrome.exe"}
+    monkeypatch.setattr(browser_discovery, "resolve_browser", lambda pref: DummyBrowser())
     monkeypatch.setattr(bridge_manager, "RUNTIME_DIR", tmp_path)
     monkeypatch.setattr(bridge_manager.subprocess, "Popen", lambda args, **k: captured.setdefault("args", args))
     result = asyncio.run(bridge_manager.launch_chrome_for_live(url="https://tango.me/x", port=9333))

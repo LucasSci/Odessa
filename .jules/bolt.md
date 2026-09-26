@@ -7,3 +7,6 @@
 ## 2026-07-28 - Optimizing React array state deduplication
 **Learning:** Updating React state arrays that require merging and deduplicating new items (e.g. `setCapturedText`) using patterns like `[...current.filter(x => !newItems.some(y => y.id === x.id)), ...newItems]` creates multiple shallow copies and an O(N*M) lookup bottleneck.
 **Action:** Replace chained `.filter().some()` methods inside state setters with a single-pass loop and a `Set` of IDs for fast O(1) lookups, greatly reducing GC pressure and micro-stutters during high-frequency events.
+## 2026-08-05 - Avoid O(N*M) lookup chains during state updates
+**Learning:** Using chained lookups like `.filter(x => !array.some(y => y.id === x.id))` to deduplicate array merges inside critical execution paths forces an expensive `O(N*M)` complexity. This is especially problematic in continuously growing action queues or event logs, causing severe performance bottlenecks.
+**Action:** Always precompute a `Set` of IDs (e.g., `const ids = new Set(array.map(y => y.id))`) to turn the nested loop into an `O(N+M)` operation with fast `O(1)` lookups.
