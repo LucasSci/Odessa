@@ -122,6 +122,10 @@ function openSocket(tabId, entry) {
       }
       return;
     }
+    if (data.type === 'input' && debuggerTabs.has(tabId)) {
+      void routeInput(tabId, entry, data);
+      return;
+    }
     if (data.type === 'config') setStatus(tabId, entry, 'conectado');
     if (data.type === 'error') setStatus(tabId, entry, 'erro', data.error);
     try {
@@ -160,17 +164,166 @@ function openSocket(tabId, entry) {
 
 // ── Vídeo da aba: só enquanto o painel Ao Vivo do Odessa está assistindo ──
 
+/**
+ * Vídeo da aba enquanto o painel Ao Vivo assiste. Ordem de preferência:
+ *  1. chrome.debugger (CDP Page.startScreencast): funciona com a janela
+ *     minimizada e sem clique — o navegador mostra a barra "depurando" só
+ *     enquanto o painel está aberto;
+ *  2. chrome.tabCapture (botão "Transmitir esta aba" no popup);
+ *  3. captureVisibleTab (só com a aba visível).
+ */
 function setScreencast(tabId, entry, on) {
   clearInterval(entry.capture);
   entry.capture = null;
   entry.captureWarning = '';
   entry.screencastOn = on;
-  if (tabCaptures.has(tabId)) {
-    // Captura de aba (funciona minimizada): o offscreen só gera quadro com alguém assistindo.
-    chrome.runtime.sendMessage({ type: 'offscreen_emit', tabId, on }).catch(() => {});
+  if (!on) {
+    void stopDebuggerCast(tabId);
+    if (tabCaptures.has(tabId)) chrome.runtime.sendMessage({ type: 'offscreen_emit', tabId, on: false }).catch(() => {});
     return;
   }
-  if (on) entry.capture = setInterval(() => void captureFrame(tabId, entry), CAPTURE_MS);
+  void startDebuggerCast(tabId, entry).then((ok) => {
+    if (!ok) fallbackCapture(tabId, entry);
+  });
+}
+
+function fallbackCapture(tabId, entry) {
+  clearInterval(entry.capture);
+  entry.capture = null;
+  if (!entry.screencastOn || debuggerTabs.has(tabId)) return;
+  if (tabCaptures.has(tabId)) {
+    // Captura de aba (funciona minimizada): o offscreen só gera quadro com alguém assistindo.
+    chrome.runtime.sendMessage({ type: 'offscreen_emit', tabId, on: true }).catch(() => {});
+    return;
+  }
+  entry.capture = setInterval(() => void captureFrame(tabId, entry), CAPTURE_MS);
+}
+
+// ── chrome.debugger: vídeo com a janela minimizada + clique/teclado reais ──
+
+const debuggerTabs = new Set();
+const FRAME_MIN_INTERVAL_MS = 150; // até ~6 quadros/s para o painel
+
+function cdp(tabId, method, params) {
+  return chrome.debugger.sendCommand({ tabId }, method, params || {});
+}
+
+async function startDebuggerCast(tabId, entry) {
+  if (entry.debuggerRefused) return false;
+  try {
+    if (!debuggerTabs.has(tabId)) {
+      await chrome.debugger.attach({ tabId }, '1.3');
+      debuggerTabs.add(tabId);
+    }
+    await cdp(tabId, 'Page.enable');
+    await cdp(tabId, 'Page.startScreencast', { format: 'jpeg', quality: 60, maxWidth: 1280, maxHeight: 1280, everyNthFrame: 1 });
+    clearInterval(entry.capture); // outras capturas deixam de ser necessárias
+    entry.capture = null;
+    if (tabCaptures.has(tabId)) chrome.runtime.sendMessage({ type: 'offscreen_emit', tabId, on: false }).catch(() => {});
+    return true;
+  } catch (err) {
+    debuggerTabs.delete(tabId);
+    chrome.debugger.detach({ tabId }).catch(() => {});
+    console.warn('[Odessa] chrome.debugger indisponível:', err);
+    return false;
+  }
+}
+
+async function stopDebuggerCast(tabId) {
+  if (!debuggerTabs.has(tabId)) return;
+  debuggerTabs.delete(tabId);
+  await cdp(tabId, 'Page.stopScreencast').catch(() => {});
+  await chrome.debugger.detach({ tabId }).catch(() => {}); // some a barra "depurando"
+}
+
+chrome.debugger.onEvent.addListener((source, method, params) => {
+  if (method !== 'Page.screencastFrame' || !source.tabId) return;
+  cdp(source.tabId, 'Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => {});
+  const entry = tabs.get(source.tabId);
+  if (!entry || !entry.screencastOn || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) return;
+  const now = Date.now();
+  if (now - (entry.lastFrameAt || 0) < FRAME_MIN_INTERVAL_MS) return;
+  entry.lastFrameAt = now;
+  entry.captureWarning = '';
+  const meta = params.metadata || {};
+  entry.ws.send(
+    JSON.stringify({
+      type: 'frame',
+      data: params.data,
+      w: Math.round(meta.deviceWidth) || undefined,
+      h: Math.round(meta.deviceHeight) || undefined,
+    }),
+  );
+});
+
+chrome.debugger.onDetach.addListener((source, reason) => {
+  const tabId = source.tabId;
+  if (!tabId || !debuggerTabs.has(tabId)) return;
+  debuggerTabs.delete(tabId);
+  const entry = tabs.get(tabId);
+  if (!entry) return;
+  if (reason === 'canceled_by_user') {
+    // Respeita o "Cancelar" da barra do navegador até a aba ser recarregada.
+    entry.debuggerRefused = true;
+    captureWarning(entry, 'A captura em segundo plano foi cancelada na barra do navegador. Para voltar, recarregue a aba do Tango (F5).');
+  }
+  fallbackCapture(tabId, entry);
+});
+
+const VK = {
+  Enter: 13, NumpadEnter: 13, Backspace: 8, Tab: 9, Escape: 27, Delete: 46,
+  ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Home: 36, End: 35, PageUp: 33, PageDown: 34,
+};
+
+/**
+ * Teclado/texto vão pelo CDP (eventos reais). Clique e rolagem com a janela
+ * minimizada não acertam o elemento pelo CDP (o navegador não faz o hit-test
+ * da janela oculta) — nesse caso vão como eventos de página pelo content script.
+ */
+async function routeInput(tabId, entry, data) {
+  const pointer = data.kind === 'mouse' || data.kind === 'wheel';
+  let minimized = false;
+  if (pointer) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      minimized = !tab.active || (await chrome.windows.get(tab.windowId)).state === 'minimized';
+    } catch (_) {
+      minimized = true;
+    }
+  }
+  if (pointer && minimized) {
+    entry.port.postMessage(data);
+    return;
+  }
+  try {
+    await cdpInput(tabId, data);
+  } catch (err) {
+    console.warn('[Odessa] input via debugger falhou, usando a página:', err);
+    entry.port.postMessage(data);
+  }
+}
+
+/** Clique/rolagem/teclado reais (CDP Input), usados quando o debugger está anexado. */
+async function cdpInput(tabId, msg) {
+  const x = Number(msg.x) || 0;
+  const y = Number(msg.y) || 0;
+  if (msg.kind === 'mouse') {
+    await cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+    await cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+    await cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+  } else if (msg.kind === 'wheel') {
+    await cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+    await cdp(tabId, 'Input.dispatchMouseEvent', {
+      type: 'mouseWheel', x, y, deltaX: Number(msg.deltaX) || 0, deltaY: Number(msg.deltaY) || 0,
+    });
+  } else if (msg.kind === 'type' || (msg.kind === 'key' && msg.text)) {
+    await cdp(tabId, 'Input.insertText', { text: String(msg.text) });
+  } else if (msg.kind === 'key' && msg.key && VK[msg.key]) {
+    const base = { key: msg.key, code: msg.key, windowsVirtualKeyCode: VK[msg.key] };
+    await cdp(tabId, 'Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base });
+    if (msg.key === 'Enter' || msg.key === 'NumpadEnter') await cdp(tabId, 'Input.dispatchKeyEvent', { type: 'char', text: '\r' });
+    await cdp(tabId, 'Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+  }
 }
 
 // ── Captura de aba (chrome.tabCapture + documento offscreen) ──
@@ -197,23 +350,24 @@ async function startTabCapture(tabId, streamId) {
 function onTabCaptureStarted(tabId) {
   tabCaptures.add(tabId);
   const entry = tabs.get(tabId);
-  if (!entry) return;
-  clearInterval(entry.capture); // o captureVisibleTab deixa de ser necessário
-  entry.capture = null;
+  if (!entry || debuggerTabs.has(tabId)) return; // o debugger já cobre o vídeo
   entry.captureWarning = '';
-  chrome.runtime.sendMessage({ type: 'offscreen_emit', tabId, on: Boolean(entry.screencastOn) }).catch(() => {});
+  fallbackCapture(tabId, entry);
 }
 
 function onTabCaptureEnded(tabId, error) {
   tabCaptures.delete(tabId);
   const entry = tabs.get(tabId);
   if (!entry) return;
-  if (error) captureWarning(entry, `${error} Clique no ícone da extensão e em "Transmitir esta aba" para voltar.`);
-  if (entry.screencastOn) setScreencast(tabId, entry, true); // volta ao captureVisibleTab
+  if (error && !debuggerTabs.has(tabId)) {
+    captureWarning(entry, `${error} Clique no ícone da extensão e em "Transmitir esta aba" para voltar.`);
+  }
+  fallbackCapture(tabId, entry); // volta ao captureVisibleTab (se o debugger não estiver ativo)
 }
 
 function forwardTabFrame(msg) {
   tabCaptures.add(msg.tabId); // o service worker pode ter reiniciado com a captura ativa
+  if (debuggerTabs.has(msg.tabId)) return;
   const entry = tabs.get(msg.tabId);
   if (!entry || !entry.screencastOn || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) return;
   entry.captureWarning = '';

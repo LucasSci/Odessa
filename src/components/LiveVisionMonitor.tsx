@@ -80,6 +80,7 @@ export function LiveVisionMonitor({ connected }: Props) {
   const [streamNotice, setStreamNotice] = useState<string | null>(null);
   const [hasFrame, setHasFrame] = useState(false);
   const hasFrameRef = useRef(false);
+  const noticeRef = useRef<string | null>(null);
 
   // Log de ações pra depuração — nada na UI exibe isso hoje, então usar
   // console em vez de estado React evita acumular um valor que nunca é lido.
@@ -170,6 +171,10 @@ export function LiveVisionMonitor({ connected }: Props) {
           if (!hasFrameRef.current) {
             hasFrameRef.current = true;
             setHasFrame(true);
+          }
+          if (noticeRef.current) {
+            // Imagem voltou: o aviso anterior deixou de valer.
+            noticeRef.current = null;
             setStreamNotice(null);
           }
           if (canvas.width !== fw) canvas.width = fw;
@@ -206,10 +211,10 @@ export function LiveVisionMonitor({ connected }: Props) {
         } else if (type === 'error') {
           const text = (data.error as string) || 'desconhecido';
           logAction(`Erro: ${text}`);
+          // Com imagem já na tela o aviso vira uma faixa discreta (não cobre a
+          // imagem); sem imagem ele ocupa o centro da tela.
+          noticeRef.current = text;
           setStreamNotice(text);
-          // A aba pode ter sumido (escondida, outra aba ativa): volta a mostrar o aviso.
-          hasFrameRef.current = false;
-          setHasFrame(false);
         }
       };
 
@@ -518,6 +523,15 @@ export function LiveVisionMonitor({ connected }: Props) {
             <p className="mt-1 max-w-md text-xs text-slate-400">
               {streamNotice ?? 'A primeira imagem aparece em alguns segundos.'}
             </p>
+          </div>
+        )}
+
+        {live && hasFrame && streamNotice && (
+          <div
+            data-state="open"
+            className="pointer-events-none absolute inset-x-3 bottom-3 rounded-lg bg-black/70 px-3 py-2 text-[11px] text-amber-200 backdrop-blur od-pop"
+          >
+            {streamNotice}
           </div>
         )}
 
