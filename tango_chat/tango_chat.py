@@ -288,6 +288,10 @@ class TangoChatBridge:
         self._extension_ws: web.WebSocketResponse | None = None
         self._extension_pending: dict[str, asyncio.Future[dict]] = {}
         self._extension_browser: str = ""
+        # Vídeo da aba no modo extensão: a extensão captura a aba visível
+        # (captureVisibleTab) só enquanto alguém assiste ao /live.
+        self._live_viewers: set[asyncio.Queue] = set()
+        self._extension_viewport: dict = {}
 
     # == Conectar =====================================================
 
@@ -742,6 +746,8 @@ class TangoChatBridge:
         self._started_at = datetime.now(timezone.utc).isoformat()
         log.info("Extensão conectada (%s) | URL: %s", self._extension_browser, _for_log(self._page_url))
         await self.push_extension_config()
+        if self._live_viewers:
+            await ws.send_json({"type": "screencast", "on": True})
 
     def detach_extension(self, ws: web.WebSocketResponse) -> None:
         if self._extension_ws is not ws:
@@ -753,7 +759,33 @@ class TangoChatBridge:
                 future.set_result({"ok": False, "error": "A extensão desconectou.", "stage": "typing"})
         if self._mode == "extension":
             self._status = "waiting_extension"
+        for viewer in list(self._live_viewers):
+            viewer.put_nowait({"type": "error", "error": "A aba do Tango desconectou; aguardando a extensão."})
         log.info("Extensão desconectada; aguardando reconexão.")
+
+    async def _set_extension_screencast(self, on: bool) -> None:
+        ws = self._extension_ws
+        if ws and not ws.closed:
+            try:
+                await ws.send_json({"type": "screencast", "on": on})
+            except Exception:
+                pass
+
+    def _publish_extension_frame(self, data: dict) -> None:
+        """Frame JPEG da extensão → mesmo formato binário do screencast CDP."""
+        raw = data.get("data") or ""
+        if "," in raw[:64]:
+            raw = raw.split(",", 1)[1]  # data:image/jpeg;base64,...
+        try:
+            jpeg = base64.b64decode(raw)
+        except Exception:
+            return
+        w = int(data.get("w") or self._extension_viewport.get("w") or 1280)
+        h = int(data.get("h") or self._extension_viewport.get("h") or 720)
+        packet = struct.pack(">HH", min(w, 65535), min(h, 65535)) + jpeg
+        for viewer in list(self._live_viewers):
+            if viewer.qsize() < 3:  # quem está lento perde frame, não acumula atraso
+                viewer.put_nowait(packet)
 
     async def _send_locked(self, page: Page, text: str) -> dict:
         command_id = uuid.uuid4().hex[:12]
@@ -856,6 +888,8 @@ class TangoChatBridge:
 # =====================================================================
 
 bridge: TangoChatBridge | None = None
+# Referências de tarefas "dispara e esquece" (sem isso o GC pode coletá-las no meio).
+_background_tasks: set[asyncio.Task] = set()
 
 
 @middleware
@@ -1233,6 +1267,60 @@ async def _cdp_key(cdp, data: dict) -> None:
                            {"type": "char", "text": "\r"})
 
 
+async def _live_ws_via_extension(request: web.Request) -> web.WebSocketResponse:
+    """/live no modo extensão: só vídeo (a extensão captura a aba visível).
+
+    Interação (clique/teclado) não passa: a aba é do usuário, no navegador dele.
+    """
+    ws = web.WebSocketResponse(max_msg_size=0)
+    await ws.prepare(request)
+    queue: asyncio.Queue = asyncio.Queue()
+    first = not bridge._live_viewers
+    bridge._live_viewers.add(queue)
+    if bridge._extension_viewport:
+        queue.put_nowait({"type": "viewport", **bridge._extension_viewport})
+    if not bridge._extension_ws:
+        queue.put_nowait({"type": "error", "error": "Aguardando a aba do Tango com a extensão do Odessa."})
+    if first:
+        await bridge._set_extension_screencast(True)
+    log.info("Live WS (extensão): espectador conectado")
+
+    async def _sender() -> None:
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            try:
+                if isinstance(item, (bytes, bytearray)):
+                    await ws.send_bytes(item)
+                else:
+                    await ws.send_json(item)
+            except Exception:
+                break
+
+    sender_task = asyncio.create_task(_sender())
+    try:
+        async for msg in ws:
+            if msg.type == web.WSMsgType.ERROR:
+                break
+            # Eventos de mouse/teclado são ignorados neste modo (somente vídeo).
+    finally:
+        # Sem await antes disto: o aiohttp cancela o handler quando o
+        # espectador desconecta, e a captura ficaria ligada para sempre.
+        bridge._live_viewers.discard(queue)
+        queue.put_nowait(None)
+        if not bridge._live_viewers:
+            task = asyncio.create_task(bridge._set_extension_screencast(False))
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
+        log.info("Live WS (extensão) encerrado")
+        try:
+            await sender_task
+        except (asyncio.CancelledError, Exception):
+            pass
+    return ws
+
+
 async def handle_live_ws(request: web.Request) -> web.WebSocketResponse:
     """GET /live — WebSocket de VIDEO EM TEMPO REAL (CDP Screencast) + interacao.
 
@@ -1242,6 +1330,8 @@ async def handle_live_ws(request: web.Request) -> web.WebSocketResponse:
       - Client envia eventos de mouse/teclado/scroll que sao repassados via
         CDP Input.dispatch* — interacao de verdade, como Chrome Remote Desktop.
     """
+    if bridge and bridge._mode == "extension" and not bridge._page:
+        return await _live_ws_via_extension(request)
     if not bridge or not bridge._page:
         ws = web.WebSocketResponse()
         await ws.prepare(request)
@@ -1442,6 +1532,18 @@ async def handle_extension_ws(request: web.Request) -> web.WebSocketResponse:
                 await bridge._handle_incoming_message(json.dumps({"username": data.get("username", ""), "text": data.get("text", "")}))
             elif kind == "page":
                 bridge._page_url = str(data.get("url") or bridge._page_url)
+                if data.get("w") and data.get("h"):
+                    bridge._extension_viewport = {
+                        "w": data.get("w"), "h": data.get("h"),
+                        "url": bridge._page_url, "title": data.get("title") or "",
+                    }
+                    for viewer in list(bridge._live_viewers):
+                        viewer.put_nowait({"type": "viewport", **bridge._extension_viewport})
+            elif kind == "frame":
+                bridge._publish_extension_frame(data)
+            elif kind == "capture_error":
+                for viewer in list(bridge._live_viewers):
+                    viewer.put_nowait({"type": "error", "error": str(data.get("error") or "Captura da aba indisponível.")})
             elif kind == "send_result":
                 future = bridge._extension_pending.get(str(data.get("id")))
                 if future and not future.done():

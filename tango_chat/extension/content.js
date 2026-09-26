@@ -39,6 +39,10 @@
     }
   }
 
+  function pageInfo() {
+    return { type: 'page', url: location.href, title: document.title, w: window.innerWidth, h: window.innerHeight };
+  }
+
   function connect() {
     try {
       port = chrome.runtime.connect({ name: 'odessa-chat' });
@@ -51,7 +55,7 @@
     port.onDisconnect.addListener(() => {
       port = null; // service worker reiniciou; o watch abaixo reconecta
     });
-    post({ type: 'page', url: location.href });
+    post(pageInfo());
   }
 
   function onMessage(msg) {
@@ -150,9 +154,21 @@
   watchTimer = setInterval(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      post({ type: 'page', url: lastUrl });
+      post(pageInfo());
     }
     if (!port && chatVisible()) connect();
   }, 2000);
   if (chatVisible()) connect();
+
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => post(pageInfo()), 300);
+  });
+  // Voltar para a aba retoma a conexão se outra aba tinha assumido o chat.
+  const resume = () => {
+    if (document.visibilityState === 'visible') post({ type: 'resume' });
+  };
+  document.addEventListener('visibilitychange', resume);
+  window.addEventListener('focus', resume);
 })();

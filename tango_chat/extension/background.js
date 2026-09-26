@@ -18,6 +18,8 @@ const CFG = self.ODESSA_CONFIG || {};
 const RETRY_MS = 3000;
 const RETRY_SLOW_MS = 15000;
 const PING_MS = 20000; // tráfego no WebSocket mantém o service worker vivo durante a live
+const CAPTURE_MS = 550; // captureVisibleTab aceita no máximo 2 capturas por segundo
+const CAPTURE_MAX_WIDTH = 1280;
 
 /** tabId -> { port, url, ws, timer, ping, closed, status, detail } */
 const tabs = new Map();
@@ -58,6 +60,8 @@ function scheduleReconnect(tabId, entry, delay) {
 
 function openSocket(tabId, entry) {
   if (entry.closed) return;
+  clearTimeout(entry.timer);
+  if (entry.ws && entry.ws.readyState <= WebSocket.OPEN) return; // já conectando/conectado
   if (!CFG.wsUrl || !CFG.pairToken) {
     setStatus(tabId, entry, 'erro', 'Extensão sem configuração. No Odessa, clique em "Preparar extensão" e recarregue-a.');
     return;
@@ -75,6 +79,8 @@ function openSocket(tabId, entry) {
 
   ws.onopen = () => {
     ws.send(JSON.stringify({ type: 'hello', pairToken: CFG.pairToken, url: entry.url, browser: browserName() }));
+    // O content script manda o tamanho da aba antes do WebSocket abrir: reenvia.
+    if (entry.page) ws.send(JSON.stringify(entry.page));
     clearInterval(entry.ping);
     entry.ping = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) ws.send('{"type":"ping"}');
@@ -89,6 +95,10 @@ function openSocket(tabId, entry) {
       return;
     }
     if (data.type === 'pong') return;
+    if (data.type === 'screencast') {
+      setScreencast(tabId, entry, Boolean(data.on));
+      return;
+    }
     if (data.type === 'config') setStatus(tabId, entry, 'conectado');
     if (data.type === 'error') setStatus(tabId, entry, 'erro', data.error);
     try {
@@ -100,10 +110,11 @@ function openSocket(tabId, entry) {
 
   ws.onclose = (event) => {
     clearInterval(entry.ping);
+    setScreencast(tabId, entry, false);
     if (entry.ws === ws) entry.ws = null;
     if (entry.closed) return;
     if (event.code === 4000) {
-      setStatus(tabId, entry, 'pausado', 'Outra aba do Tango assumiu o chat. Recarregue esta aba para voltar a usá-la.');
+      setStatus(tabId, entry, 'pausado', 'Outra aba do Tango assumiu o chat. Clique nesta aba para voltar a usá-la.');
       return;
     }
     if (event.code === 4001) {
@@ -124,8 +135,70 @@ function openSocket(tabId, entry) {
   };
 }
 
+// ── Vídeo da aba: só enquanto o painel Ao Vivo do Odessa está assistindo ──
+
+function setScreencast(tabId, entry, on) {
+  clearInterval(entry.capture);
+  entry.capture = null;
+  entry.captureWarning = '';
+  if (on) entry.capture = setInterval(() => void captureFrame(tabId, entry), CAPTURE_MS);
+}
+
+function captureWarning(entry, text) {
+  if (entry.captureWarning === text) return;
+  entry.captureWarning = text;
+  if (entry.ws && entry.ws.readyState === WebSocket.OPEN) entry.ws.send(JSON.stringify({ type: 'capture_error', error: text }));
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function shrink(dataUrl) {
+  const bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob());
+  const scale = Math.min(1, CAPTURE_MAX_WIDTH / bitmap.width);
+  if (scale === 1) {
+    bitmap.close();
+    return dataUrl;
+  }
+  const canvas = new OffscreenCanvas(Math.round(bitmap.width * scale), Math.round(bitmap.height * scale));
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return blobToDataUrl(await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.6 }));
+}
+
+async function captureFrame(tabId, entry) {
+  if (entry.capturing || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) return;
+  entry.capturing = true;
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    const win = await chrome.windows.get(tab.windowId);
+    if (!tab.active || win.state === 'minimized') {
+      captureWarning(entry, 'A aba do Tango não está visível: deixe-a como aba ativa numa janela não minimizada para o vídeo aparecer no Odessa.');
+      return;
+    }
+    const shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 60 });
+    const data = await shrink(shot);
+    entry.captureWarning = '';
+    if (entry.ws && entry.ws.readyState === WebSocket.OPEN) {
+      const vp = entry.viewport || {};
+      entry.ws.send(JSON.stringify({ type: 'frame', data, w: vp.w, h: vp.h }));
+    }
+  } catch (err) {
+    captureWarning(entry, `Falha ao capturar a aba: ${err && err.message ? err.message : err}`);
+  } finally {
+    entry.capturing = false;
+  }
+}
+
 function closeEntry(entry) {
   entry.closed = true;
+  clearInterval(entry.capture);
   clearTimeout(entry.timer);
   clearInterval(entry.ping);
   if (entry.ws) {
@@ -147,7 +220,16 @@ chrome.runtime.onConnect.addListener((port) => {
 
   port.onMessage.addListener((msg) => {
     if (!msg || typeof msg !== 'object') return;
-    if (msg.type === 'page') entry.url = msg.url || entry.url;
+    if (msg.type === 'page') {
+      entry.url = msg.url || entry.url;
+      if (msg.w && msg.h) entry.viewport = { w: msg.w, h: msg.h };
+      entry.page = msg;
+    }
+    if (msg.type === 'resume') {
+      // Usuário voltou para esta aba depois que outra assumiu (4000): retoma.
+      if (entry.status === 'pausado' && !entry.ws) openSocket(tabId, entry);
+      return;
+    }
     if (entry.ws && entry.ws.readyState === WebSocket.OPEN) entry.ws.send(JSON.stringify(msg));
   });
   port.onDisconnect.addListener(() => {

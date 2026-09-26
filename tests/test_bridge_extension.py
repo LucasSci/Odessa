@@ -180,3 +180,34 @@ def test_preparar_extensao_gera_pasta_carregavel(client, tmp_path, monkeypatch):
     assert browser_extension.get_pairing_token() in config_js
     assert "/tango-bridge/extension" in config_js
     assert client.get("/api/v1/chat-automation/bridge/extension").json()["prepared"] is True
+
+
+def test_video_da_aba_pela_extensao_chega_ao_live(tango):
+    import base64
+    import struct
+
+    async def scenario(client, bridge):
+        ext, _ = await _hello(client)
+        await ext.send_json({"type": "page", "url": "https://tango.me/stream/abc", "title": "Live", "w": 1200, "h": 700})
+
+        viewer = await client.ws_connect("/live")
+        # 1º espectador liga a captura na extensão
+        assert (await asyncio.wait_for(ext.receive_json(), 5)) == {"type": "screencast", "on": True}
+        viewport = await asyncio.wait_for(viewer.receive_json(), 5)
+        assert viewport["type"] == "viewport" and viewport["w"] == 1200
+
+        jpeg = b"\xff\xd8fake-jpeg\xff\xd9"
+        await ext.send_json({"type": "frame", "data": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode(), "w": 1200, "h": 700})
+        frame = await asyncio.wait_for(viewer.receive_bytes(), 5)
+        assert struct.unpack(">HH", frame[:4]) == (1200, 700)
+        assert frame[4:] == jpeg
+
+        await ext.send_json({"type": "capture_error", "error": "aba escondida"})
+        assert (await asyncio.wait_for(viewer.receive_json(), 5))["error"] == "aba escondida"
+
+        # último espectador saiu: a extensão para de capturar
+        await viewer.close()
+        assert (await asyncio.wait_for(ext.receive_json(), 5)) == {"type": "screencast", "on": False}
+        await ext.close()
+
+    asyncio.run(_with_bridge(tango, scenario))
