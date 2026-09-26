@@ -93,9 +93,14 @@ const DEFAULTS: AiLocalConfig = {
   chatReplyMaxPerMinute: 4,
   chatReplyMinConfidence: 0.65,
   localModelUrl: 'http://127.0.0.1:11434',
-  localModelName: 'qwen2.5:latest',
+  // 3B: em notebook (ex.: Ryzen 5 5500U, 16 GB) responde em ~2 s e deixa CPU/RAM
+  // para OBS e navegador; o 7B travava a máquina a cada resposta.
+  localModelName: 'qwen2.5:3b',
   localModelTemperature: 0.7,
 };
+
+/** Modelos pesados demais para rodar junto com a live (removidos da máquina). */
+const HEAVY_LOCAL_MODELS = new Set(['llama3.1:8b', 'qwen2.5:latest', 'qwen2.5:7b', 'gemma4:26b']);
 
 function readRaw(): Partial<AiLocalConfig> {
   try {
@@ -116,7 +121,7 @@ export function getAiConfig(): AiLocalConfig {
     ? 'local'
     : stored.provider;
   const storedLocalModelName = typeof stored.localModelName === 'string' ? stored.localModelName.trim() : '';
-  const localModelName = !storedLocalModelName || storedLocalModelName === 'llama3.1:8b'
+  const localModelName = !storedLocalModelName || HEAVY_LOCAL_MODELS.has(storedLocalModelName)
     ? DEFAULTS.localModelName
     : storedLocalModelName;
   return {
