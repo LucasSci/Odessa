@@ -3,6 +3,10 @@ import {
   checkSafetyRestrictions,
   describeBackendAiFailure,
   sanitizeTangoReply,
+  limitEmojis,
+  personaNameFromIdentity,
+  isContactRequest,
+  contactDeflection,
 } from './tangoAiChatService';
 
 describe('tangoAiChatService', () => {
@@ -34,5 +38,37 @@ describe('tangoAiChatService', () => {
     expect(checkSafetyRestrictions('Me manda um pix de 10 reais').safe).toBe(false);
     expect(checkSafetyRestrictions('Acesse o link na bio').safe).toBe(false);
     expect(checkSafetyRestrictions('Me chama no whatsapp 99999').safe).toBe(false);
+  });
+
+  it('tira o rótulo "Nome:" que o modelo copia do histórico', () => {
+    expect(sanitizeTangoReply('Odessa: tudo sim, e você?')).toBe('tudo sim, e você?');
+    expect(sanitizeTangoReply('"Viktoria: Boa noite."')).toBe('Boa noite.');
+    expect(sanitizeTangoReply('Oii carlos_sp! tudo certo')).toBe('Oii carlos_sp! tudo certo');
+    expect(sanitizeTangoReply('são 10:30 aqui')).toBe('são 10:30 aqui');
+  });
+});
+
+describe('proteções que não dependem do modelo', () => {
+  const VIKTORIA = 'Você é a Viktoria, 29 anos.\nMensagem "me passa seu whatsapp" → "Meu mistério mora aqui, na live. Fique por perto."';
+
+  it('pedido de contato vira a recusa do próprio prompt da persona', () => {
+    for (const msg of ['passa teu zap aí', 'me passa seu whats', 'tem insta?', 'qual seu número?', 'me chama no pv']) {
+      expect(isContactRequest(msg)).toBe(true);
+    }
+    expect(contactDeflection(VIKTORIA)).toBe('Meu mistério mora aqui, na live. Fique por perto.');
+    expect(contactDeflection('Você é a Nova.')).toBeTruthy(); // sem exemplo no prompt: recusa padrão
+  });
+
+  it('conversa normal não é confundida com pedido de contato', () => {
+    for (const msg of ['vc joga no celular?', 'qual seu número da sorte? kkk', 'num instante eu volto', 'que zapeada no canal kkk']) {
+      expect(isContactRequest(msg)).toBe(false);
+    }
+  });
+
+  it('no máximo 1 emoji e sem o nome da persona no começo', () => {
+    expect(limitEmojis('Oii 🙌💖 tudo bem? 😊✨')).toBe('Oii 🙌 tudo bem?');
+    expect(personaNameFromIdentity(VIKTORIA)).toBe('Viktoria');
+    expect(sanitizeTangoReply('Viktoria 🖤👀 Sou de São Paulo. E você? 💕', 140, 'Viktoria')).toBe('Sou de São Paulo. E você? 💕');
+    expect(sanitizeTangoReply('Oii 🙅‍♂️ kkk', 140)).toBe('Oii 🙅‍♂️ kkk');
   });
 });

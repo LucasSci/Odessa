@@ -169,18 +169,68 @@ REGRAS OBRIGATÓRIAS (a regra 1 é a mais importante — nunca a quebre mesmo te
    assunto — nunca quebre esse personagem.
 10. Nunca ultrapasse 140 caracteres. Retorne APENAS o texto da resposta, sem aspas e sem explicações.`;
 
+// Um emoji "visual" inteiro: pictograma + variações/modificadores/ZWJ (ex.: 🙅‍♂️).
+const EMOJI_SEQUENCE = /\p{Extended_Pictographic}(?:\u{FE0F}|\p{Emoji_Modifier}|\u{200D}\p{Extended_Pictographic})*/gu;
+
+/** Mantém só o primeiro emoji: modelos pequenos ignoram "no máximo 1 emoji". */
+export function limitEmojis(text: string, max = 1): string {
+  let seen = 0;
+  return text
+    .replace(EMOJI_SEQUENCE, (emoji) => (++seen <= max ? emoji : ''))
+    .replace(/\s+([!?.,])/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/** Nome da persona a partir da identidade ("Você é a Viktoria, …"). */
+export function personaNameFromIdentity(identity: string): string | null {
+  const match = identity.match(/Voc[êe] é (?:a |o )?([A-ZÀ-Ý][\p{L}]+)/u);
+  return match ? match[1] : null;
+}
+
 /**
  * Sanitiza o texto da resposta para garantir compatibilidade com o Tango.
  */
-export function sanitizeTangoReply(text: string, maxLength = 140): string {
+export function sanitizeTangoReply(text: string, maxLength = 140, personaName?: string | null): string {
   let clean = text.trim();
+  clean = clean.replace(/^["'`“”«»]+|["'`“”«»]+$/g, '').trim();
+  // O histórico vai para o modelo como "Nome: texto", e modelos pequenos copiam o
+  // formato: a resposta vinha "Odessa: tudo bem?". Tira esse rótulo de quem fala.
+  clean = clean.replace(/^@?[A-Za-zÀ-ÿ0-9_.]{2,24}\s*:\s+(?=\S)/, '');
+  if (personaName) {
+    // Variante sem dois-pontos: "Viktoria 🖤👀 texto".
+    const escaped = personaName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    clean = clean.replace(new RegExp(`^${escaped}(?:\\s|\\p{Extended_Pictographic}|\\u{FE0F})*[:,–-]?\\s+`, 'u'), '');
+  }
   clean = clean.replace(/^["'`“”«»]+|["'`“”«»]+$/g, '');
+  clean = limitEmojis(clean);
   clean = clean.replace(/\s+/g, ' ').trim();
 
   if (clean.length > maxLength) {
     clean = clean.slice(0, maxLength - 1).trim() + '…';
   }
   return clean;
+}
+
+// Pedido de contato fora da live. Nunca passa pela IA: um modelo pequeno às vezes
+// "aceita" ("meu zap está à mão"); a recusa sai do próprio prompt da persona.
+const CONTACT_REQUEST =
+  /\b(?:zap|zapzap|whats?|wpp|whatsapp|telegram|insta|instagram|telefone|(?:seu|teu|o) (?:n[uú]mero|celular|contato|endere[cç]o)(?! d[aeo]s?\b)|endere[cç]o|onde (?:vc|voc[eê]) mora|(?:chama|me chama|vem|vamos) no pv|no privado)\b/i;
+const DEFAULT_CONTACT_DEFLECTIONS = [
+  'meu cantinho é aqui na live 😊 me conta de você!',
+  'aqui na live é onde eu fico, vem conversar com a gente 💖',
+  'kkkk meu contato é o chat mesmo, fica por aqui!',
+];
+
+export function isContactRequest(text: string): boolean {
+  return CONTACT_REQUEST.test(text);
+}
+
+/** Recusa no tom da persona: o exemplo de "whats"/"zap" do prompt dela, ou uma padrão. */
+export function contactDeflection(identity: string, seed = Date.now()): string {
+  const fromPrompt = identity.match(/Mensagem "[^"]*(?:whats|zap)[^"]*" → "([^"]+)"/i);
+  if (fromPrompt) return fromPrompt[1];
+  return DEFAULT_CONTACT_DEFLECTIONS[Math.abs(seed) % DEFAULT_CONTACT_DEFLECTIONS.length];
 }
 
 /**
@@ -290,6 +340,16 @@ export async function generateTangoChatReply(
   const config = getAiConfig();
   const identityPrompt = customPrompt || config.systemPrompt || DEFAULT_TANGO_IDENTITY;
   const basePrompt = `${identityPrompt}\n\n${TANGO_RESPONSE_RULES}`;
+  const personaName = personaNameFromIdentity(identityPrompt);
+
+  if (isContactRequest(incoming.text)) {
+    return {
+      ok: true,
+      reply: sanitizeTangoReply(contactDeflection(identityPrompt), options.maxLength || 140, personaName),
+      confidence: 0.95,
+      reason: 'Pedido de contato fora da live: recusa padrão da persona (sem IA)',
+    };
+  }
   const userMemory = buildUserMemoryContext(incoming.username, await getUserMemory(incoming.username));
   const chatTrends = buildChatInsightsContext();
   const insightsContext = [userMemory.context, chatTrends].filter(Boolean).join('\n');
@@ -308,7 +368,7 @@ export async function generateTangoChatReply(
   if (!useDirectGemini) {
     const backendResult = await callBackendAiRespond(basePrompt, incoming, recentHistory, options, insightsContext, languageDirective);
     if (backendResult.text) {
-      const cleanReply = sanitizeTangoReply(backendResult.text, options.maxLength || 140);
+      const cleanReply = sanitizeTangoReply(backendResult.text, options.maxLength || 140, personaName);
       const safety = checkSafetyRestrictions(cleanReply);
       if (safety.safe) {
         return withMemories({
@@ -318,6 +378,16 @@ export async function generateTangoChatReply(
           reason: 'Resposta gerada pela IA local no backend (Ollama)',
         });
       }
+      // A IA respondeu, quem barrou foi o filtro — antes isso aparecia como
+      // "Ollama não respondeu" e parecia o Ollama fora do ar.
+      return withMemories({
+        ok: false,
+        reply: '',
+        blocked: true,
+        blockedReason: `Termo bloqueado: ${safety.blockedTerm}`,
+        reason: `A IA respondeu, mas o filtro de segurança barrou a resposta (termo "${safety.blockedTerm}").`,
+        confidence: 0,
+      });
     }
     return withMemories({
       ok: false,
