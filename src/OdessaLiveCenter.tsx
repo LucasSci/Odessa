@@ -1194,7 +1194,7 @@ export default function OdessaLiveCenter({
                 onChange={(id) => setSettingsSubTab(id as 'general' | 'ai' | 'canvas')}
                 items={[
                   { id: 'general', label: 'OBS & Webhooks', icon: <Settings style={{ width: 13, height: 13 }} /> },
-                  { id: 'ai', label: 'Diretora IA', icon: <Brain style={{ width: 13, height: 13 }} /> },
+                  { id: 'ai', label: 'IA e chaves', icon: <Brain style={{ width: 13, height: 13 }} /> },
                   { id: 'canvas', label: 'Mural de Planejamento', icon: <ClipboardCheck style={{ width: 13, height: 13 }} /> },
                 ]}
               />
@@ -1217,7 +1217,7 @@ export default function OdessaLiveCenter({
               )}
               {settingsSubTab === 'ai' && (
                 <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                  <Suspense fallback={<PanelLoading label="Carregando Diretora IA" />}>
+                  <Suspense fallback={<PanelLoading label="Carregando IA e chaves" />}>
                     <AiConfigPanel />
                   </Suspense>
                 </div>
@@ -1450,7 +1450,7 @@ const TAB_META: Record<TabKey, { group: string; title: string }> = {
   admin:    { group: 'Sistema',  title: 'Diagnóstico do Sistema' },
   home:     { group: 'Operação', title: 'Central da Live' },
   stage:    { group: 'Operação', title: 'Palco' },
-  ai:       { group: 'Configuração', title: 'Diretora IA' },
+  ai:       { group: 'Configuração', title: 'IA e chaves' },
   chat:     { group: 'Operação', title: 'Central da Live' },
   canvas:   { group: 'Conteúdo', title: 'Mural de Planejamento' },
   logs:     { group: 'Sistema',  title: 'Logs' },

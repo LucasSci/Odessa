@@ -31,8 +31,9 @@ function aiReadiness(): { tone: Tone; detail: string } {
   if (provider === 'gemini') {
     return hasActiveGeminiKey()
       ? { tone: 'ready', detail: 'Gemini com chave ativa.' }
-      : { tone: 'blocked', detail: 'Gemini sem chave: configure em Configurações → Diretora IA.' };
+      : { tone: 'blocked', detail: 'Gemini sem chave: configure em Configurações → IA e chaves.' };
   }
+  if (provider === 'mistral') return { tone: 'ready', detail: 'Mistral com chave ativa.' };
   return { tone: 'ready', detail: provider === 'claude' ? 'Claude.' : `Ollama local (${config.localModelName}).` };
 }
 

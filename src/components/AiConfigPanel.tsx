@@ -12,14 +12,17 @@
 import { useState } from 'react';
 import {
   Brain,
+  CheckCircle2,
   ChevronDown,
   Cpu,
+  ExternalLink,
   Key,
   RotateCcw,
   Sliders,
   Sparkles,
+  XCircle,
 } from 'lucide-react';
-import { Input } from './ui';
+import { Button, Input } from './ui';
 import { cn } from '../lib/utils';
 import {
   getAiConfig,
@@ -27,11 +30,104 @@ import {
   type AiLocalConfig,
   type AiProvider,
 } from '../core/aiConfig';
+import { callGeminiText } from '../core/aiDecisionContract';
+import { apiUrl } from '../lib/api';
+import { ActiveAiBadge } from './ActiveAiBadge';
+
+/** Trocou para IA de nuvem: tira o modelo local da memória (libera RAM/GPU). */
+async function unloadLocalAi(): Promise<string[]> {
+  try {
+    const res = await fetch(apiUrl('/ai/ollama/unload'), { method: 'POST', signal: AbortSignal.timeout(15_000) });
+    const data = (await res.json()) as { unloaded?: string[] };
+    return data.unloaded ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Quem responde o chat — só as opções reais (Auto/Mock saíram: confundiam). */
+const PROVIDER_OPTIONS: Array<{ id: AiProvider; title: string; detail: string }> = [
+  { id: 'local', title: 'Local (no seu PC)', detail: 'Ollama. Grátis e offline; qualidade limitada pelo modelo pequeno.' },
+  { id: 'gemini', title: 'Google Gemini', detail: 'Ótimo português. Precisa de chave do Google AI Studio.' },
+  { id: 'mistral', title: 'Mistral', detail: 'Ótimo português, conversa em turnos. Precisa de chave da Mistral.' },
+  { id: 'claude', title: 'Claude (Anthropic)', detail: 'Chave configurada no servidor (.env).' },
+];
+
+type GeminiTest = { state: 'idle' | 'testing' | 'ok' | 'error'; message?: string };
+
+/** Testa a chave da Mistral pelo mesmo caminho do chat (/ai/respond, sem cair na IA local). */
+async function testMistralKey(key: string): Promise<string> {
+  const started = performance.now();
+  const res = await fetch(apiUrl('/ai/respond'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      persona_prompt: 'Responda apenas com a palavra: ok',
+      chat_context: '',
+      user_prompt: 'teste de conexão',
+      temperature: 0,
+      provider: 'mistral',
+      provider_key: key,
+    }),
+    signal: AbortSignal.timeout(40_000),
+  });
+  const body = (await res.json().catch(() => ({}))) as {
+    provider?: string;
+    detail?: { errors?: string[] } | string;
+  };
+  if (!res.ok) {
+    const detail = typeof body.detail === 'string' ? body.detail : body.detail?.errors?.find((e) => e.startsWith('Mistral')) ?? `HTTP ${res.status}`;
+    throw new Error(detail);
+  }
+  if (body.provider !== 'mistral') throw new Error('A Mistral não respondeu (o servidor usou outro provedor).');
+  return `Conectado à Mistral (${Math.round(performance.now() - started)} ms).`;
+}
 
 export function AiConfigPanel() {
   const [config, setConfig] = useState<AiLocalConfig>(() => getAiConfig());
   const [expanded, setExpanded] = useState(true);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [geminiTest, setGeminiTest] = useState<GeminiTest>({ state: 'idle' });
+  const [switchNote, setSwitchNote] = useState<string | null>(null);
+
+  const chooseProvider = (next: AiProvider) => {
+    if (next === config.provider) return;
+    update({ provider: next });
+    setGeminiTest({ state: 'idle' });
+    if (next === 'local') {
+      setSwitchNote('IA local ligada: o modelo carrega na próxima resposta.');
+      return;
+    }
+    setSwitchNote('Desligando a IA local…');
+    void unloadLocalAi().then((unloaded) =>
+      setSwitchNote(
+        unloaded.length
+          ? `IA local desligada (${unloaded.join(', ')} saiu da memória).`
+          : 'IA local desligada: nenhum modelo local ficou na memória.',
+      ),
+    );
+  };
+
+  const testMistral = async () => {
+    setGeminiTest({ state: 'testing' });
+    try {
+      setGeminiTest({ state: 'ok', message: await testMistralKey(config.mistralKey) });
+    } catch (err) {
+      setGeminiTest({ state: 'error', message: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  const testGemini = async () => {
+    setGeminiTest({ state: 'testing' });
+    const started = performance.now();
+    try {
+      const reply = await callGeminiText('Responda apenas com a palavra: ok', 'teste de conexão', { maxOutputTokens: 8 });
+      if (!reply) throw new Error('Sem chave salva ou resposta vazia.');
+      setGeminiTest({ state: 'ok', message: `Conectado ao Google (${Math.round(performance.now() - started)} ms).` });
+    } catch (err) {
+      setGeminiTest({ state: 'error', message: err instanceof Error ? err.message : String(err) });
+    }
+  };
 
   const update = (patch: Partial<AiLocalConfig>) => {
     const next = { ...config, ...patch };
@@ -152,47 +248,168 @@ export function AiConfigPanel() {
             </div>
             <div className="space-y-3">
               <div>
-                <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
-                  Provedor
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {(['auto', 'gemini', 'claude', 'local', 'mock'] as AiProvider[]).map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => update({ provider: p })}
-                      className={cn(
-                        'flex-1 rounded-lg border px-3 py-1.5 text-xs font-semibold transition',
-                        config.provider === p
-                          ? 'border-sky-500/40 bg-sky-500/10 text-sky-300'
-                          : 'border-white/10 bg-black/40 text-slate-500 hover:text-slate-300',
-                      )}
-                    >
-                      {p === 'auto' ? 'Auto' : p === 'gemini' ? 'Gemini' : p === 'claude' ? 'Claude' : p === 'local' ? 'Local' : 'Mock'}
-                    </button>
-                  ))}
+                <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--t3)]">
+                    Quem responde o chat
+                  </span>
+                  <ActiveAiBadge />
                 </div>
-                {config.provider === 'claude' && (
-                  <p className="mt-1.5 text-[10px] text-slate-500 leading-relaxed">
-                    A chave da Anthropic é configurada no servidor (arquivo .env,
-                    ANTHROPIC_API_KEY) — não precisa colar nada aqui.
-                  </p>
-                )}
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                  {PROVIDER_OPTIONS.map((opt) => {
+                    const active = config.provider === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => chooseProvider(opt.id)}
+                        className={cn(
+                          'rounded-xl border p-3 text-left transition duration-150 ease-out active:scale-[0.98]',
+                          active
+                            ? 'border-sky-500/50 bg-sky-500/10'
+                            : 'border-white/10 bg-black/40 hover:border-white/20',
+                        )}
+                      >
+                        <span className={cn('block text-xs font-bold', active ? 'text-sky-200' : 'text-slate-300')}>
+                          {opt.title}
+                        </span>
+                        <span className="mt-1 block text-[10px] leading-relaxed text-slate-500">{opt.detail}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-              <Input
-                label="Gemini API Key"
-                type="password"
-                value={config.geminiKey}
-                onChange={(e) => update({ geminiKey: e.target.value })}
-                placeholder="Cole sua chave Gemini aqui…"
-                className="h-9 text-xs"
-              />
-              <Input
-                label="Proxy URL (opcional)"
-                value={config.geminiProxyUrl}
-                onChange={(e) => update({ geminiProxyUrl: e.target.value })}
-                placeholder="https://seu-worker.workers.dev"
-                className="h-9 text-xs"
-              />
+
+              {switchNote && (
+                <p key={switchNote} data-state="open" className="od-pop text-[11px] text-slate-400">
+                  {switchNote}
+                </p>
+              )}
+
+              {config.provider === 'gemini' && (
+                <div data-state="open" className="od-pop space-y-2 rounded-xl border border-white/10 bg-black/30 p-3">
+                  <Input
+                    label="Chave da API do Google (Gemini)"
+                    type="password"
+                    autoComplete="off"
+                    value={config.geminiKey}
+                    onChange={(e) => {
+                      update({ geminiKey: e.target.value.trim() });
+                      setGeminiTest({ state: 'idle' });
+                    }}
+                    placeholder="Cole aqui a chave que começa com AIza…"
+                    className="h-9 text-xs"
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      loading={geminiTest.state === 'testing'}
+                      disabled={!config.geminiKey}
+                      onClick={() => void testGemini()}
+                    >
+                      Testar conexão
+                    </Button>
+                    <a
+                      href="https://aistudio.google.com/apikey"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1 text-[11px] text-sky-300 hover:underline"
+                    >
+                      Criar chave no Google AI Studio <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                  {geminiTest.state === 'ok' && (
+                    <p className="flex items-center gap-1.5 text-[11px] text-emerald-300">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> {geminiTest.message} O chat já responde com a Gemini.
+                    </p>
+                  )}
+                  {geminiTest.state === 'error' && (
+                    <p className="flex items-start gap-1.5 text-[11px] text-red-300">
+                      <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {geminiTest.message}
+                    </p>
+                  )}
+                  {!config.geminiKey && (
+                    <p className="text-[10px] leading-relaxed text-amber-300/90">
+                      Sem chave, o chat continua respondendo com a IA local.
+                    </p>
+                  )}
+                  <p className="text-[10px] leading-relaxed text-slate-500">
+                    A chave fica salva só neste navegador e vai ao Google pelo servidor do Odessa.
+                  </p>
+                  <details className="text-[11px] text-slate-400">
+                    <summary className="cursor-pointer select-none text-slate-500 hover:text-slate-300">Avançado</summary>
+                    <div className="mt-2">
+                      <Input
+                        label="Proxy URL (opcional)"
+                        value={config.geminiProxyUrl}
+                        onChange={(e) => update({ geminiProxyUrl: e.target.value })}
+                        placeholder="https://seu-worker.workers.dev"
+                        className="h-9 text-xs"
+                      />
+                    </div>
+                  </details>
+                </div>
+              )}
+
+              {config.provider === 'mistral' && (
+                <div data-state="open" className="od-pop space-y-2 rounded-xl border border-white/10 bg-black/30 p-3">
+                  <Input
+                    label="Chave da API da Mistral"
+                    type="password"
+                    autoComplete="off"
+                    value={config.mistralKey}
+                    onChange={(e) => {
+                      update({ mistralKey: e.target.value.trim() });
+                      setGeminiTest({ state: 'idle' });
+                    }}
+                    placeholder="Cole aqui a chave da Mistral…"
+                    className="h-9 text-xs"
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      loading={geminiTest.state === 'testing'}
+                      disabled={!config.mistralKey}
+                      onClick={() => void testMistral()}
+                    >
+                      Testar conexão
+                    </Button>
+                    <a
+                      href="https://console.mistral.ai/api-keys"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1 text-[11px] text-sky-300 hover:underline"
+                    >
+                      Criar chave no console da Mistral <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                  {geminiTest.state === 'ok' && (
+                    <p className="flex items-center gap-1.5 text-[11px] text-emerald-300">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> {geminiTest.message} O chat já responde com a Mistral.
+                    </p>
+                  )}
+                  {geminiTest.state === 'error' && (
+                    <p className="flex items-start gap-1.5 text-[11px] text-red-300">
+                      <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {geminiTest.message}
+                    </p>
+                  )}
+                  <p className="text-[10px] leading-relaxed text-slate-500">
+                    {config.mistralKey
+                      ? 'Se a Mistral falhar (chave, cota), o chat cai para a IA local em vez de ficar sem resposta.'
+                      : 'Sem chave, o chat continua respondendo com a IA local.'}{' '}
+                    A chave fica salva só neste navegador.
+                  </p>
+                </div>
+              )}
+
+              {config.provider === 'claude' && (
+                <p className="text-[10px] leading-relaxed text-slate-500">
+                  A chave da Anthropic é configurada no servidor (arquivo .env, ANTHROPIC_API_KEY) — não
+                  precisa colar nada aqui.
+                </p>
+              )}
             </div>
           </div>
 

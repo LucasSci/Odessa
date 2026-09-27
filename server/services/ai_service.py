@@ -21,6 +21,8 @@ from server.config import (
     OLLAMA_MODEL,
     OLLAMA_NUM_THREAD,
     OLLAMA_TIMEOUT,
+    MISTRAL_API_KEY,
+    MISTRAL_MODEL,
 )
 
 logger = logging.getLogger("odessa.ai")
@@ -30,6 +32,20 @@ ANTHROPIC_API_VERSION = "2023-06-01"
 
 
 MAX_CONVERSATION_TURNS = 16
+
+# Quando o operador troca para uma IA de nuvem (Gemini/Mistral), a IA local é
+# desligada: o modelo sai da memória e o keep-alive para de recarregá-lo. Volta
+# sozinha na próxima resposta pedida ao Ollama.
+_local_ai_paused = False
+
+
+def pause_local_ai() -> None:
+    global _local_ai_paused
+    _local_ai_paused = True
+
+
+def local_ai_paused() -> bool:
+    return _local_ai_paused
 
 
 def _conversation_turns(conversation: list[dict[str, str]] | None) -> list[dict[str, str]]:
@@ -188,6 +204,8 @@ class AIService:
         """
         import httpx
 
+        global _local_ai_paused
+        _local_ai_paused = False  # voltou a usar a IA local
         url = (base_url or OLLAMA_BASE_URL).strip().rstrip("/")
         # num_predict limita o tamanho da geração — as respostas do chat já são
         # pedidas curtas (poucas frases), então 220 tokens só existe como teto
@@ -289,6 +307,47 @@ class AIService:
             f"carregando na memória): {last_exc}"
         ) from last_exc
 
+    def generate_mistral_text(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        *,
+        api_key: str,
+        json_mode: bool = False,
+        conversation: list[dict[str, str]] | None = None,
+    ) -> str:
+        """Gera texto na Mistral (API compatível com OpenAI), com a conversa em turnos."""
+        import httpx
+
+        payload: dict[str, Any] = {
+            "model": MISTRAL_MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                *(_conversation_turns(conversation) or [{"role": "user", "content": user_prompt}]),
+            ],
+            "temperature": temperature,
+            "max_tokens": 700 if json_mode else 150,
+        }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(
+                "https://api.mistral.ai/v1/chat/completions",
+                json=payload,
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+        if response.status_code == 401:
+            raise RuntimeError("chave recusada pela Mistral (401). Confira a chave em Configurações → IA e chaves.")
+        if response.status_code == 429:
+            raise RuntimeError("limite de uso da Mistral atingido (429). Aguarde um pouco.")
+        response.raise_for_status()
+        text = ((response.json().get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+        if not text.strip():
+            raise RuntimeError("Mistral retornou uma resposta vazia")
+        logger.info("[MISTRAL] chat response model=%s chars=%d", MISTRAL_MODEL, len(text))
+        return text.strip()
+
     def generate_ai_text_with_fallback(
         self,
         *,
@@ -301,6 +360,7 @@ class AIService:
         local_model_name: str | None = None,
         provider: str | None = None,
         conversation: list[dict[str, str]] | None = None,
+        provider_key: str | None = None,
     ) -> Tuple[str, str]:
         """
         AI Provider Router: Tries configured providers in order,
@@ -311,7 +371,10 @@ class AIService:
 
         # Priority 1: Configured Provider
         providers_to_try = []
-        if selected_provider in {"ollama", "local"}:
+        if selected_provider == "mistral":
+            # Se a Mistral falhar (chave errada, cota), o chat não fica mudo: IA local.
+            providers_to_try = ["mistral", "ollama"]
+        elif selected_provider in {"ollama", "local"}:
             providers_to_try = ["ollama", "claude", "gemini", "openai"]
         elif selected_provider == "claude":
             providers_to_try = ["claude", "gemini", "openai"]
@@ -325,6 +388,21 @@ class AIService:
         errors: List[str] = []
 
         for provider in providers_to_try:
+            if provider == "mistral":
+                key = (provider_key or "").strip() or MISTRAL_API_KEY
+                if not key:
+                    errors.append("Mistral: nenhuma chave configurada")
+                    continue
+                try:
+                    text = self.generate_mistral_text(
+                        system_prompt, user_prompt, temperature, api_key=key, json_mode=json_mode, conversation=conversation
+                    )
+                    if text.strip():
+                        return text, "mistral"
+                except Exception as exc:
+                    logger.warning("[AI ROUTER] Mistral failed: %s", exc)
+                    errors.append(f"Mistral: {exc}")
+
             if provider == "ollama":
                 try:
                     text = self.generate_ollama_text(
@@ -439,7 +517,7 @@ async def ollama_keepalive_loop(interval_seconds: int = 5 * 60) -> None:
 
     url = OLLAMA_BASE_URL.strip().rstrip("/")
     while True:
-        if not await _live_session_active():
+        if local_ai_paused() or not await _live_session_active():
             await asyncio.sleep(interval_seconds)
             continue
         try:

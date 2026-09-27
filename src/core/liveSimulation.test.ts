@@ -53,6 +53,7 @@ vi.mock('../lib/memory', async (importOriginal) => {
 
 const governorConfig = {
   geminiKey: 'test-key',
+  mistralKey: '',
   systemPrompt: '',
   provider: 'mock' as const,
   confidenceThreshold: 0.65,

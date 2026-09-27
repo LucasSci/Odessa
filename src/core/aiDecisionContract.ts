@@ -656,6 +656,10 @@ export async function callGeminiText(
     generationConfig: {
       maxOutputTokens: opts?.maxOutputTokens ?? 256,
       temperature: typeof opts?.temperature === 'number' ? opts.temperature : 0.4,
+      // O gemini-2.5-flash "pensa" antes de responder e esse raciocínio conta no
+      // maxOutputTokens: com o limite curto do chat a resposta voltava VAZIA e o
+      // Odessa caía numa fala pronta local — parecia que a Gemini nem era usada.
+      thinkingConfig: { thinkingBudget: 0 },
     },
   });
   return rawText ? rawText.trim() : null;

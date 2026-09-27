@@ -80,6 +80,7 @@ import { UnifiedLivePanel, type VideoStateLite } from './UnifiedLivePanel';
 import { BridgeConnectionGuide } from './BridgeConnectionGuide';
 import { LiveBrowserPicker, type LiveBrowser } from './LiveBrowserPicker';
 import { BrowserExtensionCard } from './BrowserExtensionCard';
+import { ActiveAiBadge } from './ActiveAiBadge';
 import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
 import type { CapturedMessage } from '../types';
 
@@ -750,6 +751,7 @@ export function TangoChatPanel({
                 <span className={cn('h-1.5 w-1.5 rounded-full', bridgeConnected ? 'bg-emerald-400 animate-ping' : 'bg-slate-500')} />
                 {bridgeConnected ? 'Conectado · Ao Vivo' : processRunning ? 'Bridge Pronta' : 'Desconectado'}
               </span>
+              <ActiveAiBadge />
               {bridgeConnected && sseState !== 'connected' && (
                 <span
                   className={cn(

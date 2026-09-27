@@ -34,7 +34,7 @@ Regras:
 - Para eventos de baixa relevância use intent: "idle_maintenance" e wait
 `;
 
-export type AiProvider = 'auto' | 'gemini' | 'local' | 'mock' | 'claude';
+export type AiProvider = 'auto' | 'gemini' | 'local' | 'mock' | 'claude' | 'mistral';
 
 /**
  * Nível de autonomia da Diretora de IA.
@@ -47,6 +47,8 @@ export type AiAutonomyLevel = 'manual' | 'assistido' | 'auto';
 export type AiLocalConfig = {
   /** Chave Gemini digitada pelo usuário (nunca vai para o servidor). */
   geminiKey: string;
+  /** Chave da Mistral (salva só neste navegador; vai ao servidor em cada pedido). */
+  mistralKey: string;
   /** Prompt de sistema customizado. '' = usa o padrão. */
   systemPrompt: string;
   /** Provedor: auto = tenta Gemini, cai para mock; gemini = força Gemini; mock = sempre mock. */
@@ -82,6 +84,7 @@ export type AiLocalConfig = {
 
 const DEFAULTS: AiLocalConfig = {
   geminiKey: '',
+  mistralKey: '',
   systemPrompt: '',
   provider: 'local',
   confidenceThreshold: 0.65,
@@ -115,19 +118,19 @@ function readRaw(): Partial<AiLocalConfig> {
 /** Lê a configuração atual (merged com defaults). */
 export function getAiConfig(): AiLocalConfig {
   const stored = readRaw();
-  // O laboratório local usa Ollama; configurações antigas de mock/Gemini
-  // não devem desviar a conversa para uma chave inválida salva anteriormente.
-  const storedProvider = stored.provider === 'mock' || stored.provider === 'gemini' || stored.provider === 'auto'
-    ? 'local'
-    : stored.provider;
+  // "mock" e "auto" saíram da tela: viram Local. Gemini NÃO é mais convertido —
+  // antes, escolher Gemini voltava para Local em silêncio e a opção parecia não
+  // existir. Sem chave, resolveEffectiveProvider continua usando o Ollama.
+  const storedProvider = stored.provider === 'mock' || stored.provider === 'auto' ? 'local' : stored.provider;
   const storedLocalModelName = typeof stored.localModelName === 'string' ? stored.localModelName.trim() : '';
   const localModelName = !storedLocalModelName || HEAVY_LOCAL_MODELS.has(storedLocalModelName)
     ? DEFAULTS.localModelName
     : storedLocalModelName;
   return {
     geminiKey: typeof stored.geminiKey === 'string' ? stored.geminiKey : DEFAULTS.geminiKey,
+    mistralKey: typeof stored.mistralKey === 'string' ? stored.mistralKey.trim() : DEFAULTS.mistralKey,
     systemPrompt: typeof stored.systemPrompt === 'string' ? stored.systemPrompt : DEFAULTS.systemPrompt,
-    provider: (['auto','gemini','local','mock','claude'] as AiProvider[]).includes(storedProvider as AiProvider)
+    provider: (['auto','gemini','local','mock','claude','mistral'] as AiProvider[]).includes(storedProvider as AiProvider)
       ? (storedProvider as AiProvider)
       : DEFAULTS.provider,
     confidenceThreshold: typeof stored.confidenceThreshold === 'number'
@@ -163,6 +166,9 @@ export function getGeminiProxyUrl(): string {
 }
 
 /** Persiste uma atualização parcial. */
+/** Disparado a cada gravação: selos e painéis mostram a IA nova na hora da troca. */
+export const AI_CONFIG_EVENT = 'odessa:ai-config-changed';
+
 export function saveAiConfig(patch: Partial<AiLocalConfig>): void {
   try {
     const current = readRaw();
@@ -170,6 +176,7 @@ export function saveAiConfig(patch: Partial<AiLocalConfig>): void {
   } catch {
     // localStorage indisponível — silencioso
   }
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(AI_CONFIG_EVENT));
 }
 
 /**
@@ -197,10 +204,18 @@ export function hasActiveGeminiKey(): boolean {
  * do Claude fica só no servidor, então não há checagem client-side pra ela.
  * Caso contrário, cai em Ollama (motor local padrão).
  */
-export function resolveEffectiveProvider(config: AiLocalConfig = getAiConfig()): 'ollama' | 'gemini' | 'claude' {
+export type EffectiveProvider = 'ollama' | 'gemini' | 'claude' | 'mistral';
+
+export function resolveEffectiveProvider(config: AiLocalConfig = getAiConfig()): EffectiveProvider {
   if (config.provider === 'claude') return 'claude';
+  if (config.provider === 'mistral' && config.mistralKey) return 'mistral';
   if (config.provider === 'gemini' && hasActiveGeminiKey()) return 'gemini';
   return 'ollama';
+}
+
+/** Chave que acompanha o pedido ao servidor para o provedor efetivo (hoje só a Mistral). */
+export function providerKeyFor(config: AiLocalConfig = getAiConfig()): string | undefined {
+  return resolveEffectiveProvider(config) === 'mistral' ? config.mistralKey : undefined;
 }
 
 /**

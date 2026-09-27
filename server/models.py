@@ -37,6 +37,9 @@ class AIRespondRequest(BaseModel):
     # com o histórico colado como texto em `user_prompt` (que continua sendo usado
     # pelos demais provedores).
     conversation: Optional[List[Dict[str, str]]] = None
+    # Chave do provedor de nuvem escolhido na tela (hoje: Mistral). Nunca é salva
+    # pelo servidor nem vai para log.
+    provider_key: Optional[str] = None
 
 
 class LiveEventPayload(BaseModel):

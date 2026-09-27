@@ -85,6 +85,10 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip()
 # 3B por padrão: o 7B (qwen2.5:latest) travava notebooks a cada resposta da persona.
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b").strip()
 OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "90"))
+# Mistral (nuvem). A chave normalmente vem da tela (salva no navegador, como a do
+# Gemini); MISTRAL_API_KEY no .env serve de padrão do servidor.
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "").strip()
+MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-small-latest").strip() or "mistral-small-latest"
 # Consumo da IA local. Sem limite o Ollama usa todos os núcleos físicos e, num
 # notebook, a live inteira (OBS, navegador) trava enquanto a persona "pensa".
 # Padrão: 1/3 das threads lógicas (4 num Ryzen 5 5500U), sobrando CPU para o resto.

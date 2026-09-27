@@ -47,6 +47,7 @@ const decision: PersonaDecision = {
 
 const config = {
   geminiKey: '',
+  mistralKey: '',
   systemPrompt: '',
   provider: 'auto' as const,
   confidenceThreshold: 0.65,

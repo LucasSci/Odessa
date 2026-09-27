@@ -121,6 +121,34 @@ def ollama_serve_env() -> dict[str, str]:
     return env
 
 
+@router.post("/ollama/unload")
+async def ollama_unload():
+    """Desliga a IA local ao trocar para uma IA de nuvem.
+
+    Tira da memória todo modelo carregado no Ollama (keep_alive=0) e pausa o
+    keep-alive do servidor, liberando RAM/GPU para OBS e navegador. A IA local
+    volta sozinha se uma resposta for pedida a ela de novo.
+    """
+    from server.config import OLLAMA_BASE_URL
+    from server.services.ai_service import pause_local_ai
+
+    pause_local_ai()
+    url = OLLAMA_BASE_URL.strip().rstrip("/")
+    unloaded: list[str] = []
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            loaded = (await client.get(f"{url}/api/ps")).json().get("models") or []
+            for model in loaded:
+                name = model.get("name") or model.get("model")
+                if not name:
+                    continue
+                await client.post(f"{url}/api/generate", json={"model": name, "keep_alive": 0})
+                unloaded.append(name)
+    except Exception as exc:  # Ollama fechado = já está "desligado"
+        logger.info("[ollama/unload] Ollama indisponível: %s", exc)
+    return {"ok": True, "unloaded": unloaded}
+
+
 @router.post("/ollama/connect")
 async def ollama_connect():
     """Garante que o Ollama esteja rodando e com o modelo configurado instalado.
@@ -223,6 +251,7 @@ def ai_respond(request: AIRespondRequest):
             local_model_name=request.local_model_name,
             provider=request.provider,
             conversation=request.conversation,
+            provider_key=request.provider_key,
         )
         return {"response": text, "provider": provider}
     except HTTPException:

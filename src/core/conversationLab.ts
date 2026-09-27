@@ -80,7 +80,8 @@ export function conversationToText(personaName: string, messages: LabMessage[]):
 }
 
 /** Rótulo do provedor no cabeçalho (antes dizia sempre "Ollama"). */
-export function providerLabel(provider: 'ollama' | 'gemini' | 'claude', localModel?: string): string {
+export function providerLabel(provider: 'ollama' | 'gemini' | 'claude' | 'mistral', localModel?: string): string {
   if (provider === 'ollama') return localModel ? `Ollama · ${localModel}` : 'Ollama';
+  if (provider === 'mistral') return 'Mistral';
   return provider === 'gemini' ? 'Gemini' : 'Claude';
 }

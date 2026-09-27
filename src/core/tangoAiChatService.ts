@@ -9,12 +9,11 @@
  */
 
 import { callGeminiText } from './aiDecisionContract';
-import { getAiConfig, hasActiveGeminiKey, resolveEffectiveProvider } from './aiConfig';
+import { getAiConfig, hasActiveGeminiKey, providerKeyFor, resolveEffectiveProvider } from './aiConfig';
 import { apiUrl } from '../lib/api';
 import { PUBLIC_REPLY_BLOCKED_TERMS } from './liveAutonomyGovernor';
 import { buildChatInsightsContext } from './chatLearning';
 import { buildUserMemoryContext, getUserMemory } from './chatMemory';
-import { generateLocalReply } from './tangoReplyFallback';
 
 export interface TangoChatMessage {
   username: string;
@@ -235,6 +234,15 @@ export function buildConversationTurns(
   return turns;
 }
 
+/** Nome legível de quem gerou a resposta (o servidor devolve "ollama", "mistral"…). */
+export function providerDisplayName(provider: string | undefined, localModel: string): string {
+  if (provider === 'mistral') return 'Mistral';
+  if (provider === 'gemini') return 'Google Gemini';
+  if (provider === 'claude') return 'Claude';
+  if (provider === 'openai') return 'OpenAI';
+  return `IA local (${localModel})`;
+}
+
 /**
  * Sanitiza o texto da resposta para garantir compatibilidade com o Tango.
  */
@@ -324,16 +332,20 @@ async function callBackendAiRespond(
   options: PersonaChatOptions = {},
   insightsContext = '',
   languageDirective?: string,
-): Promise<{ text: string | null; error?: string }> {
+): Promise<{ text: string | null; error?: string; provider?: string }> {
   const config = getAiConfig();
-  const localModel = resolveEffectiveProvider(config) === 'ollama';
+  const effective = resolveEffectiveProvider(config);
+  const localModel = effective === 'ollama';
+  // Ollama e Mistral recebem a conversa em turnos (o `user_prompt` é ignorado),
+  // então o que vinha nele (idioma, quem está falando) passa para o sistema.
+  const turnsMode = localModel || effective === 'mistral';
   const historyContext = recentHistory
     .slice(-CHAT_HISTORY_WINDOW)
     .map((msg) => `${msg.username}: ${msg.text}`)
     .join('\n');
   // IA local: a conversa vai em turnos e o `user_prompt` é ignorado pelo Ollama,
   // então o que vinha nele (idioma, quem está falando) passa para o sistema.
-  const personaPrompt = localModel
+  const personaPrompt = turnsMode
     ? [systemPrompt, insightsContext.trim(), languageDirective].filter(Boolean).join('\n\n')
     : systemPrompt;
   const userPrompt = [
@@ -356,7 +368,8 @@ async function callBackendAiRespond(
       body: JSON.stringify({
         persona_prompt: personaPrompt,
         chat_context: historyContext,
-        conversation: localModel ? buildConversationTurns(recentHistory, incoming) : undefined,
+        conversation: turnsMode ? buildConversationTurns(recentHistory, incoming) : undefined,
+        provider_key: providerKeyFor(config),
         user_prompt: userPrompt,
         temperature: localModel ? 0.6 : 0.7,
         local_model_url: getAiConfig().localModelUrl,
@@ -375,8 +388,8 @@ async function callBackendAiRespond(
       const detail = await res.text();
       return { text: null, error: describeBackendAiFailure(res.status, detail) };
     }
-    const data = (await res.json()) as { response?: string };
-    return { text: data.response?.trim() || null, error: 'O backend retornou uma resposta vazia.' };
+    const data = (await res.json()) as { response?: string; provider?: string };
+    return { text: data.response?.trim() || null, error: 'O backend retornou uma resposta vazia.', provider: data.provider };
   } catch (error) {
     return { text: null, error: error instanceof Error ? error.message : String(error) };
   }
@@ -431,7 +444,7 @@ export async function generateTangoChatReply(
           ok: true,
           reply: cleanReply,
           confidence: 0.9,
-          reason: 'Resposta gerada pela IA local no backend (Ollama)',
+          reason: `Resposta gerada por ${providerDisplayName(backendResult.provider, config.localModelName)}`,
         });
       }
       // A IA respondeu, quem barrou foi o filtro — antes isso aparecia como
@@ -468,7 +481,7 @@ export async function generateTangoChatReply(
     `Mensagem: "${incoming.text}"`,
     languageDirective ? `\n${languageDirective}` : '',
     insightsContext ? `\n${insightsContext}` : '',
-    `\nInstrução: Gere uma resposta rápida e cativante da Odessa para @${incoming.username}:`,
+    `\nInstrução: Gere uma resposta rápida e cativante da ${personaName ?? 'persona'} para @${incoming.username}:`,
   ].join('\n');
 
   try {
@@ -478,17 +491,11 @@ export async function generateTangoChatReply(
     });
 
     if (!rawReply || !rawReply.trim()) {
-      // IA não devolveu texto → usa resposta pronta local contextual
-      const local = generateLocalReply(incoming, recentHistory);
-      return withMemories({
-        ok: true,
-        reply: local.reply,
-        confidence: 0.55,
-        reason: 'Resposta pronta local (IA não retornou texto)',
-      });
+      // O operador escolheu a Gemini: não troca por fala pronta local escondida.
+      return withMemories({ ok: false, reply: '', confidence: 0, reason: 'Google Gemini não retornou texto.' });
     }
 
-    const cleanReply = sanitizeTangoReply(rawReply);
+    const cleanReply = sanitizeTangoReply(rawReply, options.maxLength || 140, personaName);
     const safety = checkSafetyRestrictions(cleanReply);
 
     if (!safety.safe) {
@@ -505,17 +512,17 @@ export async function generateTangoChatReply(
       ok: true,
       reply: cleanReply,
       confidence: 0.92,
-      reason: `Resposta contextual gerada para @${incoming.username}`,
+      reason: 'Resposta gerada por Google Gemini',
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    // Erro na chamada de IA → usa resposta pronta local para não parar o chat
-    const local = generateLocalReply(incoming, recentHistory);
+    // O operador escolheu a Gemini: mostra o erro em vez de uma fala pronta local
+    // escondida (que fazia parecer que a troca de IA não tinha funcionado).
     return withMemories({
-      ok: true,
-      reply: local.reply,
-      reason: `IA indisponível (${errorMessage}) — resposta pronta local`,
-      confidence: 0.5,
+      ok: false,
+      reply: '',
+      reason: `Google Gemini falhou: ${errorMessage}`,
+      confidence: 0,
     });
   }
 }
