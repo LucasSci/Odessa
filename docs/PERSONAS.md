@@ -10,8 +10,7 @@ determina qual config o backend carrega.
 
 | Persona | Personalidade |
 |---|---|
-| **Odessa** (padrão) | Cativante, carinhosa, bem-humorada, calorosa |
-| **Viktoria** | Elegante, misteriosa, sofisticada, tom charmoso |
+| **Viktoria** (padrão) | Elegante, misteriosa, sofisticada, tom charmoso |
 | **Barbara** | Extrovertida, animada, próxima do público, divertida |
 
 ## Como funcionam

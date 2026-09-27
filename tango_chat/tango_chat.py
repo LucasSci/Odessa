@@ -298,6 +298,8 @@ class TangoChatBridge:
         # se fosse de um espectador. Estas duas memórias barram isso.
         self._seen_messages: dict[tuple[str, str], float] = {}
         self._recent_sent: deque[tuple[str, float]] = deque(maxlen=200)
+        # Nomes com que a fala da persona aparece no chat (aprendidos no eco).
+        self._own_usernames: set[str] = {"", "espectador"}
         # Modo "extension": a extensão do Odessa roda na aba do Tango em que o
         # usuário já está logado (no navegador dele) e fala com a bridge por
         # WebSocket — sem Playwright, sem perfil dedicado, sem porta de depuração.
@@ -658,8 +660,15 @@ class TangoChatBridge:
                 text=data.get("text", ""),
             )
             normalized = _normalize_chat_text(msg.text)
-            # Eco do envio atual OU fala da persona redesenhada depois.
-            msg.own = self._resolve_echo(msg.text) or self._was_sent_recently(normalized)
+            # Eco do envio atual OU fala da persona redesenhada depois. No
+            # redesenho só vale com o nome que a persona usa no chat (ou sem nome):
+            # um espectador que repete a frase dela continua sendo espectador.
+            author_key = msg.username.strip().lower()
+            if self._resolve_echo(msg.text):
+                msg.own = True
+                self._own_usernames.add(author_key)
+            else:
+                msg.own = author_key in self._own_usernames and self._was_sent_recently(normalized)
             msg.backlog = bool(data.get("backlog"))
             author = "__persona__" if msg.own else msg.username.strip().lower()
             if self._is_duplicate((author, normalized)):

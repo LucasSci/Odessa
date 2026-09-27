@@ -550,7 +550,7 @@ function PersonaList({
                   )}
                 </button>
 
-                {p.id !== activeId && p.id !== 'odessa' && (
+                {p.id !== activeId && personas.length > 1 && (
                   <button
                     onClick={() => handleDelete(p.id)}
                     className="shrink-0 rounded-lg p-1 text-slate-600 opacity-0 transition-opacity hover:bg-red-500/15 hover:text-red-400 group-hover:opacity-100"

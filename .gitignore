@@ -65,3 +65,5 @@ playwright-report/
 
 # Cópia temporária do handler catch-all gerada pelo hostinger-server.mjs
 api/_odessa_handler_*.mjs
+server/data/*.antes-unir-odessa-*.json
+scripts/mural-antes-*.json

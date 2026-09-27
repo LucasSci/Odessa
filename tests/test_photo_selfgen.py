@@ -33,7 +33,7 @@ def test_generate_photo_endpoint_responds_queued_and_respects_cooldown(monkeypat
     monkeypatch.setattr(persona_photogen, "_generate_photo_background", lambda *a, **k: None)
     persona_photogen._last_generation_at.clear()
 
-    first = client.post("/api/v1/personas/odessa/selfconfig/generate-photo", json={"prompt": "sorrindo"})
+    first = client.post("/api/v1/personas/viktoria/selfconfig/generate-photo", json={"prompt": "sorrindo"})
     assert first.status_code == 200
     body = first.json()
     assert body["ok"] is True
@@ -41,7 +41,7 @@ def test_generate_photo_endpoint_responds_queued_and_respects_cooldown(monkeypat
     assert body["jobId"]
 
     # Pedido imediato seguinte: cooldown ainda não passou.
-    second = client.post("/api/v1/personas/odessa/selfconfig/generate-photo", json={"prompt": "sorrindo de novo"})
+    second = client.post("/api/v1/personas/viktoria/selfconfig/generate-photo", json={"prompt": "sorrindo de novo"})
     assert second.status_code == 200
     assert second.json() == {"ok": False, "status": "cooldown"}
 
@@ -53,7 +53,7 @@ def test_generate_photo_endpoint_respects_max_generated_photos_cap(monkeypatch):
     monkeypatch.setattr(persona_photogen, "MAX_GENERATED_PHOTOS", 0)
     persona_photogen._last_generation_at.clear()
 
-    res = client.post("/api/v1/personas/odessa/selfconfig/generate-photo", json={"prompt": "sorrindo"})
+    res = client.post("/api/v1/personas/viktoria/selfconfig/generate-photo", json={"prompt": "sorrindo"})
     assert res.status_code == 200
     assert res.json() == {"ok": False, "status": "max_reached"}
 
@@ -67,7 +67,7 @@ def test_generate_photo_endpoint_404_for_unknown_persona(monkeypatch):
 
 
 def test_generate_photo_background_saves_asset_and_updates_avatar(monkeypatch):
-    persona_id = "odessa"
+    persona_id = "viktoria"
     original_index = _snapshot_index()
     before_ids = {a["id"] for a in persona_assets.list_assets(persona_id, "faces")}
 
@@ -102,7 +102,7 @@ def test_generate_photo_background_saves_asset_and_updates_avatar(monkeypatch):
 
 
 def test_generate_photo_background_records_failure_without_raising(monkeypatch):
-    persona_id = "odessa"
+    persona_id = "viktoria"
     original_index = _snapshot_index()
 
     def _boom(pid, prompt):

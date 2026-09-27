@@ -62,7 +62,7 @@ def test_register_generated_video_creates_real_trigger():
             video_id="gen-test-trigger-1",
             video_path="server/runtime/video-gen/does-not-need-to-exist.mp4",
             prompt="Reação animada",
-            persona_id="odessa",
+            persona_id="viktoria",
             video_type="GATILHO",
             interactions=interactions,
         )
@@ -99,7 +99,7 @@ def test_register_generated_video_dedupes_against_existing_gift_trigger():
             video_id="gen-test-dedupe-1",
             video_path="server/runtime/video-gen/does-not-need-to-exist.mp4",
             prompt="Reação",
-            persona_id="odessa",
+            persona_id="viktoria",
             video_type="GATILHO",
             interactions=interactions,
         )
@@ -111,7 +111,7 @@ def test_register_generated_video_dedupes_against_existing_gift_trigger():
             video_id="gen-test-dedupe-2",
             video_path="server/runtime/video-gen/does-not-need-to-exist.mp4",
             prompt="Reação 2",
-            persona_id="odessa",
+            persona_id="viktoria",
             video_type="GATILHO",
             interactions=interactions,
         )
@@ -132,7 +132,7 @@ def test_register_generated_video_respects_max_generated_triggers_cap(monkeypatc
             video_id="gen-test-cap-1",
             video_path="server/runtime/video-gen/does-not-need-to-exist.mp4",
             prompt="Reação",
-            persona_id="odessa",
+            persona_id="viktoria",
             video_type="GATILHO",
             interactions=interactions,
         )

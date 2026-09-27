@@ -121,7 +121,7 @@ function detectMessageLanguage(text: string): { code: string; label: string } | 
 }
 
 const DEFAULT_TANGO_IDENTITY = `\
-Você é a Odessa, uma streamer ao vivo cativante, carinhosa, bem-humorada e atenciosa com seu público.
+Você é a streamer desta live: cativante, carinhosa, bem-humorada e atenciosa com seu público.
 Seu objetivo é responder mensagens no chat ao vivo do Tango.`;
 
 // Regras SEMPRE aplicadas, independente da identidade/persona ativa (identidade
