@@ -105,6 +105,22 @@ async def ai_status():
     return {"provider": AI_PROVIDER, "ollama": ollama, "claude": claude}
 
 
+def ollama_serve_env() -> dict[str, str]:
+    """Ambiente do `ollama serve` iniciado pelo Odessa.
+
+    Por padrão o Ollama descarta GPU integrada (log: "dropping integrated GPU;
+    to enable, set OLLAMA_IGPU_ENABLE=1") e roda só na CPU — que numa live já
+    está ocupada com OBS e navegador. Na GPU integrada (Vulkan) o modelo tira a
+    carga da CPU sem derrubar quadros do OBS (medido: 0 quadros pulados).
+    Quem definir OLLAMA_IGPU_ENABLE=0 no ambiente mantém só CPU.
+    """
+    import os
+
+    env = dict(os.environ)
+    env.setdefault("OLLAMA_IGPU_ENABLE", "1")
+    return env
+
+
 @router.post("/ollama/connect")
 async def ollama_connect():
     """Garante que o Ollama esteja rodando e com o modelo configurado instalado.
@@ -134,6 +150,7 @@ async def ollama_connect():
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 creationflags=creationflags,
+                env=ollama_serve_env(),
             )
             started = True
         except Exception as exc:

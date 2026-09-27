@@ -12,6 +12,8 @@ from server.services import ai_service as ai_module
 
 
 class _FakeResponse:
+    status_code = 200
+
     def raise_for_status(self):
         return None
 
@@ -87,3 +89,54 @@ def test_durante_a_live_o_modelo_fica_aquecido(monkeypatch):
     pings = _run_one_keepalive_cycle(monkeypatch, live=True)
     assert len(pings) == 1
     assert pings[0]["keep_alive"] == "10m"
+
+
+def test_modelo_pedido_nao_instalado_cai_no_padrao(monkeypatch):
+    """Tela aberta antes de o 7B ser removido ainda pede qwen2.5:latest: a
+    persona não pode ficar muda (503) — usa o modelo padrão instalado."""
+    calls = []
+
+    class Resp:
+        def __init__(self, status):
+            self.status_code = status
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise httpx.HTTPStatusError("404", request=None, response=None)
+
+        def json(self):
+            return {"message": {"content": "respondi"}}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def post(self, url, json):
+            calls.append(json["model"])
+            return Resp(404 if json["model"] == "qwen2.5:latest" else 200)
+
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+    text = ai_module.ai_service.generate_ollama_text("s", "u", 0.7, model="qwen2.5:latest")
+    assert text == "respondi"
+    assert calls == ["qwen2.5:latest", ai_module.OLLAMA_MODEL]
+
+
+def test_resposta_de_chat_e_curta():
+    import inspect
+
+    assert "else 120" in inspect.getsource(ai_module.AIService.generate_ollama_text)
+
+
+def test_ollama_iniciado_pelo_odessa_usa_a_gpu_integrada(monkeypatch):
+    from server.api.v1.endpoints import ai as ai_endpoint
+
+    monkeypatch.delenv("OLLAMA_IGPU_ENABLE", raising=False)
+    assert ai_endpoint.ollama_serve_env()["OLLAMA_IGPU_ENABLE"] == "1"
+    monkeypatch.setenv("OLLAMA_IGPU_ENABLE", "0")  # quem desligou de propósito continua só CPU
+    assert ai_endpoint.ollama_serve_env()["OLLAMA_IGPU_ENABLE"] == "0"

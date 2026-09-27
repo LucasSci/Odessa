@@ -170,7 +170,9 @@ class AIService:
         # de segurança contra o modelo divagar e demorar mais que o necessário.
         # json_mode (decisões da Diretora) retorna um objeto maior, por isso
         # ganha um teto bem mais folgado em vez do mesmo limite do chat.
-        num_predict = 700 if json_mode else 220
+        # 120 tokens bastam para uma fala de chat; num PC disputado com OBS e
+        # navegador a geração fica em ~5 tok/s, e cada token a mais é espera.
+        num_predict = 700 if json_mode else 120
         payload: dict[str, Any] = {
             "model": (model or OLLAMA_MODEL).strip(),
             "stream": False,
@@ -219,6 +221,18 @@ class AIService:
                 )
                 with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
                     response = client.post(f"{url}/api/chat", json=payload)
+                if response.status_code == 404 and payload["model"] != OLLAMA_MODEL:
+                    # Modelo pedido não está instalado (ex.: tela aberta antes de o
+                    # modelo pesado ser removido): usa o modelo padrão instalado em
+                    # vez de deixar a persona muda com um 503.
+                    logger.warning(
+                        "[OLLAMA] modelo %s não instalado; usando o padrão %s",
+                        payload["model"],
+                        OLLAMA_MODEL,
+                    )
+                    payload["model"] = OLLAMA_MODEL
+                    with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
+                        response = client.post(f"{url}/api/chat", json=payload)
                 response.raise_for_status()
                 data = response.json()
                 text = ((data.get("message") or {}).get("content") or "").strip()
