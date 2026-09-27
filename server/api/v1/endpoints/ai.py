@@ -222,6 +222,7 @@ def ai_respond(request: AIRespondRequest):
             local_model_url=request.local_model_url,
             local_model_name=request.local_model_name,
             provider=request.provider,
+            conversation=request.conversation,
         )
         return {"response": text, "provider": provider}
     except HTTPException:

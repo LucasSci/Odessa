@@ -7,6 +7,8 @@ import {
   personaNameFromIdentity,
   isContactRequest,
   contactDeflection,
+  buildConversationTurns,
+  LOCAL_RESPONSE_RULES,
 } from './tangoAiChatService';
 
 describe('tangoAiChatService', () => {
@@ -70,5 +72,31 @@ describe('proteções que não dependem do modelo', () => {
     expect(personaNameFromIdentity(VIKTORIA)).toBe('Viktoria');
     expect(sanitizeTangoReply('Viktoria 🖤👀 Sou de São Paulo. E você? 💕', 140, 'Viktoria')).toBe('Sou de São Paulo. E você? 💕');
     expect(sanitizeTangoReply('Oii 🙅‍♂️ kkk', 140)).toBe('Oii 🙅‍♂️ kkk');
+  });
+});
+
+describe('conversa em turnos para a IA local', () => {
+  it('persona = assistant, espectadores = user com nome, termina na mensagem atual', () => {
+    const history = [
+      { username: 'Odessa', text: 'oi gente!', own: true }, // começo da própria persona: descartado
+      { username: 'carlos_sp', text: 'boa noite' },
+      { username: 'marina22', text: 'oii' },
+      { username: 'Odessa', text: 'oi Carlos, oi Marina 😊', own: true },
+    ];
+    const incoming = { username: 'carlos_sp', text: 'tudo certo?' };
+    expect(buildConversationTurns(history, incoming)).toEqual([
+      { role: 'user', content: 'carlos_sp: boa noite\nmarina22: oii' },
+      { role: 'assistant', content: 'oi Carlos, oi Marina 😊' },
+      { role: 'user', content: 'carlos_sp: tudo certo?' },
+    ]);
+  });
+
+  it('não duplica a mensagem atual quando ela já está no histórico', () => {
+    const incoming = { username: 'ana', text: 'oi' };
+    expect(buildConversationTurns([incoming], incoming)).toEqual([{ role: 'user', content: 'ana: oi' }]);
+  });
+
+  it('regras da IA local são curtas', () => {
+    expect(LOCAL_RESPONSE_RULES.length).toBeLessThan(1000);
   });
 });

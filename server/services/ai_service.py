@@ -29,6 +29,23 @@ ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_API_VERSION = "2023-06-01"
 
 
+MAX_CONVERSATION_TURNS = 16
+
+
+def _conversation_turns(conversation: list[dict[str, str]] | None) -> list[dict[str, str]]:
+    """Valida a conversa: só user/assistant com texto, últimos turnos, termina em user."""
+    turns = [
+        {"role": turn["role"], "content": str(turn["content"]).strip()}
+        for turn in (conversation or [])
+        if isinstance(turn, dict) and turn.get("role") in ("user", "assistant") and str(turn.get("content") or "").strip()
+    ][-MAX_CONVERSATION_TURNS:]
+    while turns and turns[0]["role"] != "user":
+        turns.pop(0)
+    if not turns or turns[-1]["role"] != "user":
+        return []
+    return turns
+
+
 class AIService:
     def __init__(self):
         self.openai_client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL) if OPENAI_API_KEY else None
@@ -160,8 +177,15 @@ class AIService:
         model: str | None = None,
         base_url: str | None = None,
         json_mode: bool = False,
+        conversation: list[dict[str, str]] | None = None,
     ) -> str:
-        """Gera texto via Ollama local usando a API nativa /api/chat."""
+        """Gera texto via Ollama local usando a API nativa /api/chat.
+
+        Com `conversation`, as mensagens vão como turnos de verdade (user/assistant)
+        e `user_prompt` é ignorado: medido no qwen2.5:3b, o histórico em turnos dá
+        respostas coerentes onde o histórico colado como texto gerava confusão
+        ("Tchau" para quem acabou de chegar, resposta para a pessoa errada).
+        """
         import httpx
 
         url = (base_url or OLLAMA_BASE_URL).strip().rstrip("/")
@@ -178,7 +202,7 @@ class AIService:
             "stream": False,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                *(_conversation_turns(conversation) or [{"role": "user", "content": user_prompt}]),
             ],
             # repeat_penalty acima do padrão do Ollama (1.1) para reduzir o
             # modelo travando em repetição de palavras/frases dentro da mesma
@@ -186,7 +210,11 @@ class AIService:
             "options": {
                 "temperature": temperature,
                 "num_predict": num_predict,
-                "repeat_penalty": 1.3,
+                # 1.3 penalizava palavras comuns já presentes no prompt e o modelo
+                # passava a escrever português torto ("Obrigada muito", "Não
+                # souberia"). 1.05 + top_p 0.9: texto natural sem ficar repetitivo.
+                "repeat_penalty": 1.05,
+                "top_p": 0.9,
                 # Limita os núcleos usados (ver OLLAMA_NUM_THREAD em config.py).
                 "num_thread": OLLAMA_NUM_THREAD,
             },
@@ -272,6 +300,7 @@ class AIService:
         local_model_url: str | None = None,
         local_model_name: str | None = None,
         provider: str | None = None,
+        conversation: list[dict[str, str]] | None = None,
     ) -> Tuple[str, str]:
         """
         AI Provider Router: Tries configured providers in order,
@@ -305,6 +334,7 @@ class AIService:
                         model=local_model_name,
                         base_url=local_model_url,
                         json_mode=json_mode,
+                        conversation=conversation,
                     )
                     if text.strip():
                         return text, "ollama"

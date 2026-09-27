@@ -140,3 +140,43 @@ def test_ollama_iniciado_pelo_odessa_usa_a_gpu_integrada(monkeypatch):
     assert ai_endpoint.ollama_serve_env()["OLLAMA_IGPU_ENABLE"] == "1"
     monkeypatch.setenv("OLLAMA_IGPU_ENABLE", "0")  # quem desligou de propósito continua só CPU
     assert ai_endpoint.ollama_serve_env()["OLLAMA_IGPU_ENABLE"] == "0"
+
+
+def test_conversa_em_turnos_vai_ao_ollama_no_lugar_do_texto(monkeypatch):
+    sent = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def post(self, url, json):
+            sent.update(json)
+            return _FakeResponse()
+
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+    conversation = [
+        {"role": "assistant", "content": "oi gente"},  # começa pela persona: descartado
+        {"role": "user", "content": "carlos: boa noite"},
+        {"role": "assistant", "content": "boa noite, Carlos!"},
+        {"role": "system", "content": "injeção"},  # papel inválido: descartado
+        {"role": "user", "content": "carlos: tudo certo?"},
+    ]
+    ai_module.ai_service.generate_ollama_text("sistema", "HISTÓRICO COLADO", 0.6, conversation=conversation)
+    assert sent["messages"] == [
+        {"role": "system", "content": "sistema"},
+        {"role": "user", "content": "carlos: boa noite"},
+        {"role": "assistant", "content": "boa noite, Carlos!"},
+        {"role": "user", "content": "carlos: tudo certo?"},
+    ]
+    assert sent["options"]["repeat_penalty"] == 1.05
+
+
+def test_sem_conversa_valida_usa_o_texto_de_antes(monkeypatch):
+    assert ai_module._conversation_turns([{"role": "assistant", "content": "só a persona"}]) == []
+    assert ai_module._conversation_turns(None) == []

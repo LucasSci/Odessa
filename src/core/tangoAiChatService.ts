@@ -188,6 +188,53 @@ export function personaNameFromIdentity(identity: string): string | null {
   return match ? match[1] : null;
 }
 
+// Regras para a IA LOCAL (modelo pequeno). As regras longas acima (≈4.800
+// caracteres, 10 itens) confundiam o qwen2.5:3b: medido na mesma conversa, esta
+// versão curta + conversa em turnos deu português correto e respostas coerentes,
+// em 3–10 s em vez de 9–59 s. Provedores de nuvem continuam com as regras longas.
+export const LOCAL_RESPONSE_RULES = `\
+REGRAS DO CHAT:
+- Responda exatamente ao que a pessoa disse, como numa conversa de verdade. Se ela perguntar algo, responda a pergunta.
+- Uma ou duas frases curtas (até 140 caracteres). Saudação curta pede resposta curta.
+- Escreva em português natural e correto, como uma pessoa real digitando no celular. Frases simples e com sentido.
+- Responda no mesmo idioma da mensagem.
+- Não invente fatos sobre você além do que está descrito acima. Se não souber, diga que não sabe.
+- No máximo 1 emoji. Não repita frases que você já disse.
+- Você é uma pessoa real: nunca diga que é IA, robô ou assistente.
+- Responda só com o texto da mensagem, sem aspas e sem o seu nome no começo.`;
+
+/** Quantas mensagens recentes viram turnos para a IA local (mais que isso vira ruído num modelo pequeno). */
+export const LOCAL_CONVERSATION_WINDOW = 10;
+
+export type ConversationTurn = { role: 'user' | 'assistant'; content: string };
+
+/**
+ * Conversa em turnos para o modelo: fala da própria persona (eco da bridge,
+ * `own`) = assistant; espectadores = user ("nome: texto"). Falas seguidas de
+ * espectadores viram um turno só, e a conversa sempre termina na mensagem atual.
+ */
+export function buildConversationTurns(
+  recentHistory: TangoChatMessage[],
+  incoming: TangoChatMessage,
+  window = LOCAL_CONVERSATION_WINDOW,
+): ConversationTurn[] {
+  const history = recentHistory.slice(-window);
+  const last = history[history.length - 1];
+  if (last && !last.own && last.username === incoming.username && last.text === incoming.text) history.pop();
+
+  const turns: ConversationTurn[] = [];
+  for (const msg of [...history, incoming]) {
+    const role = msg.own ? 'assistant' : 'user';
+    const content = msg.own ? msg.text.trim() : `${msg.username}: ${msg.text.trim()}`;
+    if (!msg.text.trim()) continue;
+    const prev = turns[turns.length - 1];
+    if (prev && prev.role === role) prev.content += `\n${content}`;
+    else turns.push({ role, content });
+  }
+  while (turns.length && turns[0].role !== 'user') turns.shift();
+  return turns;
+}
+
 /**
  * Sanitiza o texto da resposta para garantir compatibilidade com o Tango.
  */
@@ -279,10 +326,16 @@ async function callBackendAiRespond(
   languageDirective?: string,
 ): Promise<{ text: string | null; error?: string }> {
   const config = getAiConfig();
+  const localModel = resolveEffectiveProvider(config) === 'ollama';
   const historyContext = recentHistory
     .slice(-CHAT_HISTORY_WINDOW)
     .map((msg) => `${msg.username}: ${msg.text}`)
     .join('\n');
+  // IA local: a conversa vai em turnos e o `user_prompt` é ignorado pelo Ollama,
+  // então o que vinha nele (idioma, quem está falando) passa para o sistema.
+  const personaPrompt = localModel
+    ? [systemPrompt, insightsContext.trim(), languageDirective].filter(Boolean).join('\n\n')
+    : systemPrompt;
   const userPrompt = [
     `[HISTÓRICO DA CONVERSA]:`,
     historyContext || '(Nenhuma mensagem recente)',
@@ -301,10 +354,11 @@ async function callBackendAiRespond(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        persona_prompt: systemPrompt,
+        persona_prompt: personaPrompt,
         chat_context: historyContext,
+        conversation: localModel ? buildConversationTurns(recentHistory, incoming) : undefined,
         user_prompt: userPrompt,
-        temperature: 0.7,
+        temperature: localModel ? 0.6 : 0.7,
         local_model_url: getAiConfig().localModelUrl,
         local_model_name: getAiConfig().localModelName,
         provider: resolveEffectiveProvider(config),
@@ -339,7 +393,8 @@ export async function generateTangoChatReply(
 ): Promise<GeneratedReplyResult> {
   const config = getAiConfig();
   const identityPrompt = customPrompt || config.systemPrompt || DEFAULT_TANGO_IDENTITY;
-  const basePrompt = `${identityPrompt}\n\n${TANGO_RESPONSE_RULES}`;
+  const localModel = resolveEffectiveProvider(config) === 'ollama';
+  const basePrompt = `${identityPrompt}\n\n${localModel ? LOCAL_RESPONSE_RULES : TANGO_RESPONSE_RULES}`;
   const personaName = personaNameFromIdentity(identityPrompt);
 
   if (isContactRequest(incoming.text)) {
@@ -351,7 +406,8 @@ export async function generateTangoChatReply(
     };
   }
   const userMemory = buildUserMemoryContext(incoming.username, await getUserMemory(incoming.username));
-  const chatTrends = buildChatInsightsContext();
+  // Tendências do chat ("tópicos que esfriaram, reaqueça…") viram ruído num modelo pequeno.
+  const chatTrends = localModel ? '' : buildChatInsightsContext();
   const insightsContext = [userMemory.context, chatTrends].filter(Boolean).join('\n');
   const memoriesUsed = [...userMemory.used, ...(chatTrends ? ['Tendências do chat (tópicos e pedidos recentes)'] : [])];
   const withMemories = (result: GeneratedReplyResult): GeneratedReplyResult => ({ ...result, memoriesUsed });

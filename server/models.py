@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -32,6 +32,11 @@ class AIRespondRequest(BaseModel):
     local_model_url: Optional[str] = None
     local_model_name: Optional[str] = None
     provider: Optional[str] = None
+    # Conversa em turnos ({role: user|assistant, content}), da mais antiga para a
+    # atual. Modelos locais pequenos entendem a conversa muito melhor assim do que
+    # com o histórico colado como texto em `user_prompt` (que continua sendo usado
+    # pelos demais provedores).
+    conversation: Optional[List[Dict[str, str]]] = None
 
 
 class LiveEventPayload(BaseModel):
