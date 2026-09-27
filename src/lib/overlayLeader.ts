@@ -25,12 +25,21 @@ export function outranks(a: { id: string; since: number }, b: { id: string; sinc
 }
 
 export function useOverlayLeader(): boolean {
+  return useTabLeader(CHANNEL);
+}
+
+/**
+ * Mesma eleição para qualquer papel que só UMA janela do Odessa pode exercer
+ * (ex.: responder o chat no modo Autônomo — com o Odessa aberto em duas janelas,
+ * as duas respondiam a mesma mensagem).
+ */
+export function useTabLeader(channelName: string): boolean {
   const [leader, setLeader] = useState(() => typeof BroadcastChannel === 'undefined');
 
   useEffect(() => {
     if (typeof BroadcastChannel === 'undefined') return;
     const me = { id: Math.random().toString(36).slice(2), since: Date.now() };
-    const channel = new BroadcastChannel(CHANNEL);
+    const channel = new BroadcastChannel(channelName);
     const startedAt = Date.now();
     let isLeader = false;
     let heardLeader = false;
@@ -40,7 +49,7 @@ export function useOverlayLeader(): boolean {
       if (isLeader === next) return;
       isLeader = next;
       setLeader(next);
-      if (!next) console.info('[Odessa] Outro overlay já está ativo — esta cópia fica em espera (sem vídeo).');
+      if (!next) console.info(`[Odessa] Outra janela já exerce "${channelName}" — esta fica em espera.`);
     };
 
     channel.onmessage = (event: MessageEvent<Beat>) => {
@@ -73,7 +82,7 @@ export function useOverlayLeader(): boolean {
       clearInterval(beat);
       channel.close();
     };
-  }, []);
+  }, [channelName]);
 
   return leader;
 }

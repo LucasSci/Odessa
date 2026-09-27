@@ -63,7 +63,7 @@
     if (msg.type === 'config' && msg.observer) {
       observerConfig = msg.observer;
       window.installOdessaChatObserver(observerConfig, (chat) =>
-        post({ type: 'message', username: chat.username, text: chat.text }),
+        post({ type: 'message', username: chat.username, text: chat.text, backlog: Boolean(chat.backlog) }),
       );
     } else if (msg.type === 'send') {
       void sendToChat(msg);

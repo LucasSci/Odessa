@@ -57,6 +57,7 @@ import {
 } from './personaSelfConfig';
 import type { CapturedMessage } from '../types';
 import { usePolling } from './usePolling';
+import { useTabLeader } from '../lib/overlayLeader';
 
 // ─── Config & Endpoints ──────────────────────────────────────────────
 export const BRIDGE_URL = '/tango-bridge';
@@ -925,6 +926,12 @@ export function TangoChatSessionProvider({
   useEffect(() => {
     autonomyModeRef.current = autonomyMode;
   }, [autonomyMode]);
+  // Só uma janela do Odessa responde o chat sozinha (a mais antiga aberta).
+  const autoReplyLeader = useTabLeader('odessa-auto-reply');
+  const autoReplyLeaderRef = useRef(autoReplyLeader);
+  useEffect(() => {
+    autoReplyLeaderRef.current = autoReplyLeader;
+  }, [autoReplyLeader]);
 
   const autoTriggerRef = useRef(handleAutoTriggerAi);
   useEffect(() => {
@@ -982,10 +989,11 @@ export function TangoChatSessionProvider({
 
           // Roteia a mensagem para o trigger engine do backend (palavra-chave/
           // presente -> vídeo do fluxo publicado), com dedupe e cooldown.
-          void routeChatToTriggers(msg);
+          if (!msg.backlog) void routeChatToTriggers(msg);
 
-          // Se modo for Autônomo, dispara geração e envio automático
-          if (autonomyModeRef.current === 'auto') {
+          // Se modo for Autônomo, dispara geração e envio automático — nunca para
+          // mensagem que já estava na tela (redesenho do chat, não fala nova).
+          if (autonomyModeRef.current === 'auto' && !msg.backlog && autoReplyLeaderRef.current) {
             void autoTriggerRef.current(msg);
           }
         } catch { /* payload invalido: ignora */ }

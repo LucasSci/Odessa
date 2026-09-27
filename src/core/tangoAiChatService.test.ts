@@ -8,6 +8,7 @@ import {
   isContactRequest,
   contactDeflection,
   buildConversationTurns,
+  scrubEchoedChat,
   LOCAL_RESPONSE_RULES,
 } from './tangoAiChatService';
 
@@ -98,5 +99,28 @@ describe('conversa em turnos para a IA local', () => {
 
   it('regras da IA local são curtas', () => {
     expect(LOCAL_RESPONSE_RULES.length).toBeLessThan(1000);
+  });
+});
+
+describe('resposta que copia o chat não é enviada', () => {
+  const history = [
+    { username: 'Kungfu Panda', text: 'Boa noite minha deusa deslumbrante' },
+    { username: 'Kungfu Panda', text: 'Como você está esta noite' },
+    { username: 'Odessa', text: 'Boa noite! Tá ótimo!', own: true },
+  ];
+  const incoming = { username: 'Kungfu Panda', text: 'Como você está esta noite' };
+
+  it('corta onde a IA começa a escrever a fala de um espectador (caso real da live)', () => {
+    const real = 'Tá ótimo! Obrigada por lembrar do amor né? 💖 Como foi seu dia hoje? Kungfu Panda: Boa noite minha deusa deslumbrante Como você está esta n…';
+    expect(scrubEchoedChat(real, history, incoming)).toBe('Tá ótimo! Obrigada por lembrar do amor né? 💖 Como foi seu dia hoje?');
+  });
+
+  it('descarta resposta que só devolve a mensagem do espectador', () => {
+    expect(scrubEchoedChat('Como você está esta noite?', history, incoming)).toBe('');
+    expect(scrubEchoedChat('Kungfu Panda: Boa noite minha deusa deslumbrante', history, incoming)).toBe('');
+  });
+
+  it('resposta normal passa intacta', () => {
+    expect(scrubEchoedChat('Tô bem, e você? Obrigada pelo carinho!', history, incoming)).toBe('Tô bem, e você? Obrigada pelo carinho!');
   });
 });

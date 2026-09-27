@@ -134,6 +134,12 @@ SELETOR_BOTAO_ENVIAR: str = _selectors.get("botaoEnviar", "")
 #  CONSTANTES DE COMPORTAMENTO
 # =====================================================================
 
+# Mesma mensagem (autor + texto) dentro desta janela = redesenho do chat, não
+# mensagem nova. 15 min cobre a lista virtualizada do Tango reentregando itens.
+MESSAGE_DEDUP_S: float = 15 * 60
+# Por quanto tempo uma fala enviada pela persona é reconhecida como dela.
+SENT_MEMORY_S: float = 30 * 60
+
 TYPING_DELAY_MIN_MS: int = 45
 TYPING_DELAY_MAX_MS: int = 160
 WAIT_TIMEOUT_S: int = 30
@@ -189,6 +195,9 @@ class ChatMessage:
     # Eco de uma mensagem que a própria bridge acabou de enviar (#158): a UI
     # não pode tratá-la como fala de espectador (a IA responderia a si mesma).
     own: bool = False
+    # Já estava na tela quando o leitor olhou (varredura), não chegou agora: vai
+    # para o histórico, mas a IA não responde a ela.
+    backlog: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -196,6 +205,7 @@ class ChatMessage:
             "text": self.text,
             "timestamp": self.timestamp,
             "own": self.own,
+            "backlog": self.backlog,
         }
 
 
@@ -282,6 +292,12 @@ class TangoChatBridge:
         self._send_lock: asyncio.Lock = asyncio.Lock()
         # Mensagens enviadas esperando aparecer no chat: (texto normalizado, evento).
         self._pending_echoes: list[tuple[str, asyncio.Event]] = []
+        # O chat do Tango é uma lista virtualizada: a cada mensagem nova ele
+        # redesenha as antigas, e o leitor as entregava de novo — a IA respondia
+        # outra vez à mesma mensagem, e a própria fala da persona voltava como
+        # se fosse de um espectador. Estas duas memórias barram isso.
+        self._seen_messages: dict[tuple[str, str], float] = {}
+        self._recent_sent: deque[tuple[str, float]] = deque(maxlen=200)
         # Modo "extension": a extensão do Odessa roda na aba do Tango em que o
         # usuário já está logado (no navegador dele) e fala com a bridge por
         # WebSocket — sem Playwright, sem perfil dedicado, sem porta de depuração.
@@ -613,6 +629,26 @@ class TangoChatBridge:
             log.warning("Observer avaliado com aviso: %s", exc)
             self._observer_injected = True
 
+    def _remember_sent(self, text: str) -> None:
+        self._recent_sent.append((_normalize_chat_text(text), time.monotonic()))
+
+    def _was_sent_recently(self, normalized: str) -> bool:
+        now = time.monotonic()
+        return any(
+            now - at < SENT_MEMORY_S and _is_echo_of(sent, normalized)
+            for sent, at in self._recent_sent
+        )
+
+    def _is_duplicate(self, key: tuple[str, str]) -> bool:
+        """Mesma mensagem (autor + texto) já vista há pouco: é redesenho do chat."""
+        now = time.monotonic()
+        last = self._seen_messages.get(key)
+        self._seen_messages[key] = now  # renova: enquanto o chat redesenha, segue barrada
+        if len(self._seen_messages) > 5000:
+            for old in list(self._seen_messages)[:1000]:
+                del self._seen_messages[old]
+        return last is not None and now - last < MESSAGE_DEDUP_S
+
     async def _handle_incoming_message(self, raw: str) -> None:
         """Callback do JS — nova mensagem no chat."""
         try:
@@ -621,8 +657,15 @@ class TangoChatBridge:
                 username=data.get("username", "???"),
                 text=data.get("text", ""),
             )
-            msg.own = self._resolve_echo(msg.text)
-            log.info("MSG | %s: %s", _for_log(msg.username), _for_log(msg.text))
+            normalized = _normalize_chat_text(msg.text)
+            # Eco do envio atual OU fala da persona redesenhada depois.
+            msg.own = self._resolve_echo(msg.text) or self._was_sent_recently(normalized)
+            msg.backlog = bool(data.get("backlog"))
+            author = "__persona__" if msg.own else msg.username.strip().lower()
+            if self._is_duplicate((author, normalized)):
+                log.debug("MSG repetida (redesenho do chat) ignorada | %s", _for_log(msg.text))
+                return
+            log.info("MSG%s | %s: %s", " (já na tela)" if msg.backlog else "", _for_log(msg.username), _for_log(msg.text))
             self._message_count += 1
             self.history.append(msg)
             await self.incoming.put(msg)
@@ -671,6 +714,7 @@ class TangoChatBridge:
           mensagens desatualizado; confira no Tango.
         Levanta ``SendError`` quando não dá para afirmar que saiu.
         """
+        self._remember_sent(text)  # antes do envio: o eco pode chegar antes da confirmação
         if self._mode == "extension":
             async with self._send_lock:
                 return await self._send_via_extension(text)
@@ -1620,7 +1664,11 @@ async def handle_extension_ws(request: web.Request) -> web.WebSocketResponse:
             elif bridge._extension_ws is not ws:
                 continue
             elif kind == "message":
-                await bridge._handle_incoming_message(json.dumps({"username": data.get("username", ""), "text": data.get("text", "")}))
+                await bridge._handle_incoming_message(json.dumps({
+                    "username": data.get("username", ""),
+                    "text": data.get("text", ""),
+                    "backlog": bool(data.get("backlog")),
+                }))
             elif kind == "page":
                 bridge._page_url = str(data.get("url") or bridge._page_url)
                 if data.get("w") and data.get("h"):

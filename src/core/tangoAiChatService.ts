@@ -21,6 +21,8 @@ export interface TangoChatMessage {
   timestamp?: string;
   /** Eco de uma mensagem que a própria bridge enviou (não é fala de espectador). */
   own?: boolean;
+  /** Já estava na tela quando o leitor do chat olhou: vai pro histórico, mas não recebe resposta. */
+  backlog?: boolean;
 }
 
 /**
@@ -234,6 +236,53 @@ export function buildConversationTurns(
   return turns;
 }
 
+const normalizeForEcho = (text: string) =>
+  text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+
+/**
+ * Tira da resposta o que a IA copiou do chat antes de enviar.
+ *
+ * Visto ao vivo: a resposta saiu "Tá ótimo! … Como foi seu dia hoje? Kungfu
+ * Panda: Boa noite minha deusa deslumbrante…" — o modelo continuou a conversa
+ * escrevendo as falas dos espectadores, e isso foi enviado ao chat. Corta a
+ * resposta onde começa "Nome:" de alguém do chat ou uma mensagem de espectador
+ * copiada; se sobrar só eco (ou nada), devolve '' e nada é enviado.
+ */
+export function scrubEchoedChat(reply: string, recentHistory: TangoChatMessage[], incoming: TangoChatMessage): string {
+  const viewers = [...recentHistory, incoming].filter((m) => !m.own);
+  const names = [...new Set(viewers.map((m) => m.username.trim()).filter((n) => n.length >= 2))];
+  // Resposta que já começa com "Nome do espectador:" — o resto é fala copiada dele.
+  for (const name of names) {
+    if (reply.toLowerCase().startsWith(`${name.toLowerCase()}:`)) reply = reply.slice(name.length + 1).trimStart();
+  }
+  let cut = reply.length;
+  const lower = reply.toLowerCase();
+
+  for (const name of names) {
+    const at = lower.indexOf(`${name.toLowerCase()}:`);
+    if (at > 0) cut = Math.min(cut, at);
+  }
+  for (const msg of viewers) {
+    const text = msg.text.trim();
+    if (text.length < 12) continue;
+    const at = lower.indexOf(text.toLowerCase());
+    if (at >= 0) cut = Math.min(cut, at);
+  }
+
+  const kept = reply.slice(0, cut).replace(/[\s,;:–-]+$/u, '').trim();
+  const keptNorm = normalizeForEcho(kept);
+  if (keptNorm.length < 2) return '';
+  // A resposta é só a mensagem da pessoa devolvida (ou um pedaço dela).
+  const incomingNorm = normalizeForEcho(incoming.text);
+  if (keptNorm === incomingNorm || (keptNorm.length >= 8 && incomingNorm.includes(keptNorm))) return '';
+  return kept;
+}
+
 /** Nome legível de quem gerou a resposta (o servidor devolve "ollama", "mistral"…). */
 export function providerDisplayName(provider: string | undefined, localModel: string): string {
   if (provider === 'mistral') return 'Mistral';
@@ -437,7 +486,18 @@ export async function generateTangoChatReply(
   if (!useDirectGemini) {
     const backendResult = await callBackendAiRespond(basePrompt, incoming, recentHistory, options, insightsContext, languageDirective);
     if (backendResult.text) {
-      const cleanReply = sanitizeTangoReply(backendResult.text, options.maxLength || 140, personaName);
+      const scrubbed = scrubEchoedChat(backendResult.text, recentHistory, incoming);
+      if (!scrubbed) {
+        return withMemories({
+          ok: false,
+          reply: '',
+          blocked: true,
+          blockedReason: 'A IA só repetiu mensagens do chat',
+          reason: 'Resposta descartada: a IA repetiu mensagens do próprio chat em vez de responder.',
+          confidence: 0,
+        });
+      }
+      const cleanReply = sanitizeTangoReply(scrubbed, options.maxLength || 140, personaName);
       const safety = checkSafetyRestrictions(cleanReply);
       if (safety.safe) {
         return withMemories({
@@ -495,7 +555,18 @@ export async function generateTangoChatReply(
       return withMemories({ ok: false, reply: '', confidence: 0, reason: 'Google Gemini não retornou texto.' });
     }
 
-    const cleanReply = sanitizeTangoReply(rawReply, options.maxLength || 140, personaName);
+    const scrubbed = scrubEchoedChat(rawReply, recentHistory, incoming);
+    if (!scrubbed) {
+      return withMemories({
+        ok: false,
+        reply: '',
+        blocked: true,
+        blockedReason: 'A IA só repetiu mensagens do chat',
+        reason: 'Resposta descartada: a Gemini repetiu mensagens do próprio chat em vez de responder.',
+        confidence: 0,
+      });
+    }
+    const cleanReply = sanitizeTangoReply(scrubbed, options.maxLength || 140, personaName);
     const safety = checkSafetyRestrictions(cleanReply);
 
     if (!safety.safe) {

@@ -266,3 +266,47 @@ def test_clique_rolagem_e_teclado_do_painel_chegam_a_extensao(tango):
         await ext.close()
 
     asyncio.run(_with_bridge(tango, scenario))
+
+
+def test_chat_redesenhado_nao_vira_mensagem_nova(tango):
+    """Visto ao vivo: a lista virtualizada do Tango reentregava "Kungfu Panda:
+    Boa noite minha deusa deslumbrante" 7 vezes e a IA respondia de novo."""
+    async def scenario(client, bridge):
+        ext, _ = await _hello(client)
+        for _ in range(3):
+            await ext.send_json({"type": "message", "username": "Kungfu Panda", "text": "Boa noite minha deusa deslumbrante"})
+        await ext.send_json({"type": "message", "username": "ana", "text": "oi", "backlog": True})
+        first = await asyncio.wait_for(bridge.incoming.get(), 5)
+        second = await asyncio.wait_for(bridge.incoming.get(), 5)
+        assert (first.username, first.backlog) == ("Kungfu Panda", False)
+        assert (second.username, second.backlog) == ("ana", True)
+        await asyncio.sleep(0.2)
+        assert bridge.incoming.empty()  # as 2 repetições foram descartadas
+        assert [m.text for m in bridge.history].count("Boa noite minha deusa deslumbrante") == 1
+        await ext.close()
+
+    asyncio.run(_with_bridge(tango, scenario))
+
+
+def test_fala_da_persona_redesenhada_depois_continua_sendo_dela(tango):
+    """A fala enviada voltava minutos depois como "Espectador: Boa noite! Tá ótimo!"."""
+    async def scenario(client, bridge):
+        ext, _ = await _hello(client)
+
+        async def fake_tab():
+            frame = await asyncio.wait_for(ext.receive_json(), 5)
+            await ext.send_json({"type": "send_result", "id": frame["id"], "ok": True})
+            await ext.send_json({"type": "message", "username": "Odessa", "text": frame["text"]})
+
+        tab = asyncio.create_task(fake_tab())
+        await bridge.send_message("Boa noite! Tá ótimo! Como foi seu dia?")
+        await tab
+        echo = await asyncio.wait_for(bridge.incoming.get(), 5)
+        assert echo.own is True
+        bridge._seen_messages.clear()  # passou a janela de repetição; o chat redesenha
+        await ext.send_json({"type": "message", "username": "Espectador", "text": "Boa noite! Tá ótimo! Como foi seu dia?"})
+        redrawn = await asyncio.wait_for(bridge.incoming.get(), 5)
+        assert redrawn.own is True  # não vira fala de espectador (a IA não responde a si mesma)
+        await ext.close()
+
+    asyncio.run(_with_bridge(tango, scenario))
