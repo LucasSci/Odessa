@@ -57,3 +57,74 @@ def update_memory_profile_visibility(user_id: str, request: MemoryVisibilityRequ
 @router.delete("/profiles/{user_id}")
 def clear_memory_profile(user_id: str):
     return memory_service.clear_profile(user_id)
+
+
+# ── Memória que cresce (server/services/memory_learning.py) ───────────────
+
+from typing import Optional  # noqa: E402
+
+from server.services import memory_learning  # noqa: E402
+
+
+class MemoryLearnRequest(BaseModel):
+    persona_id: str = ""
+    persona_name: str = ""
+    provider: Optional[str] = None
+    provider_key: Optional[str] = None
+    local_model_url: Optional[str] = None
+    local_model_name: Optional[str] = None
+    max_users: int = 3
+    min_new: int = memory_learning.MIN_NEW_MESSAGES_TO_LEARN
+
+
+@router.get("/context")
+def get_memory_context(username: str = "", persona: str = "", personaName: str = ""):
+    """O que a IA sabe de quem está falando + o que a persona já contou de si (qualquer IA)."""
+    return memory_learning.build_prompt_context(username, persona, personaName)
+
+
+@router.post("/learn")
+def learn_from_conversations(request: MemoryLearnRequest):
+    """Transforma a conversa nova em fatos + resumo, com a IA ativa (a chave nunca é guardada)."""
+    from server.services.ai_service import ai_service
+
+    def generate(system: str, user: str) -> str:
+        text, _provider = ai_service.generate_ai_text_with_fallback(
+            gemini_model="gemini-2.5-flash",
+            system_prompt=system,
+            user_prompt=user,
+            temperature=0.2,
+            json_mode=True,
+            local_model_url=request.local_model_url,
+            local_model_name=request.local_model_name,
+            provider=request.provider,
+            provider_key=request.provider_key,
+        )
+        return text
+
+    return memory_learning.learn_pending(
+        request.persona_id,
+        request.persona_name,
+        generate,
+        max_users=max(1, min(request.max_users, 10)),
+        min_new=max(1, request.min_new),
+    )
+
+
+@router.delete("/facts/{fact_id}")
+def delete_viewer_fact(fact_id: str):
+    if not memory_learning.delete_viewer_fact(fact_id):
+        raise HTTPException(status_code=404, detail="Fato não encontrado")
+    return {"ok": True}
+
+
+@router.get("/persona-facts")
+def list_persona_facts(persona: str):
+    return {"facts": memory_learning.list_persona_facts(persona)}
+
+
+@router.delete("/persona-facts/{fact_id}")
+def delete_persona_fact(fact_id: str):
+    if not memory_learning.delete_persona_fact(fact_id):
+        raise HTTPException(status_code=404, detail="Fato não encontrado")
+    return {"ok": True}

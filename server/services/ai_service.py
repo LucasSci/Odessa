@@ -62,6 +62,11 @@ def _conversation_turns(conversation: list[dict[str, str]] | None) -> list[dict[
     return turns
 
 
+def _chat_messages(conversation: list[dict[str, str]] | None, user_prompt: str) -> list[dict[str, str]]:
+    """Mesma conversa para TODA IA: turnos reais quando houver, senão o prompt único."""
+    return _conversation_turns(conversation) or [{"role": "user", "content": user_prompt}]
+
+
 class AIService:
     def __init__(self):
         self.openai_client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL) if OPENAI_API_KEY else None
@@ -79,11 +84,14 @@ class AIService:
         *,
         model: str | None = None,
         max_tokens: int = 1024,
+        conversation: list[dict[str, str]] | None = None,
+        api_key: str | None = None,
     ) -> str:
         """Gera texto via Claude (Anthropic Messages API)."""
         import httpx
 
-        if not self.anthropic_api_key:
+        key = (api_key or "").strip() or self.anthropic_api_key
+        if not key:
             raise RuntimeError("ANTHROPIC_API_KEY não está configurada no backend")
 
         payload: dict[str, Any] = {
@@ -91,10 +99,10 @@ class AIService:
             "max_tokens": max_tokens,
             "temperature": temperature,
             "system": system_prompt,
-            "messages": [{"role": "user", "content": user_prompt}],
+            "messages": _chat_messages(conversation, user_prompt),
         }
         headers = {
-            "x-api-key": self.anthropic_api_key,
+            "x-api-key": key,
             "anthropic-version": ANTHROPIC_API_VERSION,
             "content-type": "application/json",
         }
@@ -159,6 +167,36 @@ class AIService:
 
         raise RuntimeError("Gemini não retornou nenhuma imagem")
 
+    def generate_gemini_text(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        *,
+        model: str | None = None,
+        json_mode: bool = False,
+        conversation: list[dict[str, str]] | None = None,
+        api_key: str | None = None,
+    ) -> str:
+        """Gera texto via Gemini, com a conversa em turnos (user/model)."""
+        client = genai.Client(api_key=api_key.strip()) if (api_key or "").strip() else self.gemini_client
+        if not client:
+            raise RuntimeError("GEMINI_API_KEY não está configurada")
+        config: dict[str, Any] = {
+            "system_instruction": system_prompt,
+            "temperature": temperature,
+            # Sem "raciocínio" escondido: ele gastava os tokens e a resposta vinha vazia.
+            "thinking_config": {"thinking_budget": 0},
+        }
+        if json_mode:
+            config["response_mime_type"] = "application/json"
+        contents = [
+            {"role": "model" if turn["role"] == "assistant" else "user", "parts": [{"text": turn["content"]}]}
+            for turn in _chat_messages(conversation, user_prompt)
+        ]
+        result = client.models.generate_content(model=model or "gemini-2.5-flash", contents=contents, config=config)
+        return result.text or ""
+
     def generate_openai_text(
         self,
         system_prompt: str,
@@ -166,22 +204,22 @@ class AIService:
         temperature: float,
         *,
         json_mode: bool = False,
+        conversation: list[dict[str, str]] | None = None,
+        api_key: str | None = None,
     ) -> str:
-        if not self.openai_client:
+        client = OpenAI(api_key=api_key.strip(), base_url=OPENAI_BASE_URL) if (api_key or "").strip() else self.openai_client
+        if not client:
             raise RuntimeError("OPENAI_API_KEY is not configured on the backend")
 
         kwargs: dict[str, Any] = {
             "model": OPENAI_TEXT_MODEL,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            "messages": [{"role": "system", "content": system_prompt}, *_chat_messages(conversation, user_prompt)],
             "temperature": temperature,
         }
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
-        response = self.openai_client.chat.completions.create(**kwargs)
+        response = client.chat.completions.create(**kwargs)
         return response.choices[0].message.content or ""
 
     def generate_ollama_text(
@@ -250,6 +288,9 @@ class AIService:
         }
         if json_mode:
             payload["format"] = "json"
+        if payload["model"].lower().startswith("qwen3"):
+            # Qwen3 "pensa" escondido antes de responder: segundos a mais por fala.
+            payload["think"] = False
 
         last_exc: Exception | None = None
         # Retry único: o disconnect intermitente acima acontece especificamente
@@ -420,12 +461,15 @@ class AIService:
                     logger.warning("[AI ROUTER] Ollama failed: %s", exc)
                     errors.append(f"Ollama: {exc}")
 
-            if provider == "claude" and self.anthropic_api_key:
+            cloud_key = (provider_key or "").strip() if provider == selected_provider else ""
+            if provider == "claude" and (self.anthropic_api_key or cloud_key):
                 try:
                     text = self.generate_claude_text(
                         system_prompt,
                         user_prompt,
                         temperature,
+                        conversation=conversation,
+                        api_key=cloud_key or None,
                     )
                     if text.strip():
                         return text, "claude"
@@ -433,34 +477,32 @@ class AIService:
                     logger.warning("[AI ROUTER] Claude failed: %s", exc)
                     errors.append(f"Claude: {exc}")
 
-            if provider == "gemini" and self.gemini_client:
+            if provider == "gemini" and (self.gemini_client or cloud_key):
                 try:
-                    config: dict[str, Any] = {
-                        "system_instruction": system_prompt,
-                        "temperature": temperature,
-                    }
-                    if json_mode:
-                        config["response_mime_type"] = "application/json"
-
-                    result = self.gemini_client.models.generate_content(
+                    text = self.generate_gemini_text(
+                        system_prompt,
+                        user_prompt,
+                        temperature,
                         model=gemini_model,
-                        contents=user_prompt,
-                        config=config,
+                        json_mode=json_mode,
+                        conversation=conversation,
+                        api_key=cloud_key or None,
                     )
-                    text = result.text or ""
                     if text.strip():
                         return text, "gemini"
                 except Exception as exc:
                     logger.warning("[AI ROUTER] Gemini failed: %s", exc)
                     errors.append(f"Gemini: {exc}")
 
-            if provider == "openai" and self.openai_client:
+            if provider == "openai" and (self.openai_client or cloud_key):
                 try:
                     text = self.generate_openai_text(
                         system_prompt,
                         user_prompt,
                         temperature,
                         json_mode=json_mode,
+                        conversation=conversation,
+                        api_key=cloud_key or None,
                     )
                     if text.strip():
                         return text, "openai"

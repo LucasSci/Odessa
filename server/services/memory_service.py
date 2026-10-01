@@ -118,6 +118,8 @@ class MemoryService:
             ).fetchone()
             if not user:
                 return None
+            from server.services import memory_learning
+
             interactions = connection.execute(
                 """
                 SELECT id, kind, source, text, metadata_json, sentiment, created_at
@@ -128,7 +130,12 @@ class MemoryService:
                 """,
                 (user["id"], max(1, min(int(limit or 40), 200))),
             ).fetchall()
-        return {"profile": dict(user), "interactions": [dict(row) for row in interactions]}
+        return {
+            "profile": dict(user),
+            "interactions": [dict(row) for row in interactions],
+            "facts": memory_learning.list_viewer_facts(user["id"]),
+            "summaries": memory_learning.list_summaries(user["id"]),
+        }
 
     def build_user_context(self, user_id: str, limit: int = 12) -> Dict[str, Any]:
         profile = self.get_profile(user_id, limit)
@@ -174,7 +181,10 @@ class MemoryService:
             ).fetchone()
             if not user:
                 return {"status": "not_found", "userId": user_id}
+            from server.services import memory_learning
+
             connection.execute("DELETE FROM interaction_logs WHERE user_id = ?", (user["id"],))
+            memory_learning.forget_user(connection, user["id"])
             connection.execute("DELETE FROM users WHERE id = ?", (user["id"],))
             connection.commit()
         return {"status": "cleared", "userId": user_id}
@@ -183,7 +193,10 @@ class MemoryService:
         """Apaga todos os perfis e interações (botão "Resetar aprendizado")."""
         with db.get_connection() as connection:
             users = connection.execute("SELECT COUNT(*) AS total FROM users").fetchone()["total"]
+            from server.services import memory_learning
+
             connection.execute("DELETE FROM interaction_logs")
+            memory_learning.forget_everything(connection)
             connection.execute("DELETE FROM users")
             connection.commit()
         return {"status": "cleared", "usersCleared": users}
@@ -200,6 +213,25 @@ class MemoryService:
 
                 user_id = self.normalize_user_id(username)
                 metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+                if event.get("kind") == "reply":
+                    # Fala da própria persona para esta pessoa: entra na transcrição
+                    # (memória da conversa), sem contar como mensagem do espectador.
+                    connection.execute(
+                        """
+                        INSERT INTO interaction_logs (id, user_id, username, kind, source, text, metadata_json, created_at)
+                        VALUES (?, ?, ?, 'reply', ?, ?, ?, ?)
+                        """,
+                        (
+                            f"log-{int(time.time() * 1000)}-{uuid.uuid4().hex[:12]}",
+                            user_id,
+                            username,
+                            event.get("source", "unknown"),
+                            event.get("text", ""),
+                            json.dumps(metadata),
+                            event.get("createdAt", now),
+                        ),
+                    )
+                    continue
                 is_gift = event.get("kind") == "gift"
                 gift_count = self.numeric_metadata_value(metadata, "quantity", 1) if is_gift else 0
 
@@ -263,6 +295,21 @@ class MemoryService:
                     )
 
             connection.commit()
+
+        # Fatos ditos com todas as letras ("sou de Campinas") já entram na hora.
+        from server.services import memory_learning
+
+        for event in events:
+            if event.get("kind") != "chat":
+                continue
+            username = self.extract_username_from_event(event)
+            if username:
+                try:
+                    metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+                    text = str(metadata.get("message") or event.get("text") or "")
+                    memory_learning.remember_quick_facts(self.normalize_user_id(username), text)
+                except Exception as exc:  # noqa: BLE001 — memória nunca derruba o chat
+                    logger.warning("Fato rápido não gravado: %s", exc)
 
         return {
             "usersRecognized": len(recognized_users),
