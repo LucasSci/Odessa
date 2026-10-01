@@ -19,9 +19,8 @@ const { app, BrowserWindow, Tray, Menu, dialog, ipcMain, shell, session, nativeI
 const { spawn, execFile } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
-const http = require('http');
-const net = require('net');
 const path = require('path');
+const { rotate, getJson, postJson, isOdessaUp: probe, isPortInUse, nextRestart } = require('./backend-utils');
 
 const PORT = 8000;
 // "localhost" de propósito (mesmo motivo do launcher antigo: CORS do frontend).
@@ -61,15 +60,6 @@ app.on('window-all-closed', () => {});
 
 // ── Logs ───────────────────────────────────────────────────────────────────
 fs.mkdirSync(LOG_DIR, { recursive: true });
-function rotate(file, maxBytes = 5 * 1024 * 1024, keep = 5) {
-  try {
-    if (!fs.existsSync(file) || fs.statSync(file).size < maxBytes) return;
-    for (let i = keep - 1; i >= 1; i--) {
-      if (fs.existsSync(`${file}.${i}`)) fs.renameSync(`${file}.${i}`, `${file}.${i + 1}`);
-    }
-    fs.renameSync(file, `${file}.1`);
-  } catch { /* log não pode derrubar o programa */ }
-}
 ['odessa.log', 'backend.out.log', 'backend.err.log'].forEach((n) => rotate(path.join(LOG_DIR, n)));
 function log(msg) {
   try {
@@ -78,47 +68,7 @@ function log(msg) {
 }
 
 // ── Servidor ───────────────────────────────────────────────────────────────
-function getJson(url, timeoutMs = 2000) {
-  return new Promise((resolve) => {
-    const req = http.get(url, { timeout: timeoutMs }, (res) => {
-      let body = '';
-      res.on('data', (c) => (body += c));
-      res.on('end', () => {
-        try { resolve(res.statusCode === 200 ? JSON.parse(body) : null); } catch { resolve(null); }
-      });
-    });
-    req.on('timeout', () => req.destroy());
-    req.on('error', () => resolve(null));
-  });
-}
-
-function postJson(url, timeoutMs = 5000) {
-  return new Promise((resolve) => {
-    const req = http.request(url, { method: 'POST', timeout: timeoutMs, headers: { 'Content-Length': 0 } }, (res) => {
-      res.resume();
-      res.on('end', () => resolve(res.statusCode === 200));
-    });
-    req.on('timeout', () => req.destroy());
-    req.on('error', () => resolve(false));
-    req.end();
-  });
-}
-
-/** /health com {"service":"odessa-api"} é a assinatura do nosso servidor. */
-async function isOdessaUp() {
-  const body = await getJson(HEALTH_URL);
-  return Boolean(body && body.service === 'odessa-api');
-}
-
-function isPortInUse(port) {
-  return new Promise((resolve) => {
-    const socket = net.connect({ host: '127.0.0.1', port });
-    socket.setTimeout(800);
-    socket.once('connect', () => { socket.destroy(); resolve(true); });
-    socket.once('timeout', () => { socket.destroy(); resolve(false); });
-    socket.once('error', () => resolve(false));
-  });
-}
+const isOdessaUp = () => probe(HEALTH_URL);
 
 /** .env com segredos gerados no primeiro uso (mesmo conteúdo do launcher antigo). */
 function ensureEnvFile() {
@@ -154,13 +104,11 @@ async function onBackendExit(proc, code) {
   log(`Servidor encerrou (código ${code}).`);
   if (quitting || shuttingDown) return;
 
-  const now = Date.now();
-  crashes.push(now);
-  while (crashes.length && now - crashes[0] > 120_000) crashes.shift();
+  const { restart, delayMs } = nextRestart(crashes, Date.now());
   try {
     fs.copyFileSync(path.join(LOG_DIR, 'backend.err.log'), path.join(LOG_DIR, 'backend.err.last-crash.log'));
   } catch { /* sem log para guardar */ }
-  if (crashes.length >= 5) {
+  if (!restart) {
     log('Servidor caiu 5 vezes em 2 minutos: não vou reiniciar.');
     dialog.showErrorBox(
       'Odessa parou de funcionar',
@@ -168,7 +116,7 @@ async function onBackendExit(proc, code) {
     );
     return;
   }
-  await new Promise((r) => setTimeout(r, Math.min(30_000, 2 ** crashes.length * 1000)));
+  await new Promise((r) => setTimeout(r, delayMs));
   if (quitting || shuttingDown || (await isOdessaUp())) return;
   log(`Reiniciando servidor (queda ${crashes.length}).`);
   startBackend();

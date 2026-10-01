@@ -8,7 +8,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "set ODESSA_DEV_URL=http://localhost:3000/&& electron .",
-    "package": "electron-packager . Odessa --platform=win32 --arch=x64 --icon=icon.ico --out=out --overwrite --asar --app-copyright=\"Odessa Studio\" --win32metadata.ProductName=Odessa --win32metadata.FileDescription=\"Odessa Studio\""
+    "package": "electron-packager . Odessa --platform=win32 --arch=x64 --icon=icon.ico --out=out --overwrite --asar --ignore=[.]test[.]js$ --app-copyright=\"Odessa Studio\" --win32metadata.ProductName=Odessa --win32metadata.FileDescription=\"Odessa Studio\""
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",
