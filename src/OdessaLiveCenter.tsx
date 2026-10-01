@@ -1346,7 +1346,7 @@ export const DEFAULT_OBS_SETTINGS: ObsSettings = {
   ocrSourceName: 'Odessa Chat OCR',
   chatSourceName: 'Odessa Chat OCR',
   stageSourceName: 'Odessa Stage Overlay',
-  stageUrl: 'http://localhost:3000/#overlay',
+  stageUrl: '', // vazio = automático (endereço do próprio app, ver lib/stageUrl.ts)
   startupSceneName: 'Odessa START',
   liveSceneName: 'Odessa LIVE',
   transmissionMode: 'stream',

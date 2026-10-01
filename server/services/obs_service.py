@@ -39,6 +39,8 @@ logger = logging.getLogger("odessa.obs")
 OBS_SETTINGS_FILE = RUNTIME_DIR / "obs_settings.json"
 DEFAULT_BROWSER_SOURCE_FILE = PROJECT_ROOT / "public" / "obs-chat-ocr.html"
 DEFAULT_STAGE_URL = OBS_STAGE_URL
+# Padrão antigo (servidor de desenvolvimento): no app instalado não responde e o OBS ficava vazio.
+LEGACY_STAGE_URLS = {"http://localhost:3000/#overlay", "http://127.0.0.1:3000/#overlay"}
 NOT_IDENTIFIED_MARKERS = (
     "notidentified",
     "not identified",
@@ -87,6 +89,8 @@ class OBSService:
             str(settings.get("stageSourceName", OBS_STAGE_SOURCE_NAME)).strip() or OBS_STAGE_SOURCE_NAME
         )
         self.stage_url = str(settings.get("stageUrl", DEFAULT_STAGE_URL)).strip() or DEFAULT_STAGE_URL
+        if self.stage_url in LEGACY_STAGE_URLS and DEFAULT_STAGE_URL not in LEGACY_STAGE_URLS:
+            self.stage_url = DEFAULT_STAGE_URL
         self.startup_scene_name = (
             str(settings.get("startupSceneName", OBS_STARTUP_SCENE_NAME)).strip() or OBS_STARTUP_SCENE_NAME
         )

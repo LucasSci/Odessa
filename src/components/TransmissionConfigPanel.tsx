@@ -166,7 +166,7 @@ export default function TransmissionConfigPanel({ personaId, personaName }: Prop
               label="URL do palco (stage overlay)"
               value={config.stageUrl}
               onChange={(v) => update('stageUrl', v)}
-              placeholder="Ex: http://localhost:3000/#overlay"
+              placeholder="Automático (endereço do próprio Odessa)"
             />
 
             {/* Canvas */}

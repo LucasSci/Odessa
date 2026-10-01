@@ -1,3 +1,4 @@
+import { resolveStageUrl } from './stageUrl';
 import OBSWebSocket from 'obs-websocket-js';
 
 export type ObsConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -218,7 +219,7 @@ export async function obsStopTransmission(mode: string = 'stream'): Promise<ObsR
 export async function obsSetupLiveScene(settings: ObsSetupSettings): Promise<ObsResult & { created?: string[]; warnings?: string[]; skipped?: boolean }> {
   const startScene = settings.startupSceneName || 'Odessa START';
   const liveScene = settings.liveSceneName || 'Odessa LIVE';
-  const stageUrl = settings.stageUrl || '';
+  const stageUrl = resolveStageUrl(settings.stageUrl, window.location.origin);
   const stageSourceName = settings.stageSourceName || 'Odessa Stage Overlay';
   const chatSourceName = settings.chatSourceName || 'Odessa Chat OCR';
   let canvasW = settings.canvasWidth || 1080;
@@ -281,21 +282,20 @@ export async function obsSetupLiveScene(settings: ObsSetupSettings): Promise<Obs
       } catch (err) { warnings.push(`Cena ${liveScene}: ${err instanceof Error ? err.message : String(err)}`); }
     }
 
-    // 4. Ensure browser sources in scenes
-    if (stageUrl) {
-      for (const [sceneName, sources] of [
-        [liveScene, [stageSourceName, chatSourceName]] as const,
-        [startScene, [stageSourceName]] as const,
-      ]) {
-        for (const srcName of sources) {
-          try {
-            await ensureBrowserSource(sceneName, srcName, stageUrl, canvasW, canvasH, outputFps);
-            created.push(`source:${sceneName}/${srcName}`);
-          } catch (err) {
-            warnings.push(`Source ${srcName}: ${err instanceof Error ? err.message : String(err)}`);
-          }
-        }
+    // 4. Overlay só na fonte do palco. Antes a fonte do chat recebia o mesmo
+    // overlay: duas cópias na cena (memória em dobro, e só uma desenha).
+    for (const sceneName of [liveScene, startScene]) {
+      try {
+        await ensureBrowserSource(sceneName, stageSourceName, stageUrl, canvasW, canvasH, outputFps);
+        created.push(`source:${sceneName}/${stageSourceName}`);
+      } catch (err) {
+        warnings.push(`Source ${stageSourceName}: ${err instanceof Error ? err.message : String(err)}`);
       }
+    }
+    if (chatSourceName !== stageSourceName) {
+      try {
+        if (await hideDuplicateOverlay(liveScene, chatSourceName)) created.push(`hidden:${liveScene}/${chatSourceName}`);
+      } catch { /* fonte do chat ausente ou ilegível: nada a esconder */ }
     }
 
     await refreshScenes();
@@ -303,6 +303,18 @@ export async function obsSetupLiveScene(settings: ObsSetupSettings): Promise<Obs
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err), created, warnings };
   }
+}
+
+/** Esconde (sem apagar) a fonte do chat quando ela é uma cópia do overlay do palco. */
+async function hideDuplicateOverlay(sceneName: string, sourceName: string): Promise<boolean> {
+  const { sceneItems } = await obs.call('GetSceneItemList', { sceneName });
+  const item = (sceneItems as Array<{ sourceName: string; sceneItemId: number; sceneItemEnabled?: boolean }>)
+    .find((i) => i.sourceName === sourceName);
+  if (!item || item.sceneItemEnabled === false) return false;
+  const { inputSettings } = await obs.call('GetInputSettings', { inputName: sourceName });
+  if (!String((inputSettings as Record<string, unknown>).url ?? '').includes('#overlay')) return false;
+  await obs.call('SetSceneItemEnabled', { sceneName, sceneItemId: item.sceneItemId, sceneItemEnabled: false });
+  return true;
 }
 
 async function ensureBrowserSource(
@@ -373,17 +385,20 @@ async function ensureBrowserSource(
     return;
   }
 
-  // Create new source
-  const result = await obs.call('CreateInput', {
-    sceneName,
-    inputName: sourceName,
-    inputKind: 'browser_source',
-    inputSettings: desiredSettings,
-  });
+  // A fonte já existe em outra cena (nomes de fonte são globais no OBS): só
+  // coloca nesta cena. Criar de novo com o mesmo nome falhava.
+  const { inputs } = await obs.call('GetInputList');
+  const inputExists = (inputs as Array<{ inputName: string }>).some((i) => i.inputName === sourceName);
+  const sceneItemId = inputExists
+    ? (await obs.call('CreateSceneItem', { sceneName, sourceName })).sceneItemId
+    : (await obs.call('CreateInput', { sceneName, inputName: sourceName, inputKind: 'browser_source', inputSettings: desiredSettings })).sceneItemId;
+  if (inputExists) {
+    await obs.call('SetInputSettings', { inputName: sourceName, inputSettings: desiredSettings, overlay: true });
+  }
 
   await obs.call('SetSceneItemTransform', {
     sceneName,
-    sceneItemId: result.sceneItemId,
+    sceneItemId,
     sceneItemTransform: {
       positionX: 0, positionY: 0,
       boundsType: 'OBS_BOUNDS_STRETCH',
