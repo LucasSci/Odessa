@@ -50,6 +50,7 @@ import { callFlowDesigner } from './core/aiDecisionContract';
 import { cn, safeImageSrc } from './lib/utils';
 import { usePolling } from './core/usePolling';
 import { VideoThumb } from './components/VideoThumb';
+import { WORKFLOW_CHANGED_EVENT } from './core/idleStudioApi';
 
 type VideoEntry = {
   id: string;
@@ -590,6 +591,13 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
       void loadConfig();
     }, 0);
     return () => window.clearTimeout(timer);
+  }, [loadConfig]);
+
+  // O Estúdio da IDLE monta o rascunho no backend: recarrega para não salvar por cima.
+  useEffect(() => {
+    const reload = () => void loadConfig();
+    window.addEventListener(WORKFLOW_CHANGED_EVENT, reload);
+    return () => window.removeEventListener(WORKFLOW_CHANGED_EVENT, reload);
   }, [loadConfig]);
 
   // Profiles are persisted in localStorage (per-device) so they work

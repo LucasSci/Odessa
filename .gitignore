@@ -67,3 +67,6 @@ playwright-report/
 api/_odessa_handler_*.mjs
 server/data/*.antes-unir-odessa-*.json
 scripts/mural-antes-*.json
+
+# Estúdio da IDLE: anexos e estado de cada máquina
+server/data/idle_studio/

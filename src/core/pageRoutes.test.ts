@@ -7,6 +7,7 @@ describe('pageRoutes', () => {
       expect(pageFromHash(hashForPage(page))).toBe(page);
     }
     expect(hashForPage('library')).toBe('#/biblioteca');
+    expect(hashForPage('studio')).toBe('#/estudio-idle');
   });
 
   it('apelidos internos caem na página certa', () => {
@@ -27,14 +28,15 @@ describe('pageRoutes', () => {
     expect(pageFromHash('#/automacoes/logs')).toBe('flow');
   });
 
-  it('Alt+1…Alt+8 seguem a ordem da barra lateral; outras combinações não', () => {
+  it('Alt+1…Alt+9 seguem a ordem da barra lateral; outras combinações não', () => {
     const key = (digit: string, extra: Partial<KeyboardEvent> = {}) => ({
       altKey: true, ctrlKey: false, metaKey: false, shiftKey: false, key: digit, code: `Digit${digit}`, ...extra,
     });
     expect(pageForShortcut(key('1'))).toBe('live');
-    expect(pageForShortcut(key('4'))).toBe('conversation');
-    expect(pageForShortcut(key('8'))).toBe('admin');
-    expect(pageForShortcut(key('9'))).toBeNull();
+    expect(pageForShortcut(key('3'))).toBe('studio');
+    expect(pageForShortcut(key('5'))).toBe('conversation');
+    expect(pageForShortcut(key('9'))).toBe('admin');
+    expect(pageForShortcut(key('0'))).toBeNull();
     expect(pageForShortcut(key('2', { altKey: false }))).toBeNull();
     expect(pageForShortcut(key('2', { ctrlKey: true }))).toBeNull();
     // Layout em que Alt+número gera outro caractere: vale o `code`.

@@ -7,6 +7,7 @@ docs/PLANO-CONTEUDO-LIVE.md §5.1 (95–104). A ficha de cada persona fica aqui
 Saída por persona:
     docs/producao/<persona>/PROMPTS.md   imagens (etapa a etapa) + vídeos (clipe a clipe)
     docs/producao/<persona>/prompts.csv  um clipe por linha, para geração em lote
+    server/data/idle_plan.json           o plano inteiro, lido pelo Estúdio da IDLE no app
 
 Uso:
     python scripts/build_idle_prompts.py [--json saida.json]
@@ -384,6 +385,8 @@ def main() -> None:
         print(f"{data['name']}: {len(data['images'])} imagens, {len(data['videos'])} vídeos "
               f"(lote0 {sum(v['lote'] == 0 for v in data['videos'])}, lote1 {sum(v['lote'] == 1 for v in data['videos'])}, "
               f"lote2 {sum(v['lote'] == 2 for v in data['videos'])})")
+    # O Estúdio da IDLE dentro do Odessa lê o plano daqui.
+    (ROOT / "server" / "data" / "idle_plan.json").write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
     if args.json:
         Path(args.json).write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
 

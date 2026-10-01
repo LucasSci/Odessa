@@ -51,11 +51,10 @@ flowchart TD
   AJ --> V0
   P0 -->|sim| V1["Lote 1 · +29 clipes<br/>34 no total: mínimo para ir ao ar"]
   V1 --> G1["Mesmo gerador e mesma conferência<br/>clipe a clipe"]
-  G1 --> UP["Odessa · Biblioteca<br/>enviar os vídeos da persona ativa"]
-  UP --> FL["Odessa · Automações, fluxo reativo<br/>nó IDLE = A0, um nó por clipe,<br/>conexão = qual clipe vem depois"]
-  UP --> TG["Odessa · Gatilhos<br/>presente pequeno, médio, grande,<br/>seguidor, palavra-chave, meta → vídeo"]
-  FL --> PUB["Publicar o workflow"]
-  TG --> PUB
+  G1 --> UP["Odessa · Estúdio da IDLE<br/>anexar e aprovar cada clipe no card<br/>(nome automático pela etapa)"]
+  UP --> FL["Montar o fluxo da live (1 clique)<br/>cadastra os vídeos, nó IDLE = A0,<br/>ciclo natural A0–A3 e um gatilho por evento"]
+  FL --> TG["Odessa · Automações<br/>revisar o rascunho, trocar faixa de presente<br/>por um presente específico se quiser"]
+  TG --> PUB["Publicar o workflow"]
   PUB --> OBS["OBS · cena Odessa LIVE 1080x1920<br/>UMA fonte de navegador com o overlay do Odessa<br/>widgets LivePix: meta, QR, alertas<br/>cartelas de segmento"]
   OBS --> TX{"Como a imagem chega ao Tango"}
   TX -->|Câmera Virtual| EDGE["Tango no Edge, perfil logado<br/>câmera = OBS Virtual Camera"]

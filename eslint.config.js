@@ -15,7 +15,7 @@ export default tseslint.config(
     // desktop/build: runtime Python embutido + stage do instalador —
     // inclui o driver do Playwright (bundle Node de terceiros com seus
     // próprios .d.ts), nunca deveria ser varrido pelo lint do projeto.
-    ignores: ['dist', 'dist-electron', 'venv', '.claude/worktrees/**', 'desktop/build/**', 'coverage', 'reports', 'playwright-report', 'test-results', '.stryker-tmp'],
+    ignores: ['dist', 'dist-electron', 'venv', '.claude/worktrees/**', 'server/runtime/**', 'desktop/build/**', 'coverage', 'reports', 'playwright-report', 'test-results', '.stryker-tmp'],
   },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],

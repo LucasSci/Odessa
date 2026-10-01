@@ -22,6 +22,7 @@ import {
   Stethoscope,
   Upload,
   Users,
+  Clapperboard,
   Volume2,
   VolumeX,
 } from 'lucide-react';
@@ -83,6 +84,7 @@ const loadAdminPanel = () => import('./components/AdminPanel');
 const loadSessionHistoryPanel = () => import('./components/SessionHistoryPanel');
 const loadSettingsPanel = () => import('./components/SettingsPanel');
 const loadAiConfigPanel = () => import('./components/AiConfigPanel');
+const loadIdleStudioPage = () => import('./components/idleStudio/IdleStudioPage');
 
 const PersonasPanel = lazy(() => loadPersonasPanel().then((m) => ({ default: m.PersonasPanel })));
 const PersonaChatLab = lazy(() => loadPersonaChatLab().then((m) => ({ default: m.PersonaChatLab })));
@@ -90,6 +92,7 @@ const AdminPanel = lazy(() => loadAdminPanel().then((m) => ({ default: m.AdminPa
 const SessionHistoryPanel = lazy(() => loadSessionHistoryPanel().then((m) => ({ default: m.SessionHistoryPanel })));
 const SettingsPanel = lazy(() => loadSettingsPanel().then((m) => ({ default: m.SettingsPanel })));
 const AiConfigPanel = lazy(() => loadAiConfigPanel().then((m) => ({ default: m.AiConfigPanel })));
+const IdleStudioPage = lazy(loadIdleStudioPage);
 
 function prefetchTabChunks() {
   const loaders = [loadPersonasPanel, loadPersonaChatLab, loadAdminPanel, loadSessionHistoryPanel, loadSettingsPanel, loadAiConfigPanel];
@@ -103,6 +106,7 @@ function prefetchTabChunks() {
 // até o clique (~100–300 ms depois) o chunk já está pronto e a página abre sem
 // o "Carregando…". Cobre também o Fluxo e o Mural, que ficam fora do prefetch ocioso.
 const PAGE_PREFETCH: Partial<Record<PageKey, Array<() => Promise<unknown>>>> = {
+  studio: [loadIdleStudioPage],
   flow: [loadReactiveFlowBoard, loadReactiveFlowLogLab],
   conversation: [loadPersonaChatLab],
   personas: [loadPersonasPanel],
@@ -159,6 +163,7 @@ type TabKey =
   | 'live'
   | 'conversation'
   | 'library'
+  | 'studio'
   | 'flow'
   | 'history'
   | 'personas'
@@ -840,6 +845,7 @@ export default function OdessaLiveCenter({
       nav('stage', 'Palco', 'ao vivo live obs clips', () => goLive('stage')),
       nav('central', 'Central da Live', 'chat bridge tango mensagens', () => goLive('central')),
       nav('library', 'Biblioteca', 'videos clips hub roteiro', () => setActiveTab('library')),
+      nav('studio', 'Estúdio da IDLE', 'prompts gerar imagens videos kit fluxo producao', () => setActiveTab('studio')),
       nav('flow', 'Automações', 'fluxo gatilhos canvas', () => setActiveTab('flow')),
       nav('conversation', 'Conversar', 'laboratorio persona chat teste', () => setActiveTab('conversation')),
       nav('personas', 'Personas', 'gerar conteudo foto video', () => setActiveTab('personas')),
@@ -1091,6 +1097,17 @@ export default function OdessaLiveCenter({
         {visitedPages.has('library') && (
           <PagePane page="library" active={activePage === 'library'}>
             <VideoLibraryPanel config={config} onChanged={loadConfig} onOpenEditor={openVideoEditor} onGenerate={() => goToPage('personas')} />
+          </PagePane>
+        )}
+
+        {/* ESTÚDIO DA IDLE (prompts → anexos → fluxo) */}
+        {visitedPages.has('studio') && (
+          <PagePane page="studio" active={activePage === 'studio'}>
+            <div className="h-full min-h-0 overflow-y-auto">
+              <Suspense fallback={<PanelLoading label="Carregando o Estúdio da IDLE" />}>
+                <IdleStudioPage />
+              </Suspense>
+            </div>
           </PagePane>
         )}
 
@@ -1443,6 +1460,7 @@ const TAB_META: Record<TabKey, { group: string; title: string }> = {
   live:     { group: 'Operação', title: 'Ao Vivo' },
   conversation: { group: 'Laboratório', title: 'Conversa com Personas' },
   library:  { group: 'Conteúdo', title: 'Biblioteca' },
+  studio:   { group: 'Conteúdo', title: 'Estúdio da IDLE' },
   flow:     { group: 'Operação', title: 'Automações' },
   personas: { group: 'Conteúdo', title: 'Personas de IA' },
   history:  { group: 'Operação', title: 'Histórico da Live' },
@@ -1459,6 +1477,7 @@ const TAB_META: Record<TabKey, { group: string; title: string }> = {
 const NAV_LABELS: Record<PageKey, string> = {
   live: 'Ao Vivo',
   library: 'Biblioteca',
+  studio: 'Estúdio IDLE',
   flow: 'Automações',
   conversation: 'Conversar',
   personas: 'Personas',
@@ -1470,6 +1489,7 @@ const NAV_LABELS: Record<PageKey, string> = {
 const NAV_ICONS: Record<PageKey, ReactNode> = {
   live: <RadioTower />,
   library: <Film />,
+  studio: <Clapperboard />,
   flow: <Link2 />,
   conversation: <MessageCircle />,
   personas: <Users />,

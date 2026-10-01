@@ -11,14 +11,15 @@
  * significado de antes e são tratados pelo App.
  */
 
-export type PageKey = 'live' | 'library' | 'flow' | 'conversation' | 'personas' | 'history' | 'settings' | 'admin';
+export type PageKey = 'live' | 'library' | 'studio' | 'flow' | 'conversation' | 'personas' | 'history' | 'settings' | 'admin';
 
-/** Ordem da barra lateral — também define os atalhos Alt+1…Alt+8. */
-export const PAGE_ORDER: readonly PageKey[] = ['live', 'library', 'flow', 'conversation', 'personas', 'history', 'settings', 'admin'];
+/** Ordem da barra lateral — também define os atalhos Alt+1…Alt+9. */
+export const PAGE_ORDER: readonly PageKey[] = ['live', 'library', 'studio', 'flow', 'conversation', 'personas', 'history', 'settings', 'admin'];
 
 const PAGE_SLUGS: Record<PageKey, string> = {
   live: 'ao-vivo',
   library: 'biblioteca',
+  studio: 'estudio-idle',
   flow: 'automacoes',
   conversation: 'conversar',
   personas: 'personas',
@@ -54,7 +55,7 @@ export function hashForPage(page: PageKey): string {
   return `#/${PAGE_SLUGS[page]}`;
 }
 
-/** Alt+1…Alt+8 → página correspondente; qualquer outra tecla → null. */
+/** Alt+1…Alt+9 → página correspondente; qualquer outra tecla → null. */
 export function pageForShortcut(event: Pick<KeyboardEvent, 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'key' | 'code'>): PageKey | null {
   if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return null;
   // `code` resiste a layouts em que Alt+número vira outro caractere.
