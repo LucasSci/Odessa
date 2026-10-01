@@ -5,10 +5,11 @@
 ; ou use o que ja esta versionado no repo).
 
 !define APP_NAME "Odessa Studio"
-!define APP_VERSION "1.0.0"
-!define APP_VERSION_FULL "1.0.0.0"
+!define APP_VERSION "1.1.0"
+!define APP_VERSION_FULL "1.1.0.0"
 !define APP_PUBLISHER "Odessa Studio"
-!define APP_EXE_TARGET "launcher\start-odessa.vbs"
+; O programa (Electron): janela propria, bandeja e "Desligar" (desktop\shell).
+!define APP_EXE_TARGET "app\Odessa.exe"
 !define STAGE_DIR "build\stage"
 !define ART_DIR "assets\installer"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\OdessaStudio"
@@ -95,6 +96,8 @@ VIAddVersionKey "LegalCopyright" "${APP_PUBLISHER}"
     ; O launcher (start-odessa.ps1) fica vivo como supervisor e reergueria o
     ; backend logo depois de morto -- em plena troca de arquivos. Sai primeiro.
     FileWrite $1 `Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $$_.CommandLine -like "*${DIR}\launcher\start-odessa.ps1*" } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }$\r$\n`
+    ; O programa (app\Odessa.exe) tambem supervisiona o backend: sai junto.
+    FileWrite $1 `Get-CimInstance Win32_Process -Filter "Name='Odessa.exe'" | Where-Object { $$_.ExecutablePath -like "${DIR}*" } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }$\r$\n`
     FileWrite $1 `Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" | Where-Object { $$_.ExecutablePath -like "${DIR}*" } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }$\r$\n`
     FileClose $1
     nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -File "$TEMP\odessa-stop-running.ps1"'
@@ -184,6 +187,7 @@ Section "Instalar"
     RMDir /r "$INSTDIR\python"
     RMDir /r "$INSTDIR\dist"
     RMDir /r "$INSTDIR\launcher"
+    RMDir /r "$INSTDIR\app"
     RMDir /r "$INSTDIR\server"
     RMDir /r "$INSTDIR\tango_chat"
 
@@ -216,9 +220,9 @@ Section "Instalar"
     skip_reuse:
 
     CreateDirectory "$SMPROGRAMS\Odessa Studio"
-    CreateShortcut "$SMPROGRAMS\Odessa Studio\Odessa Studio.lnk" "$INSTDIR\${APP_EXE_TARGET}" "" "$INSTDIR\favicon.ico" 0 SW_SHOWNORMAL "" "Abrir o Odessa Studio"
+    CreateShortcut "$SMPROGRAMS\Odessa Studio\Odessa Studio.lnk" "$INSTDIR\${APP_EXE_TARGET}" "" "$INSTDIR\${APP_EXE_TARGET}" 0 SW_SHOWNORMAL "" "Abrir o Odessa Studio"
     CreateShortcut "$SMPROGRAMS\Odessa Studio\Desinstalar.lnk" "$INSTDIR\uninstall.exe"
-    CreateShortcut "$DESKTOP\Odessa Studio.lnk" "$INSTDIR\${APP_EXE_TARGET}" "" "$INSTDIR\favicon.ico" 0 SW_SHOWNORMAL "" "Abrir o Odessa Studio"
+    CreateShortcut "$DESKTOP\Odessa Studio.lnk" "$INSTDIR\${APP_EXE_TARGET}" "" "$INSTDIR\${APP_EXE_TARGET}" 0 SW_SHOWNORMAL "" "Abrir o Odessa Studio"
 
     WriteUninstaller "$INSTDIR\uninstall.exe"
     WriteRegStr HKCU "Software\OdessaStudio" "InstallDir" "$INSTDIR"

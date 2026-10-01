@@ -121,6 +121,25 @@ def ollama_serve_env() -> dict[str, str]:
     return env
 
 
+# `ollama serve` aberto pelo próprio Odessa ("Conectar Ollama"): só este é
+# encerrado ao desligar — um Ollama que o usuário já tinha aberto fica.
+_owned_ollama_proc: subprocess.Popen | None = None
+
+
+def stop_owned_ollama() -> bool:
+    """Encerra o `ollama serve` que o Odessa iniciou (se ainda estiver vivo)."""
+    global _owned_ollama_proc
+    proc, _owned_ollama_proc = _owned_ollama_proc, None
+    if proc is None or proc.poll() is not None:
+        return False
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    return True
+
+
 @router.post("/ollama/unload")
 async def ollama_unload():
     """Desliga a IA local ao trocar para uma IA de nuvem.
@@ -172,8 +191,9 @@ async def ollama_connect():
                 detail="Ollama não foi encontrado no PATH. Instale em https://ollama.com/download e tente novamente.",
             )
         try:
+            global _owned_ollama_proc
             creationflags = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
-            subprocess.Popen(
+            _owned_ollama_proc = subprocess.Popen(
                 [ollama_exe, "serve"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,

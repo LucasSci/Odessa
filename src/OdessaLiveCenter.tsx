@@ -65,6 +65,8 @@ import { usePolling } from './core/usePolling';
 import { useLiveSupervisor } from './core/useLiveSupervisor';
 import { PAGE_ORDER, hashForPage, pageFromHash, pageForShortcut, pageOfTab, type PageKey } from './core/pageRoutes';
 import { LegalLinks } from './components/LegalLinks';
+import { ShutdownButton } from './components/ShutdownButton';
+import { ASK_SHUTDOWN_EVENT } from './core/desktopBridge';
 
 const loadReactiveFlowBoard = () => import('./ReactiveFlowBoard');
 const loadPlanningCanvas = () => import('./PlanningCanvas');
@@ -853,6 +855,13 @@ export default function OdessaLiveCenter({
       nav('settings', 'Configurações', 'ajustes ia obs voz', () => setActiveTab('settings')),
       nav('admin', 'Diagnóstico', 'saude servicos ollama', () => setActiveTab('admin')),
       {
+        id: 'system-shutdown',
+        title: 'Desligar Odessa',
+        group: 'Sistema',
+        keywords: 'sair fechar encerrar desligar parar servidor',
+        run: () => { window.dispatchEvent(new Event(ASK_SHUTDOWN_EVENT)); },
+      },
+      {
         id: 'live-idle',
         title: 'Voltar ao Idle',
         group: 'Ao vivo',
@@ -961,7 +970,10 @@ export default function OdessaLiveCenter({
         </nav>
 
         <DirectorStatusCard runtime={runtime} onOpen={() => { setActiveTab('personas'); }} />
-        <LegalLinks className="px-4 pb-3" />
+        <div className="flex items-center justify-between gap-2 px-3 pb-3">
+          <LegalLinks className="px-1" />
+          <ShutdownButton className="shrink-0 text-slate-400 hover:text-red-300" />
+        </div>
       </aside>
 
       {/* Coluna principal: topbar + conteúdo */}

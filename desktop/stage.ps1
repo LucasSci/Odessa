@@ -1,8 +1,8 @@
-<#
+﻿<#
 .SYNOPSIS
     Monta a pasta "staged" com tudo que o instalador NSIS vai empacotar:
     frontend buildado, codigo do backend, runtime Python embutido, assets
-    e os scripts do launcher. Nao inclui venv/node_modules/.git.
+    e o programa (app\Odessa.exe). Nao inclui venv/node_modules/.git.
 
     Pre-requisito: rode desktop\build-runtime.ps1 antes (monta desktop\build\python).
 #>
@@ -118,8 +118,24 @@ Copy-Tree (Join-Path $root "assets") (Join-Path $stageDir "assets")
 Write-Host "Copiando runtime Python embutido (isso pode levar um tempo, sao ~200-400MB)..." -ForegroundColor Cyan
 Copy-Tree $pyDir (Join-Path $stageDir "python")
 
-Write-Host "Copiando scripts do launcher..." -ForegroundColor Cyan
-Copy-Tree (Join-Path $desktopDir "launcher") (Join-Path $stageDir "launcher")
+# O programa (Electron): janela propria, bandeja e o ciclo de vida do servidor.
+# Substitui o antigo launcher (start-odessa.vbs/.ps1), que abria uma aba no
+# navegador e nao tinha como desligar.
+Write-Host "Empacotando o programa Odessa (desktop\shell -> app\Odessa.exe)..." -ForegroundColor Cyan
+$shellDir = Join-Path $desktopDir "shell"
+Push-Location $shellDir
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+    if (-not (Test-Path (Join-Path $shellDir "node_modules"))) { cmd /c "npm ci --no-audit --no-fund" }
+    cmd /c "npm run package"
+    $packExit = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $prevEap
+    Pop-Location
+}
+if ($packExit -ne 0) { throw "Empacotamento do programa falhou (codigo $packExit)." }
+Copy-Tree (Join-Path $shellDir "out\Odessa-win32-x64") (Join-Path $stageDir "app")
 
 Write-Host "Copiando icone..." -ForegroundColor Cyan
 Copy-Item (Join-Path $root "public\favicon.ico") (Join-Path $stageDir "favicon.ico") -Force

@@ -34,6 +34,7 @@ const API_V1_PREFIXES = [
   '/session-history',
   '/planning',
   '/idle-studio',
+  '/system',
 ];
 
 export function apiUrl(path: string) {

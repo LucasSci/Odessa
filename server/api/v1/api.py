@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from server.api.v1.endpoints import video, ai, tts, memory, misc, automation, obs, webhooks, proxy, conversations, chat_automation, workflow, personas, persona_selfconfig, persona_photogen, persona_content, video_gen, session_history, planning, idle_studio
+from server.api.v1.endpoints import video, ai, tts, memory, misc, automation, obs, webhooks, proxy, conversations, chat_automation, workflow, personas, persona_selfconfig, persona_photogen, persona_content, video_gen, session_history, planning, idle_studio, system
 
 api_router = APIRouter()
 
@@ -23,3 +23,4 @@ api_router.include_router(persona_content.router, prefix="/personas", tags=["per
 api_router.include_router(session_history.router, prefix="/session-history", tags=["session-history"])
 api_router.include_router(planning.router, prefix="/planning", tags=["planning"])
 api_router.include_router(idle_studio.router, prefix="/idle-studio", tags=["idle-studio"])
+api_router.include_router(system.router, prefix="/system", tags=["system"])

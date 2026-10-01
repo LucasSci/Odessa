@@ -70,3 +70,7 @@ scripts/mural-antes-*.json
 
 # Estúdio da IDLE: anexos e estado de cada máquina
 server/data/idle_studio/
+
+# Programa desktop (Electron)
+desktop/shell/node_modules/
+desktop/shell/out/
