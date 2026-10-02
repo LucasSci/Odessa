@@ -213,9 +213,16 @@ export function resolveEffectiveProvider(config: AiLocalConfig = getAiConfig()):
   return 'ollama';
 }
 
-/** Chave que acompanha o pedido ao servidor para o provedor efetivo (hoje só a Mistral). */
+/**
+ * Chave que acompanha o pedido ao servidor para o provedor efetivo. Toda IA
+ * passa pelo servidor (mesmo prompt, mesma conversa, mesma memória); a chave
+ * vai em cada pedido e o servidor não a guarda.
+ */
 export function providerKeyFor(config: AiLocalConfig = getAiConfig()): string | undefined {
-  return resolveEffectiveProvider(config) === 'mistral' ? config.mistralKey : undefined;
+  const provider = resolveEffectiveProvider(config);
+  if (provider === 'mistral') return config.mistralKey;
+  if (provider === 'gemini') return getEffectiveGeminiKey() || undefined;
+  return undefined;
 }
 
 /**

@@ -9,7 +9,8 @@ import {
   contactDeflection,
   buildConversationTurns,
   scrubEchoedChat,
-  LOCAL_RESPONSE_RULES,
+  buildSystemPrompt,
+  CONVERSATION_STYLE,
 } from './tangoAiChatService';
 
 describe('tangoAiChatService', () => {
@@ -76,7 +77,7 @@ describe('proteções que não dependem do modelo', () => {
   });
 });
 
-describe('conversa em turnos para a IA local', () => {
+describe('conversa em turnos (igual para toda IA)', () => {
   it('persona = assistant, espectadores = user com nome, termina na mensagem atual', () => {
     const history = [
       { username: 'Odessa', text: 'oi gente!', own: true }, // começo da própria persona: descartado
@@ -97,8 +98,36 @@ describe('conversa em turnos para a IA local', () => {
     expect(buildConversationTurns([incoming], incoming)).toEqual([{ role: 'user', content: 'ana: oi' }]);
   });
 
-  it('regras da IA local são curtas', () => {
-    expect(LOCAL_RESPONSE_RULES.length).toBeLessThan(1000);
+  it('linhas da plataforma ficam de fora e nome que não é de gente vira "alguém"', () => {
+    const history = [
+      { username: 'Battle Results:', text: 'Winner: Viktoriiaa' },
+      { username: 'Chill Wolf', text: 'Novo seguidor!' },
+      { username: '$100,Give-l00K,Coin', text: 'oi linda' },
+    ];
+    expect(buildConversationTurns(history, { username: '$100,Give-l00K,Coin', text: 'como foi seu dia?' })).toEqual([
+      { role: 'user', content: 'alguém: oi linda\nalguém: como foi seu dia?' },
+    ]);
+  });
+});
+
+describe('o mesmo pacote de prompt para qualquer IA', () => {
+  it('identidade, jeito de conversar, hora, memória e últimas falas, nesta ordem', () => {
+    const prompt = buildSystemPrompt({
+      identity: 'Você é a Viktoria.',
+      memory: '[SOBRE QUEM ESTÁ FALANDO] carlos é de Campinas.',
+      recentOwn: ['Boa noite.', 'Malbec, sempre.'],
+      now: new Date(2026, 9, 2, 22, 0),
+    });
+    const order = ['Você é a Viktoria.', 'COMO VOCÊ CONVERSA', '[AGORA] sexta-feira, 22h00', 'carlos é de Campinas', '- Malbec, sempre.'];
+    const positions = order.map((part) => prompt.indexOf(part));
+    expect(positions.every((pos) => pos >= 0)).toBe(true);
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+  });
+
+  it('a regra de conversa cobre o que soava artificial', () => {
+    for (const rule of ['feminino', 'nunca copie', 'IA, robô ou bot', 'não acompanha', 'quer saber mais', 'e você?']) {
+      expect(CONVERSATION_STYLE).toContain(rule);
+    }
   });
 });
 

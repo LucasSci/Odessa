@@ -11,6 +11,8 @@ describe('provedor de IA escolhido na tela', () => {
     save({ provider: 'gemini', geminiKey: 'k' });
     expect(getAiConfig().provider).toBe('gemini');
     expect(resolveEffectiveProvider()).toBe('gemini');
+    // A Gemini também responde pelo servidor (mesmo jeito de qualquer IA): a chave vai junto.
+    expect(providerKeyFor()).toBe('k');
   });
 
   it('Mistral com chave é usada e a chave acompanha o pedido', () => {

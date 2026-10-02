@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   classifyIncomingMessage,
   describeReplyBlock,
+  isPlatformSystemLine,
   recordChatReplySent,
   recordIncomingMessage,
   resetChatConversationGovernor,
@@ -80,5 +81,27 @@ describe('chatConversationGovernor (respostas pela bridge)', () => {
     expect(describeReplyBlock('duplicate_message')).toMatch(/duplicada/);
     expect(describeReplyBlock('bridge_not_ready')).toMatch(/bridge/);
     expect(describeReplyBlock('user_cooldown_12s')).toBe('cooldown do usuário (12s restantes)');
+  });
+});
+
+describe('linhas da plataforma não são gente', () => {
+  beforeEach(() => resetChatConversationGovernor());
+
+  it.each([
+    ['Battle Results:', 'Winner: Viktoriiaa'],
+    ['unknown', 'Vencedora: Viktoriiaa'],
+    ['Chill Wolf', 'Novo seguidor!'],
+    ['TG', '@TG: tu6346'],
+    ['X', '@X: (tu6346)'],
+    ['unknown', 'Falha ao enviar "oi"'],
+  ])('%s · %s', (user, text) => {
+    expect(isPlatformSystemLine({ username: user, text })).toBe(true);
+    const decision = shouldReplyToMessage(msg(user, text), OPTS);
+    expect(decision).toMatchObject({ allowed: false, reason: 'platform_line' });
+  });
+
+  it('conversa normal passa', () => {
+    expect(isPlatformSystemLine({ username: 'carlos', text: 'quem ganhou a batalha?' })).toBe(false);
+    expect(isPlatformSystemLine({ username: 'ana', text: 'sigo você faz tempo' })).toBe(false);
   });
 });

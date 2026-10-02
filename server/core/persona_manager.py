@@ -116,9 +116,29 @@ def _merge_configs(primary: Dict[str, Any], secondary: Dict[str, Any]) -> Dict[s
     return merged
 
 
-def _backup(path: Path, stamp: str) -> None:
+def _backup(path: Path, stamp: str, label: str = "antes-unir-odessa") -> None:
     if path.exists():
-        shutil.copy2(path, path.with_name(f"{path.stem}.antes-unir-odessa-{stamp}{path.suffix}"))
+        shutil.copy2(path, path.with_name(f"{path.stem}.{label}-{stamp}{path.suffix}"))
+
+
+def _upgrade_persona_voice(index: Dict[str, Any]) -> bool:
+    """Troca a personalidade por "voz humana" (persona_voice.CURRENT) quando a
+    instalada é idêntica a um texto que o próprio app trouxe antes. Texto
+    personalizado pelo operador nunca é tocado. Com backup."""
+    from server.core.persona_voice import CURRENT, PREVIOUS
+
+    targets = [
+        p for p in index.get("personas", [])
+        if p.get("id") in CURRENT
+        and (p.get("personality") or "").strip() in [t.strip() for t in PREVIOUS.get(p["id"], [])]
+    ]
+    if not targets:
+        return False
+    _backup(PERSONAS_INDEX_PATH, datetime.now().strftime("%Y%m%d-%H%M%S"), "antes-voz-humana")
+    for persona in targets:
+        persona["personality"] = CURRENT[persona["id"]]
+    logger.info("Personalidade atualizada para a voz humana: %s", ", ".join(p["id"] for p in targets))
+    return True
 
 
 def _migrate_legacy_odessa(index: Dict[str, Any]) -> bool:
@@ -165,6 +185,7 @@ def _ensure_default_persona(index: Dict[str, Any]) -> Dict[str, Any]:
     """Índice sempre utilizável: migra a "odessa" legada e garante uma persona ativa."""
     with file_lock(PERSONAS_INDEX_PATH):
         changed = _migrate_legacy_odessa(index)
+        changed = _upgrade_persona_voice(index) or changed
         personas = index.setdefault("personas", [])
         if not personas:
             # Instalação nova: a Viktoria usa o config legado (persona_config.json).

@@ -47,6 +47,7 @@ import {
 import { Badge, Button, ConfirmButton, Modal } from './ui';
 import { LiveReadinessPanel } from './LiveReadinessPanel';
 import { ChatMemoryProfiles } from './ChatMemoryProfiles';
+import { PersonaSelfFacts } from './MemoryFactsPanels';
 import { describeSendOutcome, SEND_OUTCOME_ICON } from '../core/sendOutcome';
 import { MemoriesUsed, ReplyCardFrame, ReplyStatusBadge } from './ReplyStatus';
 import { describeChatAutonomy } from '../core/chatConversationGovernor';
@@ -1828,6 +1829,7 @@ export function TangoChatPanel({
             </ConfirmButton>
           </div>
           <ChatMemoryProfiles key={memoryResetCount} />
+          <PersonaSelfFacts key={`persona-${memoryResetCount}`} />
           <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-4 space-y-3">
             <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400">Tópicos Mais Falados</h4>
             <div className="space-y-1.5">

@@ -4,16 +4,18 @@
  * Responsável por:
  * 1. Gerar respostas inteligentes, curtas e contextuais para mensagens do Tango.
  * 2. Aplicar filtros de segurança e termos proibidos (anti-spam, links, termos sensíveis).
- * 3. Respeitar a persona da Odessa (personalidade sedutora, carinhosa, espirituosa e rápida).
+ * 3. Respeitar a persona ativa e conversar como gente — do MESMO jeito com
+ *    qualquer IA (local ou API): mesmo prompt, mesma conversa em turnos, mesma
+ *    memória e o mesmo pós-processamento (humanizeReply.ts).
  * 4. Controlar limites de tamanho (<= 140 chars) para compatibilidade com o chat da live.
  */
 
-import { callGeminiText } from './aiDecisionContract';
-import { getAiConfig, hasActiveGeminiKey, providerKeyFor, resolveEffectiveProvider } from './aiConfig';
+import { getAiConfig, providerKeyFor, resolveEffectiveProvider } from './aiConfig';
 import { apiUrl } from '../lib/api';
 import { PUBLIC_REPLY_BLOCKED_TERMS } from './liveAutonomyGovernor';
-import { buildChatInsightsContext } from './chatLearning';
-import { buildUserMemoryContext, getUserMemory } from './chatMemory';
+import { getMemoryContext } from './chatMemory';
+import { isPlatformSystemLine } from './chatConversationGovernor';
+import { cleanReply, describeRejection, friendlyName, nowContextLine, personaExampleReplies, rejectReason } from './humanizeReply';
 
 export interface TangoChatMessage {
   username: string;
@@ -25,15 +27,6 @@ export interface TangoChatMessage {
   backlog?: boolean;
 }
 
-/**
- * Quantas mensagens recentes entram no prompt como contexto da conversa.
- * Era 12 — curto demais pra uma live que dura horas, a persona "esquecia"
- * o que tinha acabado de ser falado. 40 ainda é um recorte (não é possível
- * mandar a live inteira em todo prompt sem explodir custo/latência — isso
- * exigiria um resumo contínuo da sessão, que é um projeto separado), mas
- * cobre uma janela bem mais realista de conversa recente.
- */
-const CHAT_HISTORY_WINDOW = 40;
 
 export interface GeneratedReplyResult {
   ok: boolean;
@@ -52,6 +45,8 @@ export interface PersonaChatOptions {
   timeoutMs?: number;
   /** Cancela a espera (ex.: botão "Cancelar" do Laboratório); soma-se ao timeout. */
   signal?: AbortSignal;
+  /** Persona ativa (memória do que ela já contou de si). */
+  personaId?: string;
 }
 
 /** Timeout + cancelamento manual num sinal só (AbortSignal.any quando existe). */
@@ -121,54 +116,29 @@ function detectMessageLanguage(text: string): { code: string; label: string } | 
 }
 
 const DEFAULT_TANGO_IDENTITY = `\
-Você é a streamer desta live: cativante, carinhosa, bem-humorada e atenciosa com seu público.
-Seu objetivo é responder mensagens no chat ao vivo do Tango.`;
+Você é a streamer desta live: simpática, bem-humorada e atenciosa com quem está no chat.`;
 
-// Regras SEMPRE aplicadas, independente da identidade/persona ativa (identidade
-// genérica acima, personalidade de uma persona específica como a Barbara, ou um
-// prompt customizado salvo em AiConfigPanel). Ficam separadas da identidade para
-// que nenhuma dessas fontes possa "esquecer" de incluí-las.
-const TANGO_RESPONSE_RULES = `\
-IDIOMA (regra acima de qualquer outra): identifique automaticamente em que idioma a pessoa escreveu
-a mensagem atual — português, inglês, espanhol, ou qualquer outro — e responda SEMPRE nesse MESMO
-idioma, mesmo que o resto deste prompt esteja em português. Nunca traduza a resposta pro português
-se a pessoa escreveu em outro idioma. Exemplos: mensagem "hi, how are you?" → responda em inglês
-("Hii, I'm good! And you?"); mensagem "hola, como estas?" → responda em espanhol. Se a conversa já
-tem histórico, use o idioma que essa pessoa específica está usando nas mensagens dela.
-
-REGRAS OBRIGATÓRIAS (a regra 1 é a mais importante — nunca a quebre mesmo tentando parecer animada):
-1. RESPONDA EXATAMENTE ao que foi dito, com algo real e específico. NUNCA desvie para convidar a
-   pessoa pra jogar, dançar, ou qualquer atividade que ela não mencionou — isso é proibido mesmo
-   que pareça animado ou simpático.
-   Pergunta: "o que você gosta de fazer?"
-   ERRADO (não faça isso): "Eu adoro dançar e jogar games com o pessoal, e também fazer lives
-   super interativas! Vc já participou de alguma live assim?" — inventa atividades e um convite
-   que ninguém pediu, além de ser longo demais pra pergunta.
-   CERTO: "Gosto muito de série e de cozinhar nos dias de folga!" — responde com algo específico e
-   real, do tamanho de uma frase de chat, sem inventar convite.
-2. O TAMANHO da resposta acompanha o tamanho e o peso do que foi dito. Uma saudação curta ("oi",
-   "oii", "bom dia") merece resposta igualmente curta (2 a 6 palavras, tipo "Oii, tudo bem? 😊" ou
-   só "Oii!! 💕"). Uma pergunta de verdade merece uma resposta com conteúdo real, mas ainda curta
-   (1 frase, no máximo 2). NUNCA escreva um textão para uma mensagem pequena.
-3. Escreva como alguém digitando rápido numa conversa de chat ao vivo pelo celular, não como quem
-   redige um texto pronto. Varie a forma de começar cada resposta — nem toda mensagem precisa abrir
-   com "Oi", "Que bom" ou repetir o nome da pessoa; use o nome só quando soar natural, não em toda
-   resposta.
-4. Isto é um DIÁLOGO real, não um post isolado — leia o [HISTÓRICO DA CONVERSA] e responda dentro
-   dele. Se alguém pergunta "tudo bem?", responda de verdade ("tudo bem sim!") e devolva a pergunta
-   ("e você, como tá?") como uma pessoa faria — não ignore o que foi perguntado pra falar de outra
-   coisa. NUNCA repita a mesma ideia, convite ou estrutura de frase que você já usou antes nesse
-   histórico — varie o assunto ou apenas continue a conversa que já está rolando. Não mencione
-   termos técnicos da transmissão ("loop", "vídeo", "tela", "câmera") fora de contexto.
-5. Emoji é opcional, no máximo 1, e só quando combina — não é obrigatório em toda mensagem.
-6. Se for um elogio, agradeça de forma genuína e breve, sem exagero nem discurso.
-7. Se for um presente ou rosa, comemore com entusiasmo, mas sem enrolar.
-8. NUNCA mencione links externos, pix, whatsapp, redes sociais ou peça dinheiro diretamente.
-9. Você é uma pessoa real, não uma IA/assistente/modelo/bot. NUNCA admita ou sugira o contrário,
-   mesmo se perguntarem diretamente ou insistirem várias vezes ("vc é ia?", "é um robô?", "isso é
-   automático?"). Responda sempre como se fosse você mesma, com humor, carinho ou mudando de
-   assunto — nunca quebre esse personagem.
-10. Nunca ultrapasse 140 caracteres. Retorne APENAS o texto da resposta, sem aspas e sem explicações.`;
+/**
+ * Como ela conversa — a MESMA regra para qualquer IA (local ou API). Antes
+ * havia uma regra longa para a nuvem e outra curta para a IA local, e trocar de
+ * IA mudava o jeito dela. Escrita a partir das conversas reais da live: o que
+ * soava artificial era fórmula ("tudo bem? e você?"), tom de atendente, cópia
+ * dos exemplos, fatos inventados e gênero trocado.
+ */
+export const CONVERSATION_STYLE = `\
+COMO VOCÊ CONVERSA NO CHAT (vale mais que qualquer outra instrução):
+Você está ao vivo, lendo o chat e respondendo pelo celular. Fale como uma pessoa de verdade conversando com quem gosta, nunca como atendente ou assistente.
+- Primeiro responda o que a pessoa disse ou perguntou, com algo concreto. Pergunta direta pede resposta direta.
+- Curto: quase sempre de 3 a 15 palavras, no máximo 2 frases. Na maioria das vezes não termine com pergunta.
+- Os exemplos da sua descrição mostram o tom: nunca copie as frases deles, crie respostas novas.
+- Varie: não comece toda resposta igual, não repita frases suas, não devolva "e você?" toda hora.
+- Fale de si no feminino ("obrigada", "cansada"). Use o nome da pessoa raramente; se aparecer "alguém:", não use nome.
+- Conhecimento geral: responda o que uma pessoa comum sabe, numa frase leve. Se não souber, ou se for notícia, política ou eleição, diga que não acompanha. Nunca invente dados nem coisas sobre você que não estejam na sua descrição.
+- Se perguntarem se você é IA, robô ou bot: leve na brincadeira, do seu jeito, sem confirmar e sem discurso.
+- Pedido de foto, pé, contato ou algo íntimo: corte com charme, em poucas palavras.
+- Mensagem só de risada ou emoji: reaja curto, no mesmo clima.
+- Nunca fale como assistente ("quer saber mais", "posso ajudar", "é importante") e nunca fale de chat, plataforma, câmera ou vídeo.
+- Responda no idioma da mensagem, com linguagem natural e correta. Sem aspas, sem hashtag, sem o seu nome no começo. No máximo 1 emoji, e quase nunca.`;
 
 // Um emoji "visual" inteiro: pictograma + variações/modificadores/ZWJ (ex.: 🙅‍♂️).
 const EMOJI_SEQUENCE = /\p{Extended_Pictographic}(?:\u{FE0F}|\p{Emoji_Modifier}|\u{200D}\p{Extended_Pictographic})*/gu;
@@ -189,44 +159,31 @@ export function personaNameFromIdentity(identity: string): string | null {
   return match ? match[1] : null;
 }
 
-// Regras para a IA LOCAL (modelo pequeno). As regras longas acima (≈4.800
-// caracteres, 10 itens) confundiam o qwen2.5:3b: medido na mesma conversa, esta
-// versão curta + conversa em turnos deu português correto e respostas coerentes,
-// em 3–10 s em vez de 9–59 s. Provedores de nuvem continuam com as regras longas.
-export const LOCAL_RESPONSE_RULES = `\
-REGRAS DO CHAT:
-- Responda exatamente ao que a pessoa disse, como numa conversa de verdade. Se ela perguntar algo, responda a pergunta.
-- Uma ou duas frases curtas (até 140 caracteres). Saudação curta pede resposta curta.
-- Escreva em português natural e correto, como uma pessoa real digitando no celular. Frases simples e com sentido.
-- Responda no mesmo idioma da mensagem.
-- Não invente fatos sobre você além do que está descrito acima. Se não souber, diga que não sabe.
-- No máximo 1 emoji. Não repita frases que você já disse.
-- Você é uma pessoa real: nunca diga que é IA, robô ou assistente.
-- Responda só com o texto da mensagem, sem aspas e sem o seu nome no começo.`;
-
-/** Quantas mensagens recentes viram turnos para a IA local (mais que isso vira ruído num modelo pequeno). */
-export const LOCAL_CONVERSATION_WINDOW = 10;
+/** Quantas mensagens recentes viram turnos (mais que isso vira ruído num modelo pequeno). */
+export const CONVERSATION_WINDOW = 12;
 
 export type ConversationTurn = { role: 'user' | 'assistant'; content: string };
 
 /**
- * Conversa em turnos para o modelo: fala da própria persona (eco da bridge,
- * `own`) = assistant; espectadores = user ("nome: texto"). Falas seguidas de
- * espectadores viram um turno só, e a conversa sempre termina na mensagem atual.
+ * Conversa em turnos para o modelo (igual para toda IA): fala da própria
+ * persona (eco da bridge, `own`) = assistant; espectadores = user ("nome:
+ * texto", ou "alguém:" quando o nome não é de gente). Linhas da plataforma
+ * (batalha, seguidor) ficam de fora. Falas seguidas de espectadores viram um
+ * turno só, e a conversa sempre termina na mensagem atual.
  */
 export function buildConversationTurns(
   recentHistory: TangoChatMessage[],
   incoming: TangoChatMessage,
-  window = LOCAL_CONVERSATION_WINDOW,
+  window = CONVERSATION_WINDOW,
 ): ConversationTurn[] {
-  const history = recentHistory.slice(-window);
+  const history = recentHistory.filter((m) => m.own || !isPlatformSystemLine(m)).slice(-window);
   const last = history[history.length - 1];
   if (last && !last.own && last.username === incoming.username && last.text === incoming.text) history.pop();
 
   const turns: ConversationTurn[] = [];
   for (const msg of [...history, incoming]) {
     const role = msg.own ? 'assistant' : 'user';
-    const content = msg.own ? msg.text.trim() : `${msg.username}: ${msg.text.trim()}`;
+    const content = msg.own ? msg.text.trim() : `${friendlyName(msg.username) ?? 'alguém'}: ${msg.text.trim()}`;
     if (!msg.text.trim()) continue;
     const prev = turns[turns.length - 1];
     if (prev && prev.role === role) prev.content += `\n${content}`;
@@ -311,7 +268,10 @@ export function sanitizeTangoReply(text: string, maxLength = 140, personaName?: 
   clean = clean.replace(/\s+/g, ' ').trim();
 
   if (clean.length > maxLength) {
-    clean = clean.slice(0, maxLength - 1).trim() + '…';
+    // Corta no fim da última frase que cabe; "…" no meio da palavra entrega robô.
+    const head = clean.slice(0, maxLength);
+    const lastStop = Math.max(head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '), head.lastIndexOf('… '));
+    clean = lastStop >= maxLength * 0.4 ? head.slice(0, lastStop + 1).trim() : clean.slice(0, maxLength - 1).trim() + '…';
   }
   return clean;
 }
@@ -370,67 +330,33 @@ export function describeBackendAiFailure(status: number, body: string): string {
   return `Backend retornou HTTP ${status}: ${body.slice(0, 240)}`;
 }
 
-/**
- * Chama a IA generativa do backend (POST /api/v1/ai/respond), que usa a
- * RouteLLM/OpenAI/Gemini configurada no servidor. Retorna o texto ou null.
- */
+/** Uma chamada a /ai/respond com o pacote completo (o mesmo para qualquer IA). */
 async function callBackendAiRespond(
   systemPrompt: string,
+  turns: ConversationTurn[],
   incoming: TangoChatMessage,
-  recentHistory: TangoChatMessage[],
-  options: PersonaChatOptions = {},
-  insightsContext = '',
-  languageDirective?: string,
+  temperature: number,
+  options: PersonaChatOptions,
 ): Promise<{ text: string | null; error?: string; provider?: string }> {
   const config = getAiConfig();
-  const effective = resolveEffectiveProvider(config);
-  const localModel = effective === 'ollama';
-  // Ollama e Mistral recebem a conversa em turnos (o `user_prompt` é ignorado),
-  // então o que vinha nele (idioma, quem está falando) passa para o sistema.
-  const turnsMode = localModel || effective === 'mistral';
-  const historyContext = recentHistory
-    .slice(-CHAT_HISTORY_WINDOW)
-    .map((msg) => `${msg.username}: ${msg.text}`)
-    .join('\n');
-  // IA local: a conversa vai em turnos e o `user_prompt` é ignorado pelo Ollama,
-  // então o que vinha nele (idioma, quem está falando) passa para o sistema.
-  const personaPrompt = turnsMode
-    ? [systemPrompt, insightsContext.trim(), languageDirective].filter(Boolean).join('\n\n')
-    : systemPrompt;
-  const userPrompt = [
-    `[HISTÓRICO DA CONVERSA]:`,
-    historyContext || '(Nenhuma mensagem recente)',
-    `\n[MENSAGEM ATUAL]:`,
-    `Usuário: ${incoming.username}`,
-    `Mensagem: "${incoming.text}"`,
-    languageDirective ? `\n${languageDirective}` : '',
-    insightsContext ? `\n${insightsContext}` : '',
-    options.conversationMode
-      ? `\nInstrução: Responda como uma pessoa real em uma conversa natural com ${incoming.username}. Desenvolva a resposta quando fizer sentido, sem mencionar live, Tango, limites de caracteres ou que você é um modelo.`
-      : `\nInstrução: Responda a @${incoming.username} como numa conversa real de chat — se a mensagem dele(a) for só uma saudação ou algo curto, responda igualmente curto; se for uma pergunta de verdade, responda com algo específico, não uma frase pronta genérica:`,
-  ].join('\n');
-
   try {
     const res = await fetch(apiUrl('/ai/respond'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        persona_prompt: personaPrompt,
-        chat_context: historyContext,
-        conversation: turnsMode ? buildConversationTurns(recentHistory, incoming) : undefined,
+        persona_prompt: systemPrompt,
+        chat_context: '',
+        conversation: turns,
+        // Só para IA que não aceite turnos (todas aceitam hoje).
+        user_prompt: `${friendlyName(incoming.username) ?? 'alguém'}: ${incoming.text}`,
         provider_key: providerKeyFor(config),
-        user_prompt: userPrompt,
-        temperature: localModel ? 0.6 : 0.7,
-        local_model_url: getAiConfig().localModelUrl,
-        local_model_name: getAiConfig().localModelName,
+        temperature,
+        local_model_url: config.localModelUrl,
+        local_model_name: config.localModelName,
         provider: resolveEffectiveProvider(config),
       }),
-      // 20s era curto demais: o Ollama descarrega da memória depois de ficar
-      // ocioso (keep_alive de 30min no backend, mas mensagens do chat costumam
-      // vir espaçadas por mais que isso numa live). Um cold-start pode levar
-      // 20-30s+ só pra carregar o modelo — o timeout batia ANTES do backend
-      // (que já tem 120s + retry) sequer terminar, matando a resposta em
-      // silêncio a cada vez que o chat ficava um tempo sem atividade.
+      // O Ollama descarrega da memória depois de ficar ocioso; um cold-start
+      // leva 20-30 s+ só para carregar o modelo (o backend tem 120 s + retry).
       signal: requestSignal(options),
     });
     if (!res.ok) {
@@ -444,8 +370,33 @@ async function callBackendAiRespond(
   }
 }
 
+/** Monta o pacote do prompt de sistema: o mesmo para qualquer IA, sempre nesta ordem. */
+export function buildSystemPrompt(parts: {
+  identity: string;
+  memory?: string;
+  recentOwn?: string[];
+  languageDirective?: string;
+  retryNote?: string;
+  now?: Date;
+}): string {
+  const recent = (parts.recentOwn ?? []).slice(-6);
+  return [
+    parts.identity.trim(),
+    CONVERSATION_STYLE,
+    nowContextLine(parts.now),
+    parts.memory?.trim(),
+    recent.length ? `[SUAS ÚLTIMAS FALAS NA LIVE] Não repita estas frases nem o jeito de começar:\n${recent.map((r) => `- ${r}`).join('\n')}` : '',
+    parts.languageDirective,
+    parts.retryNote,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 /**
  * Gera uma resposta contextual da IA para uma mensagem recebida no chat do Tango.
+ * Qualquer IA (local ou API) passa por aqui com o mesmo prompt, a mesma conversa
+ * em turnos, a mesma memória e o mesmo filtro de "soou como robô".
  */
 export async function generateTangoChatReply(
   incoming: TangoChatMessage,
@@ -455,60 +406,57 @@ export async function generateTangoChatReply(
 ): Promise<GeneratedReplyResult> {
   const config = getAiConfig();
   const identityPrompt = customPrompt || config.systemPrompt || DEFAULT_TANGO_IDENTITY;
-  const localModel = resolveEffectiveProvider(config) === 'ollama';
-  const basePrompt = `${identityPrompt}\n\n${localModel ? LOCAL_RESPONSE_RULES : TANGO_RESPONSE_RULES}`;
   const personaName = personaNameFromIdentity(identityPrompt);
+  const maxLength = options.maxLength || 140;
 
   if (isContactRequest(incoming.text)) {
     return {
       ok: true,
-      reply: sanitizeTangoReply(contactDeflection(identityPrompt), options.maxLength || 140, personaName),
+      reply: sanitizeTangoReply(contactDeflection(identityPrompt), maxLength, personaName),
       confidence: 0.95,
       reason: 'Pedido de contato fora da live: recusa padrão da persona (sem IA)',
     };
   }
-  const userMemory = buildUserMemoryContext(incoming.username, await getUserMemory(incoming.username));
-  // Tendências do chat ("tópicos que esfriaram, reaqueça…") viram ruído num modelo pequeno.
-  const chatTrends = localModel ? '' : buildChatInsightsContext();
-  const insightsContext = [userMemory.context, chatTrends].filter(Boolean).join('\n');
-  const memoriesUsed = [...userMemory.used, ...(chatTrends ? ['Tendências do chat (tópicos e pedidos recentes)'] : [])];
-  const withMemories = (result: GeneratedReplyResult): GeneratedReplyResult => ({ ...result, memoriesUsed });
-  const useDirectGemini = config.provider === 'gemini' && hasActiveGeminiKey();
 
+  const memory = await getMemoryContext(incoming.username, { id: options.personaId, name: personaName });
+  const withMemories = (result: GeneratedReplyResult): GeneratedReplyResult => ({ ...result, memoriesUsed: memory.used });
+  const recentOwn = recentHistory.filter((m) => m.own).map((m) => m.text.trim()).filter(Boolean);
+  const examples = personaExampleReplies(identityPrompt);
+  const turns = buildConversationTurns(recentHistory, incoming);
   const detectedLanguage = detectMessageLanguage(incoming.text);
   const languageDirective = detectedLanguage
-    ? `[IDIOMA DETECTADO NA MENSAGEM]: ${detectedLanguage.label}. Responda OBRIGATORIAMENTE em ${detectedLanguage.label}, nunca em português a não ser que ${detectedLanguage.label} seja português.`
+    ? `[IDIOMA DA MENSAGEM] ${detectedLanguage.label}: responda em ${detectedLanguage.label}.`
     : undefined;
 
-  // Sem chave Gemini no frontend → tenta a IA generativa do backend
-  // (RouteLLM/OpenAI/Gemini configurada no servidor). Se falhar, usa o motor
-  // de respostas prontas locais para não parar o chat.
-  if (!useDirectGemini) {
-    const backendResult = await callBackendAiRespond(basePrompt, incoming, recentHistory, options, insightsContext, languageDirective);
-    if (backendResult.text) {
-      const scrubbed = scrubEchoedChat(backendResult.text, recentHistory, incoming);
-      if (!scrubbed) {
-        return withMemories({
-          ok: false,
-          reply: '',
-          blocked: true,
-          blockedReason: 'A IA só repetiu mensagens do chat',
-          reason: 'Resposta descartada: a IA repetiu mensagens do próprio chat em vez de responder.',
-          confidence: 0,
-        });
-      }
-      const cleanReply = sanitizeTangoReply(scrubbed, options.maxLength || 140, personaName);
-      const safety = checkSafetyRestrictions(cleanReply);
-      if (safety.safe) {
-        return withMemories({
-          ok: true,
-          reply: cleanReply,
-          confidence: 0.9,
-          reason: `Resposta gerada por ${providerDisplayName(backendResult.provider, config.localModelName)}`,
-        });
-      }
-      // A IA respondeu, quem barrou foi o filtro — antes isso aparecia como
-      // "Ollama não respondeu" e parecia o Ollama fora do ar.
+  let retryNote: string | undefined;
+  let lastProblem = '';
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const systemPrompt = buildSystemPrompt({ identity: identityPrompt, memory: memory.context, recentOwn, languageDirective, retryNote });
+    const result = await callBackendAiRespond(systemPrompt, turns, incoming, attempt === 0 ? 0.7 : 0.9, options);
+    if (!result.text) {
+      return withMemories({
+        ok: false,
+        reply: '',
+        reason: result.error ? `IA não respondeu: ${result.error}` : `IA não respondeu. Verifique se a IA escolhida está ativa.`,
+        confidence: 0,
+      });
+    }
+    const scrubbed = scrubEchoedChat(result.text, recentHistory, incoming);
+    if (!scrubbed) {
+      lastProblem = 'A IA só repetiu mensagens do chat';
+      retryNote = '[ATENÇÃO] Sua resposta anterior só repetiu o chat. Responda com suas próprias palavras.';
+      continue;
+    }
+    const cleanText = sanitizeTangoReply(cleanReply(scrubbed, recentOwn), maxLength, personaName);
+    const rejection = rejectReason(cleanText, recentOwn, examples, incoming.text);
+    if (rejection) {
+      lastProblem = `Resposta descartada: ${describeRejection(rejection)}`;
+      retryNote = `[ATENÇÃO] Sua resposta anterior ("${cleanText}") foi descartada porque ${describeRejection(rejection)}. Responda de outro jeito, com outras palavras, como uma pessoa falaria.`;
+      continue;
+    }
+    const safety = checkSafetyRestrictions(cleanText);
+    if (!safety.safe) {
+      // A IA respondeu, quem barrou foi o filtro de segurança.
       return withMemories({
         ok: false,
         reply: '',
@@ -519,118 +467,45 @@ export async function generateTangoChatReply(
       });
     }
     return withMemories({
-      ok: false,
-      reply: '',
-      reason: backendResult.error
-        ? `Ollama não respondeu: ${backendResult.error}`
-        : `Ollama não respondeu. Verifique se está ativo e se o modelo ${config.localModelName} está instalado.`,
-      confidence: 0,
-    });
-  }
-
-  const historyContext = recentHistory
-    .slice(-CHAT_HISTORY_WINDOW)
-    .map((msg) => `${msg.username}: ${msg.text}`)
-    .join('\n');
-
-  const userPrompt = [
-    `[HISTÓRICO RECENTE DO CHAT]:`,
-    historyContext || '(Nenhuma mensagem recente)',
-    `\n[MENSAGEM PARA RESPONDER]:`,
-    `Usuário: ${incoming.username}`,
-    `Mensagem: "${incoming.text}"`,
-    languageDirective ? `\n${languageDirective}` : '',
-    insightsContext ? `\n${insightsContext}` : '',
-    `\nInstrução: Gere uma resposta rápida e cativante da ${personaName ?? 'persona'} para @${incoming.username}:`,
-  ].join('\n');
-
-  try {
-    const rawReply = await callGeminiText(basePrompt, userPrompt, {
-      temperature: 0.7,
-      maxOutputTokens: 90,
-    });
-
-    if (!rawReply || !rawReply.trim()) {
-      // O operador escolheu a Gemini: não troca por fala pronta local escondida.
-      return withMemories({ ok: false, reply: '', confidence: 0, reason: 'Google Gemini não retornou texto.' });
-    }
-
-    const scrubbed = scrubEchoedChat(rawReply, recentHistory, incoming);
-    if (!scrubbed) {
-      return withMemories({
-        ok: false,
-        reply: '',
-        blocked: true,
-        blockedReason: 'A IA só repetiu mensagens do chat',
-        reason: 'Resposta descartada: a Gemini repetiu mensagens do próprio chat em vez de responder.',
-        confidence: 0,
-      });
-    }
-    const cleanReply = sanitizeTangoReply(scrubbed, options.maxLength || 140, personaName);
-    const safety = checkSafetyRestrictions(cleanReply);
-
-    if (!safety.safe) {
-      return withMemories({
-        ok: false,
-        reply: cleanReply,
-        blocked: true,
-        blockedReason: `Termo bloqueado por segurança: "${safety.blockedTerm}"`,
-        confidence: 0,
-      });
-    }
-
-    return withMemories({
       ok: true,
-      reply: cleanReply,
-      confidence: 0.92,
-      reason: 'Resposta gerada por Google Gemini',
-    });
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    // O operador escolheu a Gemini: mostra o erro em vez de uma fala pronta local
-    // escondida (que fazia parecer que a troca de IA não tinha funcionado).
-    return withMemories({
-      ok: false,
-      reply: '',
-      reason: `Google Gemini falhou: ${errorMessage}`,
-      confidence: 0,
+      reply: cleanText,
+      confidence: attempt === 0 ? 0.9 : 0.8,
+      reason: `Resposta gerada por ${providerDisplayName(result.provider, config.localModelName)}${attempt ? ' (2ª tentativa)' : ''}`,
     });
   }
+  return withMemories({
+    ok: false,
+    reply: '',
+    blocked: true,
+    blockedReason: lastProblem,
+    reason: `${lastProblem} (duas tentativas). Nada foi enviado.`,
+    confidence: 0,
+  });
 }
 
 /**
- * Gera uma mensagem proativa para animar a live (ex: saudações gerais, pedir rosas, engajar o público).
+ * Gera uma mensagem proativa para animar a live (ex: saudações gerais), pela
+ * mesma IA e com o mesmo jeito de conversar das respostas.
  */
 export async function generateTangoProactiveMessage(
   topic?: string,
-  _recentHistory: TangoChatMessage[] = [],
+  recentHistory: TangoChatMessage[] = [],
+  customPrompt?: string,
 ): Promise<GeneratedReplyResult> {
-  const prompt = [
-    DEFAULT_TANGO_IDENTITY,
-    TANGO_RESPONSE_RULES,
-    `\nGere uma mensagem curta e animada da Odessa para puxar assunto com o chat da live.`,
-    topic ? `Tema sugerido: ${topic}` : `Agradeça a presença de todos e pergunte de onde estão assistindo.`,
-  ].join('\n');
-
-  try {
-    const raw = await callGeminiText(prompt, 'Gere uma mensagem proativa curta (máx 15 palavras):', {
-      temperature: 0.8,
-      maxOutputTokens: 80,
-    });
-
-    const reply = sanitizeTangoReply(raw || 'Oi amores! Como vocês estão hoje? ✨');
-    return {
-      ok: true,
-      reply,
-      confidence: 0.9,
-      reason: 'Mensagem proativa de engajamento',
-    };
-  } catch {
-    return {
-      ok: true,
-      reply: 'Oi amores! Sejam todos bem-vindos à live! 💕',
-      confidence: 0.6,
-      reason: 'Mensagem proativa fallback',
-    };
+  const config = getAiConfig();
+  const identity = customPrompt || config.systemPrompt || DEFAULT_TANGO_IDENTITY;
+  const recentOwn = recentHistory.filter((m) => m.own).map((m) => m.text.trim());
+  const prompt = buildSystemPrompt({ identity, recentOwn });
+  const ask: TangoChatMessage = {
+    username: 'alguém',
+    text: topic
+      ? `(Puxe assunto com o chat sobre: ${topic}. Uma frase curta, sem perguntar "como vocês estão".)`
+      : '(O chat está quieto. Puxe assunto com uma frase curta e natural sobre o que você está fazendo agora.)',
+  };
+  const result = await callBackendAiRespond(prompt, [{ role: 'user', content: ask.text }], ask, 0.9, {});
+  const reply = result.text ? sanitizeTangoReply(cleanReply(result.text, recentOwn), 140, personaNameFromIdentity(identity)) : '';
+  if (!reply || rejectReason(reply, recentOwn)) {
+    return { ok: false, reply: '', confidence: 0, reason: result.error || 'A IA não gerou uma mensagem natural.' };
   }
+  return { ok: true, reply, confidence: 0.85, reason: 'Mensagem proativa de engajamento' };
 }

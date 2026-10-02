@@ -187,7 +187,7 @@ export function PersonaChatLab() {
         { username: 'Voce', text: userMessage.text, timestamp: userMessage.timestamp },
         context,
         systemPrompt,
-        { maxLength: 320, timeoutMs: 150_000, signal: controller.signal },
+        { maxLength: 320, timeoutMs: 150_000, signal: controller.signal, personaId },
       );
 
       if (controller.signal.aborted) {

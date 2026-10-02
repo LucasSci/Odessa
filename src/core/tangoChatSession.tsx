@@ -35,9 +35,9 @@ import {
   generateTangoChatReply,
   type TangoChatMessage,
 } from './tangoAiChatService';
-import { getAiConfig } from './aiConfig';
+import { getAiConfig, providerKeyFor, resolveEffectiveProvider } from './aiConfig';
 import { routeChatToTriggers } from './chatToTriggerBridge';
-import { rememberBridgeMessage } from './chatMemory';
+import { rememberBridgeMessage, rememberPersonaReply, requestMemoryLearning } from './chatMemory';
 import { createOwnEchoFilter } from './ownEchoFilter';
 import {
   classifyIncomingMessage,
@@ -58,6 +58,11 @@ import {
 import type { CapturedMessage } from '../types';
 import { usePolling } from './usePolling';
 import { useTabLeader } from '../lib/overlayLeader';
+
+/** Chat parado há este tempo = hora de transformar a conversa nova em memória. */
+const MEMORY_LEARN_IDLE_MS = 60_000;
+/** Só pede aprendizado depois de algumas mensagens novas (cada rodada usa a IA). */
+const MEMORY_LEARN_MIN_NEW = 6;
 
 // ─── Config & Endpoints ──────────────────────────────────────────────
 export const BRIDGE_URL = '/tango-bridge';
@@ -527,7 +532,7 @@ export function TangoChatSessionProvider({
       setGeneratingForId(msg.timestamp || msg.text);
       setAiGenerationStartedAt(Date.now());
       try {
-        const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt);
+        const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt, { personaId: activePersona?.id });
         const kind = classifyIncomingMessage(msg);
         recordSessionEvent('ai.reply', {
           username: msg.username,
@@ -603,7 +608,7 @@ export function TangoChatSessionProvider({
       setAiGenerationStartedAt(Date.now());
       let result: Awaited<ReturnType<typeof generateTangoChatReply>>;
       try {
-        result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt);
+        result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt, { personaId: activePersona?.id });
       } finally {
         setGeneratingForId(null);
         setAiGenerationStartedAt(null);
@@ -664,6 +669,8 @@ export function TangoChatSessionProvider({
       }
       if (sent) {
         recordChatReplySent(msg.username);
+        // A fala dela entra na conversa lembrada com essa pessoa.
+        rememberPersonaReply(msg.username, result.reply, activePersona?.id);
         recordSessionEvent('ai.reply.sent', {
           username: msg.username,
           sourceText: msg.text,
@@ -731,6 +738,7 @@ export function TangoChatSessionProvider({
 
       const outcome = await sendWithOutcome(item.text);
       if (outcome.status !== 'failed') {
+        rememberPersonaReply(item.sourceMessage.username, item.text, activePersona?.id);
         recordSessionEvent('message.sent', {
           text: item.text,
           source: 'approved_reply',
@@ -834,7 +842,7 @@ export function TangoChatSessionProvider({
       setReplyQueue((prev) =>
         prev.map((i) => (i.id === item.id ? { ...i, status: 'draft', text: 'Regenerando com IA...' } : i)),
       );
-      const result = await generateTangoChatReply(item.sourceMessage, unifiedMessages, aiPrompt);
+      const result = await generateTangoChatReply(item.sourceMessage, unifiedMessages, aiPrompt, { personaId: activePersona?.id });
       setReplyQueue((prev) =>
         prev.map((i) =>
           i.id === item.id
@@ -933,6 +941,32 @@ export function TangoChatSessionProvider({
     autoReplyLeaderRef.current = autoReplyLeader;
   }, [autoReplyLeader]);
 
+  // Memória que cresce: com o chat parado há 1 min, a IA ativa (a mesma que
+  // responde) transforma a conversa nova em fatos e resumos de cada pessoa.
+  const lastChatAtRef = useRef(0);
+  const unlearnedRef = useRef(0);
+  const activePersonaRef = useRef(activePersona);
+  useEffect(() => {
+    activePersonaRef.current = activePersona;
+  }, [activePersona]);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (!autoReplyLeaderRef.current || unlearnedRef.current < MEMORY_LEARN_MIN_NEW) return;
+      if (Date.now() - lastChatAtRef.current < MEMORY_LEARN_IDLE_MS) return;
+      unlearnedRef.current = 0;
+      const config = getAiConfig();
+      void requestMemoryLearning({
+        personaId: activePersonaRef.current?.id,
+        personaName: activePersonaRef.current?.name,
+        provider: resolveEffectiveProvider(config),
+        providerKey: providerKeyFor(config),
+        localModelUrl: config.localModelUrl,
+        localModelName: config.localModelName,
+      });
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const autoTriggerRef = useRef(handleAutoTriggerAi);
   useEffect(() => {
     autoTriggerRef.current = handleAutoTriggerAi;
@@ -986,6 +1020,8 @@ export function TangoChatSessionProvider({
 
           // Memória do chat (#165): tendências + perfil por usuário.
           rememberBridgeMessage(msg, classifyIncomingMessage(msg));
+          lastChatAtRef.current = Date.now();
+          unlearnedRef.current += 1;
 
           // Roteia a mensagem para o trigger engine do backend (palavra-chave/
           // presente -> vídeo do fluxo publicado), com dedupe e cooldown.

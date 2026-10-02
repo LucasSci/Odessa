@@ -37,6 +37,27 @@ export interface ReplyDecision {
   kind: ChatMessageKind;
 }
 
+/**
+ * Linha gerada pela própria plataforma, não por uma pessoa: resultado de
+ * batalha ("Winner: Viktoriiaa"), aviso de seguidor, código de menção
+ * ("@TG: tu6346") ou erro de envio. Visto ao vivo: a IA respondia a essas
+ * linhas como se fossem gente. Não recebem resposta nem entram na conversa.
+ */
+const PLATFORM_LINE_PATTERNS = [
+  /^(winner|vencedor[a]?|draw|empate|battle results?)\s*:/i,
+  /\b(novo seguidor|nova seguidora|new follower|come[cç]ou a seguir|started following|entrou na live|joined the live)\b/i,
+  /^@?[^\s:]{1,24}:\s*\(?[a-z]{1,4}\d{3,}\)?$/i,
+  /^\(?[a-z]{1,4}\d{3,}\)?$/i,
+  /^falha ao enviar\b/i,
+];
+
+export function isPlatformSystemLine(msg: Pick<TangoChatMessage, 'username' | 'text'>): boolean {
+  const user = String(msg.username || '').trim();
+  const text = String(msg.text || '').trim();
+  if (/^battle results?:?$/i.test(user)) return true;
+  return PLATFORM_LINE_PATTERNS.some((re) => re.test(text));
+}
+
 /** Classifica a mensagem recebida antes de decidir se responde. */
 export function classifyIncomingMessage(msg: Pick<TangoChatMessage, 'username' | 'text'>): ChatMessageKind {
   const text = String(msg.text || '');
@@ -101,6 +122,7 @@ export function shouldReplyToMessage(
 
   const text = msg.text.trim();
   const kind = classifyIncomingMessage(msg);
+  if (isPlatformSystemLine(msg)) return { allowed: false, reason: 'platform_line', kind };
   if (text.length < MIN_MESSAGE_LENGTH) {
     return { allowed: false, reason: 'too_short', kind };
   }
@@ -157,6 +179,7 @@ export function shouldReplyToMessage(
 export function describeReplyBlock(reason: string): string {
   const labels: Record<string, string> = {
     max_per_minute: 'limite de respostas por minuto atingido',
+    platform_line: 'linha da plataforma (batalha, seguidor, código), não é uma pessoa',
     repeated_message: 'mensagem repetida no chat (ignorada)',
     duplicate_message: 'mensagem duplicada (já vista há pouco)',
     moderation_risk: 'moderação: spam, link, contato externo, ofensa ou pedido de gasto',

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { EyeOff, Eye, Gift, MessageCircle, Search, UserX, Users } from 'lucide-react';
+import { BookUser, EyeOff, Eye, Gift, MessageCircle, Search, UserX, Users } from 'lucide-react';
 import {
   forgetMemoryProfile,
   listMemoryProfiles,
@@ -7,6 +7,7 @@ import {
   type MemoryProfile,
 } from '../core/chatMemory';
 import { EmptyState, ErrorState } from './common/OperationalState';
+import { ViewerMemoryDetails } from './MemoryFactsPanels';
 import { useToast } from './Toast';
 import { Badge, Button, ConfirmButton, SkeletonList } from './ui';
 
@@ -34,6 +35,7 @@ export function ChatMemoryProfiles() {
   const [reloadKey, setReloadKey] = useState(0);
   const [result, setResult] = useState<{ key: string; profiles: MemoryProfile[]; error: string | null } | null>(null);
   const [busy, setBusy] = useState<{ id: string; action: 'visibility' | 'forget' } | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
 
   // Busca só depois que a digitação para.
   useEffect(() => {
@@ -101,7 +103,8 @@ export function ChatMemoryProfiles() {
             <Users className="h-3.5 w-3.5" /> Espectadores na memória
           </h4>
           <p className="mt-1 text-[11px] text-slate-500">
-            Ocultar tira o espectador das respostas sem apagar; esquecer apaga o perfil e as mensagens guardadas.
+            "O que ela sabe" mostra o que a IA aprendeu de cada pessoa. Ocultar tira o espectador das respostas sem apagar;
+            esquecer apaga o perfil, as mensagens e o que foi aprendido.
           </p>
         </div>
         <label className="relative block w-full max-w-xs">
@@ -156,6 +159,14 @@ export function ChatMemoryProfiles() {
                 </div>
                 <Button
                   size="sm"
+                  variant={openId === profile.id ? 'secondary' : 'ghost'}
+                  aria-expanded={openId === profile.id}
+                  onClick={() => setOpenId((current) => (current === profile.id ? null : profile.id))}
+                >
+                  <BookUser className="h-3.5 w-3.5" /> O que ela sabe
+                </Button>
+                <Button
+                  size="sm"
                   variant="ghost"
                   loading={busy?.id === profile.id && busy.action === 'visibility'}
                   disabled={busy !== null}
@@ -174,6 +185,11 @@ export function ChatMemoryProfiles() {
                 >
                   <UserX className="h-3.5 w-3.5" /> Esquecer
                 </ConfirmButton>
+                {openId === profile.id && (
+                  <div className="w-full">
+                    <ViewerMemoryDetails profileId={profile.id} username={profile.username} />
+                  </div>
+                )}
               </li>
             ))}
           </ul>
