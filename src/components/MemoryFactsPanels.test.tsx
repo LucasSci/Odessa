@@ -8,7 +8,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('MemoryFactsPanels', () => {
   it('mostra o que a IA sabe da pessoa e deixa apagar um fato', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === 'DELETE') return json({ ok: true });
       return json({
         facts: [

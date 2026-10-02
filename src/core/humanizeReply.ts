@@ -123,6 +123,8 @@ export function cleanReply(reply: string, recentOwn: string[]): string {
   // Aspas que fecham antes de um emoji final: “frase.” 🍷
   text = text.replace(/["”’»]+(\s*\p{Extended_Pictographic}️?\s*)$/u, '$1');
   text = text.replace(/^[\s"'“”‘’«»]+|[\s"'“”‘’«»]+$/g, '').trim();
+  // "alguém" é só o rótulo de quem tem nome de spam na conversa: não é vocativo.
+  text = text.replace(/,\s*algu[ée]m(?=\s*[.!?…]|\s*$)/giu, '').replace(/^algu[ée]m\s*,\s*/iu, '').trim();
   const lastTwo = recentOwn.slice(-2);
   if (TRAILING_RETURN_QUESTION.test(text) && lastTwo.some((own) => TRAILING_RETURN_QUESTION.test(own))) {
     const trimmed = text.replace(TRAILING_RETURN_QUESTION, '').trim();

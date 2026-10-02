@@ -63,7 +63,7 @@ _QUICK_PATTERNS: List[Tuple[str, re.Pattern[str], Callable[[re.Match[str]], str]
     ("nome", re.compile(rf"\b(?:meu nome (?:é|e)|pode me chamar de|me chamo)\s+({_WORD})", re.I), lambda m: f"se chama {m.group(1).title()}"),
     ("cidade", re.compile(rf"\b(?:sou de|moro em|moro no|moro na|aqui de|falo de)\s+({_PLACE})", re.I), lambda m: f"é de {m.group(1).strip()}"),
     ("idade", re.compile(r"\btenho\s+(\d{2})\s+anos\b", re.I), lambda m: f"tem {m.group(1)} anos"),
-    ("trabalho", re.compile(rf"\b(?:trabalho (?:com|como|de|na|no|em)|sou (?:um |uma )?(?:professora?|engenheir[oa]|m[eé]dic[oa]|enfermeir[oa]|motorista|programador[a]?|advogad[oa]|estudante|vendedor[a]?|policial|pedreiro|mec[aâ]nico|designer|caminhoneiro))\s*({_WORD}(?:\s+{_WORD}){{0,2}})?", re.I), lambda m: f"trabalho: {m.group(0).split(' ', 1)[1].strip()}"),
+    ("trabalho", re.compile(rf"\b(?:trabalho (?:com|como|de|na|no|em)|sou (?:um |uma )?(?:professora?|engenheir[oa]|m[eé]dic[oa]|enfermeir[oa]|motorista|programador[a]?|advogad[oa]|estudante|vendedor[a]?|policial|pedreiro|mec[aâ]nico|designer|caminhoneiro))\s*({_WORD}(?:\s+{_WORD}){{0,2}})?", re.I), lambda m: _third_person(m.group(0).strip(" ,."))),
     ("time", re.compile(rf"\b(?:torço (?:pro|pra|para o|para a|pelo|pela)|sou (?:torcedor|torcedora) d[oa])\s+({_WORD}(?:\s+{_WORD})?)", re.I), lambda m: f"torce pro {m.group(1).strip()}"),
     ("gosto", re.compile(rf"\b(?:eu )?(?:adoro|amo|curto muito|sou apaixonad[oa] por)\s+({_WORD}(?:\s+{_WORD}){{0,3}})", re.I), lambda m: f"gosta de {m.group(1).strip()}"),
 ]
@@ -88,25 +88,68 @@ def extract_quick_facts(text: str) -> List[Tuple[str, str]]:
 
 # ── Armazenamento ──────────────────────────────────────────────────────────
 
+_FIRST_TO_THIRD = [
+    (re.compile(r"^(?:eu\s+)?sou de\b", re.I), "é de"),
+    (re.compile(r"^(?:eu\s+)?sou\b", re.I), "é"),
+    (re.compile(r"^(?:eu\s+)?moro (em|no|na)\b", re.I), r"mora \1"),
+    (re.compile(r"^(?:eu\s+)?trabalho (com|como|de|na|no|em)\b", re.I), r"trabalha \1"),
+    (re.compile(r"^(?:eu\s+)?tenho\b", re.I), "tem"),
+    (re.compile(r"^(?:eu\s+)?torço\b", re.I), "torce"),
+    (re.compile(r"^(?:eu\s+)?gosto\b", re.I), "gosta"),
+    (re.compile(r"^(?:eu\s+)?(?:me chamo|meu nome é)\b", re.I), "se chama"),
+]
+_CATEGORY_HINTS = [
+    ("nome", re.compile(r"^(se chama|chama-se|nome)\b", re.I)),
+    ("cidade", re.compile(r"^(é de|mora (em|no|na))\b", re.I)),
+    ("idade", re.compile(r"^tem \d{1,2} anos\b", re.I)),
+    ("trabalho", re.compile(r"^(trabalha|é (programador|professor|engenheir|médic|enfermeir|motorista|advogad|estudante|vendedor|designer))", re.I)),
+    ("time", re.compile(r"^torce\b", re.I)),
+    ("gosto", re.compile(r"^(gosta|ama|adora)\b", re.I)),
+]
+_CORE_STOP = {"e", "de", "do", "da", "em", "no", "na", "com", "como", "se", "chama", "tem", "mora", "trabalha", "torce", "pro", "pelo", "pela", "gosta", "um", "uma", "o", "a", "sou", "eu"}
+
+
+def _third_person(fact: str) -> str:
+    for pattern, repl in _FIRST_TO_THIRD:
+        fact = pattern.sub(repl, fact, count=1)
+    return fact
+
+
+def _core(fact: str) -> str:
+    return " ".join(w for w in _norm(fact).split() if w not in _CORE_STOP)
+
+
 def add_viewer_fact(user_id: str, category: str, fact: str, source: str = "ai") -> bool:
-    """Guarda um fato da pessoa. Repetido = só renova; categoria de valor único substitui."""
-    fact = (fact or "").strip()[:160]
+    """Guarda um fato da pessoa. Repetido = só renova; categoria de valor único substitui.
+
+    O que a pessoa disse com todas as letras (source "chat") vale mais que o
+    palpite da IA: um fato da IA nunca apaga um fato "chat" da mesma categoria.
+    A categoria é conferida pelo próprio texto (modelo pequeno erra o rótulo).
+    """
+    fact = _third_person((fact or "").strip()[:160])
     category = category if category in CATEGORIES else "outro"
+    for hinted, pattern in _CATEGORY_HINTS:
+        if pattern.search(fact):
+            category = hinted
+            break
     if not user_id or len(fact) < 3:
         return False
-    norm = _norm(fact)
+    core = _core(fact)
     now = _now()
     with db.get_connection() as conn:
         rows = conn.execute(
-            "SELECT id, category, fact FROM viewer_facts WHERE user_id = ? AND hidden = 0", (user_id,)
+            "SELECT id, category, fact, source FROM viewer_facts WHERE user_id = ? AND hidden = 0", (user_id,)
         ).fetchall()
         for row in rows:
-            other = _norm(row["fact"])
-            if other == norm or (len(norm) > 8 and (norm in other or other in norm)):
+            other = _core(row["fact"])
+            if other == core or (len(core) > 5 and (core in other or other in core)):
                 conn.execute("UPDATE viewer_facts SET last_used_at = ? WHERE id = ?", (now, row["id"]))
                 conn.commit()
                 return False
         if category in SINGLE_VALUE:
+            same = [r for r in rows if r["category"] == category]
+            if source != "chat" and any(r["source"] == "chat" for r in same):
+                return False  # a pessoa já disse isso com todas as letras
             conn.execute("DELETE FROM viewer_facts WHERE user_id = ? AND category = ? AND hidden = 0", (user_id, category))
         conn.execute(
             "INSERT INTO viewer_facts (id, user_id, category, fact, source, created_at, last_used_at, hidden) VALUES (?, ?, ?, ?, ?, ?, ?, 0)",

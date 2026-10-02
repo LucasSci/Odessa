@@ -5,9 +5,24 @@
 
 Texto que vai no campo **Personalidade** de cada persona (Personas → editar, ou
 `PUT /api/v1/personas/{id}/personality`). No chat do Tango ele vira a
-**identidade**; o Odessa acrescenta depois as regras fixas de `TANGO_RESPONSE_RULES`
-(`src/core/tangoAiChatService.ts`): idioma, tamanho, até 140 caracteres, no máximo 1
-emoji, nunca admitir ser IA, sem links/pix. Estes textos não podem contradizer essas regras.
+**identidade**; o Odessa acrescenta depois, igual para qualquer IA (local ou API), o
+jeito de conversar `CONVERSATION_STYLE` (`src/core/tangoAiChatService.ts`), a hora, a
+memória do servidor (o que sabe de quem está falando e o que a persona já contou de si)
+e as últimas falas dela. Depois, `src/core/humanizeReply.ts` barra fala de atendente,
+repetição e cópia de exemplo. Estes textos não podem contradizer essas regras.
+
+## Voz humana (versão atual)
+
+As conversas reais mostraram o que soava artificial: fórmulas ("tudo bem? e você?"),
+tom de atendente, cópia dos exemplos para outras perguntas, fatos inventados e gênero
+trocado. Por isso a versão atual tem:
+
+- **FATOS FIXOS**: o que ela é e gosta, para nunca se contradizer. Detalhes do dia a dia
+  ela pode contar; o que contar vira memória (`persona_facts`) e é mantido nas próximas lives.
+- **Fala simples**: elegante (Viktoria) ou animada (Barbara), mas como gente, sem poesia.
+- **Exemplos de tom** que cobrem "é IA?", conhecimento geral, cansaço e risada, marcados
+  como "nunca copie" (o filtro só aceita a frase do exemplo para a mesma pergunta).
+- Avaliação: `python scripts/eval_conversa.py --api http://127.0.0.1:8000 --provider ollama --model qwen2.5:3b`.
 
 ## Como estes prompts foram pensados (modelo local pequeno, ex.: qwen2.5:3b)
 

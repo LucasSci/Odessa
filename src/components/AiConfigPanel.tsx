@@ -46,6 +46,12 @@ async function unloadLocalAi(): Promise<string[]> {
 }
 
 /** Quem responde o chat — só as opções reais (Auto/Mock saíram: confundiam). */
+/** Modelos locais testados neste projeto (o jeito de conversar é o mesmo; muda a "potência"). */
+const LOCAL_MODEL_CHOICES = [
+  { id: 'qwen2.5:3b', label: 'Qwen 2.5 3B (padrão, leve)', hint: '1,9 GB · ~7 s por resposta num notebook comum' },
+  { id: 'qwen3:4b-instruct', label: 'Qwen3 4B (mais natural)', hint: '2,5 GB · ~10 s por resposta; usa um pouco mais de CPU' },
+];
+
 const PROVIDER_OPTIONS: Array<{ id: AiProvider; title: string; detail: string }> = [
   { id: 'local', title: 'Local (no seu PC)', detail: 'Ollama. Grátis e offline; qualidade limitada pelo modelo pequeno.' },
   { id: 'gemini', title: 'Google Gemini', detail: 'Ótimo português. Precisa de chave do Google AI Studio.' },
@@ -437,6 +443,25 @@ export function AiConfigPanel() {
                   placeholder="llama3, mistral, phi3…"
                   className="h-9 text-xs"
                 />
+                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Modelos locais sugeridos">
+                  {LOCAL_MODEL_CHOICES.map((choice) => (
+                    <button
+                      key={choice.id}
+                      type="button"
+                      title={choice.hint}
+                      aria-pressed={config.localModelName === choice.id}
+                      onClick={() => update({ localModelName: choice.id })}
+                      className={cn(
+                        'rounded-full border px-2.5 py-1 text-[11px] transition-colors',
+                        config.localModelName === choice.id
+                          ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200'
+                          : 'border-white/10 text-slate-400 hover:text-slate-200',
+                      )}
+                    >
+                      {choice.label}
+                    </button>
+                  ))}
+                </div>
                 <Input
                   label="Temperatura (0–2)"
                   type="number"

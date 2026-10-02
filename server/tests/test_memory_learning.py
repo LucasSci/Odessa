@@ -32,7 +32,8 @@ def reply(user, text):
         ("moro em São José dos Campos", ("cidade", "é de São José dos Campos")),
         ("tenho 34 anos", ("idade", "tem 34 anos")),
         ("torço pro Corinthians", ("time", "torce pro Corinthians")),
-        ("sou programador", ("trabalho", "trabalho: programador")),
+        ("sou programador", ("trabalho", "é programador")),
+        ("trabalho com TI, programador", ("trabalho", "trabalha com TI")),
         ("eu adoro pizza de calabresa", ("gosto", "gosta de pizza de calabresa")),
     ],
 )
@@ -86,7 +87,8 @@ def test_aprende_com_a_ia_ativa_e_entra_no_prompt(mem_db):
         })
 
     result = memory_learning.learn_pending("viktoria", "Viktoria", fake_ai, min_new=3)
-    assert result["learned"][0]["facts"] == 2
+    # "trabalha com TI" já tinha entrado na hora ("trabalho com TI"): só o Thor é novo.
+    assert result["learned"][0]["facts"] == 1
     assert "Viktoria: TI cansa" in seen["user"] and "carlos_sp: tenho um cachorro" in seen["user"]
     assert "carlos_sp: carlos_sp:" not in seen["user"]
 
@@ -114,3 +116,13 @@ def test_resetar_apaga_a_memoria_nova(mem_db):
     memory_service.clear_all()
     assert memory_learning.list_viewer_facts("carlos_sp") == []
     assert memory_learning.list_persona_facts("viktoria") == []
+
+
+def test_palpite_da_ia_nao_apaga_o_que_a_pessoa_disse_e_nao_duplica(mem_db):
+    """Visto com a Qwen 2.5 3B: "sou de Campinas" rotulado como nome apagava "se chama Carlos"."""
+    memory_service.upsert_round_memory([chat("carlos_sp", "meu nome é Carlos"), chat("carlos_sp", "sou de Campinas")])
+    assert not memory_learning.add_viewer_fact("carlos_sp", "nome", "sou de Campinas")  # vira cidade e é repetido
+    assert not memory_learning.add_viewer_fact("carlos_sp", "nome", "Carlão")  # "chat" vale mais
+    assert memory_learning.add_viewer_fact("carlos_sp", "outro", "tenho um cachorro chamado Thor")
+    facts = {f["fact"]: f["category"] for f in memory_learning.list_viewer_facts("carlos_sp")}
+    assert facts == {"se chama Carlos": "nome", "é de Campinas": "cidade", "tem um cachorro chamado Thor": "outro"}

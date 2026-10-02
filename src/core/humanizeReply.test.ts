@@ -47,6 +47,9 @@ describe('humanizeReply', () => {
   it('limpa aspas, markdown e o "e você?" repetido', () => {
     expect(cleanReply('“Rússia. Um continente inteiro, na verdade.” 🍷', [])).toBe('Rússia. Um continente inteiro, na verdade. 🍷');
     expect(cleanReply('**Claro**, adoro jazz', [])).toBe('Claro, adoro jazz');
+    expect(cleanReply('Nem pensar, alguém.', [])).toBe('Nem pensar.');
+    expect(cleanReply('Alguém, boa noite!', [])).toBe('boa noite!');
+    expect(cleanReply('Alguém me disse que hoje tem jogo.', [])).toBe('Alguém me disse que hoje tem jogo.');
     expect(cleanReply('Hoje foi calmo, li bastante. E você?', ['Tudo certo por aqui. E você?'])).toBe('Hoje foi calmo, li bastante.');
     expect(cleanReply('Hoje foi calmo, li bastante. E você?', ['Boa noite.'])).toBe('Hoje foi calmo, li bastante. E você?');
   });
