@@ -222,10 +222,10 @@ export async function obsSetupLiveScene(settings: ObsSetupSettings): Promise<Obs
   const stageUrl = resolveStageUrl(settings.stageUrl, window.location.origin);
   const stageSourceName = settings.stageSourceName || 'Odessa Stage Overlay';
   const chatSourceName = settings.chatSourceName || 'Odessa Chat OCR';
-  let canvasW = settings.canvasWidth || 1080;
-  let canvasH = settings.canvasHeight || 1920;
+  let canvasW = settings.canvasWidth || 720;
+  let canvasH = settings.canvasHeight || 1280;
   // Tango Live é vertical (9:16). Se vier paisagem/quadrado por engano, força 9:16.
-  if (canvasW >= canvasH) { canvasW = 1080; canvasH = 1920; }
+  if (canvasW >= canvasH) { canvasW = 720; canvasH = 1280; }
   let outputFps = 30; // sobrescrito pelo FPS real do OBS (GetVideoSettings) abaixo
   const created: string[] = [];
   const warnings: string[] = [];

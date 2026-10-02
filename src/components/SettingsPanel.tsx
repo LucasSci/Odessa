@@ -28,6 +28,7 @@ import { apiUrl } from '../lib/api';
 import { cn } from '../lib/utils';
 import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
 import { Badge, Button, Input, StatusDot } from './ui';
+import { TangoProfileCard } from './TangoProfileCard';
 import {
   DEFAULT_OBS_SETTINGS,
   EMPTY_WEBHOOK_DRAFT,
@@ -959,13 +960,13 @@ export function SettingsPanel({
               label="Largura palco"
               type="number"
               value={obsSettings.canvasWidth}
-              onChange={(e) => setObsSettings((c) => ({ ...c, canvasWidth: Number(e.target.value) || 1080 }))}
+              onChange={(e) => setObsSettings((c) => ({ ...c, canvasWidth: Number(e.target.value) || 720 }))}
             />
             <Input
               label="Altura palco"
               type="number"
               value={obsSettings.canvasHeight}
-              onChange={(e) => setObsSettings((c) => ({ ...c, canvasHeight: Number(e.target.value) || 1920 }))}
+              onChange={(e) => setObsSettings((c) => ({ ...c, canvasHeight: Number(e.target.value) || 1280 }))}
             />
           </div>
 
@@ -1030,6 +1031,22 @@ export function SettingsPanel({
               Preparar mesa
             </Button>
           </div>
+        </Section>
+
+        {/* ════════ OBS: Perfil do Tango ════════ */}
+        <Section
+          icon={<RadioTower className="h-4 w-4" />}
+          title="Perfil do Tango no OBS"
+          description="Recria o perfil com um clique quando ele der erro"
+        >
+          <TangoProfileCard
+            onRebuilt={(canvas) => {
+              const next = { ...obsSettings, canvasWidth: canvas.width, canvasHeight: canvas.height };
+              setObsSettings(next);
+              // O "Preparar OBS" da tela Ao Vivo passa a usar a tela do perfil do Tango.
+              onObsSettingsChanged?.(next as unknown as Record<string, unknown>);
+            }}
+          />
         </Section>
 
         {/* ════════ OBS: Cenas Permitidas ════════ */}

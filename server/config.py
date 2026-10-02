@@ -110,8 +110,9 @@ OBS_STAGE_URL = os.getenv("OBS_STAGE_URL", "http://127.0.0.1:8000/#overlay").str
 OBS_STARTUP_SCENE_NAME = os.getenv("OBS_STARTUP_SCENE_NAME", "Odessa START").strip() or "Odessa START"
 OBS_LIVE_SCENE_NAME = os.getenv("OBS_LIVE_SCENE_NAME", "Odessa LIVE").strip() or "Odessa LIVE"
 OBS_TRANSMISSION_MODE = os.getenv("OBS_TRANSMISSION_MODE", "stream").strip().lower() or "stream"
-OBS_STAGE_CANVAS_WIDTH = int(os.getenv("OBS_STAGE_CANVAS_WIDTH", "1080"))
-OBS_STAGE_CANVAS_HEIGHT = int(os.getenv("OBS_STAGE_CANVAS_HEIGHT", "1920"))
+# Mesma tela do perfil do Tango (server/data/obs/tango_profile/basic.ini): 720x1280.
+OBS_STAGE_CANVAS_WIDTH = int(os.getenv("OBS_STAGE_CANVAS_WIDTH", "720"))
+OBS_STAGE_CANVAS_HEIGHT = int(os.getenv("OBS_STAGE_CANVAS_HEIGHT", "1280"))
 
 SIMULATION_MODE = os.getenv("SIMULATION_MODE", "true").lower() == "true"
 

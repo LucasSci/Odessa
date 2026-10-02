@@ -339,11 +339,14 @@ class OBSService:
         request_data: Optional[dict[str, Any]] = None,
         *,
         _retry_not_identified: bool = True,
+        timeout: int = 15,
     ) -> dict[str, Any]:
         await self.connect()
         assert self._client is not None
         try:
-            response = await self._client.call(simpleobsws.Request(request_type, request_data or {}))
+            request = simpleobsws.Request(request_type, request_data or {})
+            # Limite maior só quando pedido (ex.: trocar de perfil, que reinicia o vídeo).
+            response = await (self._client.call(request) if timeout == 15 else self._client.call(request, timeout=timeout))
         except Exception as exc:
             self.connected = False
             if _retry_not_identified and self._is_not_identified_error(exc):
@@ -353,6 +356,7 @@ class OBSService:
                     request_type,
                     request_data,
                     _retry_not_identified=False,
+                    timeout=timeout,
                 )
             logger.error("[OBS_ERROR] %s failed: %s", request_type, exc)
             raise RuntimeError(f"{request_type} failed: {exc}") from exc
@@ -373,6 +377,7 @@ class OBSService:
                     request_type,
                     request_data,
                     _retry_not_identified=False,
+                    timeout=timeout,
                 )
             logger.error("[OBS_ERROR] %s rejected: %s", request_type, comment or "unknown error")
             raise RuntimeError(f"{request_type} rejected: {comment or 'unknown error'}")

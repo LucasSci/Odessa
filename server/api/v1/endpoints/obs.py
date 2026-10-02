@@ -391,3 +391,28 @@ async def obs_switch_scene(request: ObsSwitchSceneRequest):
     if not scene_name:
         return {"ok": False, "status": "blocked", "error": "scene_missing"}
     return await obs_service.switch_scene(scene_name)
+
+
+class TangoProfileRequest(BaseModel):
+    # Opcional: sem ela, reaproveita a chave do Tango que já está no OBS.
+    # Nunca é gravada pelo Odessa nem volta na resposta.
+    streamKey: Optional[str] = None
+
+
+@router.post("/tango-profile/rebuild")
+async def obs_rebuild_tango_profile(request: Optional[TangoProfileRequest] = None):
+    """Recria o perfil "Tango Profile" no OBS (apaga o quebrado, aplica o modelo e a chave)."""
+    from fastapi import HTTPException
+
+    from server.services import tango_profile
+
+    try:
+        return await tango_profile.rebuild(obs_service, request.streamKey if request else None)
+    except tango_profile.ProfileError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from exc
+    except Exception as exc:
+        # Sem a chave na mensagem: o erro do OBS nunca a contém, mas não arriscamos.
+        message = str(exc)
+        if request and request.streamKey:
+            message = message.replace(request.streamKey, "***")
+        raise HTTPException(status_code=502, detail=f"O OBS não aceitou: {message}") from exc

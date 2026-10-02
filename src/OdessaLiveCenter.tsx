@@ -1362,8 +1362,9 @@ export const DEFAULT_OBS_SETTINGS: ObsSettings = {
   startupSceneName: 'Odessa START',
   liveSceneName: 'Odessa LIVE',
   transmissionMode: 'stream',
-  canvasWidth: 1080,
-  canvasHeight: 1920,
+  // Mesma tela do perfil do Tango no OBS (server/data/obs/tango_profile).
+  canvasWidth: 720,
+  canvasHeight: 1280,
   sceneWhitelist: [],
   allowedScenes: [],
 };
