@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Scissors } from 'lucide-react';
 import { categorizeVideo, VIDEO_ROTEIRO } from '../../core/videoRoteiro';
 import { cn } from '../../lib/utils';
+import { VideoThumb } from '../VideoThumb';
 
 export interface DeckVideo {
   id: string;
@@ -94,16 +95,7 @@ export function ClipDeck({
                     className="block w-full text-left disabled:cursor-wait"
                   >
                     <div className="relative aspect-[9/16] w-full bg-[var(--bg3)]">
-                      <video
-                        className="h-full w-full object-cover"
-                        src={`${video.thumbSrc}#t=0.5`}
-                        muted
-                        playsInline
-                        preload="metadata"
-                        tabIndex={-1}
-                        aria-hidden="true"
-                        onError={() => console.debug('[VIDEO_DEBUG] deck_thumb_error', { videoId: video.id })}
-                      />
+                      <VideoThumb src={video.thumbSrc} videoId={video.id} label={video.label} className="h-full w-full" />
                       {index < 9 && (
                         <kbd className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] font-bold text-white">
                           {index + 1}

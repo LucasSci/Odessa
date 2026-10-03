@@ -214,7 +214,9 @@ export default function PersonaOverlay() {
 
   const fetchVideoState = useCallback(async (): Promise<VideoState | null> => {
     try {
-      const response = await fetch(apiUrl('/api/video/state'));
+      // Tempo limite: com o servidor engasgado, um pedido pendurado não pode
+      // segurar o palco (nem as conexões do navegador) para sempre.
+      const response = await fetch(apiUrl('/api/video/state'), { signal: AbortSignal.timeout(4000) });
       if (!response.ok) return null;
       return (await response.json()) as VideoState;
     } catch {
@@ -420,6 +422,18 @@ export default function PersonaOverlay() {
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
+    const guardedTick = async () => {
+      // Um tick por vez: antes, com o servidor lento, um novo pedido saía a
+      // cada 500 ms mesmo com os anteriores pendentes, e eles se empilhavam.
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        await tick();
+      } finally {
+        inFlight = false;
+      }
+    };
     const tick = async () => {
       const state = await fetchVideoState();
       if (cancelled || !state) return;
@@ -464,9 +478,9 @@ export default function PersonaOverlay() {
       }
     };
 
-    void tick();
+    void guardedTick();
     const interval = window.setInterval(() => {
-      void tick();
+      void guardedTick();
     }, 500);
     return () => {
       cancelled = true;

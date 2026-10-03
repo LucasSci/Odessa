@@ -55,6 +55,16 @@ export async function preloadVideos(items: Array<{ id: string; version?: string 
     const cur = preloaded.get(it.id);
     return !cur || cur.version !== (it.version || ''); // novo ou conteúdo trocado
   });
+  // Solta o que saiu do fluxo. Antes o blob ficava na memória do OBS até o
+  // overlay recarregar — numa live 24/7, nunca —, e a cada fluxo novo
+  // publicado a memória só crescia.
+  if (seen.size > 0) {
+    for (const [id, entry] of preloaded) {
+      if (seen.has(id)) continue;
+      preloaded.delete(id);
+      if (entry.url.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(entry.url), 60000);
+    }
+  }
   let i = 0;
   const worker = async () => {
     while (i < todo.length) {

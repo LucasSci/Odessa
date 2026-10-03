@@ -49,6 +49,7 @@ import { apiUrl } from './lib/api';
 import { callFlowDesigner } from './core/aiDecisionContract';
 import { cn, safeImageSrc } from './lib/utils';
 import { usePolling } from './core/usePolling';
+import { useWindowVisible } from './core/windowVisibility';
 import { VideoThumb } from './components/VideoThumb';
 import { WORKFLOW_CHANGED_EVENT } from './core/idleStudioApi';
 
@@ -755,7 +756,9 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   // Página escondida pelo shell (outra aba aberta) = sem polling; ao voltar,
   // sincroniza na hora.
   // Keep the canvas in sync with the live playback in near real time.
-  usePolling(refreshFlowState, 600);
+  // Janela minimizada/na bandeja: ninguém vê a animação.
+  const windowVisible = useWindowVisible();
+  usePolling(refreshFlowState, 1000, { enabled: windowVisible });
 
   useEffect(() => {
     if (!config) return;

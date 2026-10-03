@@ -163,6 +163,44 @@ async def play_video(video_id: str):
         headers={"Content-Disposition": f"inline; filename={video_path.name}"},
     )
 
+THUMB_MAX_BYTES = 512 * 1024
+
+
+def _thumb_path(video_id: str) -> Path | None:
+    video_path = get_video_path(video_id)
+    if not video_path:
+        return None
+    return video_path.parent / ".thumbs" / f"{video_path.stem}.jpg"
+
+
+@router.get("/thumb/{video_id}")
+async def get_video_thumb(video_id: str):
+    """Miniatura JPEG do clip. As telas mostravam a miniatura abrindo o vídeo
+    inteiro (166 <video> na tela Ao Vivo), o que entupia as conexões e
+    atrasava a API. 404 quando não existe ou o vídeo é mais novo: o navegador
+    gera a imagem uma vez e manda pelo POST abaixo."""
+    thumb = _thumb_path(video_id)
+    video_path = get_video_path(video_id)
+    if not thumb or not video_path or not thumb.exists() or thumb.stat().st_mtime < video_path.stat().st_mtime:
+        raise HTTPException(status_code=404, detail="Sem miniatura")
+    return FileResponse(thumb, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
+
+
+@router.post("/thumb/{video_id}")
+async def save_video_thumb(video_id: str, request: Request):
+    thumb = _thumb_path(video_id)
+    if not thumb:
+        raise HTTPException(status_code=404, detail=f"Video '{video_id}' not found")
+    body = await request.body()
+    if not body.startswith(b"\xff\xd8") or len(body) > THUMB_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Miniatura inválida (JPEG até 512 KB)")
+    thumb.parent.mkdir(parents=True, exist_ok=True)
+    tmp = thumb.with_suffix(".tmp")
+    tmp.write_bytes(body)
+    os.replace(tmp, thumb)
+    return {"ok": True}
+
+
 @router.get("/next")
 async def get_next_video(trigger: str = None, giftName: str = None):
     """Determine the next video ID based on current state and optional trigger and giftName"""

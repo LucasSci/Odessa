@@ -3,8 +3,29 @@ import mimetypes
 from pathlib import Path
 from typing import Any, Tuple, List, Optional
 from fastapi import HTTPException
-from openai import OpenAI
-from google import genai
+import importlib
+
+# Os SDKs da OpenAI e do Google só carregam quando uma IA da nuvem é usada.
+# Importar o da OpenAI levava 46 s no PC da live (milhares de arquivos de
+# tipos) e acontecia na partida do servidor, mesmo com a IA local (Ollama):
+# a janela do Odessa ficava quase 1 min esperando.
+
+
+def OpenAI(*args: Any, **kwargs: Any):  # noqa: N802 — mesmo nome da classe do SDK
+    from openai import OpenAI as _OpenAI
+
+    return _OpenAI(*args, **kwargs)
+
+
+class _LazyModule:
+    def __init__(self, name: str) -> None:
+        self._name = name
+
+    def __getattr__(self, attr: str) -> Any:
+        return getattr(importlib.import_module(self._name), attr)
+
+
+genai = _LazyModule("google.genai")
 
 from server.services.ai_errors import AIUnavailableError
 

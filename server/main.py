@@ -25,8 +25,46 @@ logging.basicConfig(
 )
 logger = logging.getLogger("odessa")
 
+
+class _QuietPollingAccessLog(logging.Filter):
+    """Tira do log de acesso as consultas de rotina que deram certo.
+
+    O palco e as telas perguntam o estado várias vezes por segundo: numa live
+    de 14 h eram 143 mil linhas só de /video/state (~12 MB de log por dia).
+    Erros dessas rotas continuam aparecendo."""
+
+    QUIET = (
+        "/video/state",
+        "/video/advance",
+        "/video/thumb/",
+        "/agent/status",
+        "/chat-automation/config",
+        "/bridge/status",
+        "/health",
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if not isinstance(args, tuple) or len(args) < 5:
+            return True
+        path, status = str(args[2]), args[4]
+        return not (isinstance(status, int) and status < 400 and any(q in path for q in self.QUIET))
+
+
+logging.getLogger("uvicorn.access").addFilter(_QuietPollingAccessLog())
+
 # Antes de criar o app: a integração FastAPI do Sentry se registra no init.
 init_sentry()
+
+
+def _quiet_connection_resets(loop: asyncio.AbstractEventLoop, context: dict) -> None:
+    """No Windows, cada vídeo/stream que o navegador larga no meio vira um
+    ConnectionResetError (WinError 10054/64) com traceback no log de erros —
+    1.397 numa live. É a conexão do outro lado fechando, não um erro nosso."""
+    exc = context.get("exception")
+    if isinstance(exc, (ConnectionResetError, ConnectionAbortedError)) or getattr(exc, "winerror", None) in (64, 10053, 10054):
+        return
+    loop.default_exception_handler(context)
 
 
 @asynccontextmanager
@@ -38,6 +76,7 @@ async def lifespan(app: FastAPI):
     logger.info("Odessa Backend v1.1.0 starting up...")
     logger.info("Modular API mounted at /api/v1")
     logger.info("Odessa Backend is ready.")
+    asyncio.get_running_loop().set_exception_handler(_quiet_connection_resets)
 
     # Mantém o Ollama aquecido em segundo plano (ver ollama_keepalive_loop) —
     # evita o cold-start de 15-35s na primeira resposta depois de um tempo
@@ -135,6 +174,9 @@ async def require_admin_session(request: Request, call_next):
         and "/assets/" in path
         and path.startswith("/api/v1/personas/")
     ):
+        return await call_next(request)
+    # Miniaturas dos clips (GET) — também vão direto em <img>.
+    if request.method == "GET" and (path.startswith("/api/v1/video/thumb/") or path.startswith("/api/video/thumb/")):
         return await call_next(request)
     try:
         auth_core.require_admin(request)
@@ -299,6 +341,23 @@ async def proxy_tango_bridge(path: str, request: Request):
     )
 
 
+async def _pump_until_first_ends(*coros) -> None:
+    """Roda os dois sentidos do proxy até um acabar e encerra o outro DE VERDADE.
+
+    Antes a tarefa pendente só era cancelada, sem esperar: cada queda de
+    conexão (aba fechada, bridge reiniciada) deixava "Task exception was never
+    retrieved" no log e a tarefa viva até o coletor passar — em horas de live
+    isso se acumulava junto com os sockets."""
+    tasks = [asyncio.create_task(c) for c in coros]
+    try:
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for task in tasks:
+            task.cancel()
+        # Recolhe resultados/exceções (inclusive ConnectionClosed) de todas.
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
 @app.websocket("/tango-bridge/live")
 async def proxy_tango_bridge_live(websocket: WebSocket):
     """Mesmo proxy acima, mas para o WebSocket de screencast (ver
@@ -339,12 +398,7 @@ async def proxy_tango_bridge_live(websocket: WebSocket):
                     else:
                         await websocket.send_text(message)
 
-            done, pending = await asyncio.wait(
-                [asyncio.create_task(client_to_upstream()), asyncio.create_task(upstream_to_client())],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            for task in pending:
-                task.cancel()
+            await _pump_until_first_ends(client_to_upstream(), upstream_to_client())
     except Exception:
         pass
     finally:
@@ -416,12 +470,7 @@ async def proxy_tango_bridge_extension(websocket: WebSocket):
                 async for message in upstream:
                     await websocket.send_text(message if isinstance(message, str) else message.decode("utf-8", "replace"))
 
-            done, pending = await asyncio.wait(
-                [asyncio.create_task(client_to_upstream()), asyncio.create_task(upstream_to_client())],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            for task in pending:
-                task.cancel()
+            await _pump_until_first_ends(client_to_upstream(), upstream_to_client())
             # 4000 = outra aba assumiu: a extensão não deve reconectar esta.
             if upstream.close_code and 4000 <= upstream.close_code < 5000:
                 close_code = upstream.close_code

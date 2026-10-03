@@ -10,6 +10,8 @@ interface OdessaDesktop {
   /** Para o servidor, a bridge e a IA local e fecha o programa. */
   shutdown(): Promise<void>;
   hideToTray(): void;
+  /** Avisa quando a janela some (minimizada, bandeja) ou volta. */
+  onWindowVisibility?(callback: (visible: boolean) => void): void;
 }
 
 declare global {

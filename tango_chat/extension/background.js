@@ -202,7 +202,7 @@ function fallbackCapture(tabId, entry) {
 // ── chrome.debugger: vídeo com a janela minimizada + clique/teclado reais ──
 
 const debuggerTabs = new Set();
-const FRAME_MIN_INTERVAL_MS = 150; // até ~6 quadros/s para o painel
+const FRAME_MIN_INTERVAL_MS = 200; // até 5 quadros/s para o painel
 
 function cdp(tabId, method, params) {
   return chrome.debugger.sendCommand({ tabId }, method, params || {});
@@ -216,7 +216,7 @@ async function startDebuggerCast(tabId, entry) {
       debuggerTabs.add(tabId);
     }
     await cdp(tabId, 'Page.enable');
-    await cdp(tabId, 'Page.startScreencast', { format: 'jpeg', quality: 60, maxWidth: 1280, maxHeight: 1280, everyNthFrame: 1 });
+    await cdp(tabId, 'Page.startScreencast', { format: 'jpeg', quality: 60, maxWidth: 1280, maxHeight: 1280, everyNthFrame: 2 });
     clearInterval(entry.capture); // outras capturas deixam de ser necessárias
     entry.capture = null;
     if (tabCaptures.has(tabId)) chrome.runtime.sendMessage({ type: 'offscreen_emit', tabId, on: false }).catch(() => {});
@@ -238,11 +238,16 @@ async function stopDebuggerCast(tabId) {
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
   if (method !== 'Page.screencastFrame' || !source.tabId) return;
-  cdp(source.tabId, 'Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => {});
-  const entry = tabs.get(source.tabId);
-  if (!entry || !entry.screencastOn || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) return;
+  const tabId = source.tabId;
+  // O navegador só gera o próximo quadro depois do "ack". Antes o ack saía na
+  // hora e quase todo quadro era jogado fora aqui: a aba codificava JPEG a
+  // até 60 quadros/s para usarmos 6 (5,5 h de CPU numa live). Segurar o ack
+  // até o intervalo mínimo faz o navegador produzir só o que é enviado.
+  const entry = tabs.get(tabId);
   const now = Date.now();
-  if (now - (entry.lastFrameAt || 0) < FRAME_MIN_INTERVAL_MS) return;
+  const wait = Math.max(0, FRAME_MIN_INTERVAL_MS - (now - ((entry && entry.lastFrameAt) || 0)));
+  setTimeout(() => cdp(tabId, 'Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => {}), wait);
+  if (!entry || !entry.screencastOn || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) return;
   entry.lastFrameAt = now;
   entry.captureWarning = '';
   const meta = params.metadata || {};

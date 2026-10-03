@@ -29,6 +29,8 @@ import {
 } from 'lucide-react';
 import { Button, Input } from './ui';
 import { cn } from '../lib/utils';
+import { usePageActive } from '../core/pageActivity';
+import { useWindowVisible } from '../core/windowVisibility';
 
 const BRIDGE_URL = '/tango-bridge';
 // WebSocket usa protocolo ws:// (o proxy do Vite sobe o upgrade).
@@ -66,6 +68,11 @@ export function LiveVisionMonitor({ connected }: Props) {
   const pointerDownRef = useRef<{ x: number; y: number; dragging: boolean } | null>(null);
 
   const [streaming, setStreaming] = useState(true);
+  // Ninguém olhando (outra página, janela minimizada ou na bandeja) = fecha o
+  // vídeo. Enquanto o painel assiste, a aba do Tango codifica a tela sem parar.
+  const pageActive = usePageActive();
+  const windowVisible = useWindowVisible();
+  const watching = streaming && pageActive && windowVisible;
   const [live, setLive] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [wsAttempts, setWsAttempts] = useState(0);
@@ -127,7 +134,7 @@ export function LiveVisionMonitor({ connected }: Props) {
   // onclose apenas marcava "Desconectado" e o stream morria até o usuário
   // pausar e retomar manualmente.
   useEffect(() => {
-    if (!connected || !streaming) {
+    if (!connected || !watching) {
       // Nota: o cleanup do effect anterior já fecha o ws e faz setLive(false);
       // resetar estado aqui de novo seria setState sincrono redundante no corpo.
       wsRef.current?.close();
@@ -252,7 +259,7 @@ export function LiveVisionMonitor({ connected }: Props) {
       wsRef.current = null;
       setLive(false);
     };
-  }, [connected, streaming, logAction]);
+  }, [connected, watching, logAction]);
 
   // ── Interação de mouse no canvas ───────────────────────
   // Clique simples = 1 mensagem (action: 'click'). Arrastar = down + moves + up.

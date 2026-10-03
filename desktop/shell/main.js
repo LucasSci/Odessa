@@ -86,7 +86,10 @@ function ensureEnvFile() {
 function startBackend() {
   const out = fs.openSync(path.join(LOG_DIR, 'backend.out.log'), 'a');
   const err = fs.openSync(path.join(LOG_DIR, 'backend.err.log'), 'a');
-  backend = spawn(PY_EXE, ['-m', 'uvicorn', 'server.main:app', '--host', '127.0.0.1', '--port', String(PORT)], {
+  // --timeout-graceful-shutdown: o stream do chat e os websockets da bridge
+  // nunca fecham sozinhos, e o uvicorn esperava por eles até o "Desligar"
+  // desistir e matar o processo. 5 s depois do pedido ele fecha o que restou.
+  backend = spawn(PY_EXE, ['-m', 'uvicorn', 'server.main:app', '--host', '127.0.0.1', '--port', String(PORT), '--timeout-graceful-shutdown', '5'], {
     cwd: INSTALL_ROOT,
     windowsHide: true,
     stdio: ['ignore', out, err],
@@ -200,6 +203,17 @@ function createMain() {
   mainWindow.on('resize', saveWindowState);
   mainWindow.on('move', saveWindowState);
 
+  // Com backgroundThrottling desligado a página sempre se acha visível; avisa
+  // quando a janela some/volta para ela parar o que é só exibição (vídeo da
+  // aba do Tango, animação do fluxo) — o chat da live segue rodando.
+  const sendVisibility = (visible) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('odessa:window-visibility', visible);
+  };
+  mainWindow.on('hide', () => sendVisibility(false));
+  mainWindow.on('minimize', () => sendVisibility(false));
+  mainWindow.on('show', () => sendVisibility(!mainWindow.isMinimized()));
+  mainWindow.on('restore', () => sendVisibility(true));
+
   // Fechar = esconder na bandeja. Desligar é só pelo botão "Desligar".
   mainWindow.on('close', (event) => {
     if (quitting) return;
@@ -215,6 +229,16 @@ function createMain() {
       });
       try { fs.writeFileSync(flag, '1'); } catch { /* aviso aparece de novo, sem problema */ }
     }
+  });
+
+  // Página não carregou (servidor ainda subindo ou reiniciando): tenta de novo
+  // em vez de deixar a janela em branco.
+  mainWindow.webContents.on('did-fail-load', (_event, code, _desc, url, isMainFrame) => {
+    if (!isMainFrame || code === -3 /* ERR_ABORTED: navegação trocada */) return;
+    log(`Página não carregou (${code}): tentando de novo em 2 s.`);
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(isAppUrl(url) ? url : APP_URL);
+    }, 2000);
   });
 
   mainWindow.loadURL(APP_URL);
@@ -365,7 +389,13 @@ async function boot() {
       app.quit();
       return;
     }
-    if (!ready) log('Servidor lento para responder (45 s): abrindo a janela mesmo assim.');
+    // Partida a frio (PC recém-ligado, antivírus examinando o Python) pode
+    // passar de 45 s. Antes a janela abria assim mesmo e ficava em branco.
+    if (!ready) {
+      log('Servidor lento para responder (45 s): esperando mais.');
+      setSplash('Ainda iniciando… na primeira vez depois de ligar o PC demora mais.');
+      if (!(await waitUntilUp(120))) log('Servidor sem resposta em 165 s: abrindo a janela mesmo assim.');
+    }
   }
 
   setSplash('Abrindo…');

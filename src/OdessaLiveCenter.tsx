@@ -62,6 +62,7 @@ import { applyVideoEdit, getVideoEdit, hasVideoEdit, persistVideoEditDebounced, 
 import { getAiConfig, hasActiveGeminiKey, type AiAutonomyLevel } from './core/aiConfig';
 import { PageActivity, usePageActive } from './core/pageActivity';
 import { usePolling } from './core/usePolling';
+import { useWindowVisible } from './core/windowVisibility';
 import { useLiveSupervisor } from './core/useLiveSupervisor';
 import { PAGE_ORDER, hashForPage, pageFromHash, pageForShortcut, pageOfTab, type PageKey } from './core/pageRoutes';
 import { LegalLinks } from './components/LegalLinks';
@@ -720,11 +721,13 @@ export default function OdessaLiveCenter({
     return () => window.clearTimeout(initialLoadTimer);
   }, [loadConfig, refreshAutomationLogs, refreshVideoState]);
 
-  // Estado da reprodução em tempo real (600 ms) onde ela aparece — Ao Vivo e
-  // Automações; nas demais páginas 3 s bastam para a barra superior. Continua
-  // com a aba do navegador em segundo plano (o OBS costuma ficar na frente).
+  // Estado da reprodução (só mostra o que está no ar; quem troca os clips é o
+  // palco no OBS): 1 s onde ele aparece — Ao Vivo e Automações; 3 s nas demais
+  // páginas para a barra superior. Pausa com a janela escondida (na bandeja) e
+  // consulta na hora ao voltar: numa live de 14 h eram 143 mil consultas.
   const playbackVisible = activePage === 'live' || activePage === 'flow';
-  usePolling(() => refreshVideoState(), playbackVisible ? 600 : 3000, { immediate: playbackVisible, pauseWhenHidden: false });
+  const windowVisible = useWindowVisible();
+  usePolling(() => refreshVideoState(), playbackVisible ? 1000 : 3000, { immediate: playbackVisible, enabled: windowVisible });
   usePolling(() => refreshAutomationLogs(), 5000, { enabled: activePage === 'flow' && flowSubTab === 'logs' });
 
   useEffect(() => {
