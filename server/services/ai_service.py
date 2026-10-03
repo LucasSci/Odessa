@@ -1,5 +1,8 @@
 import logging
 import mimetypes
+import threading
+import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Tuple, List, Optional
 from fastapi import HTTPException
@@ -67,6 +70,101 @@ def pause_local_ai() -> None:
 
 def local_ai_paused() -> bool:
     return _local_ai_paused
+
+
+# ── Uma conexão só com o Ollama ─────────────────────────────────────────────
+# Antes cada geração abria um httpx.Client novo. Criar o cliente monta um
+# contexto SSL (no Windows isso lê o repositório de certificados): era a função
+# mais quente do servidor numa live simulada.
+_http_lock = threading.Lock()
+_ollama_http: Any = None
+
+
+def _ollama_client() -> Any:
+    global _ollama_http
+    import httpx
+
+    with _http_lock:
+        if _ollama_http is None:
+            from server.core.http_clients import shared_ssl_context
+
+            _ollama_http = httpx.Client(timeout=OLLAMA_TIMEOUT, verify=shared_ssl_context())
+        return _ollama_http
+
+
+def close_http_clients() -> None:
+    global _ollama_http
+    with _http_lock:
+        client, _ollama_http = _ollama_http, None
+    close = getattr(client, "close", None)
+    if callable(close):
+        close()
+
+
+def reset_local_ai_state() -> None:
+    """Volta ao estado de quem acabou de abrir (usado entre testes)."""
+    close_http_clients()
+    _preferred_local.update(model=None, url=None)
+
+
+# ── Um modelo só ────────────────────────────────────────────────────────────
+# O chat manda o modelo escolhido na tela de IA; o que roda em segundo plano
+# (prompt de vídeo, memória) usava o padrão do servidor. Com modelos diferentes
+# o Ollama descarregava um e carregava o outro (~3 GB) a cada troca: 28 trocas
+# em 40 min numa live simulada. Agora o fundo usa o último modelo do chat.
+_preferred_local: dict[str, Optional[str]] = {"model": None, "url": None}
+
+
+def remember_local_model(model: Optional[str], url: Optional[str]) -> None:
+    if (model or "").strip():
+        _preferred_local["model"] = model.strip()
+        _preferred_local["url"] = (url or "").strip() or None
+
+
+# ── Fila da IA local ────────────────────────────────────────────────────────
+# O Ollama gera uma resposta por vez. Sem fila, o chat esperava atrás do prompt
+# de vídeo e da memória. Agora há uma vez por geração, com prioridade:
+# chat > memória > fundo. Quem espera demais desiste (o chat não responde uma
+# mensagem de 1 min atrás; o fundo tenta na próxima).
+PRIORITY_LEVELS = {"chat": 0, "memory": 1, "background": 2}
+MAX_WAIT_S = {0: 45.0, 1: 90.0, 2: 120.0}
+
+
+class LocalAiBusy(RuntimeError):
+    pass
+
+
+class LocalAiGate:
+    def __init__(self) -> None:
+        self._cond = threading.Condition()
+        self._busy = False
+        self._waiting = [0, 0, 0]
+
+    @contextmanager
+    def slot(self, priority: str = "chat", max_wait_s: Optional[float] = None):
+        level = PRIORITY_LEVELS.get(priority, 0)
+        deadline = time.monotonic() + (MAX_WAIT_S[level] if max_wait_s is None else max_wait_s)
+        with self._cond:
+            self._waiting[level] += 1
+            try:
+                while self._busy or any(self._waiting[higher] for higher in range(level)):
+                    left = deadline - time.monotonic()
+                    if left <= 0:
+                        raise LocalAiBusy(f"IA local ocupada (prioridade {priority}): pedido descartado")
+                    self._cond.wait(left)
+                self._busy = True
+            finally:
+                self._waiting[level] -= 1
+                self._cond.notify_all()
+        try:
+            yield
+        finally:
+            with self._cond:
+                self._busy = False
+                self._cond.notify_all()
+
+
+local_ai_gate = LocalAiGate()
 
 
 def _conversation_turns(conversation: list[dict[str, str]] | None) -> list[dict[str, str]]:
@@ -265,7 +363,8 @@ class AIService:
 
         global _local_ai_paused
         _local_ai_paused = False  # voltou a usar a IA local
-        url = (base_url or OLLAMA_BASE_URL).strip().rstrip("/")
+        model = model or _preferred_local["model"]
+        url = (base_url or _preferred_local["url"] or OLLAMA_BASE_URL).strip().rstrip("/")
         # num_predict limita o tamanho da geração — as respostas do chat já são
         # pedidas curtas (poucas frases), então 220 tokens só existe como teto
         # de segurança contra o modelo divagar e demorar mais que o necessário.
@@ -327,8 +426,7 @@ class AIService:
                     temperature,
                     attempt + 1,
                 )
-                with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
-                    response = client.post(f"{url}/api/chat", json=payload)
+                response = _ollama_client().post(f"{url}/api/chat", json=payload)
                 if response.status_code == 404 and payload["model"] != OLLAMA_MODEL:
                     # Modelo pedido não está instalado (ex.: tela aberta antes de o
                     # modelo pesado ser removido): usa o modelo padrão instalado em
@@ -339,8 +437,7 @@ class AIService:
                         OLLAMA_MODEL,
                     )
                     payload["model"] = OLLAMA_MODEL
-                    with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
-                        response = client.post(f"{url}/api/chat", json=payload)
+                    response = _ollama_client().post(f"{url}/api/chat", json=payload)
                 response.raise_for_status()
                 data = response.json()
                 text = ((data.get("message") or {}).get("content") or "").strip()
@@ -423,6 +520,7 @@ class AIService:
         provider: str | None = None,
         conversation: list[dict[str, str]] | None = None,
         provider_key: str | None = None,
+        priority: str = "chat",
     ) -> Tuple[str, str]:
         """
         AI Provider Router: Tries configured providers in order,
@@ -430,6 +528,8 @@ class AIService:
         """
         from server.config import AI_PROVIDER, ENABLE_LOCAL_FALLBACK
         selected_provider = (provider or AI_PROVIDER).strip().lower()
+        if priority == "chat":
+            remember_local_model(local_model_name, local_model_url)
 
         # Priority 1: Configured Provider
         providers_to_try = []
@@ -467,15 +567,16 @@ class AIService:
 
             if provider == "ollama":
                 try:
-                    text = self.generate_ollama_text(
-                        system_prompt,
-                        user_prompt,
-                        temperature,
-                        model=local_model_name,
-                        base_url=local_model_url,
-                        json_mode=json_mode,
-                        conversation=conversation,
-                    )
+                    with local_ai_gate.slot(priority):
+                        text = self.generate_ollama_text(
+                            system_prompt,
+                            user_prompt,
+                            temperature,
+                            model=local_model_name,
+                            base_url=local_model_url,
+                            json_mode=json_mode,
+                            conversation=conversation,
+                        )
                     if text.strip():
                         return text, "ollama"
                 except Exception as exc:
@@ -578,18 +679,23 @@ async def ollama_keepalive_loop(interval_seconds: int = 5 * 60) -> None:
     if AI_PROVIDER not in ("ollama", "local"):
         return
 
-    url = OLLAMA_BASE_URL.strip().rstrip("/")
     while True:
         if local_ai_paused() or not await _live_session_active():
             await asyncio.sleep(interval_seconds)
             continue
+        # Mantém aquecido o modelo que o chat usa (o padrão do servidor faria o
+        # Ollama trocar de modelo a cada ping).
+        model = _preferred_local["model"] or OLLAMA_MODEL
+        url = (_preferred_local["url"] or OLLAMA_BASE_URL).strip().rstrip("/")
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            from server.core.http_clients import shared_ssl_context
+
+            async with httpx.AsyncClient(timeout=10.0, verify=shared_ssl_context()) as client:
                 await client.post(
                     f"{url}/api/generate",
-                    json={"model": OLLAMA_MODEL, "prompt": "", "keep_alive": OLLAMA_KEEP_ALIVE},
+                    json={"model": model, "prompt": "", "keep_alive": OLLAMA_KEEP_ALIVE},
                 )
-            logger.info("[OLLAMA] keep-alive ping ok (model=%s)", OLLAMA_MODEL)
+            logger.info("[OLLAMA] keep-alive ping ok (model=%s)", model)
         except Exception as exc:
             logger.info("[OLLAMA] keep-alive ping falhou (Ollama pode estar desligado): %s", exc)
         await asyncio.sleep(interval_seconds)

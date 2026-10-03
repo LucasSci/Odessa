@@ -134,7 +134,10 @@ VIDEO_GEN_PROVIDER = os.getenv("VIDEO_GEN_PROVIDER", "placeholder").strip().lowe
 VIDEO_GEN_API_KEY = os.getenv("VIDEO_GEN_API_KEY", "").strip()
 VIDEO_GEN_MODEL = os.getenv("VIDEO_GEN_MODEL", "video-gen").strip()
 # Gera vídeo automaticamente quando o buffer de prompts atinge o limiar.
-VIDEO_GEN_AUTO = os.getenv("VIDEO_GEN_AUTO", "true").strip().lower() not in {"0", "false", "no"}
+# Desligado por padrão: com o chat da live, pedir um prompt à IA local a cada
+# poucas mensagens disputava o Ollama com as respostas do chat (ver
+# docs/PLANO-OTIMIZACAO.md). Ligue com VIDEO_GEN_AUTO=true.
+VIDEO_GEN_AUTO = os.getenv("VIDEO_GEN_AUTO", "false").strip().lower() in {"1", "true", "yes"}
 # Diretório raiz de persistência por persona (server/runtime/video-gen/{persona_id}/).
 ODESSA_VIDEO_GEN_DIR = Path(os.getenv("ODESSA_VIDEO_GEN_DIR", RUNTIME_DIR / "video-gen"))
 # Tamanho máximo da fila de vídeos pendentes por persona.
@@ -176,5 +179,5 @@ VIDEO_GEN_WIDTH = int(os.getenv("VIDEO_GEN_WIDTH", "720"))
 VIDEO_GEN_HEIGHT = int(os.getenv("VIDEO_GEN_HEIGHT", "1280"))
 # Nº de interações de chat acumuladas antes de gerar um prompt automaticamente.
 VIDEO_GEN_PROMPT_THRESHOLD = int(os.getenv("VIDEO_GEN_PROMPT_THRESHOLD", "5"))
-# Cooldown mínimo (ms) entre gerações automáticas.
-VIDEO_GEN_COOLDOWN_MS = int(os.getenv("VIDEO_GEN_COOLDOWN_MS", "30000"))
+# Cooldown mínimo (ms) entre gerações automáticas (5 min: é conteúdo de fundo).
+VIDEO_GEN_COOLDOWN_MS = int(os.getenv("VIDEO_GEN_COOLDOWN_MS", "300000"))

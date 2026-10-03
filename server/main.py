@@ -118,6 +118,13 @@ async def lifespan(app: FastAPI):
     if keepalive_task is not None:
         keepalive_task.cancel()
 
+    try:
+        from server.services.ai_service import close_http_clients
+
+        close_http_clients()
+    except Exception:  # noqa: BLE001 — desligando: nada a fazer
+        pass
+
 
 app = FastAPI(
     title="Odessa API",
@@ -309,8 +316,12 @@ async def proxy_tango_bridge(path: str, request: Request):
 
     port = _bridge_port()
     url = f"http://127.0.0.1:{port}/{path}"
+    from server.core.http_clients import shared_ssl_context
+
     body = await request.body()
-    client = httpx.AsyncClient(timeout=None)
+    # Contexto SSL compartilhado: criar um por pedido era o ponto mais quente do
+    # servidor com o chat da live passando por aqui.
+    client = httpx.AsyncClient(timeout=None, verify=shared_ssl_context())
     req = client.build_request(
         request.method,
         url,

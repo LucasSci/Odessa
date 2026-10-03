@@ -95,6 +95,8 @@ def learn_from_conversations(request: MemoryLearnRequest):
             user_prompt=user,
             temperature=0.2,
             json_mode=True,
+            # Aprender cede a vez ao chat da live (fila da IA local).
+            priority="memory",
             local_model_url=request.local_model_url,
             local_model_name=request.local_model_name,
             provider=request.provider,

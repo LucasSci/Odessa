@@ -155,6 +155,8 @@ class PromptService:
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 temperature=0.8,
+                # Conteúdo de fundo: espera o chat e a memória terminarem.
+                priority="background",
             )
             return (text or "").strip()
         except Exception as exc:  # noqa: BLE001

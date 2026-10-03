@@ -24,9 +24,23 @@ GEMINI_MODEL_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _gemini_rate_limiter = RateLimiter(limit=30, window_s=60.0)
 
 
-async def _check_ollama(timeout: float = 2.5) -> dict[str, Any]:
+# Várias telas e o /health/deps perguntavam ao Ollama a cada ~2 s; 10 s de cache
+# bastam para status (o "Conectar Ollama" pede `fresh=True` enquanto espera subir).
+OLLAMA_STATUS_TTL_S = 10.0
+_ollama_status_cache: tuple[float, dict[str, Any]] | None = None
+
+
+async def _check_ollama(timeout: float = 2.5, *, fresh: bool = False) -> dict[str, Any]:
     """Verifica se o Ollama está acessível e se o modelo configurado está instalado."""
+    global _ollama_status_cache
+    import time
+
     from server.config import OLLAMA_BASE_URL, OLLAMA_MODEL
+    from server.core.http_clients import shared_ssl_context
+
+    now = time.monotonic()
+    if not fresh and _ollama_status_cache and now - _ollama_status_cache[0] < OLLAMA_STATUS_TTL_S:
+        return dict(_ollama_status_cache[1])
 
     result: dict[str, Any] = {
         "configured": True,
@@ -37,7 +51,7 @@ async def _check_ollama(timeout: float = 2.5) -> dict[str, Any]:
         "installedModels": [],
     }
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, verify=shared_ssl_context()) as client:
             response = await client.get(f"{OLLAMA_BASE_URL}/api/tags")
         result["reachable"] = response.is_success
         if response.is_success:
@@ -46,6 +60,7 @@ async def _check_ollama(timeout: float = 2.5) -> dict[str, Any]:
             result["modelInstalled"] = OLLAMA_MODEL in models
     except Exception:
         pass
+    _ollama_status_cache = (now, dict(result))
     return result
 
 
@@ -181,7 +196,7 @@ async def ollama_connect():
     """
     ollama_exe = shutil.which("ollama")
 
-    status = await _check_ollama()
+    status = await _check_ollama(fresh=True)
     started = False
 
     if not status["reachable"]:
@@ -208,7 +223,7 @@ async def ollama_connect():
         # Espera o servidor subir (cold start do processo, não do modelo).
         for _ in range(15):
             await asyncio.sleep(1)
-            status = await _check_ollama()
+            status = await _check_ollama(fresh=True)
             if status["reachable"]:
                 break
 
