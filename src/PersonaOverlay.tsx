@@ -424,6 +424,16 @@ export default function PersonaOverlay() {
     [advanceAndRefresh, currentKey, isTransitioning],
   );
 
+  // O laço do palco monta UMA vez e lê os valores atuais por esta ref. Antes ele
+  // dependia de currentKey/transitionToClip, que mudam a cada troca de clip: o
+  // efeito era recriado ~3 vezes por transição, cada vez com uma consulta
+  // imediata (o overlay pedia o estado ~1,3×/s mesmo com o palco parado).
+  const loopRef = useRef({ advanceAndRefresh, checkAndFireSchedules, currentKey, fetchVideoState, transitionToClip });
+  useEffect(() => {
+    loopRef.current = { advanceAndRefresh, checkAndFireSchedules, currentKey, fetchVideoState, transitionToClip };
+  });
+  const tickNowRef = useRef<() => void>(() => undefined);
+
   useEffect(() => {
     let cancelled = false;
     let inFlight = false;
@@ -441,6 +451,7 @@ export default function PersonaOverlay() {
       }
     };
     const tick = async () => {
+      const { advanceAndRefresh, checkAndFireSchedules, currentKey, fetchVideoState, transitionToClip } = loopRef.current;
       const state = await fetchVideoState();
       if (cancelled || !state) return;
       // Fire any due schedules before processing clip transitions so that the
@@ -484,6 +495,7 @@ export default function PersonaOverlay() {
       }
     };
 
+    tickNowRef.current = () => void guardedTick();
     void guardedTick();
     // O servidor avisa (SSE) quando o palco muda: o tick roda na hora. A
     // consulta de 500 ms vira reserva de 2 s enquanto o aviso funciona (ela
@@ -498,7 +510,13 @@ export default function PersonaOverlay() {
       unsubscribe();
       window.clearInterval(interval);
     };
-  }, [advanceAndRefresh, checkAndFireSchedules, currentKey, fetchVideoState, transitionToClip]);
+  }, []);
+
+  // Fim de uma transição (ou clip marcado para recarregar): confere o palco na
+  // hora, como antes, em vez de esperar a próxima consulta.
+  useEffect(() => {
+    if (!isTransitioning) tickNowRef.current();
+  }, [isTransitioning, currentKey]);
 
   const handleProgress = (index: 0 | 1, slotClip: VideoClip | null, element: HTMLVideoElement) => {
     const cuts = slotClip?.segments && slotClip.segments.length > 0 ? slotClip.segments : null;

@@ -165,7 +165,9 @@ export default function App() {
   // aba "Ao Vivo" (ver useAutopilotRuntime.ts) — atualizado via callback do
   // OdessaLiveCenter sempre que o usuário troca de aba.
   const [isLiveTabActive, setIsLiveTabActive] = useState(true);
-  const runtime = useAutopilotRuntime({ capturedText, setCapturedText, isLiveTabActive });
+  // A página do overlay do OBS só toca o palco: nada de consultas de status.
+  const isOverlayRoute = requestedPanel === ('overlay' as AdvancedPanel);
+  const runtime = useAutopilotRuntime({ capturedText, setCapturedText, isLiveTabActive, statusPolling: !isOverlayRoute });
 
   useEffect(() => {
     try {

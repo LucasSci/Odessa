@@ -194,6 +194,12 @@ interface UseAutopilotRuntimeOptions {
    * precisa do catálogo mesmo fora da aba, se uma live estiver rodando).
    */
   isLiveTabActive: boolean;
+  /**
+   * Consultas de status ligadas (padrão). Desligado na página do overlay do
+   * OBS: ela só toca o palco e não mostra nada disto, mas consultava saúde,
+   * OBS, catálogo, agente, vídeo e chat-automação como a tela do operador.
+   */
+  statusPolling?: boolean;
 }
 
 type StartOptions = {
@@ -342,8 +348,10 @@ function auditLogAction(label: string, result: string): AutopilotAction {
 export function useAutopilotRuntime({
   capturedText,
   setCapturedText,
-  isLiveTabActive,
+  isLiveTabActive: liveTabActive,
+  statusPolling = true,
 }: UseAutopilotRuntimeOptions): AutopilotRuntimeState {
+  const isLiveTabActive = liveTabActive && statusPolling;
   const [autopilotEnabled, setAutopilotEnabled] = useState(false);
   const [testMode, setTestMode] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
@@ -600,13 +608,14 @@ export function useAutopilotRuntime({
   // refreshHealth alimenta o indicador de status sempre visível no topo —
   // continua rodando em qualquer aba, sem gate.
   useEffect(() => {
+    if (!statusPolling) return;
     const firstRun = window.setTimeout(refreshHealth, 0);
     const interval = window.setInterval(refreshHealth, 15000);
     return () => {
       window.clearTimeout(firstRun);
       window.clearInterval(interval);
     };
-  }, [refreshHealth]);
+  }, [refreshHealth, statusPolling]);
 
   // OBS/catálogo/agente/vídeo/chat-automação só interessam na aba "Ao Vivo"
   // (ou enquanto a Diretora está rodando, mesmo fora da aba — ela precisa do
