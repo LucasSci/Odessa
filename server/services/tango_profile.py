@@ -427,11 +427,18 @@ async def clean_setup(
     template = template_from_zip(zip_bytes) if zip_bytes else load_template(template_dir)
     zip_key = str((template["service"].get("settings") or {}).get("key") or "").strip() if zip_bytes else ""
     pasted = (stream_key or "").strip()
+    # Chave que já está no OBS: a do perfil ativo, ou a de outro perfil do Tango
+    # se a do ativo faltar ou tiver vencido.
     current_key = ""
     current = status(root, template_dir=template_dir)
-    active_profile = next((p for p in current["profiles"] if p["active"]), None) or (current["profiles"] or [None])[0]
-    if active_profile:
-        current_key = str((_read_service(root / "basic" / "profiles" / active_profile["folder"]).get("settings") or {}).get("key") or "").strip()
+    for profile in sorted(current["profiles"], key=lambda p: not p["active"]):
+        if profile["key"]["present"] and not profile["key"]["expired"]:
+            current_key = str((_read_service(root / "basic" / "profiles" / profile["folder"]).get("settings") or {}).get("key") or "").strip()
+            break
+    if not current_key:
+        active_profile = next((p for p in current["profiles"] if p["active"]), None)
+        if active_profile:
+            current_key = str((_read_service(root / "basic" / "profiles" / active_profile["folder"]).get("settings") or {}).get("key") or "").strip()
 
     if pasted:
         key, source = pasted, "colada"
@@ -489,3 +496,86 @@ async def clean_setup(
         "obsWasRunning": bool(running),
         "canvas": {"width": width, "height": height},
     }
+
+
+# ── Configuração automática ─────────────────────────────────────────────────
+
+AUTO_CHECK_INTERVAL_S = 120
+
+
+def assess(report: Dict[str, Any]) -> Dict[str, Any]:
+    """O que o diagnóstico pede: consertar sozinho, avisar (bloqueio) ou nada."""
+    profiles = report["profiles"]
+    active = next((p for p in profiles if p["active"]), None)
+    usable_key = any(p["key"]["present"] and not p["key"]["expired"] for p in profiles)
+    reasons: List[str] = []
+    if len(profiles) > 1:
+        reasons.append("perfis do Tango duplicados")
+    if profiles and active is None:
+        reasons.append("o perfil ativo não é o do Tango")
+    if any(p["differences"] for p in profiles):
+        reasons.append("perfil diferente do modelo do Tango")
+    if active and (not active["key"]["present"] or active["key"]["expired"]) and usable_key:
+        reasons.append("perfil ativo sem chave válida")
+    blocker = None
+    if not profiles:
+        blocker = "Não há perfil do Tango no OBS: cole a chave e use a Configuração limpa."
+    elif not usable_key:
+        expired = any(p["key"]["expired"] for p in profiles)
+        blocker = (
+            "A chave do Tango venceu. Gere uma nova no Tango e use a Configuração limpa."
+            if expired
+            else "Nenhum perfil do Tango tem chave: cole a chave e use a Configuração limpa."
+        )
+    return {"fix": bool(reasons) and blocker is None, "reasons": reasons, "blocker": blocker}
+
+
+async def auto_fix(
+    obs,
+    *,
+    allow_restart: bool,
+    root: Optional[Path] = None,
+    template_dir: Path = TEMPLATE_DIR,
+    processes: Callable[[], List[Dict[str, Any]]] = _obs_processes,
+    closer: Callable[[], bool] = close_obs,
+    starter: Callable[[Path], None] = start_obs,
+) -> Dict[str, Any]:
+    """Conserta o perfil do Tango sozinho quando dá para fazer sem perguntar nada.
+
+    - OBS fechado: conserta direto (ninguém vê).
+    - OBS aberto: só com `allow_restart` (no "Iniciar live", que já mexe no OBS).
+    - Chave vencida ou ausente: não conserta; devolve o motivo para a tela avisar.
+    """
+    import asyncio
+
+    root = root or obs_config_root()
+    report = await asyncio.to_thread(status, root, template_dir=template_dir)
+    verdict = assess(report)
+    if verdict["blocker"]:
+        return {"action": "blocked", "message": verdict["blocker"], "reasons": verdict["reasons"]}
+    if not verdict["fix"]:
+        return {"action": "none", "reasons": []}
+    running = await asyncio.to_thread(processes)
+    if running and not allow_restart:
+        return {"action": "deferred", "reasons": verdict["reasons"]}
+    result = await clean_setup(
+        obs, root=root, template_dir=template_dir, processes=lambda: running, closer=closer, starter=starter
+    )
+    logger.info("[perfil Tango] configuração automática: %s", "; ".join(verdict["reasons"]))
+    return {"action": "fixed", "reasons": verdict["reasons"], "result": result}
+
+
+async def auto_fix_loop(obs) -> None:
+    """Só no programa instalado: confere a cada 2 min e conserta com o OBS fechado."""
+    import asyncio
+
+    await asyncio.sleep(60)  # deixa o Odessa terminar de abrir
+    while True:
+        if getattr(obs, "tango_auto_fix", False):
+            try:
+                outcome = await auto_fix(obs, allow_restart=False)
+                if outcome["action"] == "fixed":
+                    logger.info("[perfil Tango] consertado sozinho com o OBS fechado")
+            except Exception as exc:  # noqa: BLE001 — nunca derruba o servidor
+                logger.warning("[perfil Tango] configuração automática falhou: %s", exc)
+        await asyncio.sleep(AUTO_CHECK_INTERVAL_S)

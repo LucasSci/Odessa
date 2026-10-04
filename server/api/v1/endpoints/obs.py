@@ -46,6 +46,7 @@ class ObsSettingsRequest(BaseModel):
     startupSceneName: Optional[str] = None
     liveSceneName: Optional[str] = None
     transmissionMode: Optional[str] = None
+    tangoAutoFix: Optional[bool] = None
     canvasWidth: Optional[int] = None
     canvasHeight: Optional[int] = None
     sceneWhitelist: Optional[list[str] | str] = None
@@ -264,6 +265,22 @@ async def obs_start_live_dry_run(request: ObsStartLiveRequest):
     return {**_live_plan_from_request(request, health), "dryRun": True}
 
 
+async def _wait_obs_back(obs, timeout_s: float = 60.0) -> None:
+    """Espera o OBS reaberto aceitar o WebSocket de novo."""
+    import asyncio
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        await asyncio.sleep(3)
+        try:
+            health = await obs.live_health(force_reconnect=True)
+            if health.get("connected") is not False:
+                return
+        except Exception:  # noqa: BLE001 — ainda abrindo
+            pass
+
+
 @router.post("/start-live")
 async def obs_start_live(request: ObsStartLiveRequest):
     if request.actionMode != "real":
@@ -271,6 +288,17 @@ async def obs_start_live(request: ObsStartLiveRequest):
         return {**_live_plan_from_request(request, health), "dryRun": True}
     results: list[dict[str, Any]] = []
     try:
+        if request.startTransmission and obs_service.tango_auto_fix:
+            # Configuração automática do perfil do Tango antes de ir ao ar: com o
+            # perfil duplicado/diferente do modelo, conserta (fecha e reabre o OBS).
+            from server.services import tango_profile
+
+            tango = await tango_profile.auto_fix(obs_service, allow_restart=True)
+            results.append({"id": "tangoProfile", "result": tango})
+            if tango["action"] == "blocked":
+                return {"ok": False, "results": results, "error": tango["message"]}
+            if tango["action"] == "fixed" and tango["result"].get("obsRestarted"):
+                await _wait_obs_back(obs_service)
         if request.prepareObs:
             health = await obs_service.live_health(force_reconnect=True)
             if health.get("connected") is False:

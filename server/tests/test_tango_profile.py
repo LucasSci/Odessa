@@ -233,3 +233,55 @@ def test_modelo_do_repositorio_nao_guarda_chave():
     template = tp.load_template()
     assert template["service"]["settings"]["key"] == ""
     assert template["basic"].get("Video", "BaseCX") == "720"
+
+
+def auto(obs_root, proc, allow_restart):
+    return asyncio.run(
+        tp.auto_fix(FakeObs(), allow_restart=allow_restart, root=obs_root, processes=proc.processes, closer=proc.closer, starter=proc.starter)
+    )
+
+
+def test_automatico_com_obs_fechado_conserta_sem_ninguem_ver(obs_root):
+    proc = FakeProcess(running=False)
+    outcome = auto(obs_root, proc, allow_restart=False)
+    assert outcome["action"] == "fixed" and "perfis do Tango duplicados" in outcome["reasons"]
+    assert profiles(obs_root) == ["Lolzin", "Tango_Profile"]
+    assert proc.closed is False and proc.started is None
+    # Na volta seguinte não há mais o que fazer.
+    assert auto(obs_root, proc, allow_restart=False)["action"] == "none"
+
+
+def test_automatico_com_obs_aberto_espera_o_iniciar_live(obs_root):
+    proc = FakeProcess(running=True)
+    assert auto(obs_root, proc, allow_restart=False)["action"] == "deferred"
+    assert "TangoProfile (7)" in profiles(obs_root) and proc.closed is False
+    assert auto(obs_root, proc, allow_restart=True)["action"] == "fixed"
+    assert proc.closed and proc.started
+
+
+def test_automatico_nao_inventa_com_chave_vencida(tmp_path):
+    root = tmp_path / "obs"
+    write_profile(root, "TangoProfile (7)", "Tango Profile", key=make_key(-2))
+    (root / "user.ini").write_text("[Basic]\nProfile=Tango Profile\nProfileDir=TangoProfile (7)\n", encoding="utf-8")
+    outcome = auto(root, FakeProcess(running=False), allow_restart=True)
+    assert outcome["action"] == "blocked" and "venceu" in outcome["message"]
+    assert "TangoProfile (7)" in profiles(root)
+
+
+def test_ativo_com_chave_vencida_usa_a_valida_do_outro_perfil(tmp_path):
+    root = tmp_path / "obs"
+    write_profile(root, "TangoProfile (7)", "Tango Profile", key=make_key(-2))
+    valida = make_key(20)
+    write_profile(root, "TangoProfile2", "Tango Profile", key=valida)
+    (root / "user.ini").write_text("[Basic]\nProfile=Tango Profile\nProfileDir=TangoProfile (7)\n", encoding="utf-8")
+    outcome = auto(root, FakeProcess(running=False), allow_restart=False)
+    assert outcome["action"] == "fixed"
+    service = json.loads((root / "basic/profiles/Tango_Profile/service.json").read_text())
+    assert service["settings"]["key"] == valida
+
+
+def test_perfil_em_ordem_nao_e_mexido(tmp_path):
+    root = tmp_path / "obs"
+    write_profile(root, "Tango_Profile", "Tango Profile", key=make_key(20))
+    (root / "user.ini").write_text("[Basic]\nProfile=Tango Profile\nProfileDir=Tango_Profile\n", encoding="utf-8")
+    assert auto(root, FakeProcess(running=False), allow_restart=True)["action"] == "none"

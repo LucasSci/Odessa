@@ -317,6 +317,8 @@ export function SettingsPanel({
   onObsSettingsChanged?: (settings: Record<string, unknown>) => void;
 }) {
   const [obsSettings, setObsSettings] = useState<ObsSettings>(DEFAULT_OBS_SETTINGS);
+  // Configuração automática do perfil do Tango (gravada na hora no servidor).
+  const [tangoAutoFix, setTangoAutoFix] = useState(true);
   const [obsConnection, setObsConnection] = useState<ObsConnectionFields>(() =>
     parseObsConnection(DEFAULT_OBS_SETTINGS),
   );
@@ -351,6 +353,7 @@ export function SettingsPanel({
       if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
       const normalized = normalizeObsSettings(data.settings);
       setObsSettings(normalized);
+      setTangoAutoFix((data.settings as { tangoAutoFix?: boolean } | undefined)?.tangoAutoFix !== false);
       setObsConnection(parseObsConnection(normalized));
       setSelectedSceneTest((current) => current || normalized.allowedScenes[0] || '');
     } catch (err) {
@@ -1039,6 +1042,26 @@ export function SettingsPanel({
           title="Perfil do Tango no OBS"
           description="Configuração limpa com um clique quando o perfil der erro"
         >
+          <div className="mb-4 flex items-start justify-between gap-4 rounded-xl border border-[var(--border2)] bg-[var(--bg3)]/40 p-3">
+            <div>
+              <p className="text-sm font-semibold text-[var(--t1)]">Configurar o perfil do Tango sozinho</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-[var(--t3)]">
+                Com o OBS fechado, o Odessa confere a cada 2 min e conserta perfil duplicado ou diferente do modelo. No
+                &quot;Iniciar live&quot;, conserta antes de ir ao ar (fecha e reabre o OBS). Com a chave vencida, só avisa.
+              </p>
+            </div>
+            <Toggle
+              checked={tangoAutoFix}
+              onChange={(next) => {
+                setTangoAutoFix(next);
+                void fetch(apiUrl('/obs/settings'), {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ tangoAutoFix: next }),
+                }).catch(() => setTangoAutoFix(!next));
+              }}
+            />
+          </div>
           <TangoProfileCard
             onRebuilt={(canvas) => {
               const next = { ...obsSettings, canvasWidth: canvas.width, canvasHeight: canvas.height };

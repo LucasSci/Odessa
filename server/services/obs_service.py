@@ -102,6 +102,8 @@ class OBSService:
         )
         self.canvas_width = self._positive_int(settings.get("canvasWidth"), OBS_STAGE_CANVAS_WIDTH)
         self.canvas_height = self._positive_int(settings.get("canvasHeight"), OBS_STAGE_CANVAS_HEIGHT)
+        # Configuração automática do perfil do Tango (ver tango_profile.auto_fix).
+        self.tango_auto_fix = bool(settings.get("tangoAutoFix", True))
         raw_whitelist = settings.get("sceneWhitelist", OBS_SCENE_WHITELIST)
         if isinstance(raw_whitelist, str):
             raw_whitelist = raw_whitelist.split(",")
@@ -167,6 +169,7 @@ class OBSService:
                     "canvasWidth": self.canvas_width,
                     "canvasHeight": self.canvas_height,
                     "sceneWhitelist": self.whitelist,
+                    "tangoAutoFix": self.tango_auto_fix,
                 },
         )
 
@@ -207,6 +210,7 @@ class OBSService:
             "canvasHeight": self.canvas_height,
             "sceneWhitelist": self.whitelist,
             "allowedScenes": self.whitelist,
+            "tangoAutoFix": self.tango_auto_fix,
         }
 
     def get_live_layout(self) -> dict[str, Any]:
@@ -269,6 +273,8 @@ class OBSService:
             self.canvas_width = self._positive_int(settings["canvasWidth"], self.canvas_width)
         if "canvasHeight" in settings:
             self.canvas_height = self._positive_int(settings["canvasHeight"], self.canvas_height)
+        if "tangoAutoFix" in settings:
+            self.tango_auto_fix = bool(settings["tangoAutoFix"])
         if "sceneWhitelist" in settings or "allowedScenes" in settings:
             raw_whitelist = settings.get("allowedScenes", settings.get("sceneWhitelist"))
             if isinstance(raw_whitelist, str):

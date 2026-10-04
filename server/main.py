@@ -88,6 +88,18 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Erro ao iniciar keep-alive do Ollama: %s", exc)
 
+    # Configuração automática do perfil do Tango (só no programa instalado: nos
+    # testes e no modo dev nunca mexe no OBS de verdade).
+    tango_task = None
+    if os.getenv("ODESSA_DESKTOP") == "1":
+        try:
+            from server.services.obs_service import obs_service
+            from server.services.tango_profile import auto_fix_loop
+
+            tango_task = asyncio.create_task(auto_fix_loop(obs_service))
+        except Exception as exc:
+            logger.warning("Configuração automática do perfil do Tango não iniciou: %s", exc)
+
     if os.getenv("ODESSA_AUTOSTART_BRIDGE", "0") == "1":
         try:
             from server.services.bridge_manager import bridge_manager, load_bridge_config
@@ -117,6 +129,8 @@ async def lifespan(app: FastAPI):
 
     if keepalive_task is not None:
         keepalive_task.cancel()
+    if tango_task is not None:
+        tango_task.cancel()
 
     try:
         from server.core.append_log import close_all

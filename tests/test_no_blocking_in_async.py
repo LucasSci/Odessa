@@ -80,11 +80,15 @@ def test_chat_continua_rapido_com_geracao_automatica_e_ia_lenta(monkeypatch):
         return "ela sorri e acena para o chat", "ollama"
 
     monkeypatch.setattr(ai_service, "generate_ai_text_with_fallback", slow_llm)
-    monkeypatch.setattr(prompt_service, "should_auto_generate", lambda _pid=None: True)
+    auto_on = {"value": False}
+    monkeypatch.setattr(prompt_service, "should_auto_generate", lambda _pid=None: auto_on["value"])
     monkeypatch.setattr(vgs.video_gen_service, "_last_generation_at", 0.0)
     monkeypatch.setattr(vgs.video_gen_service, "enqueue", lambda *a, **k: {"ok": True})
 
     with TestClient(main.app) as client:
+        # Aquecimento: o 1º pedido paga imports e caches (~1 s no Windows), não a IA.
+        client.post("/api/v1/automation/ingest", json={"text": "aquecimento: oi", "source": "teste", "kind": "chat"})
+        auto_on["value"] = True
         times = []
         for i in range(3):
             start = time.monotonic()
