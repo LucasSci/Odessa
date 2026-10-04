@@ -127,7 +127,9 @@ def remember_local_model(model: Optional[str], url: Optional[str]) -> None:
 # chat > memória > fundo. Quem espera demais desiste (o chat não responde uma
 # mensagem de 1 min atrás; o fundo tenta na próxima).
 PRIORITY_LEVELS = {"chat": 0, "memory": 1, "background": 2}
-MAX_WAIT_S = {0: 45.0, 1: 90.0, 2: 120.0}
+# Chat espera até 90 s: com o modelo frio (primeira fala depois de uma pausa) a
+# geração anterior pode levar ~90 s só carregando, e a 1ª resposta se perdia.
+MAX_WAIT_S = {0: 90.0, 1: 90.0, 2: 120.0}
 
 
 class LocalAiBusy(RuntimeError):

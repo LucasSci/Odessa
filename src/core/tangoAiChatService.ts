@@ -320,8 +320,17 @@ export function sanitizeTangoReply(text: string, maxLength = 140, personaName?: 
 
 // Pedido de contato fora da live. Nunca passa pela IA: um modelo pequeno às vezes
 // "aceita" ("meu zap está à mão"); a recusa sai do próprio prompt da persona.
+// "whats" sozinho é gíria de WhatsApp em português, mas "what"/"what's" é a
+// palavra mais comum do inglês: antes, "what are you drinking?" virava pedido de
+// contato e recebia a recusa pronta, em português. Agora "whats" só conta junto
+// de "seu/teu/passa/manda/me" ou como "whatsapp"/"whats app".
 const CONTACT_REQUEST =
-  /\b(?:zap|zapzap|whats?|wpp|whatsapp|telegram|insta|instagram|telefone|(?:seu|teu|o) (?:n[uú]mero|celular|contato|endere[cç]o)(?! d[aeo]s?\b)|endere[cç]o|onde (?:vc|voc[eê]) mora|(?:chama|me chama|vem|vamos) no pv|no privado)\b/i;
+  /\b(?:zap|zapzap|wpp|whats ?app|(?:seu|teu|o|passa|manda|me d[aá]|me passa) whats|telegram|insta|instagram|snap(?:chat)?|telefone|phone number|your (?:number|phone|insta|ig|snap|address|socials)|(?:seu|teu|o) (?:n[uú]mero|celular|contato|endere[cç]o)(?! d[aeo]s?\b)|endere[cç]o|onde (?:vc|voc[eê]) mora|(?:chama|me chama|vem|vamos) no pv|no privado|dm me|text me|private chat)\b/i;
+const DEFAULT_CONTACT_DEFLECTIONS_EN = [
+  "I'm all yours right here though.",
+  'Nope, this is my only spot. Stick around.',
+  'Right here is the only place you can find me.',
+];
 const DEFAULT_CONTACT_DEFLECTIONS = [
   'meu cantinho é aqui na live 😊 me conta de você!',
   'aqui na live é onde eu fico, vem conversar com a gente 💖',
@@ -333,10 +342,11 @@ export function isContactRequest(text: string): boolean {
 }
 
 /** Recusa no tom da persona: o exemplo de "whats"/"zap" do prompt dela, ou uma padrão. */
-export function contactDeflection(identity: string, seed = Date.now()): string {
-  const fromPrompt = identity.match(/Mensagem "[^"]*(?:whats|zap)[^"]*" → "([^"]+)"/i);
+export function contactDeflection(identity: string, seed = Date.now(), language: ReplyLanguage = 'pt'): string {
+  const fromPrompt = identity.match(/(?:Mensagem|Message) "[^"]*(?:whats|zap)[^"]*" → "([^"]+)"/i);
   if (fromPrompt) return fromPrompt[1];
-  return DEFAULT_CONTACT_DEFLECTIONS[Math.abs(seed) % DEFAULT_CONTACT_DEFLECTIONS.length];
+  const pool = language === 'en' ? DEFAULT_CONTACT_DEFLECTIONS_EN : DEFAULT_CONTACT_DEFLECTIONS;
+  return pool[Math.abs(seed) % pool.length];
 }
 
 /**
@@ -463,7 +473,7 @@ export async function generateTangoChatReply(
   if (isContactRequest(incoming.text)) {
     return {
       ok: true,
-      reply: sanitizeTangoReply(contactDeflection(identityPrompt), maxLength, personaName),
+      reply: sanitizeTangoReply(contactDeflection(identityPrompt, Date.now(), language), maxLength, personaName),
       confidence: 0.95,
       reason: 'Pedido de contato fora da live: recusa padrão da persona (sem IA)',
     };

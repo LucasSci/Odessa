@@ -99,3 +99,28 @@ describe('filtros que valem para qualquer IA', () => {
     expect(soundsLikeAssistant('Nope. Love life stays private.')).toBe(false);
   });
 });
+
+describe('pedido de contato x perguntas comuns em inglês', () => {
+  it('"what"/"whats" não é pedido de contato; whatsapp, número e insta são', async () => {
+    const { isContactRequest, contactDeflection } = await import('./tangoAiChatService');
+    for (const text of ['what are you drinking tonight?', 'whats your favorite book', "what's up", 'what do you do?']) {
+      expect(isContactRequest(text)).toBe(false);
+    }
+    for (const text of ['give me your whatsapp', "what's your number?", 'do you have insta?', 'me passa seu whats', 'qual seu zap']) {
+      expect(isContactRequest(text)).toBe(true);
+    }
+    expect(contactDeflection('You are someone.', 0, 'en')).toMatch(/right here/i);
+  });
+});
+
+describe('falas dela entram no histórico como dela', () => {
+  it('na conversa em turnos, a fala própria vira "assistant", não um espectador', () => {
+    const turns = buildConversationTurns(
+      [{ username: 'joe', text: 'hi' }, { username: 'Viktoria', text: 'Hey, good timing.', own: true }],
+      { username: 'joe', text: 'how are you?' },
+      undefined,
+      'en',
+    );
+    expect(turns.map((t) => t.role)).toEqual(['user', 'assistant', 'user']);
+  });
+});

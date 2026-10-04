@@ -492,7 +492,10 @@ export function TangoChatSessionProvider({
       const recordOwnReply = () => {
         setMessages((prev) => [
           ...prev.slice(-399),
-          { username: activePersona?.name || 'Você', text: clean, timestamp: new Date().toISOString() },
+          // own: é fala DELA. Sem a marca, a IA recebia as próprias falas como se
+          // fossem de um espectador chamado "Viktoria", e os filtros de repetição,
+          // emoji e pergunta (que olham as últimas falas dela) nunca agiam.
+          { username: activePersona?.name || 'Você', text: clean, timestamp: new Date().toISOString(), own: true },
         ]);
       };
 

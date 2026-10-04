@@ -168,7 +168,8 @@ export function PersonaChatLab() {
     setError(null);
     setElapsedSec(0);
     setSending(true);
-    const context = chatHistoryFor(history);
+    // As falas da persona marcadas como dela (own), como no chat da live.
+    const context = chatHistoryFor(history).map((m) => ({ username: m.username, text: m.text, timestamp: m.timestamp, own: m.role === 'assistant' }));
     const controller = new AbortController();
     abortRef.current = controller;
     try {
