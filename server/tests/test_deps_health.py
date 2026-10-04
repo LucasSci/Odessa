@@ -52,3 +52,17 @@ def test_nuvem_com_chave_esta_ok_e_lista_provedores():
     report = build_deps_report(provider="gemini", ollama=ollama(), ollama_installed=False, keys={"gemini": True, "openai": False})
     assert report["issues"] == [] and report["ai"]["cloudProviders"] == ["gemini"]
 
+
+
+def test_chave_do_tango_vencendo_ou_vencida_vira_aviso():
+    from server.services.deps_health import build_deps_report
+
+    base = dict(provider="ollama", ollama={"reachable": True, "modelInstalled": True, "model": "m"}, ollama_installed=True, keys={})
+    soon = build_deps_report(**base, tango_key={"present": True, "expired": False, "expiringSoon": True, "daysLeft": 6.4})
+    assert [(i["code"], i["severity"]) for i in soon["issues"]] == [("tango_key_expiring", "warning")]
+    assert "em 6 dia(s)" in soon["issues"][0]["message"] and soon["ok"] is True
+
+    expired = build_deps_report(**base, tango_key={"present": True, "expired": True, "expiringSoon": False, "daysLeft": -1})
+    assert [(i["code"], i["severity"]) for i in expired["issues"]] == [("tango_key_expired", "error")]
+
+    assert build_deps_report(**base, tango_key=None)["issues"] == []

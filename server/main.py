@@ -259,9 +259,19 @@ async def health_deps():
 
     from server import config as server_config
     from server.api.v1.endpoints.ai import _check_ollama
+    from server.services import tango_profile
     from server.services.deps_health import build_deps_report
 
+    def active_tango_key():
+        try:
+            profiles = tango_profile.status()["profiles"]
+        except Exception:  # noqa: BLE001 — sem OBS instalado, sem aviso
+            return None
+        current = next((p for p in profiles if p["active"]), None) or (profiles[0] if profiles else None)
+        return current["key"] if current else None
+
     return build_deps_report(
+        tango_key=await asyncio.to_thread(active_tango_key),
         provider=server_config.AI_PROVIDER,
         ollama=await _check_ollama(),
         ollama_installed=shutil.which("ollama") is not None,

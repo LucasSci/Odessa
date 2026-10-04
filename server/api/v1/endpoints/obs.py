@@ -1,6 +1,7 @@
+import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, File, Form, Query, UploadFile
 from pydantic import BaseModel
 
 from server.config import OBS_OCR_SOURCE_NAME
@@ -8,6 +9,7 @@ from server.services.obs_service import obs_service
 
 
 router = APIRouter(tags=["OBS"])
+logger = logging.getLogger("odessa.routes.obs")
 
 
 class ObsScreenshotRequest(BaseModel):
@@ -393,26 +395,39 @@ async def obs_switch_scene(request: ObsSwitchSceneRequest):
     return await obs_service.switch_scene(scene_name)
 
 
-class TangoProfileRequest(BaseModel):
-    # Opcional: sem ela, reaproveita a chave do Tango que já está no OBS.
-    # Nunca é gravada pelo Odessa nem volta na resposta.
-    streamKey: Optional[str] = None
+@router.get("/tango-profile/status")
+async def obs_tango_profile_status():
+    """Perfis do Tango no OBS, o que difere do modelo e quando a chave vence (sem a chave)."""
+    import asyncio
+
+    from server.services import tango_profile
+
+    running = bool(await asyncio.to_thread(tango_profile._obs_processes))
+    return await asyncio.to_thread(tango_profile.status, obs_running=running)
 
 
-@router.post("/tango-profile/rebuild")
-async def obs_rebuild_tango_profile(request: Optional[TangoProfileRequest] = None):
-    """Recria o perfil "Tango Profile" no OBS (apaga o quebrado, aplica o modelo e a chave)."""
+@router.post("/tango-profile/clean")
+async def obs_tango_profile_clean(
+    streamKey: Optional[str] = Form(None),
+    profileZip: Optional[UploadFile] = File(None),
+):
+    """Configuração limpa: fecha o OBS, apaga os perfis do Tango (com backup), cria um
+    só a partir do modelo (ou do .zip do Tango) com a chave e reabre o OBS.
+
+    A chave nunca é gravada pelo Odessa fora do perfil do OBS nem volta na resposta."""
     from fastapi import HTTPException
 
     from server.services import tango_profile
 
+    zip_bytes = await profileZip.read(tango_profile.ZIP_MAX_BYTES + 1) if profileZip else None
     try:
-        return await tango_profile.rebuild(obs_service, request.streamKey if request else None)
+        return await tango_profile.clean_setup(obs_service, streamKey, zip_bytes)
     except tango_profile.ProfileError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.message) from exc
     except Exception as exc:
-        # Sem a chave na mensagem: o erro do OBS nunca a contém, mas não arriscamos.
+        # Sem a chave na mensagem: os erros de arquivo/processo não a contêm, mas não arriscamos.
         message = str(exc)
-        if request and request.streamKey:
-            message = message.replace(request.streamKey, "***")
-        raise HTTPException(status_code=502, detail=f"O OBS não aceitou: {message}") from exc
+        if streamKey:
+            message = message.replace(streamKey.strip(), "***")
+        logger.error("[perfil Tango] configuração limpa falhou: %s", message)
+        raise HTTPException(status_code=500, detail=f"A configuração limpa falhou: {message}") from exc

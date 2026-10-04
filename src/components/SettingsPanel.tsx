@@ -1037,7 +1037,7 @@ export function SettingsPanel({
         <Section
           icon={<RadioTower className="h-4 w-4" />}
           title="Perfil do Tango no OBS"
-          description="Recria o perfil com um clique quando ele der erro"
+          description="Configuração limpa com um clique quando o perfil der erro"
         >
           <TangoProfileCard
             onRebuilt={(canvas) => {
