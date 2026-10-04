@@ -285,3 +285,35 @@ e a checagem do Ollama criam o cliente com um **contexto SSL compartilhado**
 As medições da Onda 2 foram feitas com o PC em 100% de CPU por outros
 programas; o que resta de pausa (p95 288 ms) acompanha esse pico.
 Validação: pytest 478/478, Vitest 345/345 (com 2 workers), `tsc` e ESLint sem erros.
+
+### Onda 3 — feita (`perf/onda3-telas-leves`, `aca8b6a`)
+
+- **3.1/3.2 feitas:** miniaturas reduzidas no servidor (`?w=`, `server/core/thumbnails.py`).
+  Estúdio IDLE ao abrir: 5.548 KB → **448 KB**.
+- **3.7 feita:** teto de 150 MB na pré-carga do overlay do OBS.
+- **3.3–3.5 descartadas com medição:** profiler com o build legível mostrou 16–98 ms de
+  JS para abrir cada página; as tarefas longas de 4–5 s da 1ª bateria vinham do servidor
+  travado e do JSON de 450 KB (resolvidos nas ondas 1–2).
+- **Achados novos, corrigidos:** com o OBS fechado, `/obs/scenes` esperava 4,1 s
+  (conexão recusada em IPv6 + IPv4) → **0,2 s** conferindo o processo antes; status da
+  bridge desligada esperava ~2 s por consulta → lembrado por 10 s.
+- **3.8 pendente:** a entrada está em 137,5 / 140 KB (os textos em inglês da IA entraram nela).
+
+### Navegação — antes × depois (primeira visita)
+
+| Página | Antes (pronta · long tasks) | Depois |
+|---|---|---|
+| Conversar | 2,7 s · 4,5 s | **0,6 s · 0** |
+| Personas | 3,1 s · 3,9 s | 2,5 s · **0** (esperava o OBS fechado; corrigido depois) |
+| Diagnóstico | 8,3 s · 5,0 s | 6,4 s · **0** (idem) |
+| Estúdio IDLE | 0,9 s · 5.548 KB | 0,5 s · **448 KB** |
+| Volta a qualquer página | 0,2–1,6 s · até 4,4 s | **0,13–0,16 s · ~0** |
+
+## 7. Também nesta rodada
+
+- **Configuração automática do perfil do Tango** (`feat/perfil-tango-auto`): com o OBS
+  fechado, conserta sozinho perfil duplicado/diferente do modelo a cada 2 min; no
+  "Iniciar live", conserta antes de ir ao ar; com chave vencida, só avisa.
+- **Respostas em inglês por padrão** (`feat/perfil-tango-auto`, `52e5c45`): persona e
+  estilo em inglês, ajustados em 6 rodadas de 15 conversas com a IA local. Ver
+  `docs/PERSONAS-PROMPTS.md`.
