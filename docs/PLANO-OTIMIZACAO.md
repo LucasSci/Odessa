@@ -214,7 +214,8 @@ respondendo ≥ 1 vez por minuto e "Desligar" < 5 s com chat ativo.
 | 6.1 | Trazer a bateria para o repositório: `scripts/bench/` (bridge falsa, live simulada, sonda de travamento, navegação, API) com `pnpm bench:live` gerando um relatório JSON | M |
 | 6.2 | Teste de integração: com um Ollama falso **lento** (2 s), `/health` responde em < 100 ms enquanto 5 mensagens passam por `/automation/ingest` | P |
 | 6.3 | E2E rodando nesta máquina: `npx playwright install chromium` no setup, ou `PW_CHROMIUM_PATH` apontando para o Chromium já embutido no instalador | P |
-| 6.4 | Corrigir os 3 testes Python intermitentes (concorrência/tempo); Vitest com `poolOptions` e timeout de worker maiores no Windows | M |
+| 6.4 | Corrigir os testes intermitentes (3 Python + `PersonaChatLab` e outros com `findBy` de 5 s quando o PC está carregado); Vitest com `maxWorkers` 2 no Windows (com 2 workers: 345/345) | M |
+| 6.6 | **Teste que grava no arquivo de dados real**: `test_video_config_update_refreshes_backend_trigger_engine` escreve em `server/data/persona_viktoria.json` e só desfaz no `finally` — uma rodada interrompida deixou um gatilho de teste no arquivo (pego antes do commit). Isolar com `tmp_path` | P |
 | 6.5 | Orçamentos novos na esteira: tamanho máximo das rotas de config (100 KB) e do JSON da persona; tempo de abertura medido no CI do desktop | P |
 
 ---
@@ -242,3 +243,45 @@ respondendo ≥ 1 vez por minuto e "Desligar" < 5 s com chat ativo.
   bitrate do Tango antes de trocar de vez (o perfil x264 continua no repositório).
 - **Descarregar páginas** pode perder estado não salvo; fazer só em páginas sem
   formulário aberto.
+
+---
+
+## 6. Andamento
+
+### Onda 1 — feita (`perf/onda1-servidor-sem-trava`, `48b2802`)
+
+Tudo da tabela 1.1–1.8. Diferença do plano: em vez de um cliente HTTP
+assíncrono global (quebrava entre loops de evento nos testes), o proxy da bridge
+e a checagem do Ollama criam o cliente com um **contexto SSL compartilhado**
+(`server/core/http_clients.py`) — o custo estava no contexto, não no cliente.
+
+### Onda 2 — feita (`perf/onda2-api-enxuta`, `e648f37` + `ca85edf`)
+
+- 2.1, 2.2, 2.3, 2.6, 2.7 como planejado; 2.5 resolvido mantendo os logs
+  abertos (`server/core/append_log.py`, com rotação do `execution.jsonl` em
+  10 MB — estava em 5 MB desde 16/09) e com cache do índice de personas.
+- **Achado na validação:** o overlay do OBS rodava as consultas de status da tela
+  do operador e recriava o laço do palco a cada troca de clip. Corrigido.
+- **2.4 (separar o `persona_viktoria.json`) adiada:** com o cache em texto JSON e
+  as respostas enxutas, a leitura deixou de aparecer no profiler; a gravação é
+  rara. Reavaliar se o fluxo crescer muito.
+
+### Resultado medido (mesma live simulada: chat a 1 msg/4 s, overlay aberto)
+
+| | Antes | Onda 1 | Onda 2 |
+|---|---|---|---|
+| Sonda `/health` — mediana | 441 ms | 89 ms | **53 ms** |
+| p95 | 65 s | 579 ms | **288 ms** |
+| Pior | 109 s | 4,6 s | **2,1 s** |
+| Tempo travado | 96% | 27% | **10%** |
+| Threads nativas a 100% | 2 por 20+ min | nenhuma | nenhuma |
+| Modelos alternando no Ollama | 2 (28 trocas/40 min) | 1 | 1 |
+| Thread principal ociosa (py-spy) | — | 84% | — |
+| `/video/config` · `/personas/active` · `/workflow/published` | 449 · 451 · 461 KB | — | **196 · 199 · 208 KB** (304 vazio sem mudança) |
+| `/automation/ingest` (1 msg) | 620 ms | 180 ms | **15–50 ms** |
+| Overlay em 30 s | 44 consultas de estado + 15 de status | — | **25 de estado** |
+| Desligar com chat recém-ativo | 81 s + kill | — | **5 s** |
+
+As medições da Onda 2 foram feitas com o PC em 100% de CPU por outros
+programas; o que resta de pausa (p95 288 ms) acompanha esse pico.
+Validação: pytest 478/478, Vitest 345/345 (com 2 workers), `tsc` e ESLint sem erros.
