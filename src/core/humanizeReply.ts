@@ -40,6 +40,19 @@ const ASSISTANT_PHRASES = [
   /\bfontes (oficiais|confiaveis)\b/,
   /\bwhat (aspect|else) .* interests? you\b/,
   /\bhow can i (help|assist)\b/,
+  // Inglês: o mesmo tom de atendente.
+  /\bfeel free to\b/,
+  /\blet me know if\b/,
+  /\bi m here to help\b/,
+  /\bgreat question\b/,
+  /\bas an ai\b/,
+  /\b(happy|glad) to help\b/,
+  /\bis there anything (else )?i\b/,
+  /\bhope (this|that) helps\b/,
+  /\bi don t have personal\b/,
+  /\blanguage model\b/,
+  /\bask a real person\b/,
+  /\bthanks for (watching|being here|tuning in)\b/,
 ];
 
 export function soundsLikeAssistant(reply: string): boolean {
@@ -103,6 +116,30 @@ export function rejectReason(
   return null;
 }
 
+export function describeRejectionEn(reason: RejectReason): string {
+  return {
+    assistente: 'sounded like an assistant',
+    repeticao: 'repeated one of your recent lines',
+    copia_exemplo: 'copied an example from your description',
+  }[reason];
+}
+
+/**
+ * No máximo uma fala em três termina com pergunta: se duas das últimas três já
+ * terminaram, a pergunta do fim sai (quando o resto se sustenta sozinho). A IA
+ * pequena ignora "quase nunca termine com pergunta" e devolvia pergunta em uma
+ * de cada três respostas — vira entrevista, não conversa.
+ */
+export function limitQuestions(reply: string, recentOwn: string[]): string {
+  if (!/\?\s*(\p{Extended_Pictographic}️?)?\s*$/u.test(reply)) return reply;
+  const recentQuestions = recentOwn.slice(-3).filter((own) => /\?\s*(\p{Extended_Pictographic}️?)?\s*$/u.test(own)).length;
+  if (recentQuestions < 2) return reply;
+  const sentences = reply.match(/[^.!?…]+[.!?…]+|[^.!?…]+$/gu) ?? [reply];
+  if (sentences.length < 2) return reply;
+  const rest = sentences.slice(0, -1).join('').trim();
+  return rest.split(/\s+/).length >= 2 ? rest : reply;
+}
+
 export function describeRejection(reason: RejectReason): string {
   return {
     assistente: 'soou como atendente/assistente',
@@ -111,7 +148,7 @@ export function describeRejection(reason: RejectReason): string {
   }[reason];
 }
 
-const TRAILING_RETURN_QUESTION = /[\s,.!…-]*(e (você|vc|tu)|and you)\s*\?+\s*(\p{Extended_Pictographic}️?)?\s*$/iu;
+const TRAILING_RETURN_QUESTION = /[\s,.!…-]*(e (você|vc|tu)|and you|what about you|how about you|you)\s*\?+\s*(\p{Extended_Pictographic}️?)?\s*$/iu;
 
 /**
  * Limpeza final: aspas e markdown que a IA põe em volta, e o "e você?" no fim
@@ -123,8 +160,10 @@ export function cleanReply(reply: string, recentOwn: string[]): string {
   // Aspas que fecham antes de um emoji final: “frase.” 🍷
   text = text.replace(/["”’»]+(\s*\p{Extended_Pictographic}️?\s*)$/u, '$1');
   text = text.replace(/^[\s"'“”‘’«»]+|[\s"'“”‘’«»]+$/g, '').trim();
-  // "alguém" é só o rótulo de quem tem nome de spam na conversa: não é vocativo.
-  text = text.replace(/,\s*algu[ée]m(?=\s*[.!?…]|\s*$)/giu, '').replace(/^algu[ée]m\s*,\s*/iu, '').trim();
+  // "alguém"/"someone" é só o rótulo de quem tem nome de spam na conversa: não é vocativo.
+  text = text.replace(/,\s*(algu[ée]m|someone)(?=\s*[.!?…]|\s*$)/giu, '').replace(/^(algu[ée]m|someone)\s*,\s*/iu, '').trim();
+  // Travessão (—) é marca de texto de IA; numa conversa vira vírgula.
+  text = text.replace(/\s*[—–]\s*/g, ', ').replace(/,\s*([.!?])/g, '$1');
   const lastTwo = recentOwn.slice(-2);
   if (TRAILING_RETURN_QUESTION.test(text) && lastTwo.some((own) => TRAILING_RETURN_QUESTION.test(own))) {
     const trimmed = text.replace(TRAILING_RETURN_QUESTION, '').trim();
@@ -149,11 +188,37 @@ export function friendlyName(username: string | undefined): string | null {
 }
 
 const WEEKDAYS = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+const WEEKDAYS_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 /** "Agora é sexta-feira, 22h10 (noite)": dá contexto real ("boa noite", "fim de semana"). */
-export function nowContextLine(date = new Date()): string {
+export function nowContextLine(date = new Date(), language: ReplyLanguage = 'pt'): string {
   const h = date.getHours();
-  const period = h < 5 ? 'madrugada' : h < 12 ? 'manhã' : h < 18 ? 'tarde' : 'noite';
   const mm = String(date.getMinutes()).padStart(2, '0');
+  if (language === 'en') {
+    const period = h < 5 ? 'late night' : h < 12 ? 'morning' : h < 18 ? 'afternoon' : 'evening';
+    return `[NOW] ${WEEKDAYS_EN[date.getDay()]}, ${String(h).padStart(2, '0')}:${mm} (${period}). You're live.`;
+  }
+  const period = h < 5 ? 'madrugada' : h < 12 ? 'manhã' : h < 18 ? 'tarde' : 'noite';
   return `[AGORA] ${WEEKDAYS[date.getDay()]}, ${h}h${mm} (${period}). Você está ao vivo.`;
+}
+
+/** Idioma em que a persona responde: inglês sempre, ou o da mensagem. */
+export type ReplyLanguage = 'en' | 'pt';
+
+const EMOJI_RUN = /\p{Extended_Pictographic}(?:\u{FE0F}|\p{Emoji_Modifier}|\u{200D}\p{Extended_Pictographic})*/gu;
+
+/**
+ * Emoji com moderação, para qualquer IA: no máximo 1 por fala, e nenhum se ela
+ * usou emoji nas últimas 4 falas. Nos testes a IA local punha 🍷 em quase toda
+ * resposta — o tique mais visível de robô depois do "e você?".
+ */
+export function paceEmojis(reply: string, recentOwn: string[]): string {
+  const usedRecently = recentOwn.slice(-4).some((own) => new RegExp(EMOJI_RUN.source, 'u').test(own));
+  let kept = 0;
+  const text = reply.replace(EMOJI_RUN, (emoji) => {
+    if (usedRecently || kept >= 1) return '';
+    kept += 1;
+    return emoji;
+  });
+  return text.replace(/\s{2,}/g, ' ').replace(/\s+([.!?,])/g, '$1').trim();
 }

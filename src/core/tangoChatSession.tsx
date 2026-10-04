@@ -73,6 +73,17 @@ export const BRIDGE_API = '/api/v1/chat-automation/bridge';
 // autônoma pedida pelo usuário impossível de manter ligada de verdade.
 const AUTONOMY_STORAGE_KEY = 'odessa:tango:autonomy:v1';
 
+/**
+ * Versão em inglês da persona para as respostas em inglês — só quando o prompt
+ * em uso é o original dela. Prompt personalizado pelo operador é respeitado.
+ */
+function englishIdentity(persona: PersonaMeta | null | undefined, prompt: string): string | undefined {
+  const english = persona?.personalityEn?.trim();
+  if (!english) return undefined;
+  const current = prompt.trim();
+  return !current || current === (persona?.personality ?? '').trim() ? english : undefined;
+}
+
 // A cada quantas respostas autônomas realmente enviadas a persona para e
 // reflete sobre a conversa recente para (talvez) evoluir um traço duradouro.
 // Baixo o suficiente para aprender rápido numa live, alto o suficiente para
@@ -532,7 +543,7 @@ export function TangoChatSessionProvider({
       setGeneratingForId(msg.timestamp || msg.text);
       setAiGenerationStartedAt(Date.now());
       try {
-        const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt, { personaId: activePersona?.id });
+        const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt, { personaId: activePersona?.id, identityEn: englishIdentity(activePersona, aiPrompt) });
         const kind = classifyIncomingMessage(msg);
         recordSessionEvent('ai.reply', {
           username: msg.username,
@@ -608,7 +619,7 @@ export function TangoChatSessionProvider({
       setAiGenerationStartedAt(Date.now());
       let result: Awaited<ReturnType<typeof generateTangoChatReply>>;
       try {
-        result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt, { personaId: activePersona?.id });
+        result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt, { personaId: activePersona?.id, identityEn: englishIdentity(activePersona, aiPrompt) });
       } finally {
         setGeneratingForId(null);
         setAiGenerationStartedAt(null);
@@ -842,7 +853,7 @@ export function TangoChatSessionProvider({
       setReplyQueue((prev) =>
         prev.map((i) => (i.id === item.id ? { ...i, status: 'draft', text: 'Regenerando com IA...' } : i)),
       );
-      const result = await generateTangoChatReply(item.sourceMessage, unifiedMessages, aiPrompt, { personaId: activePersona?.id });
+      const result = await generateTangoChatReply(item.sourceMessage, unifiedMessages, aiPrompt, { personaId: activePersona?.id, identityEn: englishIdentity(activePersona, aiPrompt) });
       setReplyQueue((prev) =>
         prev.map((i) =>
           i.id === item.id

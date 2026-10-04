@@ -44,3 +44,26 @@ def test_voz_humana_tem_fatos_fixos_e_exemplo_de_ia_e_de_contato():
         assert "nunca copie" in text
         assert "IA?" in text
         assert "whats" in text  # a recusa de contato sai do exemplo (contactDeflection)
+
+
+def test_voz_em_ingles_e_acrescentada_sem_tocar_no_portugues(data_dir):
+    from server.core.persona_voice import ENGLISH
+
+    write_index(data_dir, [
+        {"id": "viktoria", "name": "Viktoria", "personality": "Meu texto em português, personalizado."},
+        {"id": "barbara", "name": "Barbara", "personality": CURRENT["barbara"], "personalityEn": "My own English text."},
+    ])
+    personas = {p["id"]: p for p in pm.list_personas()}
+    assert personas["viktoria"]["personalityEn"] == ENGLISH["viktoria"]
+    assert personas["viktoria"]["personality"] == "Meu texto em português, personalizado."
+    assert personas["barbara"]["personalityEn"] == "My own English text."  # já existia: fica
+
+
+def test_voz_em_ingles_sem_cenario_que_vira_piada_e_com_fatos_fixos():
+    from server.core.persona_voice import ENGLISH
+
+    viktoria = ENGLISH["viktoria"]
+    assert "FIXED FACTS" in viktoria and "The Hour of the Star" in viktoria and "she's 3" in viktoria
+    assert "city lights" not in viktoria and "candle" not in viktoria
+    for text in ENGLISH.values():
+        assert "never copy these" in text and "NEVER:" in text

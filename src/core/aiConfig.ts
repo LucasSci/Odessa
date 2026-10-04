@@ -80,6 +80,11 @@ export type AiLocalConfig = {
   localModelName: string;
   /** Temperatura do modelo local (0-2). */
   localModelTemperature: number;
+  /**
+   * Idioma das respostas no chat: 'en' = sempre em inglês (padrão, público do
+   * Tango); 'auto' = no idioma de quem escreveu.
+   */
+  replyLanguage: 'en' | 'auto';
 };
 
 const DEFAULTS: AiLocalConfig = {
@@ -100,6 +105,7 @@ const DEFAULTS: AiLocalConfig = {
   // para OBS e navegador; o 7B travava a máquina a cada resposta.
   localModelName: 'qwen2.5:3b',
   localModelTemperature: 0.7,
+  replyLanguage: 'en',
 };
 
 /** Modelos pesados demais para rodar junto com a live (removidos da máquina). */
@@ -156,6 +162,7 @@ export function getAiConfig(): AiLocalConfig {
     localModelTemperature: typeof stored.localModelTemperature === 'number'
       ? Math.max(0, Math.min(2, stored.localModelTemperature))
       : DEFAULTS.localModelTemperature,
+    replyLanguage: stored.replyLanguage === 'auto' ? 'auto' : DEFAULTS.replyLanguage,
   };
 }
 

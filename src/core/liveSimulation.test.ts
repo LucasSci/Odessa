@@ -67,6 +67,7 @@ const governorConfig = {
   localModelUrl: '',
   localModelName: '',
   localModelTemperature: 0.7,
+  replyLanguage: 'auto' as const,
 };
 
 function compactCycleSnapshot(cycle: AutopilotCycle) {

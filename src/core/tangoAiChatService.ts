@@ -15,7 +15,18 @@ import { apiUrl } from '../lib/api';
 import { PUBLIC_REPLY_BLOCKED_TERMS } from './liveAutonomyGovernor';
 import { getMemoryContext } from './chatMemory';
 import { isPlatformSystemLine } from './chatConversationGovernor';
-import { cleanReply, describeRejection, friendlyName, nowContextLine, personaExampleReplies, rejectReason } from './humanizeReply';
+import {
+  cleanReply,
+  describeRejection,
+  describeRejectionEn,
+  friendlyName,
+  limitQuestions,
+  nowContextLine,
+  paceEmojis,
+  personaExampleReplies,
+  rejectReason,
+  type ReplyLanguage,
+} from './humanizeReply';
 
 export interface TangoChatMessage {
   username: string;
@@ -47,6 +58,8 @@ export interface PersonaChatOptions {
   signal?: AbortSignal;
   /** Persona ativa (memória do que ela já contou de si). */
   personaId?: string;
+  /** Versão em inglês da persona (respostas em inglês); só quando o prompt não foi personalizado. */
+  identityEn?: string;
 }
 
 /** Timeout + cancelamento manual num sinal só (AbortSignal.any quando existe). */
@@ -140,6 +153,33 @@ Você está ao vivo, lendo o chat e respondendo pelo celular. Fale como uma pess
 - Nunca fale como assistente ("quer saber mais", "posso ajudar", "é importante") e nunca fale de chat, plataforma, câmera ou vídeo.
 - Responda no idioma da mensagem, com linguagem natural e correta. Sem aspas, sem hashtag, sem o seu nome no começo. No máximo 1 emoji, e quase nunca.`;
 
+/**
+ * O mesmo jeito de conversar, em inglês (respostas em inglês são o padrão).
+ * Escrito e ajustado em 6 rodadas de 15 conversas de live com a IA local
+ * (qwen3:4b-instruct): sem narrar ações, sem metáforas, sem puxar vinho/gata
+ * para toda fala, seguindo o assunto da pessoa.
+ */
+export const CONVERSATION_STYLE_EN = `\
+HOW YOU TALK IN CHAT (this matters more than anything else):
+You're live, reading chat on your phone and typing back. Talk like a real person texting someone they like, never like customer service, an assistant or a character in a novel.
+- Answer what they actually said, with something concrete. A direct question gets a direct answer. Follow the thread: a follow-up is about what that person was just talking about ("favorite flavor?" right after lasagna = lasagna flavor). Have an opinion and say it.
+- Short: usually 3 to 15 words, 2 sentences max. Only about one reply in five ends with a question.
+- Plain, casual English: contractions, simple words, light humor. No metaphors or comparisons ("like a chapter", "like the city at night"), no dramatic pauses, no "Hmm" or "Oh wow".
+- Just say your line. Never describe what you're doing or feeling ("*smiles*", "smirks", "shuts it down"), never repeat these instructions.
+- Your own things (your drink, your pet, your hobbies) come up only when someone asks or it truly fits. Most replies don't mention any of them.
+- Humor stays grounded: if a joke doesn't make literal sense, skip it and just answer plainly.
+- When someone shares something about their day, react like a friend: a little real empathy or interest, in a few words.
+- No catchphrases: don't start or end lines the same way, don't repeat yourself, don't bounce "and you?" back every time.
+- The examples in your description show the vibe. Never copy them.
+- Use their name rarely. If the name shows up as "someone", don't use a name.
+- General knowledge: answer what a normal person knows, in one easy line. News, politics, elections: you don't follow that. Never make up facts, titles or names, or things about yourself that aren't in your description.
+- Asked if you're an AI, a bot or real: a quick playful answer, different each time. Never confirm, no speeches, and never say anything that hints you aren't a person (like "ask a real person").
+- Feet pics, contact info or anything sexual: a short, charming no.
+- Rude message: stay cool, one dry line, don't take the bait.
+- Just laughter or emojis: react short, same mood.
+- Never sound like an assistant ("feel free to", "let me know if", "I'm here to help", "great question", "as an AI") and never mention the screen, the stream, the chat, the platform, the camera or the video.
+- Always reply in English, even when they write in another language (you understand it fine). No quotes, no hashtags, don't start with your name. Usually no emoji.`;
+
 // Um emoji "visual" inteiro: pictograma + variações/modificadores/ZWJ (ex.: 🙅‍♂️).
 const EMOJI_SEQUENCE = /\p{Extended_Pictographic}(?:\u{FE0F}|\p{Emoji_Modifier}|\u{200D}\p{Extended_Pictographic})*/gu;
 
@@ -175,7 +215,9 @@ export function buildConversationTurns(
   recentHistory: TangoChatMessage[],
   incoming: TangoChatMessage,
   window = CONVERSATION_WINDOW,
+  language: ReplyLanguage = 'pt',
 ): ConversationTurn[] {
+  const unnamed = language === 'en' ? 'someone' : 'alguém';
   const history = recentHistory.filter((m) => m.own || !isPlatformSystemLine(m)).slice(-window);
   const last = history[history.length - 1];
   if (last && !last.own && last.username === incoming.username && last.text === incoming.text) history.pop();
@@ -183,7 +225,7 @@ export function buildConversationTurns(
   const turns: ConversationTurn[] = [];
   for (const msg of [...history, incoming]) {
     const role = msg.own ? 'assistant' : 'user';
-    const content = msg.own ? msg.text.trim() : `${friendlyName(msg.username) ?? 'alguém'}: ${msg.text.trim()}`;
+    const content = msg.own ? msg.text.trim() : `${friendlyName(msg.username) ?? unnamed}: ${msg.text.trim()}`;
     if (!msg.text.trim()) continue;
     const prev = turns[turns.length - 1];
     if (prev && prev.role === role) prev.content += `\n${content}`;
@@ -378,14 +420,20 @@ export function buildSystemPrompt(parts: {
   languageDirective?: string;
   retryNote?: string;
   now?: Date;
+  /** 'en': instruções em inglês (com instruções num idioma e resposta em outro, a IA pequena mistura os dois). */
+  language?: ReplyLanguage;
 }): string {
   const recent = (parts.recentOwn ?? []).slice(-6);
+  const english = parts.language === 'en';
+  const recentLabel = english
+    ? "[YOUR LAST LINES ON THIS LIVE] Don't repeat these or start the same way:"
+    : '[SUAS ÚLTIMAS FALAS NA LIVE] Não repita estas frases nem o jeito de começar:';
   return [
     parts.identity.trim(),
-    CONVERSATION_STYLE,
-    nowContextLine(parts.now),
+    english ? CONVERSATION_STYLE_EN : CONVERSATION_STYLE,
+    nowContextLine(parts.now, english ? 'en' : 'pt'),
     parts.memory?.trim(),
-    recent.length ? `[SUAS ÚLTIMAS FALAS NA LIVE] Não repita estas frases nem o jeito de começar:\n${recent.map((r) => `- ${r}`).join('\n')}` : '',
+    recent.length ? `${recentLabel}\n${recent.map((r) => `- ${r}`).join('\n')}` : '',
     parts.languageDirective,
     parts.retryNote,
   ]
@@ -405,7 +453,10 @@ export async function generateTangoChatReply(
   options: PersonaChatOptions = {},
 ): Promise<GeneratedReplyResult> {
   const config = getAiConfig();
-  const identityPrompt = customPrompt || config.systemPrompt || DEFAULT_TANGO_IDENTITY;
+  const language: ReplyLanguage = config.replyLanguage === 'auto' ? 'pt' : 'en';
+  const basePrompt = customPrompt || config.systemPrompt || DEFAULT_TANGO_IDENTITY;
+  // Em inglês, a versão em inglês da persona (quando o operador não personalizou o prompt).
+  const identityPrompt = language === 'en' && options.identityEn?.trim() ? options.identityEn.trim() : basePrompt;
   const personaName = personaNameFromIdentity(identityPrompt);
   const maxLength = options.maxLength || 140;
 
@@ -422,16 +473,21 @@ export async function generateTangoChatReply(
   const withMemories = (result: GeneratedReplyResult): GeneratedReplyResult => ({ ...result, memoriesUsed: memory.used });
   const recentOwn = recentHistory.filter((m) => m.own).map((m) => m.text.trim()).filter(Boolean);
   const examples = personaExampleReplies(identityPrompt);
-  const turns = buildConversationTurns(recentHistory, incoming);
-  const detectedLanguage = detectMessageLanguage(incoming.text);
-  const languageDirective = detectedLanguage
-    ? `[IDIOMA DA MENSAGEM] ${detectedLanguage.label}: responda em ${detectedLanguage.label}.`
-    : undefined;
+  const turns = buildConversationTurns(recentHistory, incoming, undefined, language);
+  const detectedLanguage = language === 'en' ? null : detectMessageLanguage(incoming.text);
+  const languageDirective =
+    language === 'en'
+      ? identityPrompt === basePrompt && !options.identityEn
+        ? '[LANGUAGE] Always reply in casual, natural English.'
+        : undefined
+      : detectedLanguage
+        ? `[IDIOMA DA MENSAGEM] ${detectedLanguage.label}: responda em ${detectedLanguage.label}.`
+        : undefined;
 
   let retryNote: string | undefined;
   let lastProblem = '';
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const systemPrompt = buildSystemPrompt({ identity: identityPrompt, memory: memory.context, recentOwn, languageDirective, retryNote });
+    const systemPrompt = buildSystemPrompt({ identity: identityPrompt, memory: memory.context, recentOwn, languageDirective, retryNote, language });
     const result = await callBackendAiRespond(systemPrompt, turns, incoming, attempt === 0 ? 0.7 : 0.9, options);
     if (!result.text) {
       return withMemories({
@@ -444,14 +500,24 @@ export async function generateTangoChatReply(
     const scrubbed = scrubEchoedChat(result.text, recentHistory, incoming);
     if (!scrubbed) {
       lastProblem = 'A IA só repetiu mensagens do chat';
-      retryNote = '[ATENÇÃO] Sua resposta anterior só repetiu o chat. Responda com suas próprias palavras.';
+      retryNote =
+        language === 'en'
+          ? '[HEADS UP] Your previous reply just repeated the chat. Answer in your own words.'
+          : '[ATENÇÃO] Sua resposta anterior só repetiu o chat. Responda com suas próprias palavras.';
       continue;
     }
-    const cleanText = sanitizeTangoReply(cleanReply(scrubbed, recentOwn), maxLength, personaName);
+    const cleanText = sanitizeTangoReply(
+      limitQuestions(paceEmojis(cleanReply(scrubbed, recentOwn), recentOwn), recentOwn),
+      maxLength,
+      personaName,
+    );
     const rejection = rejectReason(cleanText, recentOwn, examples, incoming.text);
     if (rejection) {
       lastProblem = `Resposta descartada: ${describeRejection(rejection)}`;
-      retryNote = `[ATENÇÃO] Sua resposta anterior ("${cleanText}") foi descartada porque ${describeRejection(rejection)}. Responda de outro jeito, com outras palavras, como uma pessoa falaria.`;
+      retryNote =
+        language === 'en'
+          ? `[HEADS UP] Your previous reply ("${cleanText}") was thrown out because it ${describeRejectionEn(rejection)}. Say it differently, in your own words, like a person would.`
+          : `[ATENÇÃO] Sua resposta anterior ("${cleanText}") foi descartada porque ${describeRejection(rejection)}. Responda de outro jeito, com outras palavras, como uma pessoa falaria.`;
       continue;
     }
     const safety = checkSafetyRestrictions(cleanText);

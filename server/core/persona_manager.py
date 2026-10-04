@@ -159,6 +159,19 @@ def _upgrade_persona_voice(index: Dict[str, Any]) -> bool:
     return True
 
 
+def _add_english_voice(index: Dict[str, Any]) -> bool:
+    """Acrescenta a voz em inglês (personalityEn) a quem ainda não tem. Nunca mexe
+    na personalidade em português nem numa versão em inglês já existente."""
+    from server.core.persona_voice import ENGLISH
+
+    targets = [p for p in index.get("personas", []) if p.get("id") in ENGLISH and not (p.get("personalityEn") or "").strip()]
+    for persona in targets:
+        persona["personalityEn"] = ENGLISH[persona["id"]]
+    if targets:
+        logger.info("Voz em inglês adicionada: %s", ", ".join(p["id"] for p in targets))
+    return bool(targets)
+
+
 def _migrate_legacy_odessa(index: Dict[str, Any]) -> bool:
     """Une a persona "odessa" (nome do software) à Viktoria e a remove. Idempotente.
 
@@ -204,6 +217,7 @@ def _ensure_default_persona(index: Dict[str, Any]) -> Dict[str, Any]:
     with file_lock(PERSONAS_INDEX_PATH):
         changed = _migrate_legacy_odessa(index)
         changed = _upgrade_persona_voice(index) or changed
+        changed = _add_english_voice(index) or changed
         personas = index.setdefault("personas", [])
         if not personas:
             # Instalação nova: a Viktoria usa o config legado (persona_config.json).

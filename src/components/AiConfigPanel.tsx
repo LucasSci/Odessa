@@ -52,6 +52,11 @@ const LOCAL_MODEL_CHOICES = [
   { id: 'qwen3:4b-instruct', label: 'Qwen3 4B (mais natural)', hint: '2,5 GB · ~10 s por resposta; usa um pouco mais de CPU' },
 ];
 
+const REPLY_LANGUAGE_CHOICES: Array<{ id: 'en' | 'auto'; label: string; hint: string }> = [
+  { id: 'en', label: 'Inglês (padrão)', hint: 'Sempre em inglês, mesmo quando escrevem em outro idioma. Usa a versão em inglês da persona.' },
+  { id: 'auto', label: 'O mesmo da mensagem', hint: 'Responde no idioma de quem escreveu (português, espanhol, inglês).' },
+];
+
 const PROVIDER_OPTIONS: Array<{ id: AiProvider; title: string; detail: string }> = [
   { id: 'local', title: 'Local (no seu PC)', detail: 'Ollama. Grátis e offline; qualidade limitada pelo modelo pequeno.' },
   { id: 'gemini', title: 'Google Gemini', detail: 'Ótimo português. Precisa de chave do Google AI Studio.' },
@@ -230,6 +235,27 @@ export function AiConfigPanel() {
                 }
                 className="h-9 text-xs"
               />
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Idioma das respostas">
+              <span className="text-[11px] text-slate-400">Idioma das respostas:</span>
+              {REPLY_LANGUAGE_CHOICES.map((choice) => (
+                <button
+                  key={choice.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={config.replyLanguage === choice.id}
+                  title={choice.hint}
+                  onClick={() => update({ replyLanguage: choice.id })}
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-[11px] transition-colors',
+                    config.replyLanguage === choice.id
+                      ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200'
+                      : 'border-white/10 text-slate-400 hover:text-slate-200',
+                  )}
+                >
+                  {choice.label}
+                </button>
+              ))}
             </div>
             <label className="mt-3 flex cursor-pointer items-center gap-2">
               <input

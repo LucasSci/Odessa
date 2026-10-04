@@ -61,6 +61,7 @@ const config = {
   localModelUrl: '',
   localModelName: '',
   localModelTemperature: 0.7,
+  replyLanguage: 'auto' as const,
 };
 
 describe('liveAutonomyGovernor', () => {
