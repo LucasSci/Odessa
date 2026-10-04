@@ -52,9 +52,25 @@ def _slugify(value: str) -> str:
     return slug or "persona"
 
 
+# personas.json era lido do disco a cada get_active_persona_id(), duas vezes por
+# mensagem do chat. Fica em memória enquanto o arquivo não muda (mtime).
+_index_cache: Optional[tuple] = None  # (caminho, mtime, texto JSON)
+
+
 def _load_index() -> Dict[str, Any]:
-    if not PERSONAS_INDEX_PATH.exists():
+    global _index_cache
+    try:
+        mtime = PERSONAS_INDEX_PATH.stat().st_mtime
+    except OSError:
         return _empty_index()
+    if _index_cache is not None and _index_cache[0] == PERSONAS_INDEX_PATH and _index_cache[1] == mtime:
+        return json.loads(_index_cache[2])
+    data = _read_index()
+    _index_cache = (PERSONAS_INDEX_PATH, mtime, json.dumps(data, ensure_ascii=False))
+    return data
+
+
+def _read_index() -> Dict[str, Any]:
     try:
         # Índice corrompido NÃO vira "só a Odessa" (o que apagaria as outras
         # personas do índice no próximo salvamento): o arquivo ruim é isolado e
@@ -71,8 +87,10 @@ def _load_index() -> Dict[str, Any]:
 
 
 def _save_index(index: Dict[str, Any]) -> bool:
+    global _index_cache
     try:
         write_json(PERSONAS_INDEX_PATH, index)
+        _index_cache = None
         return True
     except Exception as exc:
         logger.error("Erro ao salvar índice de personas: %s", exc)

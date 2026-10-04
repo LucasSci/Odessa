@@ -119,9 +119,11 @@ async def lifespan(app: FastAPI):
         keepalive_task.cancel()
 
     try:
+        from server.core.append_log import close_all
         from server.services.ai_service import close_http_clients
 
         close_http_clients()
+        close_all()
     except Exception:  # noqa: BLE001 — desligando: nada a fazer
         pass
 

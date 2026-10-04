@@ -63,6 +63,7 @@ import { getAiConfig, hasActiveGeminiKey, type AiAutonomyLevel } from './core/ai
 import { PageActivity, usePageActive } from './core/pageActivity';
 import { usePolling } from './core/usePolling';
 import { useWindowVisible } from './core/windowVisibility';
+import { useVideoStateNudge } from './lib/videoStateEvents';
 import { useLiveSupervisor } from './core/useLiveSupervisor';
 import { PAGE_ORDER, hashForPage, pageFromHash, pageForShortcut, pageOfTab, type PageKey } from './core/pageRoutes';
 import { LegalLinks } from './components/LegalLinks';
@@ -727,7 +728,11 @@ export default function OdessaLiveCenter({
   // consulta na hora ao voltar: numa live de 14 h eram 143 mil consultas.
   const playbackVisible = activePage === 'live' || activePage === 'flow';
   const windowVisible = useWindowVisible();
-  usePolling(() => refreshVideoState(), playbackVisible ? 1000 : 3000, { immediate: playbackVisible, enabled: windowVisible });
+  // Com o aviso do servidor (SSE) a tela atualiza na hora em que o palco muda;
+  // a consulta fica só de reserva, bem mais espaçada.
+  const stateStreaming = useVideoStateNudge(() => void refreshVideoState(), windowVisible);
+  const statePollMs = stateStreaming ? 10_000 : playbackVisible ? 1000 : 3000;
+  usePolling(() => refreshVideoState(), statePollMs, { immediate: playbackVisible, enabled: windowVisible });
   usePolling(() => refreshAutomationLogs(), 5000, { enabled: activePage === 'flow' && flowSubTab === 'logs' });
 
   useEffect(() => {

@@ -28,6 +28,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from server.config import RUNTIME_DIR
+from server.core.append_log import append_line
+
+SESSION_FILE_NO_ROTATION = 1 << 62
 from server.core.atomic_json import file_lock, read_json, write_json
 
 logger = logging.getLogger("odessa.session_history")
@@ -180,8 +183,9 @@ class SessionHistoryService:
         with self._lock:
             line = json.dumps(event, ensure_ascii=False)
             path = self._session_file(event["sessionId"])
-            with open(path, "a", encoding="utf-8") as f:
-                f.write(line + "\n")
+            # Arquivo da sessão mantido aberto (ver append_log); sem rotação:
+            # é um arquivo por sessão e o histórico precisa dele inteiro.
+            append_line(path, line, max_bytes=SESSION_FILE_NO_ROTATION)
             self.recent_events.insert(0, event)
             if len(self.recent_events) > self.max_buffer_size:
                 self.recent_events.pop()

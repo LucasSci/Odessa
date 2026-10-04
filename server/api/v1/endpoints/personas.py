@@ -2,14 +2,14 @@ import json
 import logging
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Dict, List, Optional
 
 from server.core import persona_manager
 from server.core import persona_visual
 from server.core.atomic_json import file_lock, read_json, write_json
-from server.core.config_manager import load_persona_config, save_persona_config
+from server.core.config_manager import load_persona_config, public_config, save_persona_config
 from server.core.persona_assets import (
     list_assets,
     save_asset,
@@ -124,7 +124,7 @@ async def get_active_persona():
     """Retorna a persona ativa e sua config completa."""
     persona = persona_manager.get_active_persona()
     config = load_persona_config()
-    return {"persona": persona, "config": config}
+    return JSONResponse({"persona": persona, "config": public_config(config)})
 
 
 @router.post("/active")

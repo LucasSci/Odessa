@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiUrl } from './lib/api';
 import { cn } from './lib/utils';
 import { preloadVideos, videoSrcFor, videoVersion } from './lib/videoPreload';
+import { isVideoStateStreaming, subscribeVideoState } from './lib/videoStateEvents';
+
+/** Com o aviso do servidor ligado, a consulta de reserva do palco. */
+const STREAMING_TICK_MS = 2000;
 import { nextSegmentStep, segmentSpeed } from './core/playback/clipTimeline';
 
 // Build-time injected by odessaSchedulePlugin in vite.config.ts.
@@ -423,11 +427,13 @@ export default function PersonaOverlay() {
   useEffect(() => {
     let cancelled = false;
     let inFlight = false;
+    let lastTickAt = 0;
     const guardedTick = async () => {
       // Um tick por vez: antes, com o servidor lento, um novo pedido saía a
       // cada 500 ms mesmo com os anteriores pendentes, e eles se empilhavam.
       if (inFlight) return;
       inFlight = true;
+      lastTickAt = Date.now();
       try {
         await tick();
       } finally {
@@ -479,11 +485,17 @@ export default function PersonaOverlay() {
     };
 
     void guardedTick();
+    // O servidor avisa (SSE) quando o palco muda: o tick roda na hora. A
+    // consulta de 500 ms vira reserva de 2 s enquanto o aviso funciona (ela
+    // ainda cuida das automações agendadas e de quedas do aviso).
+    const unsubscribe = subscribeVideoState(() => void guardedTick());
     const interval = window.setInterval(() => {
+      if (isVideoStateStreaming() && Date.now() - lastTickAt < STREAMING_TICK_MS) return;
       void guardedTick();
     }, 500);
     return () => {
       cancelled = true;
+      unsubscribe();
       window.clearInterval(interval);
     };
   }, [advanceAndRefresh, checkAndFireSchedules, currentKey, fetchVideoState, transitionToClip]);

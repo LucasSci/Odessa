@@ -96,12 +96,20 @@ class Database:
                 except sqlite3.OperationalError:
                     pass
             conn.commit()
+            # WAL: gravar memória do chat não bloqueia quem está lendo (o padrão
+            # "delete" trava o arquivo inteiro a cada escrita). Fica salvo no arquivo.
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+            except sqlite3.OperationalError:
+                logger.warning("SQLite sem WAL (sistema de arquivos não suporta); seguindo no modo padrão")
             logger.info("Database initialized at %s", self.db_path)
 
     @contextmanager
     def get_connection(self) -> Generator[sqlite3.Connection, None, None]:
-        connection = sqlite3.connect(self.db_path)
+        connection = sqlite3.connect(self.db_path, timeout=10)
         connection.row_factory = sqlite3.Row
+        # Com WAL, NORMAL é seguro e evita um fsync por escrita.
+        connection.execute("PRAGMA synchronous=NORMAL")
         try:
             yield connection
         finally:

@@ -50,6 +50,8 @@ import { callFlowDesigner } from './core/aiDecisionContract';
 import { cn, safeImageSrc } from './lib/utils';
 import { usePolling } from './core/usePolling';
 import { useWindowVisible } from './core/windowVisibility';
+import { usePageActive } from './core/pageActivity';
+import { useVideoStateNudge } from './lib/videoStateEvents';
 import { VideoThumb } from './components/VideoThumb';
 import { WORKFLOW_CHANGED_EVENT } from './core/idleStudioApi';
 
@@ -758,7 +760,10 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   // Keep the canvas in sync with the live playback in near real time.
   // Janela minimizada/na bandeja: ninguém vê a animação.
   const windowVisible = useWindowVisible();
-  usePolling(refreshFlowState, 1000, { enabled: windowVisible });
+  // Avisado pelo servidor quando o palco muda; a consulta vira reserva.
+  const pageActive = usePageActive();
+  const stateStreaming = useVideoStateNudge(() => void refreshFlowState(), windowVisible && pageActive);
+  usePolling(refreshFlowState, stateStreaming ? 10_000 : 1000, { enabled: windowVisible });
 
   useEffect(() => {
     if (!config) return;

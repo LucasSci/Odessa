@@ -11,7 +11,7 @@ def persona_path(tmp_path, monkeypatch):
     path = tmp_path / "persona_teste.json"
     monkeypatch.setattr(cm, "get_persona_config_path", lambda persona_id=None: path)
     monkeypatch.setattr(cm, "DEFAULT_CONFIG_PATH", tmp_path / "persona_config.json")
-    monkeypatch.setattr(cm, "_cached_config", None)
+    monkeypatch.setattr(cm, "_cached_json", None)
     monkeypatch.setattr(cm, "_cached_mtime", 0)
     monkeypatch.setattr(cm, "_cached_path", None)
     aj.clear_recovery_events()
@@ -45,7 +45,7 @@ def test_config_corrompida_com_backup_e_restaurada_sem_perder_gatilhos(persona_p
     cm.save_persona_config(_config_com_videos(3))
     cm.save_persona_config(_config_com_videos(4))
     persona_path.write_text('{"videos": [{"id": "v0"', encoding="utf-8")  # truncado
-    cm._cached_config = None  # simula um reinício do backend
+    cm._cached_json = None  # simula um reinício do backend
 
     loaded = cm.load_persona_config()
     assert len(loaded["videos"]) == 3  # voltou do .bak
