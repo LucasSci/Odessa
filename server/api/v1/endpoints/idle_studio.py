@@ -66,8 +66,15 @@ def patch_item(persona_id: str, key: str, request: ItemUpdate):
 
 
 @router.get("/{persona_id}/assets/{asset_id}")
-def serve_asset(persona_id: str, asset_id: str, download: bool = False):
+def serve_asset(persona_id: str, asset_id: str, download: bool = False, w: Optional[int] = None):
     key, entry, asset = _run(idle_studio.find_asset, persona_id, asset_id)
+    path = idle_studio.asset_path(persona_id, asset)
+    if w and not download:
+        from server.core.thumbnails import is_image, thumbnail
+
+        # Cartões da tela: miniatura (o original continua no download/cópia).
+        if is_image(path):
+            return FileResponse(thumbnail(path, w), media_type="image/jpeg", headers={"Cache-Control": "max-age=3600"})
     name = idle_studio.auto_name(key, entry, asset)
     disposition = "attachment" if download else "inline"
     return FileResponse(

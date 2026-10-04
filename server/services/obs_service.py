@@ -61,6 +61,36 @@ DEFAULT_BROWSER_SOURCE_HTML = """
 """.strip()
 
 
+_PROCESS_CHECK_TTL_S = 5.0
+_process_check: tuple[float, bool] = (0.0, False)
+
+
+def _is_local_url(url: str) -> bool:
+    host = urllib.parse.urlparse(url).hostname or ""
+    return host in {"localhost", "127.0.0.1", "::1"}
+
+
+def _obs_process_running() -> bool:
+    """O obs64.exe está aberto? (tasklist, ~0,1 s; resposta guardada por 5 s)."""
+    global _process_check
+    import subprocess
+
+    now = time.monotonic()
+    if now - _process_check[0] < _PROCESS_CHECK_TTL_S:
+        return _process_check[1]
+    try:
+        out = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq obs64.exe", "/NH", "/FO", "CSV"],
+            capture_output=True, text=True, timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        ).stdout
+        running = "obs64.exe" in out.lower()
+    except (OSError, subprocess.SubprocessError):
+        running = True  # na dúvida, tenta conectar como antes
+    _process_check = (now, running)
+    return running
+
+
 class OBSService:
     def __init__(self):
         settings = self._load_settings()
@@ -304,8 +334,18 @@ class OBSService:
             )
         self._last_connect_attempt = now
 
-        logger.info("[OBS] Connecting to %s", self.ws_url)
-        self._client = simpleobsws.WebSocketClient(url=self.ws_url, password=self.password)
+        url = self.ws_url
+        if os.getenv("ODESSA_DESKTOP") == "1" and _is_local_url(url):
+            # OBS fechado: no Windows cada conexão recusada leva ~2 s (e
+            # "localhost" tenta IPv6 e depois IPv4: 4 s). A tela de cenas e o
+            # Diagnóstico esperavam isso a cada 30 s. Confere o processo antes.
+            if not _obs_process_running():
+                self.connected = False
+                raise RuntimeError("O OBS está fechado. Abra o OBS e tente de novo.")
+            url = url.replace("://localhost", "://127.0.0.1", 1)
+
+        logger.info("[OBS] Connecting to %s", url)
+        self._client = simpleobsws.WebSocketClient(url=url, password=self.password)
         try:
             await self._client.connect()
             identified = await self._client.wait_until_identified()

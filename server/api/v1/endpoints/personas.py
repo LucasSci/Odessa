@@ -282,13 +282,21 @@ async def upload_asset(
 
 
 @router.get("/{persona_id}/assets/{category}/{image_id}")
-async def serve_asset(persona_id: str, category: str, image_id: str):
-    """Serve o arquivo de imagem de uma persona."""
+async def serve_asset(persona_id: str, category: str, image_id: str, w: Optional[int] = None):
+    """Serve o arquivo de imagem de uma persona (`?w=` = miniatura reduzida)."""
     if category not in VALID_CATEGORIES:
         raise HTTPException(status_code=400, detail=f"Categoria inválida: '{category}'")
     path = get_asset_path(persona_id, category, image_id)
     if path is None:
         raise HTTPException(status_code=404, detail="Imagem não encontrada")
+    if w:
+        import asyncio
+
+        from server.core.thumbnails import is_image, thumbnail
+
+        if is_image(path):
+            small = await asyncio.to_thread(thumbnail, path, w)
+            return FileResponse(small, media_type="image/jpeg", headers={"Cache-Control": "max-age=3600"})
     ext = path.suffix.lower()
     media_type = {
         ".png": "image/png",

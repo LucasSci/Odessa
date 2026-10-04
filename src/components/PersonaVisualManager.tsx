@@ -181,7 +181,7 @@ export default function PersonaVisualManager({ personaId, assets }: Props) {
                         loading="lazy"
                         decoding="async"
                         key={pid}
-                        src={assetUrl(personaId, 'wardrobe', pid)}
+                        src={assetUrl(personaId, 'wardrobe', pid, 320)}
                         alt={piece.label}
                         title={piece.label}
                         className="h-10 w-10 rounded-lg border border-white/10 object-cover"
@@ -244,7 +244,7 @@ export default function PersonaVisualManager({ personaId, assets }: Props) {
                     <img
                       loading="lazy"
                       decoding="async"
-                      src={assetUrl(personaId, 'wardrobe', piece.id)}
+                      src={assetUrl(personaId, 'wardrobe', piece.id, 320)}
                       alt={piece.label}
                       className="aspect-square h-full w-full object-cover"
                     />
@@ -294,7 +294,7 @@ export default function PersonaVisualManager({ personaId, assets }: Props) {
                       <img
                         loading="lazy"
                         decoding="async"
-                        src={assetUrl(personaId, 'faces', face.id)}
+                        src={assetUrl(personaId, 'faces', face.id, 320)}
                         alt={face.label}
                         title={`Rosto: ${face.label}`}
                         className="h-10 w-10 rounded-lg border border-white/10 object-cover"
@@ -304,7 +304,7 @@ export default function PersonaVisualManager({ personaId, assets }: Props) {
                       <img
                         loading="lazy"
                         decoding="async"
-                        src={assetUrl(personaId, 'environments', env.id)}
+                        src={assetUrl(personaId, 'environments', env.id, 320)}
                         alt={env.label}
                         title={`Ambiente: ${env.label}`}
                         className="h-10 w-10 rounded-lg border border-white/10 object-cover"

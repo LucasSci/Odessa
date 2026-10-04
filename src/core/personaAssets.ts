@@ -84,8 +84,10 @@ export async function renameAsset(
   );
 }
 
-export function assetUrl(personaId: string, category: AssetCategory, assetId: string): string {
-  return apiUrl(`/personas/${personaId}/assets/${category}/${assetId}`);
+/** `width`: miniatura reduzida no servidor (cartões); sem ela, o arquivo original. */
+export function assetUrl(personaId: string, category: AssetCategory, assetId: string, width?: number): string {
+  const url = apiUrl(`/personas/${personaId}/assets/${category}/${assetId}`);
+  return width ? `${url}?w=${width}` : url;
 }
 
 // ── Templates ──────────────────────────────────────────────────────────────

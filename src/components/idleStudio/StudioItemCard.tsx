@@ -50,7 +50,7 @@ function Media({ asset, controls, className }: { asset: StudioAsset; controls?: 
   return isVideo(asset) ? (
     <video src={assetSrc(asset)} muted controls={controls} preload="metadata" className={className} />
   ) : (
-    <img src={assetSrc(asset)} alt={asset.name} loading="lazy" decoding="async" className={className} />
+    <img src={`${assetSrc(asset)}?w=320`} alt={asset.name} loading="lazy" decoding="async" className={className} />
   );
 }
 

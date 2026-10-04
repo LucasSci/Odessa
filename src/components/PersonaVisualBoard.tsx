@@ -183,7 +183,7 @@ function PersonaVisualCard({
             <img
               loading="lazy"
               decoding="async"
-              src={assetUrl(persona.id, 'faces', face.id)}
+              src={assetUrl(persona.id, 'faces', face.id, 320)}
               alt={face.label}
               title={face.label}
               className="aspect-[3/4] w-full rounded-xl border border-white/10 object-cover"
@@ -200,7 +200,7 @@ function PersonaVisualCard({
             <img
               loading="lazy"
               decoding="async"
-              src={assetUrl(persona.id, 'environments', env.id)}
+              src={assetUrl(persona.id, 'environments', env.id, 320)}
               alt={env.label}
               title={env.label}
               className="aspect-[3/4] w-full rounded-xl border border-white/10 object-cover"
@@ -230,7 +230,7 @@ function PersonaVisualCard({
                     loading="lazy"
                     decoding="async"
                     key={pid}
-                    src={assetUrl(persona.id, 'wardrobe', pid)}
+                    src={assetUrl(persona.id, 'wardrobe', pid, 320)}
                     alt={piece.label}
                     title={piece.label}
                     className="aspect-[3/4] w-full rounded-lg border border-white/10 object-cover"
