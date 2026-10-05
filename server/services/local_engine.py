@@ -103,6 +103,11 @@ def resolve_model(name: str, models_dir: Optional[Path] = None) -> Optional[Path
     return blob if blob.is_file() else None
 
 
+def _log_safe(value: object) -> str:
+    """Texto para o log sem quebra de linha (um valor vindo de fora não forja linhas)."""
+    return str(value).replace("\r", " ").replace("\n", " ")
+
+
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
@@ -182,15 +187,15 @@ class LocalEngine:
             gpu = model not in self._gpu_failed_for
             ok = self._spawn(engine["exe"], engine["env"], model_path, gpu=gpu)
             if not ok and gpu:
-                logger.warning("[motor local] não subiu na GPU com %s; tentando na CPU", model)
+                logger.warning("[motor local] não subiu na GPU com %s; tentando na CPU", _log_safe(model))
                 self._gpu_failed_for.add(model)
                 gpu = False
                 ok = self._spawn(engine["exe"], engine["env"], model_path, gpu=False)
             if not ok:
-                logger.error("[motor local] não subiu com %s", model)
+                logger.error("[motor local] não subiu com %s", _log_safe(model))
                 return None
             self._model, self._device, self._last_used = model, "gpu" if gpu else "cpu", time.monotonic()
-            logger.info("[motor local] %s pronto na %s em %.1f s", model, self._device.upper(), time.monotonic() - started)
+            logger.info("[motor local] %s pronto na %s em %.1f s", _log_safe(model), self._device.upper(), time.monotonic() - started)
             return {"url": f"http://127.0.0.1:{self._port}", "token": self._token}
 
     def mark_used(self) -> None:

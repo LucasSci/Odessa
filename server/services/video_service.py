@@ -107,7 +107,10 @@ class VideoService:
         if not pending:
             return None
         if time.time() - self.pending_reaction_at > PENDING_REACTION_MAX_S:
-            logger.info("Reação %s descartada: esperou demais pela pose", pending.get("videoId"))
+            logger.info(
+                "Reação %s descartada: esperou demais pela pose",
+                str(pending.get("videoId")).replace("\r", " ").replace("\n", " "),
+            )
             self.pending_reaction = None
             return None
         current_poses = self._poses((clip or {}).get("videoId"))

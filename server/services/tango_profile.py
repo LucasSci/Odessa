@@ -280,7 +280,7 @@ def obs_executable(running: Optional[List[Dict[str, Any]]] = None) -> Optional[P
             candidate = install / "bin" / "64bit" / "obs64.exe"
             if candidate.exists():
                 return candidate
-    except OSError:
+    except (OSError, ImportError):  # ImportError: winreg só existe no Windows
         pass
     default = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "obs-studio" / "bin" / "64bit" / "obs64.exe"
     return default if default.exists() else None

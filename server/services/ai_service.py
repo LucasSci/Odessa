@@ -137,6 +137,11 @@ ENGINE_MAX_TURNS = 8
 _RECENT_LINES_HEADERS = ("[your last lines on this live]", "[suas últimas falas na live]")
 
 
+def _log_safe(value: object) -> str:
+    """Texto para o log sem quebra de linha (um valor vindo de fora não forja linhas)."""
+    return str(value).replace("\r", " ").replace("\n", " ")
+
+
 def _safe_local_url(raw: str) -> str:
     """URL da IA local vinda da tela: só esta máquina ou a rede interna.
 
@@ -514,7 +519,7 @@ class AIService:
                     # vez de deixar a persona muda com um 503.
                     logger.warning(
                         "[OLLAMA] modelo %s não instalado; usando o padrão %s",
-                        payload["model"],
+                        _log_safe(payload["model"]),
                         OLLAMA_MODEL,
                     )
                     payload["model"] = OLLAMA_MODEL
@@ -569,7 +574,7 @@ class AIService:
         }
         if json_mode:
             body["response_format"] = {"type": "json_object"}
-        logger.info("[motor local] chat request model=%s messages=%d", model, len(messages))
+        logger.info("[motor local] chat request model=%s messages=%d", _log_safe(model), len(messages))
         response = _ollama_client().post(
             f"{target['url']}/v1/chat/completions", json=body, headers={"Authorization": f"Bearer {target['token']}"}
         )
@@ -578,7 +583,7 @@ class AIService:
         local_engine.mark_used()
         text = text.strip()
         if text:
-            logger.info("[motor local] chat response model=%s chars=%d", model, len(text))
+            logger.info("[motor local] chat response model=%s chars=%d", _log_safe(model), len(text))
         return text or None
 
     def warm_local_engine(self, system_prompt: str, model: str | None = None) -> bool:
@@ -604,7 +609,7 @@ class AIService:
                 headers={"Authorization": f"Bearer {target['token']}"},
             )
         local_engine.mark_used()
-        logger.info("[motor local] aquecido para a live (model=%s)", model)
+        logger.info("[motor local] aquecido para a live (model=%s)", _log_safe(model))
         return True
 
     def generate_mistral_text(

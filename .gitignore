@@ -39,6 +39,8 @@ deploy-nodist.zip
 
 # pnpm e o gerenciador de pacotes oficial do projeto (ver CI)
 package-lock.json
+# ...menos o do programa desktop (npm ci no build do instalador exige o lockfile)
+!desktop/shell/package-lock.json
 
 # Design mockups / scratch files
 home-design*.png
