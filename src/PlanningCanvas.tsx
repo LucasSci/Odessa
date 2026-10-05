@@ -701,7 +701,11 @@ function PlanningCanvasInner() {
   const deleteSelected = useCallback(() => {
     setNodes((nds) => nds.filter((n) => !n.selected));
     setEdges((eds) => {
-      const selectedNodeIds = new Set(nodes.filter((n) => n.selected).map((n) => n.id));
+      // ⚡ Bolt: Using a single-pass loop instead of .filter().map() to avoid intermediate O(N) allocations.
+      const selectedNodeIds = new Set<string>();
+      for (const n of nodes) {
+        if (n.selected) selectedNodeIds.add(n.id);
+      }
       return eds.filter((e) => !selectedNodeIds.has(e.source) && !selectedNodeIds.has(e.target));
     });
     setDirty(true);

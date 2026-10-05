@@ -27,11 +27,17 @@ export function groupDeckVideos(videos: Array<DeckVideo & { id: string }>): Deck
     if (list) list.push(video);
     else buckets.set(key, [video]);
   }
-  const groups: DeckGroup[] = VIDEO_ROTEIRO.filter((cat) => buckets.has(cat.key)).map((cat) => ({
-    key: cat.key,
-    label: cat.label,
-    videos: buckets.get(cat.key)!,
-  }));
+  // ⚡ Bolt: Using a single-pass loop instead of .filter().map() to avoid intermediate O(N) allocations.
+  const groups: DeckGroup[] = [];
+  for (const cat of VIDEO_ROTEIRO) {
+    if (buckets.has(cat.key)) {
+      groups.push({
+        key: cat.key,
+        label: cat.label,
+        videos: buckets.get(cat.key)!,
+      });
+    }
+  }
   if (buckets.has('outros')) groups.push({ key: 'outros', label: 'Outros', videos: buckets.get('outros')! });
   return groups;
 }
