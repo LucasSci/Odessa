@@ -134,9 +134,48 @@ MAX_WAIT_S = {0: 90.0, 1: 90.0, 2: 120.0}
 
 
 ENGINE_MAX_TURNS = 8
-_RECENT_LINES_BLOCK = re.compile(
-    r"\n*\[(?:YOUR LAST LINES ON THIS LIVE|SUAS ÚLTIMAS FALAS NA LIVE)\][^\n]*\n(?:- [^\n]*\n?)*", re.IGNORECASE
-)
+_RECENT_LINES_HEADERS = ("[your last lines on this live]", "[suas últimas falas na live]")
+
+
+def _safe_local_url(raw: str) -> str:
+    """URL da IA local vinda da tela: só esta máquina ou a rede interna.
+
+    O endereço é remontado a partir das partes validadas; qualquer outro
+    destino (um servidor da internet, outro esquema) volta para o padrão.
+    """
+    import ipaddress
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit((raw or "").strip())
+        port = int(parts.port or (443 if parts.scheme == "https" else 80))
+        host = (parts.hostname or "").lower()
+        if parts.scheme not in ("http", "https") or not 0 < port < 65536:
+            raise ValueError("esquema")
+        address = ipaddress.ip_address("127.0.0.1" if host == "localhost" else host)
+        if not (address.is_loopback or address.is_private or address.is_link_local):
+            raise ValueError("fora da rede interna")
+    except ValueError:
+        logger.warning("URL da IA local recusada; usando o endereço padrão")
+        return OLLAMA_BASE_URL.rstrip("/")
+    scheme = "https" if parts.scheme == "https" else "http"
+    shown = f"[{address}]" if address.version == 6 else str(address)
+    return f"{scheme}://{shown}:{port}"
+
+
+def _strip_recent_lines(text: str) -> str:
+    """Tira o bloco "[SUAS ÚLTIMAS FALAS…]" e as linhas "- …" dele (tempo linear)."""
+    kept: list[str] = []
+    skipping = False
+    for line in text.split("\n"):
+        if line.strip().lower().startswith(_RECENT_LINES_HEADERS):
+            skipping = True
+            continue
+        if skipping and line.startswith("- "):
+            continue
+        skipping = False
+        kept.append(line)
+    return "\n".join(kept)
 
 
 def _lean_for_engine(messages: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -153,7 +192,7 @@ def _lean_for_engine(messages: list[dict[str, str]]) -> list[dict[str, str]]:
         return messages
     system, rest = messages[0], messages[1:]
     if system.get("role") == "system":
-        system = {**system, "content": _RECENT_LINES_BLOCK.sub("\n", system.get("content") or "").strip()}
+        system = {**system, "content": _strip_recent_lines(system.get("content") or "").strip()}
         turns = rest[-ENGINE_MAX_TURNS:]
         while turns and turns[0].get("role") == "assistant":
             turns = turns[1:]
@@ -395,7 +434,7 @@ class AIService:
         global _local_ai_paused
         _local_ai_paused = False  # voltou a usar a IA local
         model = model or _preferred_local["model"]
-        url = (base_url or _preferred_local["url"] or OLLAMA_BASE_URL).strip().rstrip("/")
+        url = _safe_local_url(base_url or _preferred_local["url"] or OLLAMA_BASE_URL)
         # num_predict limita o tamanho da geração — as respostas do chat já são
         # pedidas curtas (poucas frases), então 220 tokens só existe como teto
         # de segurança contra o modelo divagar e demorar mais que o necessário.

@@ -74,7 +74,7 @@ def serve_asset(persona_id: str, asset_id: str, download: bool = False, w: Optio
 
         # Cartões da tela: miniatura (o original continua no download/cópia).
         if is_image(path):
-            return FileResponse(thumbnail(path, w), media_type="image/jpeg", headers={"Cache-Control": "max-age=3600"})
+            return FileResponse(thumbnail(path, w, idle_studio.asset_root(persona_id)), media_type="image/jpeg", headers={"Cache-Control": "max-age=3600"})
     name = idle_studio.auto_name(key, entry, asset)
     disposition = "attachment" if download else "inline"
     return FileResponse(

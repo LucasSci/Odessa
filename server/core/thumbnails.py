@@ -7,6 +7,7 @@ do original; se o original mudar, a miniatura é refeita.
 """
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 
@@ -25,10 +26,18 @@ def is_image(path: Path) -> bool:
     return path.suffix.lower() in IMAGE_SUFFIXES
 
 
-def thumbnail(path: Path, width: int) -> Path:
-    """Caminho de um JPEG com no máximo `width` px de largura (gera se preciso)."""
+def thumbnail(path: Path, width: int, root: Path) -> Path:
+    """Caminho de um JPEG com no máximo `width` px de largura (gera se preciso).
+
+    `path` precisa estar dentro de `root` (a pasta de onde a rota serve arquivos).
+    """
     from PIL import Image, ImageOps
 
+    base = os.path.realpath(root)
+    real = os.path.realpath(path)
+    if not real.startswith(base + os.sep):
+        raise ValueError("arquivo fora da pasta permitida")
+    path = Path(real)
     width = nearest_width(width)
     target = path.parent / ".thumbs" / f"{path.stem}-{width}.jpg"
     source_mtime = path.stat().st_mtime

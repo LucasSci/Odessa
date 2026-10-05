@@ -73,14 +73,18 @@ const isOdessaUp = () => probe(HEALTH_URL);
 /** .env com segredos gerados no primeiro uso (mesmo conteúdo do launcher antigo). */
 function ensureEnvFile() {
   const envFile = path.join(INSTALL_ROOT, '.env');
-  if (fs.existsSync(envFile)) return;
   const secret = () => crypto.randomBytes(32).toString('base64').replace(/[^a-zA-Z0-9]/g, '');
-  fs.writeFileSync(
-    envFile,
-    [`ODESSA_SESSION_SECRET=${secret()}`, `ODESSA_ADMIN_PASSWORD=${secret()}`, 'ODESSA_AUTH_DISABLED=1', 'AI_PROVIDER=ollama', ''].join('\n'),
-    'utf8',
-  );
-  log('.env inicial gerado.');
+  try {
+    // 'wx': cria só se não existir, numa operação só (nunca sobrescreve um .env).
+    fs.writeFileSync(
+      envFile,
+      [`ODESSA_SESSION_SECRET=${secret()}`, `ODESSA_ADMIN_PASSWORD=${secret()}`, 'ODESSA_AUTH_DISABLED=1', 'AI_PROVIDER=ollama', ''].join('\n'),
+      { encoding: 'utf8', flag: 'wx' },
+    );
+    log('.env inicial gerado.');
+  } catch (err) {
+    if (err.code !== 'EEXIST') throw err;
+  }
 }
 
 function startBackend() {
@@ -221,13 +225,18 @@ function createMain() {
     saveWindowState();
     mainWindow.hide();
     const flag = path.join(app.getPath('userData'), 'tray-hint-shown');
-    if (!fs.existsSync(flag) && tray) {
+    let firstTime = false;
+    try {
+      // 'wx' cria a marca só na primeira vez (falha se já existir).
+      fs.writeFileSync(flag, '1', { flag: 'wx' });
+      firstTime = true;
+    } catch { /* já avisado antes (ou sem acesso: não insiste) */ }
+    if (firstTime && tray) {
       tray.displayBalloon({
         title: 'O Odessa continua rodando',
         content: 'Ele fica aqui perto do relógio (overlay e chat seguem funcionando). Para desligar, use "Desligar Odessa".',
         iconType: 'info',
       });
-      try { fs.writeFileSync(flag, '1'); } catch { /* aviso aparece de novo, sem problema */ }
     }
   });
 

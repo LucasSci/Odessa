@@ -18,6 +18,7 @@ fica o que muda com o uso:
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
 import threading
@@ -95,7 +96,13 @@ def _item(persona_id: str, key: str) -> Dict[str, Any]:
 
 # ── Estado e arquivos ──────────────────────────────────────────────────────
 
+_PERSONA_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
 def _dir(persona_id: str) -> Path:
+    # O id vem da URL e vira pasta: só letras, números, "_" e "-".
+    if not _PERSONA_ID.match(persona_id or ""):
+        raise StudioError(404, "Persona não encontrada.")
     return DATA_DIR / "idle_studio" / persona_id
 
 
@@ -145,8 +152,17 @@ def auto_name(key: str, entry: Dict[str, Any], asset: Dict[str, Any]) -> str:
     return f"{base}_v{index + 2}{ext}"
 
 
+def asset_root(persona_id: str) -> Path:
+    """Pasta dos anexos da persona (de onde a rota serve arquivos)."""
+    return _files_dir(persona_id)
+
+
 def asset_path(persona_id: str, asset: Dict[str, Any]) -> Path:
-    return _files_dir(persona_id) / Path(asset.get("file") or "").name
+    root = os.path.realpath(_files_dir(persona_id))
+    path = os.path.realpath(os.path.join(root, Path(asset.get("file") or "").name))
+    if not path.startswith(root + os.sep):
+        raise StudioError(404, "Anexo não encontrado.")
+    return Path(path)
 
 
 def _public_entry(persona_id: str, key: str, entry: Dict[str, Any]) -> Dict[str, Any]:

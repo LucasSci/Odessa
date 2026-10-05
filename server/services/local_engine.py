@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import secrets
 import socket
 import subprocess
@@ -74,10 +75,19 @@ def ollama_models_dir() -> Path:
     return Path(custom) if custom else Path.home() / ".ollama" / "models"
 
 
+# Nome de modelo do Ollama ("qwen3:4b-instruct", "user/modelo:tag") e o hash do
+# arquivo: o nome vem do pedido e vira caminho no disco — nada de "..".
+_MODEL_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]*(?:/[a-z0-9][a-z0-9._-]*)?(?::[a-z0-9][a-z0-9._-]*)?$", re.IGNORECASE)
+_BLOB_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
 def resolve_model(name: str, models_dir: Optional[Path] = None) -> Optional[Path]:
     """Arquivo GGUF de um modelo do Ollama ("qwen3:4b-instruct"), pelo manifest."""
     models_dir = models_dir or ollama_models_dir()
-    model, _, tag = (name or "").strip().partition(":")
+    name = (name or "").strip()
+    if not _MODEL_NAME.match(name) or ".." in name:
+        return None
+    model, _, tag = name.partition(":")
     if not model:
         return None
     namespace, _, short = model.rpartition("/")
@@ -87,9 +97,9 @@ def resolve_model(name: str, models_dir: Optional[Path] = None) -> Optional[Path
     except (OSError, ValueError):
         return None
     digest = next((layer.get("digest") for layer in layers if layer.get("mediaType") == "application/vnd.ollama.image.model"), None)
-    if not digest:
+    if not digest or not _BLOB_DIGEST.match(str(digest)):
         return None
-    blob = models_dir / "blobs" / digest.replace(":", "-")
+    blob = models_dir / "blobs" / str(digest).replace(":", "-")
     return blob if blob.is_file() else None
 
 

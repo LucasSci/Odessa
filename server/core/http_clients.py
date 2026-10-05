@@ -20,7 +20,8 @@ def shared_ssl_context() -> ssl.SSLContext:
     global _context
     with _lock:
         if _context is None:
-            import httpx
+            import certifi
 
-            _context = httpx.create_ssl_context()
+            # Verifica certificado e nome do host (o mesmo que o httpx faz por padrão).
+            _context = ssl.create_default_context(cafile=certifi.where())
         return _context

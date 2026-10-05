@@ -9,14 +9,14 @@ from server.services import local_engine as le
 
 
 def make_ollama_store(root: Path) -> Path:
-    blob = root / "blobs" / "sha256-abc"
+    blob = root / "blobs" / ("sha256-" + "ab" * 32)
     blob.parent.mkdir(parents=True)
     blob.write_bytes(b"GGUF....")
     manifest = root / "manifests" / "registry.ollama.ai" / "library" / "qwen3" / "4b-instruct"
     manifest.parent.mkdir(parents=True)
     manifest.write_text(json.dumps({"layers": [
         {"mediaType": "application/vnd.ollama.image.template", "digest": "sha256:tpl"},
-        {"mediaType": "application/vnd.ollama.image.model", "digest": "sha256:abc"},
+        {"mediaType": "application/vnd.ollama.image.model", "digest": "sha256:" + "ab" * 32},
     ]}), encoding="utf-8")
     return blob
 

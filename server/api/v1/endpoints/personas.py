@@ -292,10 +292,11 @@ async def serve_asset(persona_id: str, category: str, image_id: str, w: Optional
     if w:
         import asyncio
 
+        from server.core.persona_assets import ASSETS_DIR
         from server.core.thumbnails import is_image, thumbnail
 
         if is_image(path):
-            small = await asyncio.to_thread(thumbnail, path, w)
+            small = await asyncio.to_thread(thumbnail, path, w, ASSETS_DIR)
             return FileResponse(small, media_type="image/jpeg", headers={"Cache-Control": "max-age=3600"})
     ext = path.suffix.lower()
     media_type = {
