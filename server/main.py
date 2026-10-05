@@ -135,7 +135,9 @@ async def lifespan(app: FastAPI):
     try:
         from server.core.append_log import close_all
         from server.services.ai_service import close_http_clients
+        from server.services.local_engine import local_engine
 
+        local_engine.stop()
         close_http_clients()
         close_all()
     except Exception:  # noqa: BLE001 — desligando: nada a fazer
@@ -284,10 +286,18 @@ async def health_deps():
         current = next((p for p in profiles if p["active"]), None) or (profiles[0] if profiles else None)
         return current["key"] if current else None
 
+    ollama = await _check_ollama()
+    from server.services.local_engine import engine_mode, resolve_model
+
+    if engine_mode() == "gpu" and await asyncio.to_thread(resolve_model, server_config.OLLAMA_MODEL):
+        # A IA local roda no motor do Odessa com o arquivo do modelo já baixado:
+        # o Ollama não precisa estar aberto.
+        ollama = {**ollama, "reachable": True, "modelInstalled": True}
+
     return build_deps_report(
         tango_key=await asyncio.to_thread(active_tango_key),
         provider=server_config.AI_PROVIDER,
-        ollama=await _check_ollama(),
+        ollama=ollama,
         ollama_installed=shutil.which("ollama") is not None,
         keys={
             "gemini": bool(server_config.GEMINI_API_KEY),

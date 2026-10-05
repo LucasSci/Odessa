@@ -4,7 +4,7 @@ import logging
 import re
 import shutil
 import subprocess
-from typing import Any
+from typing import Any, Optional
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -166,9 +166,15 @@ async def ollama_unload():
     from server.config import OLLAMA_BASE_URL
     from server.services.ai_service import pause_local_ai
 
+    from server.services.local_engine import local_engine
+
     pause_local_ai()
-    url = OLLAMA_BASE_URL.strip().rstrip("/")
     unloaded: list[str] = []
+    if local_engine.running:
+        # Motor do Odessa na GPU: parar o processo devolve a RAM na hora.
+        unloaded.append(f"motor local ({local_engine.status().get('model')})")
+        await asyncio.to_thread(local_engine.stop)
+    url = OLLAMA_BASE_URL.strip().rstrip("/")
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             loaded = (await client.get(f"{url}/api/ps")).json().get("models") or []
@@ -181,6 +187,46 @@ async def ollama_unload():
     except Exception as exc:  # Ollama fechado = já está "desligado"
         logger.info("[ollama/unload] Ollama indisponível: %s", exc)
     return {"ok": True, "unloaded": unloaded}
+
+
+class WarmupRequest(BaseModel):
+    persona_prompt: str
+    local_model_name: Optional[str] = None
+
+
+@router.post("/warmup")
+def ai_warmup(request: WarmupRequest):
+    """Início da live: deixa o motor local pronto com a persona já lida."""
+    from server.services.ai_service import remember_local_model
+
+    remember_local_model(request.local_model_name, None)
+    try:
+        return {"ok": True, "warmed": get_ai_service().warm_local_engine(request.persona_prompt, request.local_model_name)}
+    except Exception as exc:  # noqa: BLE001 — aquecer é opcional
+        logger.info("[warmup] motor local não aqueceu: %s", exc)
+        return {"ok": True, "warmed": False}
+
+
+class EngineModeRequest(BaseModel):
+    mode: str
+
+
+@router.get("/engine")
+async def ai_engine_status():
+    """Motor da IA local: GPU integrada (llama.cpp do Odessa) ou Ollama."""
+    from server.services.local_engine import engine_mode, local_engine
+
+    return {"mode": engine_mode(), **local_engine.status()}
+
+
+@router.post("/engine")
+async def ai_engine_set(request: EngineModeRequest):
+    from server.services.local_engine import engine_mode, local_engine, set_engine_mode
+
+    set_engine_mode(request.mode)
+    if engine_mode() != "gpu":
+        await asyncio.to_thread(local_engine.stop)  # devolve a RAM na hora
+    return {"mode": engine_mode(), **local_engine.status()}
 
 
 @router.post("/ollama/connect")

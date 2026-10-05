@@ -33,6 +33,7 @@ import {
 import { callGeminiText } from '../core/aiDecisionContract';
 import { apiUrl } from '../lib/api';
 import { ActiveAiBadge } from './ActiveAiBadge';
+import { LocalEngineChoice } from './LocalEngineChoice';
 
 /** Trocou para IA de nuvem: tira o modelo local da memória (libera RAM/GPU). */
 async function unloadLocalAi(): Promise<string[]> {
@@ -455,6 +456,7 @@ export function AiConfigPanel() {
                 </span>
               </div>
               <div className="space-y-3">
+                <LocalEngineChoice />
                 <Input
                   label="URL do servidor (Ollama, LM Studio, etc.)"
                   value={config.localModelUrl}

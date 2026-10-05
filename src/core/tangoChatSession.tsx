@@ -33,6 +33,7 @@ import {
 } from 'react';
 import {
   generateTangoChatReply,
+  warmLocalEngine,
   type TangoChatMessage,
 } from './tangoAiChatService';
 import { getAiConfig, providerKeyFor, resolveEffectiveProvider } from './aiConfig';
@@ -985,6 +986,19 @@ export function TangoChatSessionProvider({
   useEffect(() => {
     autoTriggerRef.current = handleAutoTriggerAi;
   }, [handleAutoTriggerAi]);
+
+  // Live começou (bridge conectada): motor da IA local pronto e persona já lida,
+  // para a 1ª resposta sair na velocidade normal. Uma vez por conexão.
+  const warmedRef = useRef(false);
+  useEffect(() => {
+    if (!bridgeConnected) {
+      warmedRef.current = false;
+      return;
+    }
+    if (warmedRef.current) return;
+    warmedRef.current = true;
+    void warmLocalEngine(aiPrompt, englishIdentity(activePersona, aiPrompt));
+  }, [bridgeConnected, aiPrompt, activePersona]);
 
   useEffect(() => {
     if (!bridgeConnected) {

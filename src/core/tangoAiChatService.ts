@@ -456,6 +456,31 @@ export function buildSystemPrompt(parts: {
  * Qualquer IA (local ou API) passa por aqui com o mesmo prompt, a mesma conversa
  * em turnos, a mesma memória e o mesmo filtro de "soou como robô".
  */
+/**
+ * Início da live: pede ao servidor para subir o motor da IA local e já ler a
+ * parte fixa do prompt (persona + jeito de conversar), a mesma que abre cada
+ * resposta. Na GPU integrada a leitura é o gargalo (~40 tokens/s): sem isso a
+ * 1ª resposta da live levava ~26 s. Só para a IA local; falha não atrapalha.
+ */
+export async function warmLocalEngine(customPrompt?: string, identityEn?: string): Promise<void> {
+  const config = getAiConfig();
+  if (resolveEffectiveProvider(config) !== 'ollama') return;
+  const language: ReplyLanguage = config.replyLanguage === 'auto' ? 'pt' : 'en';
+  const basePrompt = customPrompt || config.systemPrompt || DEFAULT_TANGO_IDENTITY;
+  const identity = language === 'en' && identityEn?.trim() ? identityEn.trim() : basePrompt;
+  // Mesmo começo de buildSystemPrompt: identidade + jeito de conversar.
+  const stablePrefix = [identity.trim(), language === 'en' ? CONVERSATION_STYLE_EN : CONVERSATION_STYLE].join('\n\n');
+  try {
+    await fetch(apiUrl('/ai/warmup'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ persona_prompt: stablePrefix, local_model_name: config.localModelName }),
+    });
+  } catch {
+    // Aquecer é só para a 1ª resposta sair rápido.
+  }
+}
+
 export async function generateTangoChatReply(
   incoming: TangoChatMessage,
   recentHistory: TangoChatMessage[] = [],

@@ -1,4 +1,5 @@
 import logging
+import re
 import mimetypes
 import threading
 import time
@@ -130,6 +131,34 @@ PRIORITY_LEVELS = {"chat": 0, "memory": 1, "background": 2}
 # Chat espera até 90 s: com o modelo frio (primeira fala depois de uma pausa) a
 # geração anterior pode levar ~90 s só carregando, e a 1ª resposta se perdia.
 MAX_WAIT_S = {0: 90.0, 1: 90.0, 2: 120.0}
+
+
+ENGINE_MAX_TURNS = 8
+_RECENT_LINES_BLOCK = re.compile(
+    r"\n*\[(?:YOUR LAST LINES ON THIS LIVE|SUAS ÚLTIMAS FALAS NA LIVE)\][^\n]*\n(?:- [^\n]*\n?)*", re.IGNORECASE
+)
+
+
+def _lean_for_engine(messages: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Menos texto novo por resposta no motor da GPU integrada.
+
+    A GPU integrada escreve rápido mas LÊ o prompt devagar (~40 tokens/s, medido
+    com várias opções do motor): cada texto novo custa ~1 s a cada 40 tokens.
+    O início fixo (persona + jeito de conversar) fica em cache no motor; aqui sai
+    o que é redundante: o bloco "suas últimas falas" (elas já estão na conversa
+    como falas dela, e o filtro de repetição continua valendo) e a conversa fica
+    nos últimos 8 turnos.
+    """
+    if not messages:
+        return messages
+    system, rest = messages[0], messages[1:]
+    if system.get("role") == "system":
+        system = {**system, "content": _RECENT_LINES_BLOCK.sub("\n", system.get("content") or "").strip()}
+        turns = rest[-ENGINE_MAX_TURNS:]
+        while turns and turns[0].get("role") == "assistant":
+            turns = turns[1:]
+        return [system, *turns] if turns else [system, *rest[-1:]]
+    return messages
 
 
 class LocalAiBusy(RuntimeError):
@@ -414,6 +443,17 @@ class AIService:
             # Qwen3 "pensa" escondido antes de responder: segundos a mais por fala.
             payload["think"] = False
 
+        # Motor do Odessa na GPU integrada (local_engine): 3× mais rápido e ~3,5
+        # núcleos livres para o OBS. Só para o Ollama padrão (URL personalizada,
+        # ex.: LM Studio, segue como antes); se falhar, cai no Ollama.
+        if url == OLLAMA_BASE_URL.strip().rstrip("/"):
+            try:
+                text = self._generate_with_engine(payload["model"], payload["messages"], temperature, num_predict, json_mode)
+                if text:
+                    return text
+            except Exception as exc:  # noqa: BLE001 — o Ollama é a reserva
+                logger.warning("[motor local] falhou, usando o Ollama: %s", exc)
+
         last_exc: Exception | None = None
         # Retry único: o disconnect intermitente acima acontece especificamente
         # durante o carregamento a frio — na segunda tentativa o modelo já está
@@ -467,6 +507,66 @@ class AIService:
             f"Ollama desconectou sem responder após 2 tentativas (modelo provavelmente ainda "
             f"carregando na memória): {last_exc}"
         ) from last_exc
+
+    def _generate_with_engine(
+        self, model: str, messages: list[dict[str, str]], temperature: float, max_tokens: int, json_mode: bool
+    ) -> str | None:
+        """Mesma conversa, mesmo modelo, no llama-server do Odessa (API compatível com OpenAI)."""
+        from server.services.local_engine import engine_mode, local_engine
+
+        if engine_mode() != "gpu":
+            return None
+        target = local_engine.ensure(model)
+        if not target:
+            return None
+        body: dict[str, Any] = {
+            "messages": _lean_for_engine(messages),
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "top_p": 0.9,
+            "repeat_penalty": 1.05,
+            # Qwen3 sem o "pensar" escondido (mesmo efeito do think:false no Ollama).
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        if json_mode:
+            body["response_format"] = {"type": "json_object"}
+        logger.info("[motor local] chat request model=%s messages=%d", model, len(messages))
+        response = _ollama_client().post(
+            f"{target['url']}/v1/chat/completions", json=body, headers={"Authorization": f"Bearer {target['token']}"}
+        )
+        response.raise_for_status()
+        text = ((response.json().get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+        local_engine.mark_used()
+        text = text.strip()
+        if text:
+            logger.info("[motor local] chat response model=%s chars=%d", model, len(text))
+        return text or None
+
+    def warm_local_engine(self, system_prompt: str, model: str | None = None) -> bool:
+        """Sobe o motor da GPU e deixa a parte fixa do prompt (persona + jeito de
+        conversar) já lida em cache: a 1ª resposta da live sai na velocidade normal
+        (sem isso, ~26 s: subir o motor + ler ~1000 tokens a ~40 tokens/s)."""
+        from server.services.local_engine import engine_mode, local_engine
+
+        model = (model or _preferred_local["model"] or OLLAMA_MODEL).strip()
+        if engine_mode() != "gpu" or not system_prompt.strip():
+            return False
+        target = local_engine.ensure(model)
+        if not target:
+            return False
+        with local_ai_gate.slot("background", max_wait_s=30):
+            _ollama_client().post(
+                f"{target['url']}/v1/chat/completions",
+                json={
+                    "messages": [{"role": "system", "content": system_prompt.strip()}, {"role": "user", "content": "hi"}],
+                    "max_tokens": 1,
+                    "chat_template_kwargs": {"enable_thinking": False},
+                },
+                headers={"Authorization": f"Bearer {target['token']}"},
+            )
+        local_engine.mark_used()
+        logger.info("[motor local] aquecido para a live (model=%s)", model)
+        return True
 
     def generate_mistral_text(
         self,
@@ -682,7 +782,19 @@ async def ollama_keepalive_loop(interval_seconds: int = 5 * 60) -> None:
         return
 
     while True:
-        if local_ai_paused() or not await _live_session_active():
+        from server.services.local_engine import engine_mode, local_engine
+
+        live = await _live_session_active()
+        if engine_mode() == "gpu":
+            # Motor do Odessa: aquece durante a live; fora dela, descarrega o
+            # ocioso (10 min). Pingar o Ollama aqui carregaria o modelo duas vezes.
+            if live and not local_ai_paused():
+                await asyncio.to_thread(local_engine.ensure, _preferred_local["model"] or OLLAMA_MODEL)
+            else:
+                await asyncio.to_thread(local_engine.unload_if_idle)
+            await asyncio.sleep(min(interval_seconds, 60))
+            continue
+        if local_ai_paused() or not live:
             await asyncio.sleep(interval_seconds)
             continue
         # Mantém aquecido o modelo que o chat usa (o padrão do servidor faria o

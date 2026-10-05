@@ -317,3 +317,37 @@ Validação: pytest 478/478, Vitest 345/345 (com 2 workers), `tsc` e ESLint sem 
 - **Respostas em inglês por padrão** (`feat/perfil-tango-auto`, `52e5c45`): persona e
   estilo em inglês, ajustados em 6 rodadas de 15 conversas com a IA local. Ver
   `docs/PERSONAS-PROMPTS.md`.
+
+### Onda 4 — feita (`perf/onda4-ia-gpu`)
+
+**4.1 — IA local na GPU integrada.** `server/services/local_engine.py` roda o
+`llama-server` (llama.cpp, o mesmo motor do Ollama) direto, com o backend Vulkan:
+
+- binário: o do próprio Odessa (pasta `llama/`, quando o instalador trouxer) ou o que
+  já vem com o Ollama (o backend Vulkan fica numa subpasta; `GGML_BACKEND_PATH`);
+- modelo: o GGUF que o Ollama já baixou, achado pelo manifest (sem copiar);
+- só em 127.0.0.1, com token; GPU primeiro, CPU se a GPU recusar; descarrega após
+  10 min sem uso fora da live; para junto com o "Desligar" e ao trocar para nuvem;
+- se o motor falhar, a resposta cai no Ollama; URL personalizada (LM Studio) não muda;
+- escolha em Configurações › IA › Motor ("GPU integrada" / "Ollama").
+
+Medido no PC da live (qwen3:4b-instruct, prompt real da live):
+
+| | Ollama (CPU) | GPU integrada |
+|---|---|---|
+| Tempo por resposta (caminho da live) | ~8–10 s | **2,4–5,0 s (média 3,4 s)** |
+| CPU do motor enquanto responde | 330–390% (~4 núcleos) | **~30–37% de 1 núcleo** |
+| OBS (cena com overlay, sem transmitir): quadros de render pulados | **15,5%** | **1,7%** (0% sem IA) |
+
+Achados que mudaram o desenho:
+- A GPU integrada **lê** o prompt devagar (~40 tokens/s, igual com flash attention ou
+  outros lotes) e escreve rápido. Por isso, no motor: o início fixo (persona + jeito de
+  conversar) fica em cache; o bloco "suas últimas falas" sai (elas já estão na
+  conversa); a conversa vai com os últimos 8 turnos.
+- **Aquecimento no início da live** (`POST /ai/warmup`, chamado quando a bridge
+  conecta): sobe o motor e lê a parte fixa em segundo plano (~22 s); a 1ª resposta
+  passa de ~26 s para **3,8 s**.
+
+**Pendente:** o motor hoje usa os arquivos do Ollama instalado. Para quem não tem
+Ollama, o instalador precisa trazer o `llama-server` (build Vulkan oficial do
+llama.cpp, ~33 MB) — exige baixar o pacote do GitHub.

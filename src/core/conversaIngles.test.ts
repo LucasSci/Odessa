@@ -124,3 +124,27 @@ describe('falas dela entram no histórico como dela', () => {
     expect(turns.map((t) => t.role)).toEqual(['user', 'assistant', 'user']);
   });
 });
+
+describe('aquecer o motor local no início da live', () => {
+  it('manda a parte fixa do prompt — igual ao começo das respostas', async () => {
+    const { warmLocalEngine, buildSystemPrompt } = await import('./tangoAiChatService');
+    const bodies: Array<{ persona_prompt: string }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response('{"ok":true}', { status: 200 });
+    }));
+    await warmLocalEngine('Você é a Viktoria.', 'You are Viktoria.');
+    const full = buildSystemPrompt({ identity: 'You are Viktoria.', language: 'en', now: new Date(2026, 9, 5, 21, 0) });
+    expect(bodies).toHaveLength(1);
+    expect(full.startsWith(bodies[0].persona_prompt)).toBe(true);
+  });
+
+  it('com IA de nuvem não aquece nada', async () => {
+    window.localStorage.setItem('odessa:ai:config:v2', JSON.stringify({ provider: 'mistral', mistralKey: 'x' }));
+    const { warmLocalEngine } = await import('./tangoAiChatService');
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    await warmLocalEngine('Você é a Viktoria.');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
