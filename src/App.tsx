@@ -1,14 +1,21 @@
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import LoginScreen from './LoginScreen';
 import OdessaLiveCenter, { type AdvancedPanel } from './OdessaLiveCenter';
-import PersonaOverlay from './PersonaOverlay';
 import { useOverlayLeader } from './lib/overlayLeader';
+
+// O overlay só roda na fonte do OBS (#overlay): fica fora do pacote principal do painel.
+const PersonaOverlay = lazy(() => import('./PersonaOverlay'));
 
 /** Só a cópia líder do overlay toca vídeo e mexe no fluxo (ver overlayLeader.ts). */
 function SingleOverlay() {
   const leader = useOverlayLeader();
-  return leader ? <PersonaOverlay /> : null;
+  if (!leader) return null;
+  return (
+    <Suspense fallback={<div className="fixed inset-0 bg-black" />}>
+      <PersonaOverlay />
+    </Suspense>
+  );
 }
 import { clearEvents, replaceEvents } from './core/eventBus';
 import { useAutopilotRuntime } from './core/useAutopilotRuntime';

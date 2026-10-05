@@ -1,12 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiUrl } from './lib/api';
-import { cn } from './lib/utils';
+import { hideSlot, loadSource, revealSlot, seekTo, waitForPresentedFrame } from './lib/stageSlots';
 import { preloadVideos, videoSrcFor, videoVersion } from './lib/videoPreload';
 import { isVideoStateStreaming, subscribeVideoState } from './lib/videoStateEvents';
 
 /** Com o aviso do servidor ligado, a consulta de reserva do palco. */
 const STREAMING_TICK_MS = 2000;
-import { nextSegmentStep, segmentSpeed } from './core/playback/clipTimeline';
+import { clampFadeMs, nextSegmentStep, segmentSpeed } from './core/playback/clipTimeline';
+import {
+  DEFAULT_FRAME_SEC,
+  SEAM_BLEND_MS,
+  clipStartSec,
+  isLastFrame,
+  isStaleAfterSeam,
+  nextFrameSec,
+  sameFootage,
+  seamStartSec,
+  shouldWaitForNaturalEnd,
+} from './core/playback/stageSeam';
 
 // Build-time injected by odessaSchedulePlugin in vite.config.ts.
 // On the Hostinger server this is populated from the KV store at build time.
@@ -51,6 +62,8 @@ type VideoState = {
   start_ts?: number;
   server_time?: number;
   currentClip?: VideoClip | null;
+  /** Próximos clipes naturais do fluxo (o primeiro é o que vem quando o atual acabar). */
+  upcoming?: VideoClip[];
   queue?: TriggerQueueEntry[];
   /** Veredito do motor: o clip no ar é do fluxo que ele executa. */
   inFlow?: boolean;
@@ -82,6 +95,16 @@ function clipKey(clip: VideoClip | null | undefined) {
     // and handleEnded never fires, so triggers stay stuck in the queue forever.
     clip.loop ? 'loop' : 'once',
   ].join(':');
+}
+
+/** Quanto falta para o clipe no ar terminar (tempo do vídeo). */
+function remainingSec(clip: VideoClip, element: HTMLVideoElement, segmentIndex: number) {
+  const cuts = clip.segments && clip.segments.length > 0 ? clip.segments : null;
+  if (cuts) {
+    return segmentIndex >= cuts.length - 1 ? cuts[cuts.length - 1].endSec - element.currentTime : Number.POSITIVE_INFINITY;
+  }
+  const end = clip.endSec ?? (Number.isFinite(element.duration) ? element.duration : Number.POSITIVE_INFINITY);
+  return end - element.currentTime;
 }
 
 function shouldLoopClip(clip: VideoClip | null | undefined) {
@@ -212,9 +235,35 @@ export default function PersonaOverlay() {
   const [currentKey, setCurrentKey] = useState('');
   const [isTransitioning, setIsTransitioning] = useState(false);
 
-  useEffect(() => {
-    activeSlotRef.current = activeSlot;
-  }, [activeSlot]);
+  // Espelhos síncronos do estado: as emendas acontecem em eventos do vídeo e não
+  // podem esperar a próxima renderização do React.
+  const slotClipsRef = useRef<[VideoClip | null, VideoClip | null]>([null, null]);
+  const currentKeyRef = useRef('');
+  const busyRef = useRef(false);
+  // Próximo clipe já carregado e parado no quadro da emenda, na camada escondida.
+  const armedRef = useRef<{ slot: 0 | 1; key: string; clip: VideoClip; ready: boolean } | null>(null);
+  // Emenda feita aqui antes do servidor saber: o estado atrasado não puxa de volta.
+  const pendingSeamRef = useRef<{ fromKey: string; at: number } | null>(null);
+  // Duração de um quadro do vídeo no ar (medida), para pular o quadro repetido.
+  const frameSecRef = useRef(DEFAULT_FRAME_SEC);
+  // Muda a cada troca: uma preparação antiga que termina depois não mexe no palco.
+  const generationRef = useRef(0);
+
+  const slotElement = useCallback((slot: 0 | 1) => (slot === 0 ? videoRefA : videoRefB).current, []);
+
+  const setSlotClip = useCallback((slot: 0 | 1, clip: VideoClip | null) => {
+    const next: [VideoClip | null, VideoClip | null] = [...slotClipsRef.current] as [VideoClip | null, VideoClip | null];
+    next[slot] = clip;
+    slotClipsRef.current = next;
+    setSlotClips(next);
+  }, []);
+
+  const commitActive = useCallback((slot: 0 | 1, key: string) => {
+    activeSlotRef.current = slot;
+    currentKeyRef.current = key;
+    setActiveSlot(slot);
+    setCurrentKey(key);
+  }, []);
 
   const fetchVideoState = useCallback(async (): Promise<VideoState | null> => {
     try {
@@ -321,39 +370,171 @@ export default function PersonaOverlay() {
     }
   }, []);
 
+  /** Configura uma camada para o clipe (fonte, repetir, som, velocidade) e aguarda os metadados. */
+  const loadClipInto = useCallback(async (element: HTMLVideoElement, slot: 0 | 1, clip: VideoClip) => {
+    const cuts = clip.segments && clip.segments.length > 0 ? clip.segments : null;
+    segmentIndexRef.current[slot] = 0;
+    element.loop = shouldLoopClip(clip);
+    element.muted = (clip.audio?.mode || 'muted') !== 'original';
+    element.volume = Math.max(0, Math.min(1, clip.audio?.volume ?? 1));
+    // Usa o blob pré-carregado (instantâneo, em memória) quando disponível;
+    // senão cai no stream normal. Sem stall de fetch → sem trava ao disparar.
+    await loadSource(element, videoSrcFor(clip.videoId));
+    element.playbackRate = segmentSpeed(cuts?.[0]);
+  }, []);
+
+  const applyAudio = useCallback(async (clip: VideoClip) => {
+    const audioElement = audioRef.current;
+    if (!audioElement) return;
+    if (clip.audio?.mode === 'track' && clip.audio.trackUrl) {
+      audioElement.src = clip.audio.trackUrl;
+      audioElement.loop = Boolean(clip.audio.trackLoop);
+      audioElement.volume = Math.max(0, Math.min(1, clip.audio.volume ?? 1));
+      audioElement.currentTime = 0;
+      await audioElement.play().catch(() => undefined);
+    } else {
+      audioElement.pause();
+      audioElement.removeAttribute('src');
+    }
+  }, []);
+
+  /**
+   * Deixa o próximo clipe esperado pronto na camada escondida, parado no quadro
+   * da emenda. Quando o atual terminar, ele entra na hora.
+   */
+  const armNext = useCallback(
+    async (state: VideoState) => {
+      if (busyRef.current) return;
+      const activeIdx = activeSlotRef.current;
+      const activeClip = slotClipsRef.current[activeIdx];
+      if (!activeClip || shouldLoopClip(activeClip) || clipKey(activeClip) !== currentKeyRef.current) return;
+      // Sem próximo no fluxo o servidor volta ao idle; se o idle é o próprio
+      // clipe, ele recomeça — a emenda é com ele mesmo.
+      const expected = state.upcoming?.[0] ?? activeClip;
+      const key = clipKey(expected);
+      if (armedRef.current?.key === key) return;
+      const slot: 0 | 1 = activeIdx === 0 ? 1 : 0;
+      const element = slotElement(slot);
+      if (!element) return;
+      const generation = generationRef.current;
+      armedRef.current = { slot, key, clip: expected, ready: false };
+      element.pause();
+      hideSlot(element);
+      setSlotClip(slot, expected);
+      await loadClipInto(element, slot, expected);
+      if (generation !== generationRef.current || armedRef.current?.key !== key) return;
+      await seekTo(element, seamStartSec(expected, frameSecRef.current));
+      if (generation !== generationRef.current || armedRef.current?.key !== key) return;
+      armedRef.current = { slot, key, clip: expected, ready: true };
+    },
+    [loadClipInto, setSlotClip, slotElement],
+  );
+
+  /**
+   * O clipe no ar terminou. Com o próximo já pronto, ele entra no mesmo
+   * instante (o servidor fica sabendo em paralelo); sem, avisa o servidor e
+   * a troca vem pelo caminho normal.
+   */
+  const finishClip = useCallback(
+    (slot: 0 | 1, endedClip: VideoClip) => {
+      if (slot !== activeSlotRef.current) return;
+      const endedKey = clipKey(endedClip);
+      if (endedRef.current === endedKey) return;
+      endedRef.current = endedKey;
+      const armed = armedRef.current;
+      const incoming = armed ? slotElement(armed.slot) : null;
+      const outgoing = slotElement(slot);
+      if (!armed || !armed.ready || armed.slot === slot || !incoming || busyRef.current) {
+        void advanceAndRefresh(endedClip);
+        return;
+      }
+      armedRef.current = null;
+      busyRef.current = true;
+      generationRef.current += 1;
+      setIsTransitioning(true);
+      void incoming.play().catch(() => undefined);
+      // O quadro parado da camada pronta já é o seguinte ao último do clipe que
+      // acabou: ela pode aparecer agora, sem esperar o play.
+      const revealed = revealSlot(incoming, outgoing, SEAM_BLEND_MS);
+      pendingSeamRef.current = { fromKey: endedKey, at: Date.now() };
+      endedRef.current = '';
+      commitActive(armed.slot, armed.key);
+      playedVersionRef.current = videoVersion(armed.clip.videoId);
+      void applyAudio(armed.clip);
+      void advanceAndRefresh(endedClip).finally(() => {
+        pendingSeamRef.current = null;
+      });
+      void revealed.then(() => {
+        busyRef.current = false;
+        setIsTransitioning(false);
+      });
+    },
+    [advanceAndRefresh, applyAudio, commitActive, slotElement],
+  );
+
   const transitionToClip = useCallback(
     async (clip: VideoClip, state?: VideoState | null) => {
       const key = clipKey(clip);
-      if (!key || isTransitioning || key === currentKey) return;
+      if (!key || busyRef.current || key === currentKeyRef.current) return;
 
-      const nextSlot = activeSlotRef.current === 0 ? 1 : 0;
       const previousSlot = activeSlotRef.current;
-      const nextElement = (nextSlot === 0 ? videoRefA : videoRefB).current;
-      const previousElement = (previousSlot === 0 ? videoRefA : videoRefB).current;
+      const previousElement = slotElement(previousSlot);
+      const activeClip = slotClipsRef.current[previousSlot];
+
+      if (previousElement && activeClip && currentKeyRef.current) {
+        // Mesmo vídeo, mesmo trecho — só o "repetir" mudou (o idle teve o loop
+        // quebrado por um gatilho): segue tocando na mesma camada, sem troca.
+        if (sameFootage(activeClip, clip)) {
+          previousElement.loop = shouldLoopClip(clip);
+          setSlotClip(previousSlot, clip);
+          commitActive(previousSlot, key);
+          return;
+        }
+        // Outro player avisou o fim antes deste: o próximo já está pronto aqui e
+        // o atual está no finzinho — deixa terminar e emendar no quadro certo.
+        if (
+          !previousElement.paused &&
+          shouldWaitForNaturalEnd({
+            incomingKey: key,
+            armedKey: armedRef.current?.ready ? armedRef.current.key : null,
+            activeLoops: previousElement.loop,
+            remainingSec: remainingSec(activeClip, previousElement, segmentIndexRef.current[previousSlot]),
+          })
+        ) {
+          return;
+        }
+      }
+
+      const nextSlot: 0 | 1 = previousSlot === 0 ? 1 : 0;
+      const nextElement = slotElement(nextSlot);
       if (!nextElement) return;
 
+      busyRef.current = true;
+      generationRef.current += 1;
+      const generation = generationRef.current;
       setIsTransitioning(true);
       endedRef.current = '';
-      setSlotClips((current) => {
-        const next: [VideoClip | null, VideoClip | null] = [...current] as [VideoClip | null, VideoClip | null];
-        next[nextSlot] = clip;
-        return next;
-      });
+      const finish = () => {
+        busyRef.current = false;
+        setIsTransitioning(false);
+      };
 
-      // Usa o blob pré-carregado (instantâneo, em memória) quando disponível;
-      // senão cai no stream normal. Sem stall de fetch → sem trava ao disparar.
-      nextElement.src = videoSrcFor(clip.videoId);
-      nextElement.loop = shouldLoopClip(clip);
-      nextElement.muted = (clip.audio?.mode || 'muted') !== 'original';
-      nextElement.volume = Math.max(0, Math.min(1, clip.audio?.volume ?? 1));
+      const armed = armedRef.current;
+      armedRef.current = null;
       const cuts = clip.segments && clip.segments.length > 0 ? clip.segments : null;
-      segmentIndexRef.current[nextSlot] = 0;
-      nextElement.playbackRate = segmentSpeed(cuts?.[0]);
+      const startSec = clipStartSec(clip);
 
-      const play = async () => {
+      if (armed && armed.key === key && armed.ready && armed.slot === nextSlot) {
+        // Já está pronto na camada escondida (parado no início).
+      } else {
+        nextElement.pause();
+        hideSlot(nextElement);
+        setSlotClip(nextSlot, clip);
+        await loadClipInto(nextElement, nextSlot, clip);
+        if (generation !== generationRef.current) return finish();
+
         const elapsed =
           state?.server_time && state?.start_ts ? Math.max(0, state.server_time - state.start_ts) : 0;
-        const startSec = Math.max(0, cuts ? cuts[0].startSec : clip.startSec || 0);
         const endSec = clip.endSec ?? Number.POSITIVE_INFINITY;
         // Com cortes, "já acabou?" é medido em tempo de relógio (velocidade por corte).
         const cutsClockSec = cuts
@@ -372,7 +553,7 @@ export default function PersonaOverlay() {
           ? effectiveElapsed >= cutsClockSec - 0.1
           : naturalEndSec > 0 && startSec + effectiveElapsed >= naturalEndSec - 0.1;
         if (!shouldLoopClip(clip) && alreadyOver) {
-          setIsTransitioning(false);
+          finish();
           await advanceAndRefresh(clip);
           return;
         }
@@ -385,52 +566,30 @@ export default function PersonaOverlay() {
               ? startSec + effectiveElapsed
               // Reactions / sequence clips always start from the beginning.
               : startSec;
-        try {
-          nextElement.currentTime = Math.min(targetTime, Math.max(0, endSec - 0.05));
-        } catch {
-          // Metadata timing can lag inside OBS Browser Source.
-        }
-        await nextElement.play().catch(() => undefined);
-        nextElement.style.opacity = '1';
-        if (previousElement) {
-          previousElement.style.opacity = '0';
-          previousElement.pause();
-        }
-        const audioElement = audioRef.current;
-        if (audioElement) {
-          if (clip.audio?.mode === 'track' && clip.audio.trackUrl) {
-            audioElement.src = clip.audio.trackUrl;
-            audioElement.loop = Boolean(clip.audio.trackLoop);
-            audioElement.volume = Math.max(0, Math.min(1, clip.audio.volume ?? 1));
-            audioElement.currentTime = 0;
-            await audioElement.play().catch(() => undefined);
-          } else {
-            audioElement.pause();
-            audioElement.removeAttribute('src');
-          }
-        }
-        setActiveSlot(nextSlot);
-        setCurrentKey(key);
-        window.setTimeout(() => setIsTransitioning(false), Math.max(60, clip.transitionMs ?? 220));
-      };
-
-      if (nextElement.readyState >= 1) {
-        await play();
-      } else {
-        nextElement.addEventListener('loadedmetadata', () => void play(), { once: true });
-        nextElement.load();
+        await seekTo(nextElement, Math.min(targetTime, Math.max(0, endSec - 0.05)));
+        if (generation !== generationRef.current) return finish();
       }
+
+      await nextElement.play().catch(() => undefined);
+      // Só aparece com um quadro novo já na tela: nada de quadro preto.
+      await waitForPresentedFrame(nextElement);
+      if (generation !== generationRef.current) return finish();
+      const revealed = revealSlot(nextElement, previousElement, clampFadeMs(clip.transitionMs ?? 220));
+      commitActive(nextSlot, key);
+      void applyAudio(clip);
+      await revealed;
+      finish();
     },
-    [advanceAndRefresh, currentKey, isTransitioning],
+    [advanceAndRefresh, applyAudio, commitActive, loadClipInto, setSlotClip, slotElement],
   );
 
   // O laço do palco monta UMA vez e lê os valores atuais por esta ref. Antes ele
   // dependia de currentKey/transitionToClip, que mudam a cada troca de clip: o
   // efeito era recriado ~3 vezes por transição, cada vez com uma consulta
   // imediata (o overlay pedia o estado ~1,3×/s mesmo com o palco parado).
-  const loopRef = useRef({ advanceAndRefresh, checkAndFireSchedules, currentKey, fetchVideoState, transitionToClip });
+  const loopRef = useRef({ advanceAndRefresh, armNext, checkAndFireSchedules, fetchVideoState, transitionToClip });
   useEffect(() => {
-    loopRef.current = { advanceAndRefresh, checkAndFireSchedules, currentKey, fetchVideoState, transitionToClip };
+    loopRef.current = { advanceAndRefresh, armNext, checkAndFireSchedules, fetchVideoState, transitionToClip };
   });
   const tickNowRef = useRef<() => void>(() => undefined);
 
@@ -451,7 +610,7 @@ export default function PersonaOverlay() {
       }
     };
     const tick = async () => {
-      const { advanceAndRefresh, checkAndFireSchedules, currentKey, fetchVideoState, transitionToClip } = loopRef.current;
+      const { advanceAndRefresh, armNext, checkAndFireSchedules, fetchVideoState, transitionToClip } = loopRef.current;
       const state = await fetchVideoState();
       if (cancelled || !state) return;
       // Fire any due schedules before processing clip transitions so that the
@@ -479,19 +638,28 @@ export default function PersonaOverlay() {
         return;
       }
       rogueAdvancedRef.current = '';
+      if (!nextClip) return;
+      const nextKey = clipKey(nextClip);
 
-      if (nextClip && clipKey(nextClip) !== currentKey) {
+      // A emenda já trocou o clipe aqui; o servidor ainda não registrou o fim.
+      if (isStaleAfterSeam(pendingSeamRef.current, nextKey, Date.now())) return;
+
+      if (nextKey !== currentKeyRef.current) {
         await transitionToClip(nextClip, state);
         playedVersionRef.current = videoVersion(nextClip.videoId);
-      } else if (nextClip) {
+      } else {
         // Mesmo clipe no ar: se o operador TROCOU o conteúdo do vídeo, o blob novo
         // já foi baixado com versão nova — força recarregar pra trocar na hora,
         // em vez de continuar tocando o vídeo antigo (clipKey não muda sozinho).
         const ver = videoVersion(nextClip.videoId);
         if (playedVersionRef.current && ver && ver !== playedVersionRef.current) {
           playedVersionRef.current = ver;
+          armedRef.current = null;
+          currentKeyRef.current = '';
           setCurrentKey(''); // o próximo tick re-transiciona pro conteúdo novo
+          return;
         }
+        if (!cancelled) await armNext(state);
       }
     };
 
@@ -513,72 +681,112 @@ export default function PersonaOverlay() {
   }, []);
 
   // Fim de uma transição (ou clip marcado para recarregar): confere o palco na
-  // hora, como antes, em vez de esperar a próxima consulta.
+  // hora — e deixa o próximo clipe pronto para a emenda.
   useEffect(() => {
     if (!isTransitioning) tickNowRef.current();
   }, [isTransitioning, currentKey]);
 
-  const handleProgress = (index: 0 | 1, slotClip: VideoClip | null, element: HTMLVideoElement) => {
-    const cuts = slotClip?.segments && slotClip.segments.length > 0 ? slotClip.segments : null;
-    if (slotClip && cuts) {
-      const step = nextSegmentStep(cuts, segmentIndexRef.current[index], element.currentTime);
-      if (step.action === 'jump') {
-        segmentIndexRef.current[index] = step.index;
-        element.playbackRate = step.speed;
-        try {
-          element.currentTime = step.startSec;
-        } catch {
-          // seek pode falhar por um instante no OBS — tenta de novo no próximo timeupdate
+  const handleProgress = useCallback(
+    (index: 0 | 1, element: HTMLVideoElement) => {
+      const slotClip = slotClipsRef.current[index];
+      if (!slotClip || index !== activeSlotRef.current) return;
+      const cuts = slotClip.segments && slotClip.segments.length > 0 ? slotClip.segments : null;
+      if (cuts) {
+        const step = nextSegmentStep(cuts, segmentIndexRef.current[index], element.currentTime);
+        if (step.action === 'jump') {
+          segmentIndexRef.current[index] = step.index;
+          element.playbackRate = step.speed;
+          try {
+            element.currentTime = step.startSec;
+          } catch {
+            // seek pode falhar por um instante no OBS — tenta de novo no próximo quadro
+          }
+        } else if (step.action === 'end') {
+          finishClip(index, slotClip);
         }
-      } else if (step.action === 'end') {
-        const cutsKey = clipKey(slotClip);
-        if (endedRef.current !== cutsKey) {
-          endedRef.current = cutsKey;
-          void advanceAndRefresh(slotClip);
-        }
+        return;
       }
-      return;
-    }
-    if (!slotClip?.endSec) return;
-    const key = clipKey(slotClip);
-    if (element.currentTime >= slotClip.endSec && endedRef.current !== key) {
-      endedRef.current = key;
-      void advanceAndRefresh(slotClip);
-    }
-  };
+      if (slotClip.endSec && element.currentTime >= slotClip.endSec) finishClip(index, slotClip);
+    },
+    [finishClip],
+  );
 
-  const handleEnded = (slotClip: VideoClip | null) => {
-    if (!slotClip) return;
-    if (shouldLoopClip(slotClip)) return;
-    const key = clipKey(slotClip);
-    if (endedRef.current === key) return;
-    endedRef.current = key;
-    void advanceAndRefresh(slotClip);
-  };
+  const handleEnded = useCallback(
+    (index: 0 | 1) => {
+      const slotClip = slotClipsRef.current[index];
+      if (!slotClip || shouldLoopClip(slotClip)) return;
+      finishClip(index, slotClip);
+    },
+    [finishClip],
+  );
+
+  // A cada quadro apresentado: mede a duração do quadro e confere o fim de
+  // cortes/trechos (o timeupdate só vem a cada ~250 ms e passava do ponto).
+  useEffect(() => {
+    const handles: Array<() => void> = [];
+    ([0, 1] as const).forEach((index) => {
+      const element = slotElement(index) as
+        | (HTMLVideoElement & {
+            requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number }) => void) => number;
+            cancelVideoFrameCallback?: (handle: number) => void;
+          })
+        | null;
+      if (!element?.requestVideoFrameCallback) return;
+      let lastMedia = -1;
+      let handle = 0;
+      let stopped = false;
+      const onFrame = (_now: number, meta: { mediaTime: number }) => {
+        if (stopped) return;
+        if (lastMedia >= 0) frameSecRef.current = nextFrameSec(frameSecRef.current, meta.mediaTime - lastMedia);
+        lastMedia = meta.mediaTime;
+        handleProgress(index, element);
+        // Último quadro do vídeo na tela: a emenda entra exatamente um quadro
+        // depois, sem esperar o evento "ended" (que chega atrasado).
+        const slotClip = slotClipsRef.current[index];
+        if (
+          slotClip &&
+          index === activeSlotRef.current &&
+          !element.loop &&
+          !slotClip.endSec &&
+          !slotClip.segments?.length &&
+          isLastFrame(meta.mediaTime, element.duration, frameSecRef.current)
+        ) {
+          window.setTimeout(() => handleEnded(index), (frameSecRef.current * 1000) / (element.playbackRate || 1));
+        }
+        handle = element.requestVideoFrameCallback!(onFrame);
+      };
+      handle = element.requestVideoFrameCallback(onFrame);
+      handles.push(() => {
+        stopped = true;
+        element.cancelVideoFrameCallback?.(handle);
+      });
+    });
+    return () => handles.forEach((stop) => stop());
+  }, [handleEnded, handleProgress, slotElement]);
+
 
   return (
     <div className="fixed inset-0 flex items-center justify-center overflow-hidden bg-black">
       {slotClips.map((slotClip, index) => (
+        // Fonte, repetir, som e visibilidade são controlados direto no elemento
+        // (stageSlots): o React reaplicar `src` recarregava o vídeo depois da
+        // busca, e `autoPlay` faria a camada pronta sair tocando escondida.
         <video
           key={index}
           ref={index === 0 ? videoRefA : videoRefB}
-          autoPlay
-          muted={(slotClip?.audio?.mode || 'muted') !== 'original'}
+          muted
           playsInline
           disablePictureInPicture
           disableRemotePlayback
           preload="auto"
-          loop={shouldLoopClip(slotClip)}
-          src={slotClip ? videoSrcFor(slotClip.videoId) : undefined}
-          onTimeUpdate={(event) => handleProgress(index as 0 | 1, slotClip, event.currentTarget)}
-          onEnded={() => handleEnded(slotClip)}
-          className={cn(
-            'absolute inset-0 w-full origin-top object-contain transition-opacity',
-            activeSlot === index ? 'opacity-100' : 'opacity-0',
-          )}
+          data-clip={slotClip?.videoId || ''}
+          data-active={activeSlot === index}
+          onTimeUpdate={(event) => handleProgress(index as 0 | 1, event.currentTarget)}
+          onEnded={() => handleEnded(index as 0 | 1)}
+          className="absolute inset-0 w-full origin-top object-contain"
           style={{
             height: '104%',
-            transitionDuration: `${slotClip?.transitionMs ?? 220}ms`,
+            opacity: 0,
             willChange: 'opacity, transform',
             transform: 'translateZ(0)'
           }}

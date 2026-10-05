@@ -412,6 +412,10 @@ def build_flow(persona_id: str, *, publish: bool = False) -> Dict[str, Any]:
                 "label": video["file"].replace("_", " "),
                 "group": video["category"].lower(),
                 "description": f"Estúdio da IDLE · {video.get('categoryLabel', '')} · {video['start']}→{video['end']}",
+                # Pose do primeiro e do último quadro: o palco usa para emendar
+                # uma reação só quando o clipe no ar termina na pose dela.
+                "startPose": video["start"],
+                "endPose": video["end"],
                 "loop": vid == idle_id,
                 "missingFile": False,
                 "studio": True,
