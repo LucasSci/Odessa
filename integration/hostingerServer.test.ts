@@ -50,6 +50,8 @@ beforeAll(async () => {
       PORT: String(port),
       HOST: '127.0.0.1',
       ODESSA_SESSION_SECRET: 'segredo-so-para-teste',
+      // Sem ele o handler da API não carrega e toda rota responde 503.
+      ODESSA_AGENT_TOKEN: 'token-so-para-teste',
       ODESSA_RATE_LIMIT_LOGIN_PER_MIN: '3',
       ODESSA_RATE_LIMIT_API_PER_MIN: '5',
     },
@@ -82,6 +84,11 @@ describe('hostinger-server.mjs — rate limit', () => {
   it('responde (não fica pendurado) em rotas da API', async () => {
     const response = await fetch(`${baseUrl}/api/health`, { headers: { 'X-Forwarded-For': '203.0.113.30' } });
     expect(response.status).toBeLessThan(600);
+  });
+
+  it('aviso do palco (SSE) responde 204: o EventSource para em vez de reconectar sem fim', async () => {
+    const response = await fetch(`${baseUrl}/api/v1/video/events`, { headers: { 'X-Forwarded-For': '203.0.113.40' } });
+    expect(response.status).toBe(204);
   });
 
   it('limita o restante da API e não afeta /healthz', async () => {

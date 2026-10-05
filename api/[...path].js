@@ -2004,6 +2004,15 @@ async function protectedResponse(req, res, rawPath) {
     return undefined;
   }
 
+  if (path === '/video/events' || path.endsWith('/video/events')) {
+    // Aviso de mudança do palco (SSE) só existe no servidor local. 204 encerra o
+    // EventSource sem reconexão; o overlay segue consultando /video/state.
+    res.statusCode = 204;
+    res.setHeader('Cache-Control', 'no-store');
+    res.end();
+    return undefined;
+  }
+
   if (path === '/video/state' || path.endsWith('/video/state')) {
     // Fire any time-based schedules that are due (at most one per poll)
     checkAndFireDueSchedules();
@@ -3446,6 +3455,9 @@ export default async function handler(req, res) {
   const publicVideoRead =
     req.method === 'GET' &&
     (normalizedPath === '/video/state' ||
+      // O overlay abre o aviso do palco sem cabeçalho de login (EventSource); a
+      // resposta é só um 204 vazio.
+      normalizedPath === '/video/events' ||
       normalizedPath.includes('/video/play/'));
   const publicOverlayAdvance = req.method === 'POST' && normalizedPath.includes('/video/advance');
   const publicTrigger = req.method === 'POST' && normalizedPath.includes('/video/trigger');
