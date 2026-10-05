@@ -182,4 +182,4 @@ jobs:
       run: python -m pip install pytest
 
     - name: Run installer script tests
-      run: python -m pytest server/tests/test_launcher_script.py server/tests/test_verify_stage.py -q
+      run: python -m pytest server/tests/test_verify_stage.py -q

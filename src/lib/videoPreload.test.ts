@@ -5,7 +5,9 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('preloadVideos', () => {
   it('solta da memória o vídeo que saiu do fluxo', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Blob(['x']))));
+    // jsdom transforma o Blob da Response em texto (tamanho 0 em algumas versões do
+    // Node, e o vídeo não era guardado): um blob falso com tamanho explícito.
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, blob: async () => ({ size: 1 }) })));
     let n = 0;
     vi.stubGlobal('URL', Object.assign(Object.create(URL), { createObjectURL: () => `blob:${++n}`, revokeObjectURL: vi.fn() }));
     vi.useFakeTimers({ toFake: ['setTimeout'] });
