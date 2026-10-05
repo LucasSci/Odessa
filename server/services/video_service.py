@@ -1,7 +1,8 @@
 import logging
 import random
+import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from server.core.config_manager import load_persona_config, parse_transition_ms
 from server.core.video_logic import SCENARIO_SEQUENCES
@@ -9,10 +10,24 @@ from server.services.video_edit_store import get_video_edit_store
 
 logger = logging.getLogger("odessa.video")
 
+# Pose de início/fim de cada vídeo (os do Estúdio da IDLE são gerados em cadeia:
+# o primeiro quadro de um é o último do anterior). "A0→A1" na descrição, ou o
+# nome: "..._TRANSICAO_A0-A1_..." vai de A0 a A1; "..._FLUXO_A1_..." fica em A1.
+_POSE_DESCRIPTION = re.compile(r"\b(A\d+)\s*(?:→|->)\s*(A\d+)\b")
+_POSE_TRANSITION = re.compile(r"(?:^|_)TRANSI(?:CAO|ÇÃO)_(A\d+)-(A\d+)(?:_|$)", re.IGNORECASE)
+_POSE_STILL = re.compile(r"(?:^|_)(?:FLUXO|GATILHO|ESPECIAL|SEGMENTO|IDLE)_(A\d+)(?:_|$)", re.IGNORECASE)
+
+# Reação esperando a pose certa há mais que isso (ninguém avançou o palco) é descartada.
+PENDING_REACTION_MAX_S = 60.0
+
 
 class VideoService:
     def __init__(self):
         self.sequence_queue: List[str] = []
+        # Reação de um gatilho esperando o clipe no ar terminar na pose em que ela
+        # começa — assim ela entra emendada, sem corte no meio do vídeo.
+        self.pending_reaction: Optional[Dict[str, Any]] = None
+        self.pending_reaction_at = 0.0
         self.state = "IDLE"  # IDLE, ACTION
         self._config = load_persona_config()
         self.current_video_id = self._idle_video_id() or "04"
@@ -31,6 +46,79 @@ class VideoService:
 
     def _video_entry(self, video_id: str) -> Dict[str, Any]:
         return next((item for item in self._config.get("videos", []) if item.get("id") == video_id), {}) or {}
+
+    def _poses(self, video_id: Optional[str]) -> Optional[Tuple[str, str]]:
+        """(pose inicial, pose final) do vídeo, ou None se não dá para saber."""
+        if not video_id:
+            return None
+        entry = self._video_entry(video_id)
+        if entry.get("startPose") and entry.get("endPose"):
+            return str(entry["startPose"]).upper(), str(entry["endPose"]).upper()
+        match = _POSE_DESCRIPTION.search(str(entry.get("description") or ""))
+        if match:
+            return match.group(1).upper(), match.group(2).upper()
+        match = _POSE_TRANSITION.search(video_id)
+        if match:
+            return match.group(1).upper(), match.group(2).upper()
+        match = _POSE_STILL.search(video_id)
+        if match:
+            return match.group(1).upper(), match.group(1).upper()
+        return None
+
+    def _bridge_clip(self, from_pose: str, to_pose: str) -> Optional[Dict[str, Any]]:
+        """Um clipe do fluxo que leva de uma pose à outra (a transição de volta)."""
+        candidates = [
+            node
+            for node in self._config.get("flowNodes", [])
+            if self._poses(node.get("videoId")) == (from_pose, to_pose)
+            and self._video_available(node.get("videoId", ""))
+        ]
+        if not candidates:
+            return None
+        # Prefere o clipe que faz parte da cadeia natural (o fluxo pode guardar
+        # cópias antigas soltas) e, nela, a transição de verdade.
+        in_chain = set()
+        for connection in self._config.get("flowConnections", []):
+            trigger = self._trigger_by_id(connection.get("triggerId"))
+            if not trigger or trigger.get("eventType") == "natural":
+                in_chain.add(connection.get("toNodeId"))
+        candidates.sort(
+            key=lambda node: (
+                0 if node.get("nodeId") in in_chain else 1,
+                0 if _POSE_TRANSITION.search(str(node.get("videoId") or "")) else 1,
+            )
+        )
+        return self._clip_from_node(candidates[0], return_to_idle=True)
+
+    def _should_wait_for_pose(self, clip: Dict[str, Any]) -> bool:
+        """A reação pode esperar o clipe no ar terminar para entrar emendada?
+
+        Só quando os dois vídeos têm pose conhecida (fluxos do Estúdio da IDLE):
+        sem isso não há como saber se a espera ajuda, e a reação entra na hora.
+        """
+        current = self.current_clip or {}
+        if not current.get("videoId") or current.get("videoId") == clip.get("videoId"):
+            return False
+        return self._poses(clip.get("videoId")) is not None and self._poses(current.get("videoId")) is not None
+
+    def _pending_upcoming(self, clip: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """O que entra depois do clipe no ar quando há uma reação esperando."""
+        pending = self.pending_reaction
+        if not pending:
+            return None
+        if time.time() - self.pending_reaction_at > PENDING_REACTION_MAX_S:
+            logger.info(
+                "Reação %s descartada: esperou demais pela pose",
+                str(pending.get("videoId")).replace("\r", " ").replace("\n", " "),
+            )
+            self.pending_reaction = None
+            return None
+        current_poses = self._poses((clip or {}).get("videoId"))
+        target_poses = self._poses(pending.get("videoId"))
+        if not current_poses or not target_poses or current_poses[1] == target_poses[0]:
+            return pending
+        # Termina noutra pose: antes, a transição de volta (se o fluxo tem uma).
+        return self._bridge_clip(current_poses[1], target_poses[0]) or pending
 
     def _video_available(self, video_id: str) -> bool:
         entry = self._video_entry(video_id)
@@ -144,6 +232,10 @@ class VideoService:
     def _upcoming_for_clip(self, clip: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if not clip:
             return []
+
+        pending_next = self._pending_upcoming(clip)
+        if pending_next:
+            return [pending_next]
 
         node_id = clip.get("nodeId")
         upcoming: List[Dict[str, Any]] = []
@@ -285,6 +377,8 @@ class VideoService:
         upcoming = self._upcoming_for_clip(self.current_clip)
         if upcoming:
             next_clip = upcoming[0]
+            if next_clip is self.pending_reaction:
+                self.pending_reaction = None
             next_state = "IDLE" if next_clip.get("videoId") == self._idle_video_id() else "ACTION"
             return self.force_clip(next_clip, state=next_state)
         return self.return_to_idle()
@@ -297,6 +391,22 @@ class VideoService:
             clip = self._clip_from_action(action)
             if not self._video_available(clip.get("videoId", "")):
                 return {"status": "blocked", "reason": "missing_video_file", "action": action, "currentClip": clip}
+            if not action.get("immediate") and self._should_wait_for_pose(clip):
+                # Entra quando o clipe no ar terminar (na pose certa), emendada —
+                # cortar no meio do vídeo quebra a continuidade da cena.
+                self.pending_reaction = clip
+                self.pending_reaction_at = time.time()
+                self.last_state_update += 1
+                state = self.get_state()
+                return {
+                    "status": "done",
+                    "deferred": True,
+                    "videoState": state,
+                    "videoId": clip.get("videoId"),
+                    "currentClip": state["currentClip"],
+                    "upcoming": state["upcoming"],
+                }
+            self.pending_reaction = None
             state = self.force_clip(clip, state="ACTION")
             return {
                 "status": "done",

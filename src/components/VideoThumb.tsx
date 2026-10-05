@@ -1,27 +1,29 @@
 /**
  * VideoThumb — miniatura de um clip, usada na Biblioteca, no Fluxo e no Deck.
  *
- * - Só pede o vídeo quando a miniatura entra na tela (IntersectionObserver).
- *   Antes cada lista abria dezenas de <video> de uma vez, disputando as 6
- *   conexões HTTP/1.1 por origem com a API e o player do Palco.
- * - `#t=0.5` faz o navegador decodificar um quadro; sem isso o Chrome/Edge
- *   deixava a miniatura preta mesmo com o vídeo carregado.
- * - `previewOnHover`: toca o clip mudo, localmente, com o mouse em cima — uma
- *   prévia de verdade, que não mexe no que está no ar.
+ * - Mostra um JPEG (/video/thumb/{id}), não o vídeo. Com dezenas de clips na
+ *   tela, cada <video> segurava uma das 6 conexões por origem e a API ficava
+ *   na fila. Se o JPEG ainda não existe, ele é gerado uma vez (ver
+ *   lib/videoPoster.ts) e fica guardado no servidor.
+ * - Só pede a imagem quando a miniatura chega perto da tela (IntersectionObserver).
+ * - `previewOnHover`: com o mouse em cima, abre o vídeo e toca mudo, localmente
+ *   — uma prévia de verdade, que não mexe no que está no ar. Ao sair, fecha.
  */
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '../lib/utils';
-
-const FRAME_TIME_SEC = 0.5;
+import { generatePoster, posterUrl, videoIdFromSrc } from '../lib/videoPoster';
 
 export function VideoThumb({
   src,
+  videoId: videoIdProp,
   label,
   className,
   fit = 'cover',
   previewOnHover = false,
 }: {
   src: string;
+  /** Id do clip; sem ele, sai da URL /video/play/{id}. */
+  videoId?: string;
   /** Nome do clip, lido por leitor de tela. */
   label: string;
   className?: string;
@@ -29,10 +31,20 @@ export function VideoThumb({
   previewOnHover?: boolean;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
   // Sem IntersectionObserver (jsdom, navegadores antigos) carrega direto.
   const [inView, setInView] = useState(() => typeof IntersectionObserver === 'undefined');
+  const videoId = videoIdProp || videoIdFromSrc(src);
+  const [imageSrc, setImageSrc] = useState<string | null>(() => (videoId ? posterUrl(videoId) : null));
   const [failed, setFailed] = useState(false);
+  const [hovering, setHovering] = useState(false);
+
+  // Outro clip no mesmo lugar: recomeça pela miniatura dele.
+  const [shownId, setShownId] = useState(videoId);
+  if (shownId !== videoId) {
+    setShownId(videoId);
+    setImageSrc(videoId ? posterUrl(videoId) : null);
+    setFailed(false);
+  }
 
   useEffect(() => {
     const box = boxRef.current;
@@ -44,23 +56,25 @@ export function VideoThumb({
           observer.disconnect();
         }
       },
-      { rootMargin: '300px' },
+      { rootMargin: '200px' },
     );
     observer.observe(box);
     return () => observer.disconnect();
   }, [inView]);
 
-  const startPreview = () => {
-    const video = videoRef.current;
-    if (!previewOnHover || !video) return;
-    void video.play().catch(() => undefined);
+  const onImageError = () => {
+    if (!videoId || (imageSrc && imageSrc.startsWith('blob:'))) {
+      setFailed(true);
+      return;
+    }
+    void generatePoster(videoId, src).then((url) => {
+      if (url) setImageSrc(url);
+      else setFailed(true);
+    });
   };
-  const stopPreview = () => {
-    const video = videoRef.current;
-    if (!previewOnHover || !video) return;
-    video.pause();
-    video.currentTime = FRAME_TIME_SEC;
-  };
+
+  const fitClass = fit === 'cover' ? 'object-cover' : 'object-contain';
+  const showVideo = previewOnHover && hovering;
 
   return (
     <div
@@ -68,24 +82,34 @@ export function VideoThumb({
       role="img"
       aria-label={label}
       className={cn('relative overflow-hidden bg-black', className)}
-      onPointerEnter={startPreview}
-      onPointerLeave={stopPreview}
+      onPointerEnter={() => setHovering(true)}
+      onPointerLeave={() => setHovering(false)}
     >
-      {inView && !failed && (
-        <video
-          ref={videoRef}
-          src={`${src}#t=${FRAME_TIME_SEC}`}
-          muted
-          playsInline
-          loop={previewOnHover}
-          preload="metadata"
-          tabIndex={-1}
+      {inView && imageSrc && !failed && (
+        <img
+          src={imageSrc}
+          alt=""
           aria-hidden="true"
-          className={cn('h-full w-full', fit === 'cover' ? 'object-cover' : 'object-contain')}
-          onError={() => setFailed(true)}
+          decoding="async"
+          draggable={false}
+          className={cn('h-full w-full', fitClass)}
+          onError={onImageError}
         />
       )}
-      {failed && (
+      {inView && showVideo && (
+        <video
+          src={src}
+          muted
+          playsInline
+          autoPlay
+          loop
+          preload="auto"
+          tabIndex={-1}
+          aria-hidden="true"
+          className={cn('absolute inset-0 h-full w-full', fitClass)}
+        />
+      )}
+      {(failed || (inView && !imageSrc)) && !showVideo && (
         <span className="absolute inset-0 flex items-center justify-center text-[11px] text-[var(--t3)]">sem prévia</span>
       )}
     </div>

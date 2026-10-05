@@ -3,6 +3,7 @@
  * connected, falls back to cloud API relay (agent) otherwise.
  */
 
+import { resolveStageUrl } from './stageUrl';
 import {
   isObsDirectAvailable,
   obsSetupLiveScene,
@@ -76,7 +77,7 @@ export async function routeSetupLiveScene(settings: ObsSettings | null): Promise
     }
   }
   return relayPost('/obs/setup-live-scene', settings ? {
-    stageUrl: settings.stageUrl,
+    stageUrl: resolveStageUrl(settings.stageUrl, window.location.origin),
     startupSceneName: settings.startupSceneName,
     liveSceneName: settings.liveSceneName,
     stageSourceName: settings.stageSourceName,

@@ -1,5 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+from server.core.config_manager import config_version
 
 from server.services.workflow_service import workflow_service
 
@@ -18,8 +21,15 @@ class WorkflowTestRequest(BaseModel):
 
 
 @router.get("/published")
-async def get_published_workflow():
-    return workflow_service.get_versioned_workflow("published")
+async def get_published_workflow(request: Request):
+    # O overlay do OBS pergunta a cada 2 min (e cada palco aberto também). Com
+    # o ETag, o fluxo só viaja quando mudou; senão é um 304 vazio.
+    etag = f'"{config_version()}"'
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "no-cache"})
+    workflow = workflow_service.get_versioned_workflow("published")
+    # Montar a resposta pode migrar e gravar o config: a versão é lida depois.
+    return JSONResponse(workflow, headers={"ETag": f'"{config_version()}"', "Cache-Control": "no-cache"})
 
 
 @router.get("/draft")

@@ -53,6 +53,7 @@ vi.mock('../lib/memory', async (importOriginal) => {
 
 const governorConfig = {
   geminiKey: 'test-key',
+  mistralKey: '',
   systemPrompt: '',
   provider: 'mock' as const,
   confidenceThreshold: 0.65,
@@ -66,6 +67,7 @@ const governorConfig = {
   localModelUrl: '',
   localModelName: '',
   localModelTemperature: 0.7,
+  replyLanguage: 'auto' as const,
 };
 
 function compactCycleSnapshot(cycle: AutopilotCycle) {

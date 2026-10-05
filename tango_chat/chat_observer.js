@@ -71,7 +71,8 @@
       lastContentByElement.set(msgEl, key);
 
       const now = Date.now();
-      if (now - (recentKeys.get(key) || 0) < 1500) return null;
+      // Mesma mensagem há menos de 1 min = redesenho (a bridge ainda barra por 15 min).
+      if (now - (recentKeys.get(key) || 0) < 60000) return null;
       recentKeys.set(key, now);
       if (recentKeys.size > 1000) {
         for (const [oldKey, timestamp] of recentKeys) {
@@ -117,7 +118,10 @@
         root.__tangoChatObserver = observer;
         root.__tangoChatObservedContainer = container;
       }
-      // Captura também mensagens que já estavam visíveis antes da instalação.
+      // Mensagens que já estavam visíveis: entram no histórico marcadas como
+      // "já na tela" (backlog) — a IA não responde a elas. Esta varredura roda a
+      // cada 2 s e a lista do Tango redesenha itens antigos; sem a marca, cada
+      // redesenho virava "mensagem nova" e a persona respondia de novo.
       const existing = [];
       try {
         if (messageSelector) existing.push(...container.querySelectorAll(messageSelector));
@@ -125,7 +129,7 @@
       for (const selector of FALLBACK_MESSAGE) existing.push(...container.querySelectorAll(selector));
       for (const node of [...new Set(existing)]) {
         const msg = extractMessage(node);
-        if (msg) emit(msg);
+        if (msg) emit({ ...msg, backlog: true });
       }
       return true;
     }

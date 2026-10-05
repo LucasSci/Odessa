@@ -1,0 +1,9 @@
+{
+  "type": "rtmp_custom",
+  "settings": {
+    "server": "rtmps://ingest.rtmp.tango.me/",
+    "use_auth": false,
+    "bwtest": false,
+    "key": ""
+  }
+}

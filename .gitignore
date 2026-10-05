@@ -39,6 +39,8 @@ deploy-nodist.zip
 
 # pnpm e o gerenciador de pacotes oficial do projeto (ver CI)
 package-lock.json
+# ...menos o do programa desktop (npm ci no build do instalador exige o lockfile)
+!desktop/shell/package-lock.json
 
 # Design mockups / scratch files
 home-design*.png
@@ -65,3 +67,12 @@ playwright-report/
 
 # Cópia temporária do handler catch-all gerada pelo hostinger-server.mjs
 api/_odessa_handler_*.mjs
+server/data/*.antes-unir-odessa-*.json
+scripts/mural-antes-*.json
+
+# Estúdio da IDLE: anexos e estado de cada máquina
+server/data/idle_studio/
+
+# Programa desktop (Electron)
+desktop/shell/node_modules/
+desktop/shell/out/

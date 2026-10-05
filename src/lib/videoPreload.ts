@@ -16,7 +16,21 @@
 
 import { apiUrl } from './api';
 
-type Entry = { url: string; version: string };
+type Entry = { url: string; version: string; bytes: number };
+
+/**
+ * Teto de memória da pré-carga. O fluxo da Viktoria tem 129 clipes (~250 MB) e
+ * o overlay do OBS ia de 68 para 207 MB em meia hora guardando todos. O idle e
+ * os primeiros do fluxo ficam em memória (tocam na hora); o resto toca direto
+ * do servidor local, que é rápido o suficiente.
+ */
+export const MAX_PRELOAD_BYTES = 150 * 1024 * 1024;
+
+function preloadedBytes(): number {
+  let total = 0;
+  for (const entry of preloaded.values()) total += entry.bytes;
+  return total;
+}
 
 const preloaded = new Map<string, Entry>(); // videoId -> { blob url, versão }
 let running = false;
@@ -55,10 +69,23 @@ export async function preloadVideos(items: Array<{ id: string; version?: string 
     const cur = preloaded.get(it.id);
     return !cur || cur.version !== (it.version || ''); // novo ou conteúdo trocado
   });
+  // Solta o que saiu do fluxo. Antes o blob ficava na memória do OBS até o
+  // overlay recarregar — numa live 24/7, nunca —, e a cada fluxo novo
+  // publicado a memória só crescia.
+  if (seen.size > 0) {
+    for (const [id, entry] of preloaded) {
+      if (seen.has(id)) continue;
+      preloaded.delete(id);
+      if (entry.url.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(entry.url), 60000);
+    }
+  }
   let i = 0;
   const worker = async () => {
     while (i < todo.length) {
       const { id, version = '' } = todo[i++];
+      // Teto atingido: o resto toca pelo stream normal (videoSrcFor). Clipe já em
+      // memória com conteúdo trocado é sempre atualizado (substitui o antigo).
+      if (!preloaded.has(id) && preloadedBytes() >= MAX_PRELOAD_BYTES) continue;
       try {
         // cache:'reload' garante bytes frescos da rede (não o cache HTTP velho do
         // navegador) — essencial quando o vídeo foi trocado mantendo o mesmo id.
@@ -67,7 +94,7 @@ export async function preloadVideos(items: Array<{ id: string; version?: string 
           const blob = await res.blob();
           if (blob.size > 0) {
             const prev = preloaded.get(id);
-            preloaded.set(id, { url: URL.createObjectURL(blob), version });
+            preloaded.set(id, { url: URL.createObjectURL(blob), version, bytes: blob.size });
             // Libera o blob velho DEPOIS de um tempo: se ele ainda for o src de um
             // <video> em transição, revogar na hora quebraria a reprodução. 15s
             // cobre qualquer transição em andamento (o player troca em <1s).

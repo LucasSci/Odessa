@@ -125,16 +125,20 @@ class TTSService:
         temp_file.close()
 
         try:
+            # OpenAI e Kokoro são síncronos (rede / CPU): fora do event loop.
             if provider == "openai":
-                response = self.openai_client.audio.speech.create(
-                    model=OPENAI_TTS_MODEL,
-                    voice=voice,
-                    input=text,
-                    speed=speed,
-                )
-                response.stream_to_file(temp_path)
+                def openai_speech() -> None:
+                    response = self.openai_client.audio.speech.create(
+                        model=OPENAI_TTS_MODEL,
+                        voice=voice,
+                        input=text,
+                        speed=speed,
+                    )
+                    response.stream_to_file(temp_path)
+
+                await asyncio.to_thread(openai_speech)
             elif provider == "kokoro":
-                self.generate_kokoro_wav(text, voice, speed, temp_path)
+                await asyncio.to_thread(self.generate_kokoro_wav, text, voice, speed, temp_path)
             else:
                 communicate = edge_tts.Communicate(
                     text,

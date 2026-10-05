@@ -4,6 +4,7 @@ video_gen.py — Endpoints do pipeline de geração de vídeo em tempo real.
 Cobre captura de frame, geração de prompt, geração de vídeo, fila, histórico
 e estado completo da live (para o painel em tempo real).
 """
+import asyncio
 import logging
 from pathlib import Path
 from typing import Optional
@@ -79,7 +80,9 @@ async def get_frame(personaId: Optional[str] = None):
 @router.post("/prompt")
 async def generate_prompt(request: PromptRequest):
     """Gera um prompt de vídeo a partir do buffer de interações do chat."""
-    result = get_video_gen_service().generate_prompt(
+    # Chama a IA (segundos): fora do event loop.
+    result = await asyncio.to_thread(
+        get_video_gen_service().generate_prompt,
         request.personaId,
         force=request.force,
         custom_instruction=request.customInstruction,

@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import List, Optional
 import logging
+import time
 import os
 import shutil
 
@@ -39,12 +40,43 @@ def get_video_directory() -> Optional[Path]:
     logger.warning(f"No video directory found in: {[str(d) for d in POSSIBLE_VIDEO_DIRS]}")
     return None
 
+# A pasta de vídeos era varrida (glob + stat de cada arquivo) a cada
+# GET /video/config. Ela só muda quando um vídeo entra, sai ou troca de nome
+# — e aí a data de modificação da pasta muda. 30 s de teto por segurança.
+_LIST_CACHE_MAX_AGE_S = 30.0
+_list_cache: Optional[tuple] = None  # (pasta, mtime da pasta, quando, vídeos)
+
+
 def list_available_videos() -> List[dict]:
     """List all available video files in the designated directory."""
+    global _list_cache
     video_dir = get_video_directory()
     if not video_dir:
         return []
+    try:
+        dir_mtime = video_dir.stat().st_mtime
+    except OSError:
+        dir_mtime = None
+    now = time.monotonic()
+    if (
+        _list_cache is not None
+        and dir_mtime is not None
+        and _list_cache[0] == video_dir
+        and _list_cache[1] == dir_mtime
+        and now - _list_cache[2] < _LIST_CACHE_MAX_AGE_S
+    ):
+        return [dict(video) for video in _list_cache[3]]
+    videos = _scan_videos(video_dir)
+    _list_cache = (video_dir, dir_mtime, now, videos)
+    return [dict(video) for video in videos]
 
+
+def invalidate_video_list() -> None:
+    global _list_cache
+    _list_cache = None
+
+
+def _scan_videos(video_dir: Path) -> List[dict]:
     videos = []
     # We now look for all mp4 and webm files to ensure "present" videos can be managed
     extensions = [".mp4", ".webm"]
@@ -104,6 +136,7 @@ def delete_video_file(video_id: str) -> bool:
         # On Windows, files might be locked by the browser or the streaming response.
         if path.exists():
             path.unlink()
+            invalidate_video_list()
             logger.info(f"Successfully deleted video file: {path}")
         return True
     except Exception as e:

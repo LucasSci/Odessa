@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from fastapi.responses import FileResponse, JSONResponse
 from server.core.video_files import list_available_videos, get_video_path, get_video_directory
 from server.config import VIDEO_UPLOAD_MAX_BYTES
-from server.core.config_manager import load_persona_config, save_persona_config
+from server.core.config_manager import keep_server_only_keys, load_persona_config, public_config, save_persona_config
 from server.services.video_edit_store import get_video_edit_store, valid_video_id
 
 logger = logging.getLogger("odessa.routes.video")
@@ -163,6 +163,44 @@ async def play_video(video_id: str):
         headers={"Content-Disposition": f"inline; filename={video_path.name}"},
     )
 
+THUMB_MAX_BYTES = 512 * 1024
+
+
+def _thumb_path(video_id: str) -> Path | None:
+    video_path = get_video_path(video_id)
+    if not video_path:
+        return None
+    return video_path.parent / ".thumbs" / f"{video_path.stem}.jpg"
+
+
+@router.get("/thumb/{video_id}")
+async def get_video_thumb(video_id: str):
+    """Miniatura JPEG do clip. As telas mostravam a miniatura abrindo o vídeo
+    inteiro (166 <video> na tela Ao Vivo), o que entupia as conexões e
+    atrasava a API. 404 quando não existe ou o vídeo é mais novo: o navegador
+    gera a imagem uma vez e manda pelo POST abaixo."""
+    thumb = _thumb_path(video_id)
+    video_path = get_video_path(video_id)
+    if not thumb or not video_path or not thumb.exists() or thumb.stat().st_mtime < video_path.stat().st_mtime:
+        raise HTTPException(status_code=404, detail="Sem miniatura")
+    return FileResponse(thumb, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
+
+
+@router.post("/thumb/{video_id}")
+async def save_video_thumb(video_id: str, request: Request):
+    thumb = _thumb_path(video_id)
+    if not thumb:
+        raise HTTPException(status_code=404, detail=f"Video '{video_id}' not found")
+    body = await request.body()
+    if not body.startswith(b"\xff\xd8") or len(body) > THUMB_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Miniatura inválida (JPEG até 512 KB)")
+    thumb.parent.mkdir(parents=True, exist_ok=True)
+    tmp = thumb.with_suffix(".tmp")
+    tmp.write_bytes(body)
+    os.replace(tmp, thumb)
+    return {"ok": True}
+
+
 @router.get("/next")
 async def get_next_video(trigger: str = None, giftName: str = None):
     """Determine the next video ID based on current state and optional trigger and giftName"""
@@ -177,6 +215,52 @@ async def get_video_state():
     """Get the current state for synchronization across clients"""
     from server.services.video_service import video_service
     return video_service.get_state()
+
+EVENTS_CHECK_S = 0.15
+EVENTS_HEARTBEAT_S = 15.0
+
+
+@router.get("/events")
+async def video_state_events(request: Request):
+    """Estado do palco empurrado (SSE) quando muda.
+
+    O overlay do OBS perguntava o estado 2×/s e cada tela mais 1×/s, mesmo com
+    nada mudando (143 mil pedidos numa live de 14 h). Com este fluxo aberto,
+    as telas são avisadas na hora e só consultam devagar como reserva."""
+    import asyncio
+    import json as _json
+
+    from fastapi.responses import StreamingResponse
+
+    from server.services.video_service import video_service
+
+    def signature() -> tuple:
+        return (
+            video_service.current_video_id,
+            video_service.state,
+            video_service.current_video_start_ts,
+            len(video_service.sequence_queue),
+            video_service.last_state_update,
+        )
+
+    async def stream():
+        last = None
+        quiet = 0.0
+        yield "retry: 3000\n\n"
+        while not await request.is_disconnected():
+            current = signature()
+            if current != last:
+                last = current
+                quiet = 0.0
+                yield f"data: {_json.dumps(video_service.get_state(), ensure_ascii=False)}\n\n"
+            elif quiet >= EVENTS_HEARTBEAT_S:
+                quiet = 0.0
+                yield ": ping\n\n"
+            await asyncio.sleep(EVENTS_CHECK_S)
+            quiet += EVENTS_CHECK_S
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+
 
 @router.post("/force")
 async def force_video(request: ForceVideoRequest):
@@ -465,7 +549,9 @@ async def get_config():
         from server.core.config_manager import save_persona_config
         save_persona_config(config)
 
-    return config
+    # JSONResponse direto: o dict já é JSON puro, e o jsonable_encoder do
+    # FastAPI percorria campo a campo um config de centenas de KB.
+    return JSONResponse(public_config(config))
 
 @router.get("/library")
 async def get_video_library():
@@ -494,6 +580,9 @@ async def get_video_library():
 @router.post("/config")
 async def update_config(config: dict):
     """Update persona video configuration"""
+    # A tela recebe o config sem rascunho/publicado (public_config): sem isto,
+    # gravar o que ela devolve apagaria o fluxo publicado.
+    config = keep_server_only_keys(config, load_persona_config())
     if save_persona_config(config):
         from server.services.video_service import video_service
         from server.services.automation.engine import trigger_engine

@@ -15,7 +15,7 @@ export default tseslint.config(
     // desktop/build: runtime Python embutido + stage do instalador —
     // inclui o driver do Playwright (bundle Node de terceiros com seus
     // próprios .d.ts), nunca deveria ser varrido pelo lint do projeto.
-    ignores: ['dist', 'dist-electron', 'venv', '.claude/worktrees/**', 'desktop/build/**', 'coverage', 'reports', 'playwright-report', 'test-results', '.stryker-tmp'],
+    ignores: ['dist', 'dist-electron', 'venv', '.claude/worktrees/**', 'server/runtime/**', 'desktop/build/**', 'desktop/shell/node_modules/**', 'desktop/shell/out/**', 'coverage', 'reports', 'playwright-report', 'test-results', '.stryker-tmp'],
   },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
@@ -37,6 +37,12 @@ export default tseslint.config(
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
     },
+  },
+  {
+    // O programa desktop (Electron): processo Node em CommonJS.
+    files: ['desktop/shell/**/*.js'],
+    extends: [js.configs.recommended],
+    languageOptions: { ecmaVersion: 2022, sourceType: 'commonjs', globals: globals.node },
   },
   {
     // Funções serverless da Hostinger: só são invocadas se forem arquivos

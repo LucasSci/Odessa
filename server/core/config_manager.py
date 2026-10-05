@@ -1,4 +1,3 @@
-import copy
 import json
 import logging
 import time
@@ -9,9 +8,40 @@ import os
 from server.core.atomic_json import read_json, write_json
 from server.core.persona_manager import DEFAULT_CONFIG_PATH, get_persona_config_path
 
-_cached_config = None
+# O config da persona fica em memória como texto JSON: devolver uma cópia nova
+# com json.loads é bem mais barato que copy.deepcopy do dict (o arquivo da
+# Viktoria tem ~700 KB e era copiado a cada pedido).
+_cached_json: str | None = None
 _cached_mtime = 0
 _cached_path: Path | None = None
+
+# Só o servidor mexe nestes: as telas não leem (é o mesmo fluxo repetido como
+# rascunho e publicado, 2/3 do tamanho das respostas). Ficam fora das respostas
+# e são preservados quando a tela grava o config inteiro (POST /video/config).
+SERVER_ONLY_KEYS = ("draftWorkflow", "publishedWorkflow")
+
+
+def public_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """O config sem as cópias internas do fluxo (para responder às telas)."""
+    return {key: value for key, value in config.items() if key not in SERVER_ONLY_KEYS}
+
+
+def keep_server_only_keys(incoming: Dict[str, Any], current: Dict[str, Any]) -> Dict[str, Any]:
+    """Config vindo da tela + o que só o servidor guarda (se a tela não mandou)."""
+    merged = dict(incoming)
+    for key in SERVER_ONLY_KEYS:
+        if key not in merged and key in current:
+            merged[key] = current[key]
+    return merged
+
+
+def config_version() -> str:
+    """Muda sempre que o config da persona ativa muda (para ETag)."""
+    path = get_persona_config_path()
+    try:
+        return f"{path.stem}-{os.path.getmtime(path):.6f}"
+    except OSError:
+        return f"{path.stem}-0"
 
 logger = logging.getLogger("odessa.config")
 
@@ -275,7 +305,7 @@ def _normalize_config(data: Dict[str, Any]) -> Dict[str, Any]:
 
 def load_persona_config() -> Dict[str, Any]:
     """Loads the persona video configuration from JSON (da persona ativa)."""
-    global _cached_config, _cached_mtime, _cached_path
+    global _cached_json, _cached_mtime, _cached_path
     config_path = get_persona_config_path()
     if not config_path.exists():
         logger.warning("Config file not found at %s, returning empty config.", config_path)
@@ -283,11 +313,11 @@ def load_persona_config() -> Dict[str, Any]:
 
     try:
         mtime = os.path.getmtime(config_path)
-        if _cached_config is not None and mtime == _cached_mtime and _cached_path == config_path:
+        if _cached_json is not None and mtime == _cached_mtime and _cached_path == config_path:
             # Cópia: os chamadores alteram o dict (ex.: GET /video/config) e, se
             # devolvêssemos o do cache, uma alteração NÃO salva vazaria para as
             # próximas leituras (e o cache divergiria do disco).
-            return copy.deepcopy(_cached_config)
+            return json.loads(_cached_json)
 
         logger.info("Loading persona config from %s", config_path)
         # read_json isola um arquivo corrompido (.corrupt-<data>) e restaura o
@@ -308,7 +338,7 @@ def load_persona_config() -> Dict[str, Any]:
         data = _normalize_config(data)
         # O arquivo pode ter sido movido para quarentena durante a leitura.
         if config_path.exists():
-            _cached_config = copy.deepcopy(data)
+            _cached_json = json.dumps(data, ensure_ascii=False)
             _cached_mtime = os.path.getmtime(config_path)
             _cached_path = config_path
         logger.info("Successfully loaded persona config with %s videos.", len(data.get("videos", [])))
@@ -320,13 +350,13 @@ def load_persona_config() -> Dict[str, Any]:
 
 def save_persona_config(config: Dict[str, Any]) -> bool:
     """Saves the persona video configuration to JSON (da persona ativa)."""
-    global _cached_config, _cached_mtime, _cached_path
+    global _cached_json, _cached_mtime, _cached_path
     try:
         config_path = get_persona_config_path()
         normalized = _normalize_config(config)
         # Atômico + guarda a versão anterior em .bak (ver atomic_json).
         write_json(config_path, normalized)
-        _cached_config = copy.deepcopy(normalized)
+        _cached_json = json.dumps(normalized, ensure_ascii=False)
         _cached_mtime = os.path.getmtime(config_path)
         _cached_path = config_path
         return True

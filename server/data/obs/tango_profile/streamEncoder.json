@@ -1,0 +1,6 @@
+{
+  "keyint_sec": 1,
+  "bframes": false,
+  "profile": "high",
+  "x264opts": "bframes=0"
+}

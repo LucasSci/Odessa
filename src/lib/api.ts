@@ -32,6 +32,9 @@ const API_V1_PREFIXES = [
   '/chat-automation',
   '/personas',
   '/session-history',
+  '/planning',
+  '/idle-studio',
+  '/system',
 ];
 
 export function apiUrl(path: string) {

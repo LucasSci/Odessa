@@ -3,13 +3,18 @@ persona_manager.py — Gerenciamento de perfis de IA (personas).
 
 Cada persona tem seus próprios vídeos, fluxo, gatilhos e personalidade,
 persistidos em um arquivo de config separado. Um índice (personas.json) lista
-as personas e aponta qual é a ativa. A persona padrão "odessa" usa o arquivo
-legado persona_config.json, então nada quebra na primeira execução.
+as personas e aponta qual é a ativa.
+
+"Odessa" é o nome do SOFTWARE, não de uma persona. Instalações antigas tinham
+uma persona "odessa" (criada por engano como padrão) cujo conteúdo — vídeos,
+fluxo publicado, gatilhos — era na verdade da Viktoria. Na primeira leitura do
+índice ela é unida à Viktoria e removida (ver _migrate_legacy_odessa).
 """
 import functools
 import json
 import logging
 import re
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, TypeVar
@@ -22,7 +27,9 @@ DATA_DIR = Path(__file__).parent.parent / "data"
 PERSONAS_INDEX_PATH = DATA_DIR / "personas.json"
 DEFAULT_CONFIG_PATH = DATA_DIR / "persona_config.json"
 
-DEFAULT_PERSONA_ID = "odessa"
+DEFAULT_PERSONA_ID = "viktoria"
+# Persona criada por engano com o nome do software; unida à Viktoria.
+LEGACY_PERSONA_ID = "odessa"
 
 
 def _now() -> str:
@@ -45,9 +52,25 @@ def _slugify(value: str) -> str:
     return slug or "persona"
 
 
+# personas.json era lido do disco a cada get_active_persona_id(), duas vezes por
+# mensagem do chat. Fica em memória enquanto o arquivo não muda (mtime).
+_index_cache: Optional[tuple] = None  # (caminho, mtime, texto JSON)
+
+
 def _load_index() -> Dict[str, Any]:
-    if not PERSONAS_INDEX_PATH.exists():
+    global _index_cache
+    try:
+        mtime = PERSONAS_INDEX_PATH.stat().st_mtime
+    except OSError:
         return _empty_index()
+    if _index_cache is not None and _index_cache[0] == PERSONAS_INDEX_PATH and _index_cache[1] == mtime:
+        return json.loads(_index_cache[2])
+    data = _read_index()
+    _index_cache = (PERSONAS_INDEX_PATH, mtime, json.dumps(data, ensure_ascii=False))
+    return data
+
+
+def _read_index() -> Dict[str, Any]:
     try:
         # Índice corrompido NÃO vira "só a Odessa" (o que apagaria as outras
         # personas do índice no próximo salvamento): o arquivo ruim é isolado e
@@ -64,8 +87,10 @@ def _load_index() -> Dict[str, Any]:
 
 
 def _save_index(index: Dict[str, Any]) -> bool:
+    global _index_cache
     try:
         write_json(PERSONAS_INDEX_PATH, index)
+        _index_cache = None
         return True
     except Exception as exc:
         logger.error("Erro ao salvar índice de personas: %s", exc)
@@ -91,29 +116,128 @@ def index_transaction(func: F) -> F:
     return wrapper  # type: ignore[return-value]
 
 
-def _ensure_default_persona(index: Dict[str, Any]) -> Dict[str, Any]:
-    """Garante que a persona padrão 'odessa' exista no índice (aponta para o config legado)."""
+def _is_empty(value: Any) -> bool:
+    return value is None or value == "" or value == [] or value == {}
+
+
+def _merge_configs(primary: Dict[str, Any], secondary: Dict[str, Any]) -> Dict[str, Any]:
+    """`primary` manda; de `secondary` entra o que falta (vídeos por id, chaves vazias)."""
+    merged = dict(primary)
+    for key, value in secondary.items():
+        if key == "videos" and isinstance(value, list):
+            known = {v.get("id") for v in merged.get("videos") or [] if isinstance(v, dict)}
+            merged["videos"] = list(merged.get("videos") or []) + [
+                v for v in value if isinstance(v, dict) and v.get("id") not in known
+            ]
+        elif _is_empty(merged.get(key)) and not _is_empty(value):
+            merged[key] = value
+    return merged
+
+
+def _backup(path: Path, stamp: str, label: str = "antes-unir-odessa") -> None:
+    if path.exists():
+        shutil.copy2(path, path.with_name(f"{path.stem}.{label}-{stamp}{path.suffix}"))
+
+
+def _upgrade_persona_voice(index: Dict[str, Any]) -> bool:
+    """Troca a personalidade por "voz humana" (persona_voice.CURRENT) quando a
+    instalada é idêntica a um texto que o próprio app trouxe antes. Texto
+    personalizado pelo operador nunca é tocado. Com backup."""
+    from server.core.persona_voice import CURRENT, PREVIOUS
+
+    targets = [
+        p for p in index.get("personas", [])
+        if p.get("id") in CURRENT
+        and (p.get("personality") or "").strip() in [t.strip() for t in PREVIOUS.get(p["id"], [])]
+    ]
+    if not targets:
+        return False
+    _backup(PERSONAS_INDEX_PATH, datetime.now().strftime("%Y%m%d-%H%M%S"), "antes-voz-humana")
+    for persona in targets:
+        persona["personality"] = CURRENT[persona["id"]]
+    logger.info("Personalidade atualizada para a voz humana: %s", ", ".join(p["id"] for p in targets))
+    return True
+
+
+def _add_english_voice(index: Dict[str, Any]) -> bool:
+    """Acrescenta a voz em inglês (personalityEn) a quem ainda não tem. Nunca mexe
+    na personalidade em português nem numa versão em inglês já existente."""
+    from server.core.persona_voice import ENGLISH
+
+    targets = [p for p in index.get("personas", []) if p.get("id") in ENGLISH and not (p.get("personalityEn") or "").strip()]
+    for persona in targets:
+        persona["personalityEn"] = ENGLISH[persona["id"]]
+    if targets:
+        logger.info("Voz em inglês adicionada: %s", ", ".join(p["id"] for p in targets))
+    return bool(targets)
+
+
+def _migrate_legacy_odessa(index: Dict[str, Any]) -> bool:
+    """Une a persona "odessa" (nome do software) à Viktoria e a remove. Idempotente.
+
+    O config da "odessa" era o completo (fluxo publicado, todos os vídeos,
+    gatilhos, presentes) e o da Viktoria uma cópia antiga: a Viktoria passa a ter
+    o config da "odessa" + o que só ela tinha (ex.: config de transmissão). A
+    identidade da Viktoria (personalidade, fotos) é mantida. Tudo com backup.
+    """
     personas = index.get("personas", [])
-    if not any(p.get("id") == DEFAULT_PERSONA_ID for p in personas):
-        personas.insert(
-            0,
-            {
-                "id": DEFAULT_PERSONA_ID,
-                "name": "Odessa",
-                "description": "Persona padrão",
-                "personality": (
-                    "Você é a Odessa, uma streamer ao vivo cativante, carinhosa, "
-                    "bem-humorada e atenciosa com seu público. Responde mensagens no "
-                    "chat do Tango de forma curta, natural e calorosa, chamando a "
-                    "pessoa pelo nome e usando emojis com moderação."
-                ),
-                "configPath": "persona_config.json",
-                "createdAt": _now(),
-            },
-        )
-        index["personas"] = personas
+    legacy = next((p for p in personas if p.get("id") == LEGACY_PERSONA_ID), None)
+    if legacy is None:
+        return False
+    target = next((p for p in personas if p.get("id") == DEFAULT_PERSONA_ID), None)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    _backup(PERSONAS_INDEX_PATH, stamp)
+
+    if target is None:
+        # Só existia a "odessa": ela É a Viktoria (mesmo config).
+        legacy["id"] = DEFAULT_PERSONA_ID
+        legacy["name"] = "Viktoria"
+        legacy["personality"] = (legacy.get("personality") or "").replace("Odessa", "Viktoria")
+    else:
+        legacy_cfg = DATA_DIR / (legacy.get("configPath") or DEFAULT_CONFIG_PATH.name)
+        target_cfg = DATA_DIR / (target.get("configPath") or f"persona_{DEFAULT_PERSONA_ID}.json")
+        _backup(legacy_cfg, stamp)
+        _backup(target_cfg, stamp)
+        primary = read_json(legacy_cfg, default_factory=dict) if legacy_cfg.exists() else {}
+        secondary = read_json(target_cfg, default_factory=dict) if target_cfg.exists() else {}
+        write_json(target_cfg, _merge_configs(primary if isinstance(primary, dict) else {}, secondary if isinstance(secondary, dict) else {}))
+        for key in ("avatarUrl",):
+            if _is_empty(target.get(key)) and not _is_empty(legacy.get(key)):
+                target[key] = legacy[key]
+        personas.remove(legacy)
+
+    if index.get("activePersonaId") in (LEGACY_PERSONA_ID, None, ""):
         index["activePersonaId"] = DEFAULT_PERSONA_ID
-        _save_index(index)
+    logger.info("Persona 'odessa' unida à Viktoria (backup: *.antes-unir-odessa-%s.json)", stamp)
+    return True
+
+
+def _ensure_default_persona(index: Dict[str, Any]) -> Dict[str, Any]:
+    """Índice sempre utilizável: migra a "odessa" legada e garante uma persona ativa."""
+    with file_lock(PERSONAS_INDEX_PATH):
+        changed = _migrate_legacy_odessa(index)
+        changed = _upgrade_persona_voice(index) or changed
+        changed = _add_english_voice(index) or changed
+        personas = index.setdefault("personas", [])
+        if not personas:
+            # Instalação nova: a Viktoria usa o config legado (persona_config.json).
+            personas.append(
+                {
+                    "id": DEFAULT_PERSONA_ID,
+                    "name": "Viktoria",
+                    "description": "Persona elegante e misteriosa, com tom sofisticado e sedutor.",
+                    "personality": "",
+                    "configPath": DEFAULT_CONFIG_PATH.name,
+                    "createdAt": _now(),
+                }
+            )
+            changed = True
+        ids = [p.get("id") for p in personas]
+        if index.get("activePersonaId") not in ids:
+            index["activePersonaId"] = DEFAULT_PERSONA_ID if DEFAULT_PERSONA_ID in ids else ids[0]
+            changed = True
+        if changed:
+            _save_index(index)
     return index
 
 
@@ -213,13 +337,13 @@ def set_persona_personality(persona_id: str, personality: str) -> bool:
 @index_transaction
 def delete_persona(persona_id: str) -> bool:
     index = _ensure_default_persona(_load_index())
-    if persona_id == DEFAULT_PERSONA_ID:
-        raise ValueError("Não é possível excluir a persona padrão")
     personas = [p for p in index.get("personas", []) if p.get("id") != persona_id]
     if len(personas) == len(index.get("personas", [])):
         return False
+    if not personas:
+        raise ValueError("Não é possível excluir a única persona")
     index["personas"] = personas
     if index.get("activePersonaId") == persona_id:
-        index["activePersonaId"] = DEFAULT_PERSONA_ID
+        index["activePersonaId"] = personas[0]["id"]
     _save_index(index)
     return True

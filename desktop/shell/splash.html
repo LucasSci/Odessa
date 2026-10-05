@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Odessa</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #050608; color: #e2e8f0; font: 14px/1.45 "Segoe UI", system-ui, sans-serif; -webkit-app-region: drag; user-select: none; }
+  main { height: 100%; display: grid; place-items: center; text-align: center; }
+  .ring { width: 34px; height: 34px; margin: 0 auto 18px; border-radius: 50%; border: 3px solid rgba(96,165,250,.18); border-top-color: #60a5fa; animation: spin .9s linear infinite; }
+  h1 { margin: 0 0 6px; font-size: 22px; font-weight: 600; letter-spacing: .02em; font-style: italic; }
+  p { margin: 0; color: #94a3b8; font-size: 13px; min-height: 19px; transition: opacity .2s ease-out; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .ring { animation-duration: 2.4s; } }
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <div class="ring" aria-hidden="true"></div>
+    <h1>Odessa</h1>
+    <p id="status" role="status">Iniciando…</p>
+  </div>
+</main>
+<script>
+  window.setStatus = (text) => { document.getElementById('status').textContent = text; };
+</script>
+</body>
+</html>

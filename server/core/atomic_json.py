@@ -40,8 +40,19 @@ _events: List[Dict[str, Any]] = []
 _MAX_EVENTS = 50
 
 
+_key_cache: Dict[str, str] = {}
+
+
 def _key(path: Path) -> str:
-    return str(Path(path).resolve())
+    # resolve() faz várias chamadas ao sistema no Windows e rodava a cada
+    # leitura/gravação de JSON; os caminhos usados são sempre os mesmos poucos.
+    raw = str(path)
+    key = _key_cache.get(raw)
+    if key is None:
+        # abspath/normcase só mexem na string: a chave da trava não precisa
+        # seguir links, e nada aqui toca o disco.
+        key = _key_cache[raw] = os.path.normcase(os.path.abspath(raw))
+    return key
 
 
 @contextmanager

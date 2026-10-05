@@ -203,7 +203,10 @@ def test_ollama_connect_starts_when_not_reachable(client):
         stdout=-3,  # subprocess.DEVNULL
         stderr=-3,
         creationflags=mock_popen.call_args.kwargs["creationflags"],
+        env=mock_popen.call_args.kwargs["env"],
     )
+    # Ollama iniciado pelo Odessa usa a GPU integrada (ver ollama_serve_env).
+    assert mock_popen.call_args.kwargs["env"].get("OLLAMA_IGPU_ENABLE")
 
 
 @pytest.mark.unit

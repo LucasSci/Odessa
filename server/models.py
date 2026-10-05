@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -32,6 +32,13 @@ class AIRespondRequest(BaseModel):
     local_model_url: Optional[str] = None
     local_model_name: Optional[str] = None
     provider: Optional[str] = None
+    # Conversa em turnos ({role: user|assistant, content}), da mais antiga para a
+    # atual. Vai igual para TODA IA (local e nuvem): é o que mantém o mesmo jeito
+    # de conversar quando o operador troca de provedor.
+    conversation: Optional[List[Dict[str, str]]] = None
+    # Chave do provedor de nuvem escolhido na tela (Mistral, Gemini, Claude ou
+    # OpenAI). Nunca é salva pelo servidor nem vai para log.
+    provider_key: Optional[str] = None
 
 
 class LiveEventPayload(BaseModel):

@@ -45,21 +45,71 @@ class Database:
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_interaction_user ON interaction_logs(user_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_interaction_created ON interaction_logs(created_at)")
+            # Memória que cresce (server/services/memory_learning.py).
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS viewer_facts (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    fact TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    last_used_at TEXT NOT NULL,
+                    hidden INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS persona_facts (
+                    id TEXT PRIMARY KEY,
+                    persona_id TEXT NOT NULL,
+                    fact TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    hidden INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS conversation_summaries (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    persona_id TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_viewer_facts_user ON viewer_facts(user_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_persona_facts_persona ON persona_facts(persona_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_summaries_user ON conversation_summaries(user_id)")
             for statement in (
                 "ALTER TABLE users ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN notes TEXT NOT NULL DEFAULT ''",
+                # Até onde a conversa desta pessoa já virou memória (fatos + resumo).
+                "ALTER TABLE users ADD COLUMN learned_until TEXT NOT NULL DEFAULT ''",
             ):
                 try:
                     conn.execute(statement)
                 except sqlite3.OperationalError:
                     pass
             conn.commit()
+            # WAL: gravar memória do chat não bloqueia quem está lendo (o padrão
+            # "delete" trava o arquivo inteiro a cada escrita). Fica salvo no arquivo.
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+            except sqlite3.OperationalError:
+                logger.warning("SQLite sem WAL (sistema de arquivos não suporta); seguindo no modo padrão")
             logger.info("Database initialized at %s", self.db_path)
 
     @contextmanager
     def get_connection(self) -> Generator[sqlite3.Connection, None, None]:
-        connection = sqlite3.connect(self.db_path)
+        connection = sqlite3.connect(self.db_path, timeout=10)
         connection.row_factory = sqlite3.Row
+        # Com WAL, NORMAL é seguro e evita um fsync por escrita.
+        connection.execute("PRAGMA synchronous=NORMAL")
         try:
             yield connection
         finally:

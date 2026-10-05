@@ -1,8 +1,22 @@
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import LoginScreen from './LoginScreen';
 import OdessaLiveCenter, { type AdvancedPanel } from './OdessaLiveCenter';
-import PersonaOverlay from './PersonaOverlay';
+import { useOverlayLeader } from './lib/overlayLeader';
+
+// O overlay só roda na fonte do OBS (#overlay): fica fora do pacote principal do painel.
+const PersonaOverlay = lazy(() => import('./PersonaOverlay'));
+
+/** Só a cópia líder do overlay toca vídeo e mexe no fluxo (ver overlayLeader.ts). */
+function SingleOverlay() {
+  const leader = useOverlayLeader();
+  if (!leader) return null;
+  return (
+    <Suspense fallback={<div className="fixed inset-0 bg-black" />}>
+      <PersonaOverlay />
+    </Suspense>
+  );
+}
 import { clearEvents, replaceEvents } from './core/eventBus';
 import { useAutopilotRuntime } from './core/useAutopilotRuntime';
 import { TangoChatSessionProvider } from './core/tangoChatSession';
@@ -158,7 +172,9 @@ export default function App() {
   // aba "Ao Vivo" (ver useAutopilotRuntime.ts) — atualizado via callback do
   // OdessaLiveCenter sempre que o usuário troca de aba.
   const [isLiveTabActive, setIsLiveTabActive] = useState(true);
-  const runtime = useAutopilotRuntime({ capturedText, setCapturedText, isLiveTabActive });
+  // A página do overlay do OBS só toca o palco: nada de consultas de status.
+  const isOverlayRoute = requestedPanel === ('overlay' as AdvancedPanel);
+  const runtime = useAutopilotRuntime({ capturedText, setCapturedText, isLiveTabActive, statusPolling: !isOverlayRoute });
 
   useEffect(() => {
     try {
@@ -256,7 +272,7 @@ export default function App() {
   };
 
   if (requestedPanel === ('overlay' as AdvancedPanel)) {
-    return <PersonaOverlay />;
+    return <SingleOverlay />;
   }
 
   // Porta dos fundos: a tela de login só aparece se você abrir #login de propósito

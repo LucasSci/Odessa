@@ -8,7 +8,7 @@
  * mudanças no backend e faz a reflexão de evolução automática.
  */
 import { apiUrl } from '../lib/api';
-import { getAiConfig, resolveEffectiveProvider } from './aiConfig';
+import { getAiConfig, resolveEffectiveProvider, providerKeyFor } from './aiConfig';
 import type { PersonaMeta } from './personaManager';
 import type { TangoChatMessage } from './tangoAiChatService';
 
@@ -237,6 +237,7 @@ Se você não incorporou nada novo, responda apenas: <autoconfig>{}</autoconfig>
         local_model_url: config.localModelUrl,
         local_model_name: config.localModelName,
         provider: resolveEffectiveProvider(config),
+        provider_key: providerKeyFor(config),
       }),
       signal: AbortSignal.timeout(60_000),
     });

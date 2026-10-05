@@ -2,7 +2,10 @@ import json
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Any, List
+
+from server.core.append_log import append_line
 
 logger = logging.getLogger("odessa.automation.execution_logger")
 
@@ -39,8 +42,8 @@ class ExecutionLogger:
 
         # 2. Persist to disk
         try:
-            with open(self.log_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry) + "\n")
+            # Arquivo mantido aberto e rotacionado (ver append_log).
+            append_line(Path(self.log_file), json.dumps(entry))
         except Exception as e:
             logger.error(f"Failed to write execution log: {e}")
         return entry

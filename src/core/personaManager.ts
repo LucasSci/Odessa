@@ -12,6 +12,8 @@ export type PersonaMeta = {
   name: string;
   description?: string;
   personality?: string;
+  /** Mesma persona escrita em inglês (respostas em inglês). */
+  personalityEn?: string;
   avatarUrl?: string;
   configPath?: string;
   createdAt?: string;

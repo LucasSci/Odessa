@@ -30,6 +30,7 @@ BRIDGE_CONFIG_FILE = RUNTIME_DIR / "bridge_config.json"
 TANGO_CHAT_SCRIPT = Path(__file__).resolve().parent.parent.parent / "tango_chat" / "tango_chat.py"
 
 MAX_LOG_LINES = 500
+UNREACHABLE_CACHE_S = 10.0
 
 # Token compartilhado com o tango_chat.py (ver tango_chat/bridge_guard.py).
 # Persistido em disco: o bridge_manager "adota" uma bridge órfã de uma execução
@@ -105,6 +106,10 @@ class BridgeProcessManager:
         # Parada pedida pelo usuário: a extensão do navegador não religa a
         # bridge sozinha até ele iniciá-la de novo (ver browser_extension.py).
         self.user_stopped: bool = False
+        # Bridge desligada: no Windows uma conexão recusada em localhost leva
+        # ~2 s, e a tela pergunta o status a cada 3,5 s. Lembra o "desligada"
+        # por alguns segundos (esquece ao iniciar a bridge).
+        self._unreachable_until: float = 0.0
 
     @property
     def is_running(self) -> bool:
@@ -142,6 +147,7 @@ class BridgeProcessManager:
         config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self.user_stopped = False
+        self._unreachable_until = 0.0
         if self.is_running:
             return {"ok": False, "error": "already_running", "pid": self.pid}
 
@@ -276,7 +282,14 @@ class BridgeProcessManager:
         # Numa thread: no Windows uma conexão recusada em localhost leva ~2 s, e
         # a sonda síncrona aqui dentro congelava o servidor inteiro (Palco,
         # overlay do OBS e painel travavam a cada consulta de status).
-        bridge_status = await asyncio.to_thread(self._probe_bridge, port)
+        import time
+
+        if not self.is_running and time.monotonic() < self._unreachable_until:
+            bridge_status = None
+        else:
+            bridge_status = await asyncio.to_thread(self._probe_bridge, port)
+            if bridge_status is None and not self.is_running:
+                self._unreachable_until = time.monotonic() + UNREACHABLE_CACHE_S
         bridge_reachable = bridge_status is not None
 
         if self._adopted and not bridge_reachable:

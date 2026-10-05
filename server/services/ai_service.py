@@ -1,10 +1,35 @@
 import logging
+import re
 import mimetypes
+import threading
+import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Tuple, List, Optional
 from fastapi import HTTPException
-from openai import OpenAI
-from google import genai
+import importlib
+
+# Os SDKs da OpenAI e do Google só carregam quando uma IA da nuvem é usada.
+# Importar o da OpenAI levava 46 s no PC da live (milhares de arquivos de
+# tipos) e acontecia na partida do servidor, mesmo com a IA local (Ollama):
+# a janela do Odessa ficava quase 1 min esperando.
+
+
+def OpenAI(*args: Any, **kwargs: Any):  # noqa: N802 — mesmo nome da classe do SDK
+    from openai import OpenAI as _OpenAI
+
+    return _OpenAI(*args, **kwargs)
+
+
+class _LazyModule:
+    def __init__(self, name: str) -> None:
+        self._name = name
+
+    def __getattr__(self, attr: str) -> Any:
+        return getattr(importlib.import_module(self._name), attr)
+
+
+genai = _LazyModule("google.genai")
 
 from server.services.ai_errors import AIUnavailableError
 
@@ -17,14 +42,223 @@ from server.config import (
     OPENAI_TEXT_MODEL,
     OPENAI_BASE_URL,
     OLLAMA_BASE_URL,
+    OLLAMA_KEEP_ALIVE,
     OLLAMA_MODEL,
+    OLLAMA_NUM_THREAD,
     OLLAMA_TIMEOUT,
+    MISTRAL_API_KEY,
+    MISTRAL_MODEL,
 )
 
 logger = logging.getLogger("odessa.ai")
 
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_API_VERSION = "2023-06-01"
+
+
+MAX_CONVERSATION_TURNS = 16
+
+# Quando o operador troca para uma IA de nuvem (Gemini/Mistral), a IA local é
+# desligada: o modelo sai da memória e o keep-alive para de recarregá-lo. Volta
+# sozinha na próxima resposta pedida ao Ollama.
+_local_ai_paused = False
+
+
+def pause_local_ai() -> None:
+    global _local_ai_paused
+    _local_ai_paused = True
+
+
+def local_ai_paused() -> bool:
+    return _local_ai_paused
+
+
+# ── Uma conexão só com o Ollama ─────────────────────────────────────────────
+# Antes cada geração abria um httpx.Client novo. Criar o cliente monta um
+# contexto SSL (no Windows isso lê o repositório de certificados): era a função
+# mais quente do servidor numa live simulada.
+_http_lock = threading.Lock()
+_ollama_http: Any = None
+
+
+def _ollama_client() -> Any:
+    global _ollama_http
+    import httpx
+
+    with _http_lock:
+        if _ollama_http is None:
+            from server.core.http_clients import shared_ssl_context
+
+            _ollama_http = httpx.Client(timeout=OLLAMA_TIMEOUT, verify=shared_ssl_context())
+        return _ollama_http
+
+
+def close_http_clients() -> None:
+    global _ollama_http
+    with _http_lock:
+        client, _ollama_http = _ollama_http, None
+    close = getattr(client, "close", None)
+    if callable(close):
+        close()
+
+
+def reset_local_ai_state() -> None:
+    """Volta ao estado de quem acabou de abrir (usado entre testes)."""
+    close_http_clients()
+    _preferred_local.update(model=None, url=None)
+
+
+# ── Um modelo só ────────────────────────────────────────────────────────────
+# O chat manda o modelo escolhido na tela de IA; o que roda em segundo plano
+# (prompt de vídeo, memória) usava o padrão do servidor. Com modelos diferentes
+# o Ollama descarregava um e carregava o outro (~3 GB) a cada troca: 28 trocas
+# em 40 min numa live simulada. Agora o fundo usa o último modelo do chat.
+_preferred_local: dict[str, Optional[str]] = {"model": None, "url": None}
+
+
+def remember_local_model(model: Optional[str], url: Optional[str]) -> None:
+    if (model or "").strip():
+        _preferred_local["model"] = model.strip()
+        _preferred_local["url"] = (url or "").strip() or None
+
+
+# ── Fila da IA local ────────────────────────────────────────────────────────
+# O Ollama gera uma resposta por vez. Sem fila, o chat esperava atrás do prompt
+# de vídeo e da memória. Agora há uma vez por geração, com prioridade:
+# chat > memória > fundo. Quem espera demais desiste (o chat não responde uma
+# mensagem de 1 min atrás; o fundo tenta na próxima).
+PRIORITY_LEVELS = {"chat": 0, "memory": 1, "background": 2}
+# Chat espera até 90 s: com o modelo frio (primeira fala depois de uma pausa) a
+# geração anterior pode levar ~90 s só carregando, e a 1ª resposta se perdia.
+MAX_WAIT_S = {0: 90.0, 1: 90.0, 2: 120.0}
+
+
+ENGINE_MAX_TURNS = 8
+_RECENT_LINES_HEADERS = ("[your last lines on this live]", "[suas últimas falas na live]")
+
+
+def _log_safe(value: object) -> str:
+    """Texto para o log sem quebra de linha (um valor vindo de fora não forja linhas)."""
+    return str(value).replace("\r", " ").replace("\n", " ")
+
+
+def _safe_local_url(raw: str) -> str:
+    """URL da IA local vinda da tela: só esta máquina ou a rede interna.
+
+    O endereço é remontado a partir das partes validadas; qualquer outro
+    destino (um servidor da internet, outro esquema) volta para o padrão.
+    """
+    import ipaddress
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit((raw or "").strip())
+        port = int(parts.port or (443 if parts.scheme == "https" else 80))
+        host = (parts.hostname or "").lower()
+        if parts.scheme not in ("http", "https") or not 0 < port < 65536:
+            raise ValueError("esquema")
+        address = ipaddress.ip_address("127.0.0.1" if host == "localhost" else host)
+        if not (address.is_loopback or address.is_private or address.is_link_local):
+            raise ValueError("fora da rede interna")
+    except ValueError:
+        logger.warning("URL da IA local recusada; usando o endereço padrão")
+        return OLLAMA_BASE_URL.rstrip("/")
+    scheme = "https" if parts.scheme == "https" else "http"
+    shown = f"[{address}]" if address.version == 6 else str(address)
+    return f"{scheme}://{shown}:{port}"
+
+
+def _strip_recent_lines(text: str) -> str:
+    """Tira o bloco "[SUAS ÚLTIMAS FALAS…]" e as linhas "- …" dele (tempo linear)."""
+    kept: list[str] = []
+    skipping = False
+    for line in text.split("\n"):
+        if line.strip().lower().startswith(_RECENT_LINES_HEADERS):
+            skipping = True
+            continue
+        if skipping and line.startswith("- "):
+            continue
+        skipping = False
+        kept.append(line)
+    return "\n".join(kept)
+
+
+def _lean_for_engine(messages: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Menos texto novo por resposta no motor da GPU integrada.
+
+    A GPU integrada escreve rápido mas LÊ o prompt devagar (~40 tokens/s, medido
+    com várias opções do motor): cada texto novo custa ~1 s a cada 40 tokens.
+    O início fixo (persona + jeito de conversar) fica em cache no motor; aqui sai
+    o que é redundante: o bloco "suas últimas falas" (elas já estão na conversa
+    como falas dela, e o filtro de repetição continua valendo) e a conversa fica
+    nos últimos 8 turnos.
+    """
+    if not messages:
+        return messages
+    system, rest = messages[0], messages[1:]
+    if system.get("role") == "system":
+        system = {**system, "content": _strip_recent_lines(system.get("content") or "").strip()}
+        turns = rest[-ENGINE_MAX_TURNS:]
+        while turns and turns[0].get("role") == "assistant":
+            turns = turns[1:]
+        return [system, *turns] if turns else [system, *rest[-1:]]
+    return messages
+
+
+class LocalAiBusy(RuntimeError):
+    pass
+
+
+class LocalAiGate:
+    def __init__(self) -> None:
+        self._cond = threading.Condition()
+        self._busy = False
+        self._waiting = [0, 0, 0]
+
+    @contextmanager
+    def slot(self, priority: str = "chat", max_wait_s: Optional[float] = None):
+        level = PRIORITY_LEVELS.get(priority, 0)
+        deadline = time.monotonic() + (MAX_WAIT_S[level] if max_wait_s is None else max_wait_s)
+        with self._cond:
+            self._waiting[level] += 1
+            try:
+                while self._busy or any(self._waiting[higher] for higher in range(level)):
+                    left = deadline - time.monotonic()
+                    if left <= 0:
+                        raise LocalAiBusy(f"IA local ocupada (prioridade {priority}): pedido descartado")
+                    self._cond.wait(left)
+                self._busy = True
+            finally:
+                self._waiting[level] -= 1
+                self._cond.notify_all()
+        try:
+            yield
+        finally:
+            with self._cond:
+                self._busy = False
+                self._cond.notify_all()
+
+
+local_ai_gate = LocalAiGate()
+
+
+def _conversation_turns(conversation: list[dict[str, str]] | None) -> list[dict[str, str]]:
+    """Valida a conversa: só user/assistant com texto, últimos turnos, termina em user."""
+    turns = [
+        {"role": turn["role"], "content": str(turn["content"]).strip()}
+        for turn in (conversation or [])
+        if isinstance(turn, dict) and turn.get("role") in ("user", "assistant") and str(turn.get("content") or "").strip()
+    ][-MAX_CONVERSATION_TURNS:]
+    while turns and turns[0]["role"] != "user":
+        turns.pop(0)
+    if not turns or turns[-1]["role"] != "user":
+        return []
+    return turns
+
+
+def _chat_messages(conversation: list[dict[str, str]] | None, user_prompt: str) -> list[dict[str, str]]:
+    """Mesma conversa para TODA IA: turnos reais quando houver, senão o prompt único."""
+    return _conversation_turns(conversation) or [{"role": "user", "content": user_prompt}]
 
 
 class AIService:
@@ -44,11 +278,14 @@ class AIService:
         *,
         model: str | None = None,
         max_tokens: int = 1024,
+        conversation: list[dict[str, str]] | None = None,
+        api_key: str | None = None,
     ) -> str:
         """Gera texto via Claude (Anthropic Messages API)."""
         import httpx
 
-        if not self.anthropic_api_key:
+        key = (api_key or "").strip() or self.anthropic_api_key
+        if not key:
             raise RuntimeError("ANTHROPIC_API_KEY não está configurada no backend")
 
         payload: dict[str, Any] = {
@@ -56,10 +293,10 @@ class AIService:
             "max_tokens": max_tokens,
             "temperature": temperature,
             "system": system_prompt,
-            "messages": [{"role": "user", "content": user_prompt}],
+            "messages": _chat_messages(conversation, user_prompt),
         }
         headers = {
-            "x-api-key": self.anthropic_api_key,
+            "x-api-key": key,
             "anthropic-version": ANTHROPIC_API_VERSION,
             "content-type": "application/json",
         }
@@ -124,6 +361,36 @@ class AIService:
 
         raise RuntimeError("Gemini não retornou nenhuma imagem")
 
+    def generate_gemini_text(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        *,
+        model: str | None = None,
+        json_mode: bool = False,
+        conversation: list[dict[str, str]] | None = None,
+        api_key: str | None = None,
+    ) -> str:
+        """Gera texto via Gemini, com a conversa em turnos (user/model)."""
+        client = genai.Client(api_key=api_key.strip()) if (api_key or "").strip() else self.gemini_client
+        if not client:
+            raise RuntimeError("GEMINI_API_KEY não está configurada")
+        config: dict[str, Any] = {
+            "system_instruction": system_prompt,
+            "temperature": temperature,
+            # Sem "raciocínio" escondido: ele gastava os tokens e a resposta vinha vazia.
+            "thinking_config": {"thinking_budget": 0},
+        }
+        if json_mode:
+            config["response_mime_type"] = "application/json"
+        contents = [
+            {"role": "model" if turn["role"] == "assistant" else "user", "parts": [{"text": turn["content"]}]}
+            for turn in _chat_messages(conversation, user_prompt)
+        ]
+        result = client.models.generate_content(model=model or "gemini-2.5-flash", contents=contents, config=config)
+        return result.text or ""
+
     def generate_openai_text(
         self,
         system_prompt: str,
@@ -131,22 +398,22 @@ class AIService:
         temperature: float,
         *,
         json_mode: bool = False,
+        conversation: list[dict[str, str]] | None = None,
+        api_key: str | None = None,
     ) -> str:
-        if not self.openai_client:
+        client = OpenAI(api_key=api_key.strip(), base_url=OPENAI_BASE_URL) if (api_key or "").strip() else self.openai_client
+        if not client:
             raise RuntimeError("OPENAI_API_KEY is not configured on the backend")
 
         kwargs: dict[str, Any] = {
             "model": OPENAI_TEXT_MODEL,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            "messages": [{"role": "system", "content": system_prompt}, *_chat_messages(conversation, user_prompt)],
             "temperature": temperature,
         }
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
-        response = self.openai_client.chat.completions.create(**kwargs)
+        response = client.chat.completions.create(**kwargs)
         return response.choices[0].message.content or ""
 
     def generate_ollama_text(
@@ -158,28 +425,50 @@ class AIService:
         model: str | None = None,
         base_url: str | None = None,
         json_mode: bool = False,
+        conversation: list[dict[str, str]] | None = None,
     ) -> str:
-        """Gera texto via Ollama local usando a API nativa /api/chat."""
+        """Gera texto via Ollama local usando a API nativa /api/chat.
+
+        Com `conversation`, as mensagens vão como turnos de verdade (user/assistant)
+        e `user_prompt` é ignorado: medido no qwen2.5:3b, o histórico em turnos dá
+        respostas coerentes onde o histórico colado como texto gerava confusão
+        ("Tchau" para quem acabou de chegar, resposta para a pessoa errada).
+        """
         import httpx
 
-        url = (base_url or OLLAMA_BASE_URL).strip().rstrip("/")
+        global _local_ai_paused
+        _local_ai_paused = False  # voltou a usar a IA local
+        model = model or _preferred_local["model"]
+        url = _safe_local_url(base_url or _preferred_local["url"] or OLLAMA_BASE_URL)
         # num_predict limita o tamanho da geração — as respostas do chat já são
         # pedidas curtas (poucas frases), então 220 tokens só existe como teto
         # de segurança contra o modelo divagar e demorar mais que o necessário.
         # json_mode (decisões da Diretora) retorna um objeto maior, por isso
         # ganha um teto bem mais folgado em vez do mesmo limite do chat.
-        num_predict = 700 if json_mode else 220
+        # 120 tokens bastam para uma fala de chat; num PC disputado com OBS e
+        # navegador a geração fica em ~5 tok/s, e cada token a mais é espera.
+        num_predict = 700 if json_mode else 120
         payload: dict[str, Any] = {
             "model": (model or OLLAMA_MODEL).strip(),
             "stream": False,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                *(_conversation_turns(conversation) or [{"role": "user", "content": user_prompt}]),
             ],
             # repeat_penalty acima do padrão do Ollama (1.1) para reduzir o
             # modelo travando em repetição de palavras/frases dentro da mesma
             # resposta — sintoma relatado com respostas tipo "oi oi, legal legal".
-            "options": {"temperature": temperature, "num_predict": num_predict, "repeat_penalty": 1.3},
+            "options": {
+                "temperature": temperature,
+                "num_predict": num_predict,
+                # 1.3 penalizava palavras comuns já presentes no prompt e o modelo
+                # passava a escrever português torto ("Obrigada muito", "Não
+                # souberia"). 1.05 + top_p 0.9: texto natural sem ficar repetitivo.
+                "repeat_penalty": 1.05,
+                "top_p": 0.9,
+                # Limita os núcleos usados (ver OLLAMA_NUM_THREAD em config.py).
+                "num_thread": OLLAMA_NUM_THREAD,
+            },
             # Mantém o modelo carregado na memória por mais tempo (padrão do
             # Ollama é ~5min). Numa live o chat pode ficar minutos sem gerar
             # nada; o modelo descarrega e a PRÓXIMA chamada precisa recarregar
@@ -188,11 +477,26 @@ class AIService:
             # (RemoteProtocolError / "Server disconnected without sending a
             # response") mesmo bem dentro do OLLAMA_TIMEOUT configurado; curl
             # com a mesma requisição não reproduz isso de forma confiável.
-            # Um keep_alive maior reduz a frequência do cold-start em si.
-            "keep_alive": "30m",
+            # Um keep_alive maior reduz a frequência do cold-start em si — mas
+            # segura GBs de RAM; 10 min cobre as pausas normais do chat.
+            "keep_alive": OLLAMA_KEEP_ALIVE,
         }
         if json_mode:
             payload["format"] = "json"
+        if payload["model"].lower().startswith("qwen3"):
+            # Qwen3 "pensa" escondido antes de responder: segundos a mais por fala.
+            payload["think"] = False
+
+        # Motor do Odessa na GPU integrada (local_engine): 3× mais rápido e ~3,5
+        # núcleos livres para o OBS. Só para o Ollama padrão (URL personalizada,
+        # ex.: LM Studio, segue como antes); se falhar, cai no Ollama.
+        if url == OLLAMA_BASE_URL.strip().rstrip("/"):
+            try:
+                text = self._generate_with_engine(payload["model"], payload["messages"], temperature, num_predict, json_mode)
+                if text:
+                    return text
+            except Exception as exc:  # noqa: BLE001 — o Ollama é a reserva
+                logger.warning("[motor local] falhou, usando o Ollama: %s", exc)
 
         last_exc: Exception | None = None
         # Retry único: o disconnect intermitente acima acontece especificamente
@@ -208,8 +512,18 @@ class AIService:
                     temperature,
                     attempt + 1,
                 )
-                with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
-                    response = client.post(f"{url}/api/chat", json=payload)
+                response = _ollama_client().post(f"{url}/api/chat", json=payload)
+                if response.status_code == 404 and payload["model"] != OLLAMA_MODEL:
+                    # Modelo pedido não está instalado (ex.: tela aberta antes de o
+                    # modelo pesado ser removido): usa o modelo padrão instalado em
+                    # vez de deixar a persona muda com um 503.
+                    logger.warning(
+                        "[OLLAMA] modelo %s não instalado; usando o padrão %s",
+                        _log_safe(payload["model"]),
+                        OLLAMA_MODEL,
+                    )
+                    payload["model"] = OLLAMA_MODEL
+                    response = _ollama_client().post(f"{url}/api/chat", json=payload)
                 response.raise_for_status()
                 data = response.json()
                 text = ((data.get("message") or {}).get("content") or "").strip()
@@ -238,6 +552,107 @@ class AIService:
             f"carregando na memória): {last_exc}"
         ) from last_exc
 
+    def _generate_with_engine(
+        self, model: str, messages: list[dict[str, str]], temperature: float, max_tokens: int, json_mode: bool
+    ) -> str | None:
+        """Mesma conversa, mesmo modelo, no llama-server do Odessa (API compatível com OpenAI)."""
+        from server.services.local_engine import engine_mode, local_engine
+
+        if engine_mode() != "gpu":
+            return None
+        target = local_engine.ensure(model)
+        if not target:
+            return None
+        body: dict[str, Any] = {
+            "messages": _lean_for_engine(messages),
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "top_p": 0.9,
+            "repeat_penalty": 1.05,
+            # Qwen3 sem o "pensar" escondido (mesmo efeito do think:false no Ollama).
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        if json_mode:
+            body["response_format"] = {"type": "json_object"}
+        logger.info("[motor local] chat request model=%s messages=%d", _log_safe(model), len(messages))
+        response = _ollama_client().post(
+            f"{target['url']}/v1/chat/completions", json=body, headers={"Authorization": f"Bearer {target['token']}"}
+        )
+        response.raise_for_status()
+        text = ((response.json().get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+        local_engine.mark_used()
+        text = text.strip()
+        if text:
+            logger.info("[motor local] chat response model=%s chars=%d", _log_safe(model), len(text))
+        return text or None
+
+    def warm_local_engine(self, system_prompt: str, model: str | None = None) -> bool:
+        """Sobe o motor da GPU e deixa a parte fixa do prompt (persona + jeito de
+        conversar) já lida em cache: a 1ª resposta da live sai na velocidade normal
+        (sem isso, ~26 s: subir o motor + ler ~1000 tokens a ~40 tokens/s)."""
+        from server.services.local_engine import engine_mode, local_engine
+
+        model = (model or _preferred_local["model"] or OLLAMA_MODEL).strip()
+        if engine_mode() != "gpu" or not system_prompt.strip():
+            return False
+        target = local_engine.ensure(model)
+        if not target:
+            return False
+        with local_ai_gate.slot("background", max_wait_s=30):
+            _ollama_client().post(
+                f"{target['url']}/v1/chat/completions",
+                json={
+                    "messages": [{"role": "system", "content": system_prompt.strip()}, {"role": "user", "content": "hi"}],
+                    "max_tokens": 1,
+                    "chat_template_kwargs": {"enable_thinking": False},
+                },
+                headers={"Authorization": f"Bearer {target['token']}"},
+            )
+        local_engine.mark_used()
+        logger.info("[motor local] aquecido para a live (model=%s)", _log_safe(model))
+        return True
+
+    def generate_mistral_text(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        *,
+        api_key: str,
+        json_mode: bool = False,
+        conversation: list[dict[str, str]] | None = None,
+    ) -> str:
+        """Gera texto na Mistral (API compatível com OpenAI), com a conversa em turnos."""
+        import httpx
+
+        payload: dict[str, Any] = {
+            "model": MISTRAL_MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                *(_conversation_turns(conversation) or [{"role": "user", "content": user_prompt}]),
+            ],
+            "temperature": temperature,
+            "max_tokens": 700 if json_mode else 150,
+        }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(
+                "https://api.mistral.ai/v1/chat/completions",
+                json=payload,
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+        if response.status_code == 401:
+            raise RuntimeError("chave recusada pela Mistral (401). Confira a chave em Configurações → IA e chaves.")
+        if response.status_code == 429:
+            raise RuntimeError("limite de uso da Mistral atingido (429). Aguarde um pouco.")
+        response.raise_for_status()
+        text = ((response.json().get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+        if not text.strip():
+            raise RuntimeError("Mistral retornou uma resposta vazia")
+        logger.info("[MISTRAL] chat response model=%s chars=%d", MISTRAL_MODEL, len(text))
+        return text.strip()
+
     def generate_ai_text_with_fallback(
         self,
         *,
@@ -249,6 +664,9 @@ class AIService:
         local_model_url: str | None = None,
         local_model_name: str | None = None,
         provider: str | None = None,
+        conversation: list[dict[str, str]] | None = None,
+        provider_key: str | None = None,
+        priority: str = "chat",
     ) -> Tuple[str, str]:
         """
         AI Provider Router: Tries configured providers in order,
@@ -256,10 +674,15 @@ class AIService:
         """
         from server.config import AI_PROVIDER, ENABLE_LOCAL_FALLBACK
         selected_provider = (provider or AI_PROVIDER).strip().lower()
+        if priority == "chat":
+            remember_local_model(local_model_name, local_model_url)
 
         # Priority 1: Configured Provider
         providers_to_try = []
-        if selected_provider in {"ollama", "local"}:
+        if selected_provider == "mistral":
+            # Se a Mistral falhar (chave errada, cota), o chat não fica mudo: IA local.
+            providers_to_try = ["mistral", "ollama"]
+        elif selected_provider in {"ollama", "local"}:
             providers_to_try = ["ollama", "claude", "gemini", "openai"]
         elif selected_provider == "claude":
             providers_to_try = ["claude", "gemini", "openai"]
@@ -273,28 +696,48 @@ class AIService:
         errors: List[str] = []
 
         for provider in providers_to_try:
+            if provider == "mistral":
+                key = (provider_key or "").strip() or MISTRAL_API_KEY
+                if not key:
+                    errors.append("Mistral: nenhuma chave configurada")
+                    continue
+                try:
+                    text = self.generate_mistral_text(
+                        system_prompt, user_prompt, temperature, api_key=key, json_mode=json_mode, conversation=conversation
+                    )
+                    if text.strip():
+                        return text, "mistral"
+                except Exception as exc:
+                    logger.warning("[AI ROUTER] Mistral failed: %s", exc)
+                    errors.append(f"Mistral: {exc}")
+
             if provider == "ollama":
                 try:
-                    text = self.generate_ollama_text(
-                        system_prompt,
-                        user_prompt,
-                        temperature,
-                        model=local_model_name,
-                        base_url=local_model_url,
-                        json_mode=json_mode,
-                    )
+                    with local_ai_gate.slot(priority):
+                        text = self.generate_ollama_text(
+                            system_prompt,
+                            user_prompt,
+                            temperature,
+                            model=local_model_name,
+                            base_url=local_model_url,
+                            json_mode=json_mode,
+                            conversation=conversation,
+                        )
                     if text.strip():
                         return text, "ollama"
                 except Exception as exc:
                     logger.warning("[AI ROUTER] Ollama failed: %s", exc)
                     errors.append(f"Ollama: {exc}")
 
-            if provider == "claude" and self.anthropic_api_key:
+            cloud_key = (provider_key or "").strip() if provider == selected_provider else ""
+            if provider == "claude" and (self.anthropic_api_key or cloud_key):
                 try:
                     text = self.generate_claude_text(
                         system_prompt,
                         user_prompt,
                         temperature,
+                        conversation=conversation,
+                        api_key=cloud_key or None,
                     )
                     if text.strip():
                         return text, "claude"
@@ -302,34 +745,32 @@ class AIService:
                     logger.warning("[AI ROUTER] Claude failed: %s", exc)
                     errors.append(f"Claude: {exc}")
 
-            if provider == "gemini" and self.gemini_client:
+            if provider == "gemini" and (self.gemini_client or cloud_key):
                 try:
-                    config: dict[str, Any] = {
-                        "system_instruction": system_prompt,
-                        "temperature": temperature,
-                    }
-                    if json_mode:
-                        config["response_mime_type"] = "application/json"
-
-                    result = self.gemini_client.models.generate_content(
+                    text = self.generate_gemini_text(
+                        system_prompt,
+                        user_prompt,
+                        temperature,
                         model=gemini_model,
-                        contents=user_prompt,
-                        config=config,
+                        json_mode=json_mode,
+                        conversation=conversation,
+                        api_key=cloud_key or None,
                     )
-                    text = result.text or ""
                     if text.strip():
                         return text, "gemini"
                 except Exception as exc:
                     logger.warning("[AI ROUTER] Gemini failed: %s", exc)
                     errors.append(f"Gemini: {exc}")
 
-            if provider == "openai" and self.openai_client:
+            if provider == "openai" and (self.openai_client or cloud_key):
                 try:
                     text = self.generate_openai_text(
                         system_prompt,
                         user_prompt,
                         temperature,
                         json_mode=json_mode,
+                        conversation=conversation,
+                        api_key=cloud_key or None,
                     )
                     if text.strip():
                         return text, "openai"
@@ -357,33 +798,62 @@ class AIService:
 ai_service = AIService()
 
 
-async def ollama_keepalive_loop(interval_seconds: int = 20 * 60) -> None:
+async def _live_session_active() -> bool:
+    """Há live em andamento? (bridge do Tango conectada a uma aba)."""
+    try:
+        from server.services.bridge_manager import bridge_manager
+
+        status = await bridge_manager.get_status()
+        return ((status.get("bridgeStatus") or {}).get("status")) == "connected"
+    except Exception:
+        return False
+
+
+async def ollama_keepalive_loop(interval_seconds: int = 5 * 60) -> None:
     """Mantém o modelo do Ollama carregado na memória em segundo plano.
 
-    O modelo descarrega depois de ~30min sem uso (keep_alive configurado em
-    generate_ollama_text), e uma live pode ficar bastante tempo entre
-    mensagens — a PRÓXIMA mensagem então paga um cold-start de 15-35s antes
-    de a persona conseguir responder. Chamando /api/generate com um prompt
-    vazio periodicamente (bem abaixo dos 30min) o modelo nunca chega a
-    descarregar durante uma sessão ativa do backend, e só a primeiríssima
-    mensagem depois de o backend subir paga esse custo.
+    O modelo descarrega depois de OLLAMA_KEEP_ALIVE sem uso, e uma live pode
+    ficar bastante tempo entre mensagens — a PRÓXIMA mensagem então paga um
+    cold-start de 15-35s. O ping periódico evita isso, mas SÓ durante uma live
+    (bridge do Tango conectada): antes o modelo (GBs de RAM) ficava carregado
+    o tempo todo com o Odessa aberto, mesmo sem live, pesando no PC inteiro.
     """
     import asyncio
     import httpx
-    from server.config import AI_PROVIDER, OLLAMA_BASE_URL, OLLAMA_MODEL
+    from server.config import AI_PROVIDER, OLLAMA_BASE_URL, OLLAMA_KEEP_ALIVE, OLLAMA_MODEL
 
     if AI_PROVIDER not in ("ollama", "local"):
         return
 
-    url = OLLAMA_BASE_URL.strip().rstrip("/")
     while True:
+        from server.services.local_engine import engine_mode, local_engine
+
+        live = await _live_session_active()
+        if engine_mode() == "gpu":
+            # Motor do Odessa: aquece durante a live; fora dela, descarrega o
+            # ocioso (10 min). Pingar o Ollama aqui carregaria o modelo duas vezes.
+            if live and not local_ai_paused():
+                await asyncio.to_thread(local_engine.ensure, _preferred_local["model"] or OLLAMA_MODEL)
+            else:
+                await asyncio.to_thread(local_engine.unload_if_idle)
+            await asyncio.sleep(min(interval_seconds, 60))
+            continue
+        if local_ai_paused() or not live:
+            await asyncio.sleep(interval_seconds)
+            continue
+        # Mantém aquecido o modelo que o chat usa (o padrão do servidor faria o
+        # Ollama trocar de modelo a cada ping).
+        model = _preferred_local["model"] or OLLAMA_MODEL
+        url = (_preferred_local["url"] or OLLAMA_BASE_URL).strip().rstrip("/")
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            from server.core.http_clients import shared_ssl_context
+
+            async with httpx.AsyncClient(timeout=10.0, verify=shared_ssl_context()) as client:
                 await client.post(
                     f"{url}/api/generate",
-                    json={"model": OLLAMA_MODEL, "prompt": "", "keep_alive": "30m"},
+                    json={"model": model, "prompt": "", "keep_alive": OLLAMA_KEEP_ALIVE},
                 )
-            logger.info("[OLLAMA] keep-alive ping ok (model=%s)", OLLAMA_MODEL)
+            logger.info("[OLLAMA] keep-alive ping ok (model=%s)", model)
         except Exception as exc:
             logger.info("[OLLAMA] keep-alive ping falhou (Ollama pode estar desligado): %s", exc)
         await asyncio.sleep(interval_seconds)

@@ -47,6 +47,7 @@ const decision: PersonaDecision = {
 
 const config = {
   geminiKey: '',
+  mistralKey: '',
   systemPrompt: '',
   provider: 'auto' as const,
   confidenceThreshold: 0.65,
@@ -60,6 +61,7 @@ const config = {
   localModelUrl: '',
   localModelName: '',
   localModelTemperature: 0.7,
+  replyLanguage: 'auto' as const,
 };
 
 describe('liveAutonomyGovernor', () => {

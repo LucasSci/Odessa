@@ -64,6 +64,22 @@ if (-not $makensis) {
     Write-Host "NSIS instalado com sucesso." -ForegroundColor Green
 }
 
+#  Certificado do projeto (ver generate-codesign-cert.ps1): assina o programa
+# (app\Odessa.exe) ANTES de empacotar e o instalador depois.
+$pfxPath = Join-Path $desktopDir "build\codesign\odessa-codesign.pfx"
+$pfxPasswordPath = Join-Path $desktopDir "build\codesign\pfx-password.txt"
+$signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -like "*x64*" } | Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+$canSign = (Test-Path $pfxPath) -and (Test-Path $pfxPasswordPath) -and $signtool
+
+$appExe = Join-Path $desktopDir "build\stage\app\Odessa.exe"
+if ($canSign -and (Test-Path $appExe)) {
+    Write-Host "`nAssinando o programa (app\Odessa.exe)..." -ForegroundColor Cyan
+    $pfxPassword = Get-Content -Path $pfxPasswordPath -Raw
+    & $signtool sign /f $pfxPath /p $pfxPassword /fd SHA256 /tr "http://timestamp.digicert.com" /td SHA256 /d "Odessa" $appExe
+    if ($LASTEXITCODE -ne 0) { Write-Warning "Falha ao assinar o Odessa.exe (codigo $LASTEXITCODE) -- segue sem assinatura." }
+}
+
 Write-Host "`nCompilando o instalador com NSIS..." -ForegroundColor Cyan
 & $makensis (Join-Path $desktopDir "odessa.nsi")
 if ($LASTEXITCODE -ne 0) { throw "makensis falhou (codigo $LASTEXITCODE)." }
@@ -77,12 +93,7 @@ if (-not (Test-Path $outFile)) {
 # desktop/README.md) -- nao remove o aviso do SmartScreen pro publico em geral, mas troca
 # "Editor desconhecido" por "Odessa Studio" em qualquer maquina onde o .cer publico
 # (desktop/codesign/OdessaStudio-CodeSign.cer) for importado via desktop/trust-cert.ps1.
-$pfxPath = Join-Path $desktopDir "build\codesign\odessa-codesign.pfx"
-$pfxPasswordPath = Join-Path $desktopDir "build\codesign\pfx-password.txt"
-$signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" -ErrorAction SilentlyContinue |
-    Where-Object { $_.FullName -like "*x64*" } | Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
-
-if ((Test-Path $pfxPath) -and (Test-Path $pfxPasswordPath) -and $signtool) {
+if ($canSign) {
     Write-Host "`nAssinando o instalador (certificado autoassinado)..." -ForegroundColor Cyan
     $pfxPassword = Get-Content -Path $pfxPasswordPath -Raw
     & $signtool sign /f $pfxPath /p $pfxPassword /fd SHA256 /tr "http://timestamp.digicert.com" /td SHA256 /d "Odessa Studio" $outFile

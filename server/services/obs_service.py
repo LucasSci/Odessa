@@ -39,6 +39,8 @@ logger = logging.getLogger("odessa.obs")
 OBS_SETTINGS_FILE = RUNTIME_DIR / "obs_settings.json"
 DEFAULT_BROWSER_SOURCE_FILE = PROJECT_ROOT / "public" / "obs-chat-ocr.html"
 DEFAULT_STAGE_URL = OBS_STAGE_URL
+# Padrão antigo (servidor de desenvolvimento): no app instalado não responde e o OBS ficava vazio.
+LEGACY_STAGE_URLS = {"http://localhost:3000/#overlay", "http://127.0.0.1:3000/#overlay"}
 NOT_IDENTIFIED_MARKERS = (
     "notidentified",
     "not identified",
@@ -57,6 +59,36 @@ DEFAULT_BROWSER_SOURCE_HTML = """
   </body>
 </html>
 """.strip()
+
+
+_PROCESS_CHECK_TTL_S = 5.0
+_process_check: tuple[float, bool] = (0.0, False)
+
+
+def _is_local_url(url: str) -> bool:
+    host = urllib.parse.urlparse(url).hostname or ""
+    return host in {"localhost", "127.0.0.1", "::1"}
+
+
+def _obs_process_running() -> bool:
+    """O obs64.exe está aberto? (tasklist, ~0,1 s; resposta guardada por 5 s)."""
+    global _process_check
+    import subprocess
+
+    now = time.monotonic()
+    if now - _process_check[0] < _PROCESS_CHECK_TTL_S:
+        return _process_check[1]
+    try:
+        out = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq obs64.exe", "/NH", "/FO", "CSV"],
+            capture_output=True, text=True, timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        ).stdout
+        running = "obs64.exe" in out.lower()
+    except (OSError, subprocess.SubprocessError):
+        running = True  # na dúvida, tenta conectar como antes
+    _process_check = (now, running)
+    return running
 
 
 class OBSService:
@@ -87,6 +119,8 @@ class OBSService:
             str(settings.get("stageSourceName", OBS_STAGE_SOURCE_NAME)).strip() or OBS_STAGE_SOURCE_NAME
         )
         self.stage_url = str(settings.get("stageUrl", DEFAULT_STAGE_URL)).strip() or DEFAULT_STAGE_URL
+        if self.stage_url in LEGACY_STAGE_URLS and DEFAULT_STAGE_URL not in LEGACY_STAGE_URLS:
+            self.stage_url = DEFAULT_STAGE_URL
         self.startup_scene_name = (
             str(settings.get("startupSceneName", OBS_STARTUP_SCENE_NAME)).strip() or OBS_STARTUP_SCENE_NAME
         )
@@ -98,6 +132,8 @@ class OBSService:
         )
         self.canvas_width = self._positive_int(settings.get("canvasWidth"), OBS_STAGE_CANVAS_WIDTH)
         self.canvas_height = self._positive_int(settings.get("canvasHeight"), OBS_STAGE_CANVAS_HEIGHT)
+        # Configuração automática do perfil do Tango (ver tango_profile.auto_fix).
+        self.tango_auto_fix = bool(settings.get("tangoAutoFix", True))
         raw_whitelist = settings.get("sceneWhitelist", OBS_SCENE_WHITELIST)
         if isinstance(raw_whitelist, str):
             raw_whitelist = raw_whitelist.split(",")
@@ -163,6 +199,7 @@ class OBSService:
                     "canvasWidth": self.canvas_width,
                     "canvasHeight": self.canvas_height,
                     "sceneWhitelist": self.whitelist,
+                    "tangoAutoFix": self.tango_auto_fix,
                 },
         )
 
@@ -203,6 +240,7 @@ class OBSService:
             "canvasHeight": self.canvas_height,
             "sceneWhitelist": self.whitelist,
             "allowedScenes": self.whitelist,
+            "tangoAutoFix": self.tango_auto_fix,
         }
 
     def get_live_layout(self) -> dict[str, Any]:
@@ -265,6 +303,8 @@ class OBSService:
             self.canvas_width = self._positive_int(settings["canvasWidth"], self.canvas_width)
         if "canvasHeight" in settings:
             self.canvas_height = self._positive_int(settings["canvasHeight"], self.canvas_height)
+        if "tangoAutoFix" in settings:
+            self.tango_auto_fix = bool(settings["tangoAutoFix"])
         if "sceneWhitelist" in settings or "allowedScenes" in settings:
             raw_whitelist = settings.get("allowedScenes", settings.get("sceneWhitelist"))
             if isinstance(raw_whitelist, str):
@@ -294,8 +334,18 @@ class OBSService:
             )
         self._last_connect_attempt = now
 
-        logger.info("[OBS] Connecting to %s", self.ws_url)
-        self._client = simpleobsws.WebSocketClient(url=self.ws_url, password=self.password)
+        url = self.ws_url
+        if os.getenv("ODESSA_DESKTOP") == "1" and _is_local_url(url):
+            # OBS fechado: no Windows cada conexão recusada leva ~2 s (e
+            # "localhost" tenta IPv6 e depois IPv4: 4 s). A tela de cenas e o
+            # Diagnóstico esperavam isso a cada 30 s. Confere o processo antes.
+            if not _obs_process_running():
+                self.connected = False
+                raise RuntimeError("O OBS está fechado. Abra o OBS e tente de novo.")
+            url = url.replace("://localhost", "://127.0.0.1", 1)
+
+        logger.info("[OBS] Connecting to %s", url)
+        self._client = simpleobsws.WebSocketClient(url=url, password=self.password)
         try:
             await self._client.connect()
             identified = await self._client.wait_until_identified()
@@ -335,11 +385,14 @@ class OBSService:
         request_data: Optional[dict[str, Any]] = None,
         *,
         _retry_not_identified: bool = True,
+        timeout: int = 15,
     ) -> dict[str, Any]:
         await self.connect()
         assert self._client is not None
         try:
-            response = await self._client.call(simpleobsws.Request(request_type, request_data or {}))
+            request = simpleobsws.Request(request_type, request_data or {})
+            # Limite maior só quando pedido (ex.: trocar de perfil, que reinicia o vídeo).
+            response = await (self._client.call(request) if timeout == 15 else self._client.call(request, timeout=timeout))
         except Exception as exc:
             self.connected = False
             if _retry_not_identified and self._is_not_identified_error(exc):
@@ -349,6 +402,7 @@ class OBSService:
                     request_type,
                     request_data,
                     _retry_not_identified=False,
+                    timeout=timeout,
                 )
             logger.error("[OBS_ERROR] %s failed: %s", request_type, exc)
             raise RuntimeError(f"{request_type} failed: {exc}") from exc
@@ -369,6 +423,7 @@ class OBSService:
                     request_type,
                     request_data,
                     _retry_not_identified=False,
+                    timeout=timeout,
                 )
             logger.error("[OBS_ERROR] %s rejected: %s", request_type, comment or "unknown error")
             raise RuntimeError(f"{request_type} rejected: {comment or 'unknown error'}")

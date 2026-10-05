@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -77,7 +78,9 @@ async def add_message(conversation_id: str, request: MessageCreateRequest):
 @router.post("/{conversation_id}/reply")
 async def generate_reply(conversation_id: str, request: ReplyGenerateRequest):
     try:
-        return get_conversation_service().generate_reply(
+        # A geração chama a IA (segundos): fora do event loop.
+        return await asyncio.to_thread(
+            get_conversation_service().generate_reply,
             conversation_id,
             persona_prompt=request.personaPrompt,
             provider_model=request.model,

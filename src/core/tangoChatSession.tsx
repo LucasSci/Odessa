@@ -33,11 +33,12 @@ import {
 } from 'react';
 import {
   generateTangoChatReply,
+  warmLocalEngine,
   type TangoChatMessage,
 } from './tangoAiChatService';
-import { getAiConfig } from './aiConfig';
+import { getAiConfig, providerKeyFor, resolveEffectiveProvider } from './aiConfig';
 import { routeChatToTriggers } from './chatToTriggerBridge';
-import { rememberBridgeMessage } from './chatMemory';
+import { rememberBridgeMessage, rememberPersonaReply, requestMemoryLearning } from './chatMemory';
 import { createOwnEchoFilter } from './ownEchoFilter';
 import {
   classifyIncomingMessage,
@@ -57,6 +58,12 @@ import {
 } from './personaSelfConfig';
 import type { CapturedMessage } from '../types';
 import { usePolling } from './usePolling';
+import { useTabLeader } from '../lib/overlayLeader';
+
+/** Chat parado há este tempo = hora de transformar a conversa nova em memória. */
+const MEMORY_LEARN_IDLE_MS = 60_000;
+/** Só pede aprendizado depois de algumas mensagens novas (cada rodada usa a IA). */
+const MEMORY_LEARN_MIN_NEW = 6;
 
 // ─── Config & Endpoints ──────────────────────────────────────────────
 export const BRIDGE_URL = '/tango-bridge';
@@ -66,6 +73,17 @@ export const BRIDGE_API = '/api/v1/chat-automation/bridge';
 // modo "Autônomo" resetava para "assistido" a cada F5, tornando a conversa
 // autônoma pedida pelo usuário impossível de manter ligada de verdade.
 const AUTONOMY_STORAGE_KEY = 'odessa:tango:autonomy:v1';
+
+/**
+ * Versão em inglês da persona para as respostas em inglês — só quando o prompt
+ * em uso é o original dela. Prompt personalizado pelo operador é respeitado.
+ */
+function englishIdentity(persona: PersonaMeta | null | undefined, prompt: string): string | undefined {
+  const english = persona?.personalityEn?.trim();
+  if (!english) return undefined;
+  const current = prompt.trim();
+  return !current || current === (persona?.personality ?? '').trim() ? english : undefined;
+}
 
 // A cada quantas respostas autônomas realmente enviadas a persona para e
 // reflete sobre a conversa recente para (talvez) evoluir um traço duradouro.
@@ -475,7 +493,10 @@ export function TangoChatSessionProvider({
       const recordOwnReply = () => {
         setMessages((prev) => [
           ...prev.slice(-399),
-          { username: activePersona?.name || 'Você', text: clean, timestamp: new Date().toISOString() },
+          // own: é fala DELA. Sem a marca, a IA recebia as próprias falas como se
+          // fossem de um espectador chamado "Viktoria", e os filtros de repetição,
+          // emoji e pergunta (que olham as últimas falas dela) nunca agiam.
+          { username: activePersona?.name || 'Você', text: clean, timestamp: new Date().toISOString(), own: true },
         ]);
       };
 
@@ -526,7 +547,7 @@ export function TangoChatSessionProvider({
       setGeneratingForId(msg.timestamp || msg.text);
       setAiGenerationStartedAt(Date.now());
       try {
-        const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt);
+        const result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt, { personaId: activePersona?.id, identityEn: englishIdentity(activePersona, aiPrompt) });
         const kind = classifyIncomingMessage(msg);
         recordSessionEvent('ai.reply', {
           username: msg.username,
@@ -602,7 +623,7 @@ export function TangoChatSessionProvider({
       setAiGenerationStartedAt(Date.now());
       let result: Awaited<ReturnType<typeof generateTangoChatReply>>;
       try {
-        result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt);
+        result = await generateTangoChatReply(msg, unifiedMessages, aiPrompt, { personaId: activePersona?.id, identityEn: englishIdentity(activePersona, aiPrompt) });
       } finally {
         setGeneratingForId(null);
         setAiGenerationStartedAt(null);
@@ -663,6 +684,8 @@ export function TangoChatSessionProvider({
       }
       if (sent) {
         recordChatReplySent(msg.username);
+        // A fala dela entra na conversa lembrada com essa pessoa.
+        rememberPersonaReply(msg.username, result.reply, activePersona?.id);
         recordSessionEvent('ai.reply.sent', {
           username: msg.username,
           sourceText: msg.text,
@@ -730,6 +753,7 @@ export function TangoChatSessionProvider({
 
       const outcome = await sendWithOutcome(item.text);
       if (outcome.status !== 'failed') {
+        rememberPersonaReply(item.sourceMessage.username, item.text, activePersona?.id);
         recordSessionEvent('message.sent', {
           text: item.text,
           source: 'approved_reply',
@@ -833,7 +857,7 @@ export function TangoChatSessionProvider({
       setReplyQueue((prev) =>
         prev.map((i) => (i.id === item.id ? { ...i, status: 'draft', text: 'Regenerando com IA...' } : i)),
       );
-      const result = await generateTangoChatReply(item.sourceMessage, unifiedMessages, aiPrompt);
+      const result = await generateTangoChatReply(item.sourceMessage, unifiedMessages, aiPrompt, { personaId: activePersona?.id, identityEn: englishIdentity(activePersona, aiPrompt) });
       setReplyQueue((prev) =>
         prev.map((i) =>
           i.id === item.id
@@ -925,11 +949,56 @@ export function TangoChatSessionProvider({
   useEffect(() => {
     autonomyModeRef.current = autonomyMode;
   }, [autonomyMode]);
+  // Só uma janela do Odessa responde o chat sozinha (a mais antiga aberta).
+  const autoReplyLeader = useTabLeader('odessa-auto-reply');
+  const autoReplyLeaderRef = useRef(autoReplyLeader);
+  useEffect(() => {
+    autoReplyLeaderRef.current = autoReplyLeader;
+  }, [autoReplyLeader]);
+
+  // Memória que cresce: com o chat parado há 1 min, a IA ativa (a mesma que
+  // responde) transforma a conversa nova em fatos e resumos de cada pessoa.
+  const lastChatAtRef = useRef(0);
+  const unlearnedRef = useRef(0);
+  const activePersonaRef = useRef(activePersona);
+  useEffect(() => {
+    activePersonaRef.current = activePersona;
+  }, [activePersona]);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (!autoReplyLeaderRef.current || unlearnedRef.current < MEMORY_LEARN_MIN_NEW) return;
+      if (Date.now() - lastChatAtRef.current < MEMORY_LEARN_IDLE_MS) return;
+      unlearnedRef.current = 0;
+      const config = getAiConfig();
+      void requestMemoryLearning({
+        personaId: activePersonaRef.current?.id,
+        personaName: activePersonaRef.current?.name,
+        provider: resolveEffectiveProvider(config),
+        providerKey: providerKeyFor(config),
+        localModelUrl: config.localModelUrl,
+        localModelName: config.localModelName,
+      });
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const autoTriggerRef = useRef(handleAutoTriggerAi);
   useEffect(() => {
     autoTriggerRef.current = handleAutoTriggerAi;
   }, [handleAutoTriggerAi]);
+
+  // Live começou (bridge conectada): motor da IA local pronto e persona já lida,
+  // para a 1ª resposta sair na velocidade normal. Uma vez por conexão.
+  const warmedRef = useRef(false);
+  useEffect(() => {
+    if (!bridgeConnected) {
+      warmedRef.current = false;
+      return;
+    }
+    if (warmedRef.current) return;
+    warmedRef.current = true;
+    void warmLocalEngine(aiPrompt, englishIdentity(activePersona, aiPrompt));
+  }, [bridgeConnected, aiPrompt, activePersona]);
 
   useEffect(() => {
     if (!bridgeConnected) {
@@ -979,13 +1048,16 @@ export function TangoChatSessionProvider({
 
           // Memória do chat (#165): tendências + perfil por usuário.
           rememberBridgeMessage(msg, classifyIncomingMessage(msg));
+          lastChatAtRef.current = Date.now();
+          unlearnedRef.current += 1;
 
           // Roteia a mensagem para o trigger engine do backend (palavra-chave/
           // presente -> vídeo do fluxo publicado), com dedupe e cooldown.
-          void routeChatToTriggers(msg);
+          if (!msg.backlog) void routeChatToTriggers(msg);
 
-          // Se modo for Autônomo, dispara geração e envio automático
-          if (autonomyModeRef.current === 'auto') {
+          // Se modo for Autônomo, dispara geração e envio automático — nunca para
+          // mensagem que já estava na tela (redesenho do chat, não fala nova).
+          if (autonomyModeRef.current === 'auto' && !msg.backlog && autoReplyLeaderRef.current) {
             void autoTriggerRef.current(msg);
           }
         } catch { /* payload invalido: ignora */ }

@@ -168,14 +168,15 @@ export function PersonaChatLab() {
     setError(null);
     setElapsedSec(0);
     setSending(true);
-    const context = chatHistoryFor(history);
+    // As falas da persona marcadas como dela (own), como no chat da live.
+    const context = chatHistoryFor(history).map((m) => ({ username: m.username, text: m.text, timestamp: m.timestamp, own: m.role === 'assistant' }));
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const systemPrompt = [
-        persona.personality?.trim() || DEFAULT_PERSONA_PROMPT,
-        autoConfig ? buildSelfConfigPrompt(persona, facesByPersona[personaId] || []) : '',
-      ].join('');
+      const selfConfig = autoConfig ? buildSelfConfigPrompt(persona, facesByPersona[personaId] || []) : '';
+      const systemPrompt = [persona.personality?.trim() || DEFAULT_PERSONA_PROMPT, selfConfig].join('');
+      // Respostas em inglês: a mesma persona escrita em inglês (+ autoconfiguração).
+      const identityEn = persona.personalityEn?.trim() ? `${persona.personalityEn.trim()}${selfConfig}` : undefined;
       // Sem conversationMode/maxLength inflado: o Laboratório precisa gerar
       // exatamente a mesma resposta (mesmas regras de brevidade, diálogo real,
       // sem convites inventados) que o chat de verdade do Tango geraria pra
@@ -187,7 +188,7 @@ export function PersonaChatLab() {
         { username: 'Voce', text: userMessage.text, timestamp: userMessage.timestamp },
         context,
         systemPrompt,
-        { maxLength: 320, timeoutMs: 150_000, signal: controller.signal },
+        { maxLength: 320, timeoutMs: 150_000, signal: controller.signal, personaId, identityEn },
       );
 
       if (controller.signal.aborted) {

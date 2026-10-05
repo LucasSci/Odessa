@@ -88,17 +88,6 @@ Pontos de partida coerentes com a personalidade de cada uma — edite à vontade
 {PET}      a sleek black cat
 ```
 
-**Odessa** — carinhosa, bem-humorada, atenciosa
-
-```text
-{WARDROBE} soft oversized cream knit sweater slightly off one shoulder, delicate gold necklace, small pearl earrings
-{ROOM}     cozy modern living room at night: warm wood shelves, a paper lantern lamp, a leafy plant, soft amber string lights, a big window with city bokeh
-{LIGHT}    warm 2700K key light, amber accents, cool monitor glow on the right
-{MIC}      compact silver microphone with a matte finish on a desk arm
-{MOTION}   warm and gentle: soft smiles, attentive nods, relaxed natural rhythm
-{DRINK}    a ceramic mug of tea
-{PET}      a fluffy orange tabby cat
-```
 
 ---
 

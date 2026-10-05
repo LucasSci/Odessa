@@ -24,7 +24,7 @@ export interface TangoParseOptions {
   minConfidence?: number;
 }
 
-const DEFAULT_OWN_NAMES = ['odessa', 'juju'];
+const DEFAULT_OWN_NAMES = ['viktoria', 'barbara', 'odessa', 'juju'];
 const DEFAULT_MIN_CONFIDENCE = 0.45;
 
 const GIFT_RE =

@@ -42,9 +42,12 @@ async def _with_bridge(tango, scenario):
         await client.close()
 
 
-async def _hello(client, url="https://tango.me/stream/abc"):
+async def _hello(client, url="https://tango.me/stream/abc", version="1.1.0"):
     ws = await client.ws_connect("/extension")
-    await ws.send_json({"type": "hello", "url": url, "browser": "Microsoft Edge"})
+    hello = {"type": "hello", "url": url, "browser": "Microsoft Edge"}
+    if version:
+        hello["version"] = version
+    await ws.send_json(hello)
     config = await asyncio.wait_for(ws.receive_json(), 5)
     return ws, config
 
@@ -168,7 +171,7 @@ def test_preparar_extensao_gera_pasta_carregavel(client, tmp_path, monkeypatch):
     assert response.status_code == 200
     data = response.json()
     folder = Path(data["path"])
-    for name in ("manifest.json", "background.js", "content.js", "chat_observer.js", "popup.html", "popup.js", "config.js"):
+    for name in ("manifest.json", "background.js", "content.js", "chat_observer.js", "popup.html", "popup.js", "offscreen.html", "offscreen.js", "config.js"):
         assert (folder / name).exists(), name
     manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["manifest_version"] == 3
@@ -180,3 +183,130 @@ def test_preparar_extensao_gera_pasta_carregavel(client, tmp_path, monkeypatch):
     assert browser_extension.get_pairing_token() in config_js
     assert "/tango-bridge/extension" in config_js
     assert client.get("/api/v1/chat-automation/bridge/extension").json()["prepared"] is True
+
+
+def test_video_da_aba_pela_extensao_chega_ao_live(tango):
+    import base64
+    import struct
+
+    async def scenario(client, bridge):
+        ext, _ = await _hello(client)
+        await ext.send_json({"type": "page", "url": "https://tango.me/stream/abc", "title": "Live", "w": 1200, "h": 700})
+
+        viewer = await client.ws_connect("/live")
+        # 1º espectador liga a captura na extensão
+        assert (await asyncio.wait_for(ext.receive_json(), 5)) == {"type": "screencast", "on": True}
+        viewport = await asyncio.wait_for(viewer.receive_json(), 5)
+        assert viewport["type"] == "viewport" and viewport["w"] == 1200
+
+        jpeg = b"\xff\xd8fake-jpeg\xff\xd9"
+        await ext.send_json({"type": "frame", "data": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode(), "w": 1200, "h": 700})
+        frame = await asyncio.wait_for(viewer.receive_bytes(), 5)
+        assert struct.unpack(">HH", frame[:4]) == (1200, 700)
+        assert frame[4:] == jpeg
+
+        await ext.send_json({"type": "capture_error", "error": "aba escondida"})
+        assert (await asyncio.wait_for(viewer.receive_json(), 5))["error"] == "aba escondida"
+
+        # último espectador saiu: a extensão para de capturar
+        await viewer.close()
+        assert (await asyncio.wait_for(ext.receive_json(), 5)) == {"type": "screencast", "on": False}
+        await ext.close()
+
+    asyncio.run(_with_bridge(tango, scenario))
+
+
+def test_extensao_antiga_sem_video_avisa_o_painel(tango):
+    async def scenario(client, bridge):
+        ext, _ = await _hello(client, version=None)  # 1.0.0 não mandava versão
+        assert bridge.get_status()["extensionVersion"] == "1.0.0"
+        viewer = await client.ws_connect("/live")
+        notice = await asyncio.wait_for(viewer.receive_json(), 5)
+        assert notice["type"] == "error"
+        assert "desatualizada" in notice["error"] and "Recarregar" in notice["error"]
+        await viewer.close()
+        await ext.close()
+
+    asyncio.run(_with_bridge(tango, scenario))
+
+
+def test_barra_de_endereco_do_painel_navega_a_aba_da_extensao(tango):
+    async def scenario(client, bridge):
+        ext, _ = await _hello(client)
+        ok = await client.post("/goto", json={"url": "https://www.tango.me/stream/xyz"})
+        assert ok.status == 200
+        assert (await asyncio.wait_for(ext.receive_json(), 5)) == {"type": "navigate", "url": "https://www.tango.me/stream/xyz"}
+        blocked = await client.post("/goto", json={"url": "https://evil.example/"})
+        assert blocked.status == 400
+        await ext.close()
+
+    asyncio.run(_with_bridge(tango, scenario))
+
+
+def test_clique_rolagem_e_teclado_do_painel_chegam_a_extensao(tango):
+    async def scenario(client, bridge):
+        ext, _ = await _hello(client)
+        viewer = await client.ws_connect("/live")
+        assert (await asyncio.wait_for(ext.receive_json(), 5))["type"] == "screencast"
+
+        await viewer.send_json({"type": "mouse", "action": "move", "x": 1, "y": 1})  # arrastar/mover: ignorado
+        await viewer.send_json({"type": "mouse", "action": "click", "x": 10, "y": 20, "button": "left"})
+        got = await asyncio.wait_for(ext.receive_json(), 5)
+        assert got == {"type": "input", "kind": "mouse", "action": "click", "x": 10, "y": 20, "button": "left"}
+
+        await viewer.send_json({"type": "wheel", "x": 5, "y": 5, "deltaY": 800})
+        assert (await asyncio.wait_for(ext.receive_json(), 5))["kind"] == "wheel"
+        await viewer.send_json({"type": "key", "key": "Enter"})
+        assert (await asyncio.wait_for(ext.receive_json(), 5)) == {"type": "input", "kind": "key", "key": "Enter"}
+
+        typed = await client.post("/type", json={"text": "olá"})
+        assert typed.status == 200
+        assert (await asyncio.wait_for(ext.receive_json(), 5)) == {"type": "input", "kind": "type", "text": "olá"}
+        await viewer.close()
+        await ext.close()
+
+    asyncio.run(_with_bridge(tango, scenario))
+
+
+def test_chat_redesenhado_nao_vira_mensagem_nova(tango):
+    """Visto ao vivo: a lista virtualizada do Tango reentregava "Kungfu Panda:
+    Boa noite minha deusa deslumbrante" 7 vezes e a IA respondia de novo."""
+    async def scenario(client, bridge):
+        ext, _ = await _hello(client)
+        for _ in range(3):
+            await ext.send_json({"type": "message", "username": "Kungfu Panda", "text": "Boa noite minha deusa deslumbrante"})
+        await ext.send_json({"type": "message", "username": "ana", "text": "oi", "backlog": True})
+        first = await asyncio.wait_for(bridge.incoming.get(), 5)
+        second = await asyncio.wait_for(bridge.incoming.get(), 5)
+        assert (first.username, first.backlog) == ("Kungfu Panda", False)
+        assert (second.username, second.backlog) == ("ana", True)
+        await asyncio.sleep(0.2)
+        assert bridge.incoming.empty()  # as 2 repetições foram descartadas
+        assert [m.text for m in bridge.history].count("Boa noite minha deusa deslumbrante") == 1
+        await ext.close()
+
+    asyncio.run(_with_bridge(tango, scenario))
+
+
+def test_fala_da_persona_redesenhada_depois_continua_sendo_dela(tango):
+    """A fala enviada voltava minutos depois como "Espectador: Boa noite! Tá ótimo!"."""
+    async def scenario(client, bridge):
+        ext, _ = await _hello(client)
+
+        async def fake_tab():
+            frame = await asyncio.wait_for(ext.receive_json(), 5)
+            await ext.send_json({"type": "send_result", "id": frame["id"], "ok": True})
+            await ext.send_json({"type": "message", "username": "Odessa", "text": frame["text"]})
+
+        tab = asyncio.create_task(fake_tab())
+        await bridge.send_message("Boa noite! Tá ótimo! Como foi seu dia?")
+        await tab
+        echo = await asyncio.wait_for(bridge.incoming.get(), 5)
+        assert echo.own is True
+        bridge._seen_messages.clear()  # passou a janela de repetição; o chat redesenha
+        await ext.send_json({"type": "message", "username": "Espectador", "text": "Boa noite! Tá ótimo! Como foi seu dia?"})
+        redrawn = await asyncio.wait_for(bridge.incoming.get(), 5)
+        assert redrawn.own is True  # não vira fala de espectador (a IA não responde a si mesma)
+        await ext.close()
+
+    asyncio.run(_with_bridge(tango, scenario))

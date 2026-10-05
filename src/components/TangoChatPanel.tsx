@@ -47,6 +47,7 @@ import {
 import { Badge, Button, ConfirmButton, Modal } from './ui';
 import { LiveReadinessPanel } from './LiveReadinessPanel';
 import { ChatMemoryProfiles } from './ChatMemoryProfiles';
+import { PersonaSelfFacts } from './MemoryFactsPanels';
 import { describeSendOutcome, SEND_OUTCOME_ICON } from '../core/sendOutcome';
 import { MemoriesUsed, ReplyCardFrame, ReplyStatusBadge } from './ReplyStatus';
 import { describeChatAutonomy } from '../core/chatConversationGovernor';
@@ -80,6 +81,7 @@ import { UnifiedLivePanel, type VideoStateLite } from './UnifiedLivePanel';
 import { BridgeConnectionGuide } from './BridgeConnectionGuide';
 import { LiveBrowserPicker, type LiveBrowser } from './LiveBrowserPicker';
 import { BrowserExtensionCard } from './BrowserExtensionCard';
+import { ActiveAiBadge } from './ActiveAiBadge';
 import type { AutopilotRuntimeState } from '../core/useAutopilotRuntime';
 import type { CapturedMessage } from '../types';
 
@@ -368,7 +370,7 @@ export function TangoChatPanel({
   };
 
   
-  const handleSelectWizardPreset = async () => {
+  const handleSelectWizardPreset = async (mode = '') => {
     const newConf: BridgeConfig = {
       ...bridgeConfig,
       // Forcados (nao herdados do bridgeConfig atual): o wizard e especificamente
@@ -377,7 +379,9 @@ export function TangoChatPanel({
       // (ex.: de uma aba do navegador aberta antes de uma correcao/reset da
       // config) ficava se auto-perpetuando: toda vez que o wizard rodava de
       // novo, ele resalvava o mesmo valor velho de volta no disco.
-      mode: '',
+      // Exceção: com a extensão (aba já logada do usuário) o modo fica
+      // "extension" — senão a bridge voltava a abrir outro navegador.
+      mode,
       autoconnect: true,
       roomUrl: 'https://tango.me/stream/broadcast',
       selectors: {
@@ -391,6 +395,7 @@ export function TangoChatPanel({
     };
     setBridgeConfig(newConf);
     // Salva imediatamente no backend para que a bridge use as configurações certas
+    // (o modo extensão salva de novo em handleUseExtension, que também sobe a bridge)
     await fetchJson(`${BRIDGE_API}/config`, {
       method: 'POST',
       body: JSON.stringify(newConf),
@@ -421,26 +426,60 @@ export function TangoChatPanel({
     return status;
   }
 
+  /** Extensão em uso: modo "extension" escolhido, ou Automático com a extensão já preparada. */
+  const shouldUseExtension = async (): Promise<boolean> => {
+    if (bridgeConfig.mode === 'extension') return true;
+    if (bridgeConfig.mode !== '') return false; // standalone/cdp escolhidos de propósito
+    const info = await fetchJson<{ prepared?: boolean }>(`${BRIDGE_API}/extension`);
+    return Boolean(info?.prepared);
+  };
+
   const handleRunFullAutoSetup = async () => {
     setAutoConfiguring(true);
     setWizardTestResult(null);
     try {
+      const viaExtension = await shouldUseExtension();
+
       // 1. Salva Config
       setAutoConfigStepName('1/4: Salvando configuração do alvo...');
-      await handleSelectWizardPreset();
+      await handleSelectWizardPreset(viaExtension ? 'extension' : '');
+
+      if (viaExtension) {
+        // 2-3. Sem abrir navegador: a bridge espera a aba do Tango em que o
+        // usuário já está logado (Edge/Chrome com a extensão do Odessa).
+        setAutoConfigStepName('2/4: Aguardando a aba do Tango com a extensão...');
+        await handleUseExtension();
+        const extStatus = await pollUntil(
+          refreshStatus,
+          (s) => s?.bridgeStatus?.mode === 'extension' && s?.bridgeStatus?.status === 'connected',
+          { intervalMs: 1000, timeoutMs: 45000 },
+        );
+        if (!(extStatus?.bridgeStatus?.mode === 'extension' && extStatus?.bridgeStatus?.status === 'connected')) {
+          setWizardStep(2);
+          setWizardTestResult(
+            '⚠️ A aba do Tango com a extensão do Odessa não conectou a tempo.\n\n' +
+              'Verifique se:\n' +
+              '• A extensão "Odessa — Chat do Tango" está ativa no navegador logado (edge://extensions)\n' +
+              '• A sua live está aberta no Tango nesse navegador — recarregue a aba (F5)\n' +
+              '• O ícone da extensão mostra ON (clique nele para ver o motivo, se não mostrar)\n\n' +
+              (extStatus?.bridgeStatus?.error ? `Erro da bridge: ${extStatus.bridgeStatus.error}` : ''),
+          );
+          return;
+        }
+      }
 
       // 2. Abre Chrome se necessário (espera de verdade a porta 9222 responder,
       // em vez de assumir que 2s bastam)
       setAutoConfigStepName('2/4: Verificando / Abrindo navegador...');
       let latestChromeStatus = chromeStatus;
-      if (!latestChromeStatus?.runningWithDebug) {
+      if (!viaExtension && !latestChromeStatus?.runningWithDebug) {
         await handleLaunchChrome();
         latestChromeStatus = await pollUntil(refreshChromeStatus, (s) => !!s?.runningWithDebug, {
           intervalMs: 1000,
           timeoutMs: 15000,
         });
       }
-      if (!latestChromeStatus?.runningWithDebug) {
+      if (!viaExtension && !latestChromeStatus?.runningWithDebug) {
         setWizardStep(2);
         setWizardTestResult(
           `⚠️ O ${liveBrowserName} não respondeu na porta de depuração 9222 a tempo.\n\n` +
@@ -455,11 +494,11 @@ export function TangoChatPanel({
       // 3. Inicia Bridge e Conecta (idem: espera o status confirmar em vez de
       // um delay fixo seguido de leitura do estado antigo)
       setAutoConfigStepName('3/4: Iniciando Bridge e acoplando à aba...');
-      if (!processRunning) {
+      if (!viaExtension && !processRunning) {
         await handleStartProcess();
         await pollUntil(refreshStatus, (s) => !!s?.processRunning, { intervalMs: 800, timeoutMs: 10000 });
       }
-      await handleConnectBridge();
+      if (!viaExtension) await handleConnectBridge();
       const finalStatus = await pollUntil(
         refreshStatus,
         (s) => s?.bridgeStatus?.status === 'connected' || Boolean(s?.bridgeStatus?.error),
@@ -713,6 +752,7 @@ export function TangoChatPanel({
                 <span className={cn('h-1.5 w-1.5 rounded-full', bridgeConnected ? 'bg-emerald-400 animate-ping' : 'bg-slate-500')} />
                 {bridgeConnected ? 'Conectado · Ao Vivo' : processRunning ? 'Bridge Pronta' : 'Desconectado'}
               </span>
+              <ActiveAiBadge />
               {bridgeConnected && sseState !== 'connected' && (
                 <span
                   className={cn(
@@ -1789,6 +1829,7 @@ export function TangoChatPanel({
             </ConfirmButton>
           </div>
           <ChatMemoryProfiles key={memoryResetCount} />
+          <PersonaSelfFacts key={`persona-${memoryResetCount}`} />
           <div className="rounded-2xl border border-white/10 bg-[#0c0e12] p-4 space-y-3">
             <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400">Tópicos Mais Falados</h4>
             <div className="space-y-1.5">

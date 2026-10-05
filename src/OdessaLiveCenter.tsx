@@ -22,6 +22,7 @@ import {
   Stethoscope,
   Upload,
   Users,
+  Clapperboard,
   Volume2,
   VolumeX,
 } from 'lucide-react';
@@ -61,9 +62,13 @@ import { applyVideoEdit, getVideoEdit, hasVideoEdit, persistVideoEditDebounced, 
 import { getAiConfig, hasActiveGeminiKey, type AiAutonomyLevel } from './core/aiConfig';
 import { PageActivity, usePageActive } from './core/pageActivity';
 import { usePolling } from './core/usePolling';
+import { useWindowVisible } from './core/windowVisibility';
+import { useVideoStateNudge } from './lib/videoStateEvents';
 import { useLiveSupervisor } from './core/useLiveSupervisor';
 import { PAGE_ORDER, hashForPage, pageFromHash, pageForShortcut, pageOfTab, type PageKey } from './core/pageRoutes';
 import { LegalLinks } from './components/LegalLinks';
+import { ShutdownButton } from './components/ShutdownButton';
+import { ASK_SHUTDOWN_EVENT } from './core/desktopBridge';
 
 const loadReactiveFlowBoard = () => import('./ReactiveFlowBoard');
 const loadPlanningCanvas = () => import('./PlanningCanvas');
@@ -83,6 +88,7 @@ const loadAdminPanel = () => import('./components/AdminPanel');
 const loadSessionHistoryPanel = () => import('./components/SessionHistoryPanel');
 const loadSettingsPanel = () => import('./components/SettingsPanel');
 const loadAiConfigPanel = () => import('./components/AiConfigPanel');
+const loadIdleStudioPage = () => import('./components/idleStudio/IdleStudioPage');
 
 const PersonasPanel = lazy(() => loadPersonasPanel().then((m) => ({ default: m.PersonasPanel })));
 const PersonaChatLab = lazy(() => loadPersonaChatLab().then((m) => ({ default: m.PersonaChatLab })));
@@ -90,6 +96,7 @@ const AdminPanel = lazy(() => loadAdminPanel().then((m) => ({ default: m.AdminPa
 const SessionHistoryPanel = lazy(() => loadSessionHistoryPanel().then((m) => ({ default: m.SessionHistoryPanel })));
 const SettingsPanel = lazy(() => loadSettingsPanel().then((m) => ({ default: m.SettingsPanel })));
 const AiConfigPanel = lazy(() => loadAiConfigPanel().then((m) => ({ default: m.AiConfigPanel })));
+const IdleStudioPage = lazy(loadIdleStudioPage);
 
 function prefetchTabChunks() {
   const loaders = [loadPersonasPanel, loadPersonaChatLab, loadAdminPanel, loadSessionHistoryPanel, loadSettingsPanel, loadAiConfigPanel];
@@ -103,6 +110,7 @@ function prefetchTabChunks() {
 // até o clique (~100–300 ms depois) o chunk já está pronto e a página abre sem
 // o "Carregando…". Cobre também o Fluxo e o Mural, que ficam fora do prefetch ocioso.
 const PAGE_PREFETCH: Partial<Record<PageKey, Array<() => Promise<unknown>>>> = {
+  studio: [loadIdleStudioPage],
   flow: [loadReactiveFlowBoard, loadReactiveFlowLogLab],
   conversation: [loadPersonaChatLab],
   personas: [loadPersonasPanel],
@@ -159,6 +167,7 @@ type TabKey =
   | 'live'
   | 'conversation'
   | 'library'
+  | 'studio'
   | 'flow'
   | 'history'
   | 'personas'
@@ -713,11 +722,17 @@ export default function OdessaLiveCenter({
     return () => window.clearTimeout(initialLoadTimer);
   }, [loadConfig, refreshAutomationLogs, refreshVideoState]);
 
-  // Estado da reprodução em tempo real (600 ms) onde ela aparece — Ao Vivo e
-  // Automações; nas demais páginas 3 s bastam para a barra superior. Continua
-  // com a aba do navegador em segundo plano (o OBS costuma ficar na frente).
+  // Estado da reprodução (só mostra o que está no ar; quem troca os clips é o
+  // palco no OBS): 1 s onde ele aparece — Ao Vivo e Automações; 3 s nas demais
+  // páginas para a barra superior. Pausa com a janela escondida (na bandeja) e
+  // consulta na hora ao voltar: numa live de 14 h eram 143 mil consultas.
   const playbackVisible = activePage === 'live' || activePage === 'flow';
-  usePolling(() => refreshVideoState(), playbackVisible ? 600 : 3000, { immediate: playbackVisible, pauseWhenHidden: false });
+  const windowVisible = useWindowVisible();
+  // Com o aviso do servidor (SSE) a tela atualiza na hora em que o palco muda;
+  // a consulta fica só de reserva, bem mais espaçada.
+  const stateStreaming = useVideoStateNudge(() => void refreshVideoState(), windowVisible);
+  const statePollMs = stateStreaming ? 10_000 : playbackVisible ? 1000 : 3000;
+  usePolling(() => refreshVideoState(), statePollMs, { immediate: playbackVisible, enabled: windowVisible });
   usePolling(() => refreshAutomationLogs(), 5000, { enabled: activePage === 'flow' && flowSubTab === 'logs' });
 
   useEffect(() => {
@@ -840,12 +855,20 @@ export default function OdessaLiveCenter({
       nav('stage', 'Palco', 'ao vivo live obs clips', () => goLive('stage')),
       nav('central', 'Central da Live', 'chat bridge tango mensagens', () => goLive('central')),
       nav('library', 'Biblioteca', 'videos clips hub roteiro', () => setActiveTab('library')),
+      nav('studio', 'Estúdio da IDLE', 'prompts gerar imagens videos kit fluxo producao', () => setActiveTab('studio')),
       nav('flow', 'Automações', 'fluxo gatilhos canvas', () => setActiveTab('flow')),
       nav('conversation', 'Conversar', 'laboratorio persona chat teste', () => setActiveTab('conversation')),
       nav('personas', 'Personas', 'gerar conteudo foto video', () => setActiveTab('personas')),
       nav('history', 'Histórico', 'sessao eventos log', () => setActiveTab('history')),
       nav('settings', 'Configurações', 'ajustes ia obs voz', () => setActiveTab('settings')),
       nav('admin', 'Diagnóstico', 'saude servicos ollama', () => setActiveTab('admin')),
+      {
+        id: 'system-shutdown',
+        title: 'Desligar Odessa',
+        group: 'Sistema',
+        keywords: 'sair fechar encerrar desligar parar servidor',
+        run: () => { window.dispatchEvent(new Event(ASK_SHUTDOWN_EVENT)); },
+      },
       {
         id: 'live-idle',
         title: 'Voltar ao Idle',
@@ -955,7 +978,10 @@ export default function OdessaLiveCenter({
         </nav>
 
         <DirectorStatusCard runtime={runtime} onOpen={() => { setActiveTab('personas'); }} />
-        <LegalLinks className="px-4 pb-3" />
+        <div className="flex items-center justify-between gap-2 px-3 pb-3">
+          <LegalLinks className="px-1" />
+          <ShutdownButton className="shrink-0 text-slate-400 hover:text-red-300" />
+        </div>
       </aside>
 
       {/* Coluna principal: topbar + conteúdo */}
@@ -1094,6 +1120,17 @@ export default function OdessaLiveCenter({
           </PagePane>
         )}
 
+        {/* ESTÚDIO DA IDLE (prompts → anexos → fluxo) */}
+        {visitedPages.has('studio') && (
+          <PagePane page="studio" active={activePage === 'studio'}>
+            <div className="h-full min-h-0 overflow-y-auto">
+              <Suspense fallback={<PanelLoading label="Carregando o Estúdio da IDLE" />}>
+                <IdleStudioPage />
+              </Suspense>
+            </div>
+          </PagePane>
+        )}
+
         {/* 3. AUTOMAÇÕES (Fluxo Reativo + Logs) */}
         {visitedPages.has('flow') && (
           <PagePane page="flow" active={activePage === 'flow'}>
@@ -1194,7 +1231,7 @@ export default function OdessaLiveCenter({
                 onChange={(id) => setSettingsSubTab(id as 'general' | 'ai' | 'canvas')}
                 items={[
                   { id: 'general', label: 'OBS & Webhooks', icon: <Settings style={{ width: 13, height: 13 }} /> },
-                  { id: 'ai', label: 'Diretora IA', icon: <Brain style={{ width: 13, height: 13 }} /> },
+                  { id: 'ai', label: 'IA e chaves', icon: <Brain style={{ width: 13, height: 13 }} /> },
                   { id: 'canvas', label: 'Mural de Planejamento', icon: <ClipboardCheck style={{ width: 13, height: 13 }} /> },
                 ]}
               />
@@ -1217,7 +1254,7 @@ export default function OdessaLiveCenter({
               )}
               {settingsSubTab === 'ai' && (
                 <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                  <Suspense fallback={<PanelLoading label="Carregando Diretora IA" />}>
+                  <Suspense fallback={<PanelLoading label="Carregando IA e chaves" />}>
                     <AiConfigPanel />
                   </Suspense>
                 </div>
@@ -1329,12 +1366,13 @@ export const DEFAULT_OBS_SETTINGS: ObsSettings = {
   ocrSourceName: 'Odessa Chat OCR',
   chatSourceName: 'Odessa Chat OCR',
   stageSourceName: 'Odessa Stage Overlay',
-  stageUrl: 'http://localhost:3000/#overlay',
+  stageUrl: '', // vazio = automático (endereço do próprio app, ver lib/stageUrl.ts)
   startupSceneName: 'Odessa START',
   liveSceneName: 'Odessa LIVE',
   transmissionMode: 'stream',
-  canvasWidth: 1080,
-  canvasHeight: 1920,
+  // Mesma tela do perfil do Tango no OBS (server/data/obs/tango_profile).
+  canvasWidth: 720,
+  canvasHeight: 1280,
   sceneWhitelist: [],
   allowedScenes: [],
 };
@@ -1443,6 +1481,7 @@ const TAB_META: Record<TabKey, { group: string; title: string }> = {
   live:     { group: 'Operação', title: 'Ao Vivo' },
   conversation: { group: 'Laboratório', title: 'Conversa com Personas' },
   library:  { group: 'Conteúdo', title: 'Biblioteca' },
+  studio:   { group: 'Conteúdo', title: 'Estúdio da IDLE' },
   flow:     { group: 'Operação', title: 'Automações' },
   personas: { group: 'Conteúdo', title: 'Personas de IA' },
   history:  { group: 'Operação', title: 'Histórico da Live' },
@@ -1450,7 +1489,7 @@ const TAB_META: Record<TabKey, { group: string; title: string }> = {
   admin:    { group: 'Sistema',  title: 'Diagnóstico do Sistema' },
   home:     { group: 'Operação', title: 'Central da Live' },
   stage:    { group: 'Operação', title: 'Palco' },
-  ai:       { group: 'Configuração', title: 'Diretora IA' },
+  ai:       { group: 'Configuração', title: 'IA e chaves' },
   chat:     { group: 'Operação', title: 'Central da Live' },
   canvas:   { group: 'Conteúdo', title: 'Mural de Planejamento' },
   logs:     { group: 'Sistema',  title: 'Logs' },
@@ -1459,6 +1498,7 @@ const TAB_META: Record<TabKey, { group: string; title: string }> = {
 const NAV_LABELS: Record<PageKey, string> = {
   live: 'Ao Vivo',
   library: 'Biblioteca',
+  studio: 'Estúdio IDLE',
   flow: 'Automações',
   conversation: 'Conversar',
   personas: 'Personas',
@@ -1470,6 +1510,7 @@ const NAV_LABELS: Record<PageKey, string> = {
 const NAV_ICONS: Record<PageKey, ReactNode> = {
   live: <RadioTower />,
   library: <Film />,
+  studio: <Clapperboard />,
   flow: <Link2 />,
   conversation: <MessageCircle />,
   personas: <Users />,

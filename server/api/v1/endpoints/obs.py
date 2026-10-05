@@ -1,6 +1,7 @@
+import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, File, Form, Query, UploadFile
 from pydantic import BaseModel
 
 from server.config import OBS_OCR_SOURCE_NAME
@@ -8,6 +9,7 @@ from server.services.obs_service import obs_service
 
 
 router = APIRouter(tags=["OBS"])
+logger = logging.getLogger("odessa.routes.obs")
 
 
 class ObsScreenshotRequest(BaseModel):
@@ -44,6 +46,7 @@ class ObsSettingsRequest(BaseModel):
     startupSceneName: Optional[str] = None
     liveSceneName: Optional[str] = None
     transmissionMode: Optional[str] = None
+    tangoAutoFix: Optional[bool] = None
     canvasWidth: Optional[int] = None
     canvasHeight: Optional[int] = None
     sceneWhitelist: Optional[list[str] | str] = None
@@ -262,6 +265,22 @@ async def obs_start_live_dry_run(request: ObsStartLiveRequest):
     return {**_live_plan_from_request(request, health), "dryRun": True}
 
 
+async def _wait_obs_back(obs, timeout_s: float = 60.0) -> None:
+    """Espera o OBS reaberto aceitar o WebSocket de novo."""
+    import asyncio
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        await asyncio.sleep(3)
+        try:
+            health = await obs.live_health(force_reconnect=True)
+            if health.get("connected") is not False:
+                return
+        except Exception:  # noqa: BLE001 — ainda abrindo
+            pass
+
+
 @router.post("/start-live")
 async def obs_start_live(request: ObsStartLiveRequest):
     if request.actionMode != "real":
@@ -269,6 +288,17 @@ async def obs_start_live(request: ObsStartLiveRequest):
         return {**_live_plan_from_request(request, health), "dryRun": True}
     results: list[dict[str, Any]] = []
     try:
+        if request.startTransmission and obs_service.tango_auto_fix:
+            # Configuração automática do perfil do Tango antes de ir ao ar: com o
+            # perfil duplicado/diferente do modelo, conserta (fecha e reabre o OBS).
+            from server.services import tango_profile
+
+            tango = await tango_profile.auto_fix(obs_service, allow_restart=True)
+            results.append({"id": "tangoProfile", "result": tango})
+            if tango["action"] == "blocked":
+                return {"ok": False, "results": results, "error": tango["message"]}
+            if tango["action"] == "fixed" and tango["result"].get("obsRestarted"):
+                await _wait_obs_back(obs_service)
         if request.prepareObs:
             health = await obs_service.live_health(force_reconnect=True)
             if health.get("connected") is False:
@@ -391,3 +421,41 @@ async def obs_switch_scene(request: ObsSwitchSceneRequest):
     if not scene_name:
         return {"ok": False, "status": "blocked", "error": "scene_missing"}
     return await obs_service.switch_scene(scene_name)
+
+
+@router.get("/tango-profile/status")
+async def obs_tango_profile_status():
+    """Perfis do Tango no OBS, o que difere do modelo e quando a chave vence (sem a chave)."""
+    import asyncio
+
+    from server.services import tango_profile
+
+    running = bool(await asyncio.to_thread(tango_profile._obs_processes))
+    return await asyncio.to_thread(tango_profile.status, obs_running=running)
+
+
+@router.post("/tango-profile/clean")
+async def obs_tango_profile_clean(
+    streamKey: Optional[str] = Form(None),
+    profileZip: Optional[UploadFile] = File(None),
+):
+    """Configuração limpa: fecha o OBS, apaga os perfis do Tango (com backup), cria um
+    só a partir do modelo (ou do .zip do Tango) com a chave e reabre o OBS.
+
+    A chave nunca é gravada pelo Odessa fora do perfil do OBS nem volta na resposta."""
+    from fastapi import HTTPException
+
+    from server.services import tango_profile
+
+    zip_bytes = await profileZip.read(tango_profile.ZIP_MAX_BYTES + 1) if profileZip else None
+    try:
+        return await tango_profile.clean_setup(obs_service, streamKey, zip_bytes)
+    except tango_profile.ProfileError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from exc
+    except Exception as exc:
+        # Sem a chave na mensagem: os erros de arquivo/processo não a contêm, mas não arriscamos.
+        message = str(exc)
+        if streamKey:
+            message = message.replace(streamKey.strip(), "***")
+        logger.error("[perfil Tango] configuração limpa falhou: %s", message)
+        raise HTTPException(status_code=500, detail=f"A configuração limpa falhou: {message}") from exc

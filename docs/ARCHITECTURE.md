@@ -64,6 +64,26 @@ Player de vídeo (overlay no OBS)
 5. **Laboratório de personas** (`src/components/PersonaChatLab.tsx`) — permite
   testar cada personalidade em uma conversa local, com histórico separado por
   persona, sem iniciar a bridge ou enviar mensagens para o Tango.
+6. **Palco contínuo** (`src/PersonaOverlay.tsx`, `src/core/playback/stageSeam.ts`,
+   `src/lib/stageSlots.ts`) — os clipes do fluxo são gerados em cadeia (o
+   primeiro quadro de um é o último do anterior), então a troca não pode
+   aparecer:
+   - o próximo clipe (o `upcoming[0]` do servidor) fica carregado e parado no
+     2º quadro na camada escondida — o 1º repete o último do anterior;
+   - quando o último quadro do atual vai à tela, a camada pronta entra um
+     quadro depois, sem esperar o servidor; o aviso de fim (`/video/advance`)
+     vai em paralelo;
+   - a camada que entra aparece por cima e a de baixo fica inteira até ser
+     coberta (nada de escurecer no meio), e nenhuma camada aparece antes de ter
+     o quadro decodificado (nada de quadro preto);
+   - se outro player avisou o fim antes e o clipe daqui está no finzinho (≤ 2 s),
+     ele termina e emenda em vez de ser cortado.
+
+   Reações de gatilho entram emendadas também (`video_service.py`): com pose
+   conhecida (Estúdio da IDLE: `startPose`/`endPose`, ou `A0→A1` no nome), a
+   reação espera o clipe no ar terminar na pose em que ela começa — passando
+   pela transição de volta se a cena estiver noutra pose. Sem pose conhecida, ou
+   com `immediate: true` na ação, entra na hora como antes.
 
 ## Estrutura de diretórios
 

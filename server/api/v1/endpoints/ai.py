@@ -4,7 +4,7 @@ import logging
 import re
 import shutil
 import subprocess
-from typing import Any
+from typing import Any, Optional
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -24,9 +24,23 @@ GEMINI_MODEL_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _gemini_rate_limiter = RateLimiter(limit=30, window_s=60.0)
 
 
-async def _check_ollama(timeout: float = 2.5) -> dict[str, Any]:
+# Várias telas e o /health/deps perguntavam ao Ollama a cada ~2 s; 10 s de cache
+# bastam para status (o "Conectar Ollama" pede `fresh=True` enquanto espera subir).
+OLLAMA_STATUS_TTL_S = 10.0
+_ollama_status_cache: tuple[float, dict[str, Any]] | None = None
+
+
+async def _check_ollama(timeout: float = 2.5, *, fresh: bool = False) -> dict[str, Any]:
     """Verifica se o Ollama está acessível e se o modelo configurado está instalado."""
+    global _ollama_status_cache
+    import time
+
     from server.config import OLLAMA_BASE_URL, OLLAMA_MODEL
+    from server.core.http_clients import shared_ssl_context
+
+    now = time.monotonic()
+    if not fresh and _ollama_status_cache and now - _ollama_status_cache[0] < OLLAMA_STATUS_TTL_S:
+        return dict(_ollama_status_cache[1])
 
     result: dict[str, Any] = {
         "configured": True,
@@ -37,7 +51,7 @@ async def _check_ollama(timeout: float = 2.5) -> dict[str, Any]:
         "installedModels": [],
     }
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, verify=shared_ssl_context()) as client:
             response = await client.get(f"{OLLAMA_BASE_URL}/api/tags")
         result["reachable"] = response.is_success
         if response.is_success:
@@ -46,6 +60,7 @@ async def _check_ollama(timeout: float = 2.5) -> dict[str, Any]:
             result["modelInstalled"] = OLLAMA_MODEL in models
     except Exception:
         pass
+    _ollama_status_cache = (now, dict(result))
     return result
 
 
@@ -105,6 +120,115 @@ async def ai_status():
     return {"provider": AI_PROVIDER, "ollama": ollama, "claude": claude}
 
 
+def ollama_serve_env() -> dict[str, str]:
+    """Ambiente do `ollama serve` iniciado pelo Odessa.
+
+    Por padrão o Ollama descarta GPU integrada (log: "dropping integrated GPU;
+    to enable, set OLLAMA_IGPU_ENABLE=1") e roda só na CPU — que numa live já
+    está ocupada com OBS e navegador. Na GPU integrada (Vulkan) o modelo tira a
+    carga da CPU sem derrubar quadros do OBS (medido: 0 quadros pulados).
+    Quem definir OLLAMA_IGPU_ENABLE=0 no ambiente mantém só CPU.
+    """
+    import os
+
+    env = dict(os.environ)
+    env.setdefault("OLLAMA_IGPU_ENABLE", "1")
+    return env
+
+
+# `ollama serve` aberto pelo próprio Odessa ("Conectar Ollama"): só este é
+# encerrado ao desligar — um Ollama que o usuário já tinha aberto fica.
+_owned_ollama_proc: subprocess.Popen | None = None
+
+
+def stop_owned_ollama() -> bool:
+    """Encerra o `ollama serve` que o Odessa iniciou (se ainda estiver vivo)."""
+    global _owned_ollama_proc
+    proc, _owned_ollama_proc = _owned_ollama_proc, None
+    if proc is None or proc.poll() is not None:
+        return False
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    return True
+
+
+@router.post("/ollama/unload")
+async def ollama_unload():
+    """Desliga a IA local ao trocar para uma IA de nuvem.
+
+    Tira da memória todo modelo carregado no Ollama (keep_alive=0) e pausa o
+    keep-alive do servidor, liberando RAM/GPU para OBS e navegador. A IA local
+    volta sozinha se uma resposta for pedida a ela de novo.
+    """
+    from server.config import OLLAMA_BASE_URL
+    from server.services.ai_service import pause_local_ai
+
+    from server.services.local_engine import local_engine
+
+    pause_local_ai()
+    unloaded: list[str] = []
+    if local_engine.running:
+        # Motor do Odessa na GPU: parar o processo devolve a RAM na hora.
+        unloaded.append(f"motor local ({local_engine.status().get('model')})")
+        await asyncio.to_thread(local_engine.stop)
+    url = OLLAMA_BASE_URL.strip().rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            loaded = (await client.get(f"{url}/api/ps")).json().get("models") or []
+            for model in loaded:
+                name = model.get("name") or model.get("model")
+                if not name:
+                    continue
+                await client.post(f"{url}/api/generate", json={"model": name, "keep_alive": 0})
+                unloaded.append(name)
+    except Exception as exc:  # Ollama fechado = já está "desligado"
+        logger.info("[ollama/unload] Ollama indisponível: %s", exc)
+    return {"ok": True, "unloaded": unloaded}
+
+
+class WarmupRequest(BaseModel):
+    persona_prompt: str
+    local_model_name: Optional[str] = None
+
+
+@router.post("/warmup")
+def ai_warmup(request: WarmupRequest):
+    """Início da live: deixa o motor local pronto com a persona já lida."""
+    from server.services.ai_service import remember_local_model
+
+    remember_local_model(request.local_model_name, None)
+    try:
+        return {"ok": True, "warmed": get_ai_service().warm_local_engine(request.persona_prompt, request.local_model_name)}
+    except Exception as exc:  # noqa: BLE001 — aquecer é opcional
+        logger.info("[warmup] motor local não aqueceu: %s", exc)
+        return {"ok": True, "warmed": False}
+
+
+class EngineModeRequest(BaseModel):
+    mode: str
+
+
+@router.get("/engine")
+async def ai_engine_status():
+    """Motor da IA local: GPU integrada (llama.cpp do Odessa) ou Ollama."""
+    from server.services.local_engine import engine_mode, local_engine
+
+    return {"mode": engine_mode(), **local_engine.status()}
+
+
+@router.post("/engine")
+async def ai_engine_set(request: EngineModeRequest):
+    from server.services.local_engine import engine_mode, local_engine, set_engine_mode
+
+    set_engine_mode(request.mode)
+    if engine_mode() != "gpu":
+        await asyncio.to_thread(local_engine.stop)  # devolve a RAM na hora
+    return {"mode": engine_mode(), **local_engine.status()}
+
+
 @router.post("/ollama/connect")
 async def ollama_connect():
     """Garante que o Ollama esteja rodando e com o modelo configurado instalado.
@@ -118,7 +242,7 @@ async def ollama_connect():
     """
     ollama_exe = shutil.which("ollama")
 
-    status = await _check_ollama()
+    status = await _check_ollama(fresh=True)
     started = False
 
     if not status["reachable"]:
@@ -128,12 +252,14 @@ async def ollama_connect():
                 detail="Ollama não foi encontrado no PATH. Instale em https://ollama.com/download e tente novamente.",
             )
         try:
+            global _owned_ollama_proc
             creationflags = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
-            subprocess.Popen(
+            _owned_ollama_proc = subprocess.Popen(
                 [ollama_exe, "serve"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 creationflags=creationflags,
+                env=ollama_serve_env(),
             )
             started = True
         except Exception as exc:
@@ -143,7 +269,7 @@ async def ollama_connect():
         # Espera o servidor subir (cold start do processo, não do modelo).
         for _ in range(15):
             await asyncio.sleep(1)
-            status = await _check_ollama()
+            status = await _check_ollama(fresh=True)
             if status["reachable"]:
                 break
 
@@ -205,6 +331,8 @@ def ai_respond(request: AIRespondRequest):
             local_model_url=request.local_model_url,
             local_model_name=request.local_model_name,
             provider=request.provider,
+            conversation=request.conversation,
+            provider_key=request.provider_key,
         )
         return {"response": text, "provider": provider}
     except HTTPException:

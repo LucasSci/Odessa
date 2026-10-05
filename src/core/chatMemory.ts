@@ -10,7 +10,7 @@
  * - Nada sensível é guardado: mensagens de moderação (links, contatos, golpes)
  *   são ignoradas e e-mails/telefones/números longos são mascarados.
  */
-import { apiFetch, ApiError } from '../lib/apiFetch';
+import { apiFetch } from '../lib/apiFetch';
 import type { LiveEvent } from '../types';
 import { clearChatLearning, recordChatLearning } from './chatLearning';
 import { globalRAGMemory } from './longTermMemory';
@@ -67,72 +67,106 @@ export function rememberBridgeMessage(
   if (!flushTimer) flushTimer = setTimeout(() => void flush(), FLUSH_DELAY_MS);
 }
 
-export interface UserMemory {
-  found: boolean;
-  totalMessages: number;
-  totalGifts: number;
+/** O que a IA sabe de quem está falando (e o que a persona já contou de si). */
+export interface MemoryContext {
+  context: string;
+  /** O que entrou no prompt, em linguagem do operador ("2 fato(s) de @ana"). */
+  used: string[];
 }
 
-const memoryCache = new Map<string, { at: number; value: UserMemory }>();
+const EMPTY_CONTEXT: MemoryContext = { context: '', used: [] };
+const memoryCache = new Map<string, { at: number; value: MemoryContext }>();
+const cacheKey = (user: string, personaId = '') => `${user.toLowerCase()}|${personaId}`;
 
-/** Perfil do usuário na memória do backend (null quando o backend não responde). */
-export async function getUserMemory(username?: string): Promise<UserMemory | null> {
-  const user = (username || '').trim().replace(/^@/, '');
-  if (!user) return null;
-  const cached = memoryCache.get(user.toLowerCase());
-  if (cached && Date.now() - cached.at < MEMORY_CACHE_MS) return cached.value;
-  try {
-    const data = await apiFetch<{ profile?: { total_messages?: number; total_gifts?: number; hidden?: number | boolean } }>(
-      `/memory/profiles/${encodeURIComponent(user)}`,
-      { timeoutMs: 1_500 },
-    );
-    // 200 sem perfil = memória indisponível (ex.: stub do modo nuvem), não
-    // "usuário novo" — senão a IA daria boas-vindas a todo mundo. Perfil
-    // ocultado pelo operador também não entra no prompt (#252).
-    if (!data?.profile || data.profile.hidden) return null;
-    const value: UserMemory = {
-      found: true,
-      totalMessages: Number(data.profile.total_messages) || 0,
-      totalGifts: Number(data.profile.total_gifts) || 0,
-    };
-    memoryCache.set(user.toLowerCase(), { at: Date.now(), value });
-    return value;
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) {
-      const value: UserMemory = { found: false, totalMessages: 0, totalGifts: 0 };
-      memoryCache.set(user.toLowerCase(), { at: Date.now(), value });
-      return value;
-    }
-    return null;
-  }
+function forgetCached(user: string): void {
+  const prefix = `${user.toLowerCase()}|`;
+  for (const key of memoryCache.keys()) if (key.startsWith(prefix)) memoryCache.delete(key);
 }
 
 /**
- * Contexto curto sobre quem está falando + a lista legível do que foi usado.
- * `memory` null (backend fora) → nada entra no prompt.
+ * Memória do servidor pronta para o prompt — a MESMA para qualquer IA (local ou
+ * API): quem é a pessoa, o que ela já contou, a última conversa e o que a
+ * persona já disse de si. Backend fora = nada entra (a conversa continua).
  */
-export function buildUserMemoryContext(
+export async function getMemoryContext(
   username: string | undefined,
-  memory: UserMemory | null,
-): { context: string; used: string[] } {
+  persona: { id?: string; name?: string | null } = {},
+): Promise<MemoryContext> {
   const user = (username || '').trim().replace(/^@/, '');
-  if (!user || !memory) return { context: '', used: [] };
-  // A mensagem atual pode já ter sido registrada: 1 mensagem = primeira vez.
-  if (!memory.found || memory.totalMessages <= 1) {
-    return {
-      context: `[QUEM ESTÁ FALANDO]: @${user} é novo(a) na live. Dê boas-vindas sem fingir que já conhece.`,
-      used: [`@${user}: primeira vez na memória`],
-    };
+  if (!user) return EMPTY_CONTEXT;
+  const key = cacheKey(user, persona.id);
+  const cached = memoryCache.get(key);
+  if (cached && Date.now() - cached.at < MEMORY_CACHE_MS) return cached.value;
+  try {
+    const params = new URLSearchParams({ username: user, persona: persona.id || '', personaName: persona.name || '' });
+    const data = await apiFetch<{ context?: string; used?: string[] }>(`/memory/context?${params}`, { timeoutMs: 1_500 });
+    const value: MemoryContext = { context: String(data?.context || ''), used: Array.isArray(data?.used) ? data.used.map(String) : [] };
+    memoryCache.set(key, { at: Date.now(), value });
+    return value;
+  } catch {
+    return EMPTY_CONTEXT;
   }
-  const lines = [
-    `[QUEM ESTÁ FALANDO]: @${user} é recorrente (${memory.totalMessages} mensagens registradas). Pode reconhecer que já apareceu antes, sem inventar detalhes nem intimidade.`,
-  ];
-  const used = [`@${user}: recorrente (${memory.totalMessages} mensagens)`];
-  if (memory.totalGifts > 0) {
-    lines.push(`@${user} já enviou ${memory.totalGifts} presente(s): agradeça com carinho, sem pedir mais.`);
-    used.push(`@${user}: presenteador (${memory.totalGifts} presente${memory.totalGifts > 1 ? 's' : ''})`);
+}
+
+/** Grava a fala da persona para esta pessoa: vira parte da conversa lembrada. */
+export function rememberPersonaReply(viewer: string | undefined, reply: string, personaId?: string): void {
+  const user = (viewer || '').trim().replace(/^@/, '');
+  const text = redactPersonalData(reply.trim());
+  if (!user || !text) return;
+  const createdAt = new Date().toISOString();
+  pending.push({
+    id: `reply-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    source: 'bridge',
+    zoneName: 'Chat Tango',
+    text,
+    kind: 'reply' as LiveEvent['kind'],
+    createdAt,
+    time: new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    metadata: { user, persona: personaId || '' },
+  });
+  forgetCached(user);
+  if (!flushTimer) flushTimer = setTimeout(() => void flush(), FLUSH_DELAY_MS);
+}
+
+let learning = false;
+
+/**
+ * Pede ao servidor para transformar a conversa nova em memória (fatos + resumo),
+ * com a IA que estiver ativa. Uma rodada por vez; chamado com o chat parado ou
+ * no fim da live. A chave da API vai na chamada e não é guardada.
+ */
+export async function requestMemoryLearning(payload: {
+  personaId?: string;
+  personaName?: string | null;
+  provider: string;
+  providerKey?: string;
+  localModelUrl?: string;
+  localModelName?: string;
+  minNew?: number;
+}): Promise<void> {
+  if (learning) return;
+  learning = true;
+  try {
+    await flush();
+    await apiFetch('/memory/learn', {
+      method: 'POST',
+      timeoutMs: 0,
+      json: {
+        persona_id: payload.personaId || '',
+        persona_name: payload.personaName || '',
+        provider: payload.provider,
+        provider_key: payload.providerKey,
+        local_model_url: payload.localModelUrl,
+        local_model_name: payload.localModelName,
+        ...(payload.minNew ? { min_new: payload.minNew } : {}),
+      },
+    });
+    memoryCache.clear();
+  } catch {
+    // Aprendizado é melhor esforço: tenta de novo na próxima pausa do chat.
+  } finally {
+    learning = false;
   }
-  return { context: lines.join('\n'), used };
 }
 
 /** "Resetar aprendizado": apaga tendências, fatos por espectador e a memória por usuário. */
@@ -178,12 +212,58 @@ export async function setMemoryProfileHidden(profile: Pick<MemoryProfile, 'id' |
   if (hidden) globalRAGMemory.setHidden(profile.username, true);
   await apiFetch(`/memory/profiles/${encodeURIComponent(profile.id)}/visibility`, { method: 'POST', json: { hidden } });
   if (!hidden) globalRAGMemory.setHidden(profile.username, false);
-  memoryCache.delete(profile.username.toLowerCase());
+  forgetCached(profile.username);
 }
 
 /** Esquece um espectador: apaga perfil, interações e os fatos dele no navegador. */
 export async function forgetMemoryProfile(profile: Pick<MemoryProfile, 'id' | 'username'>): Promise<void> {
   globalRAGMemory.forgetUser(profile.username);
   await apiFetch(`/memory/profiles/${encodeURIComponent(profile.id)}`, { method: 'DELETE' });
-  memoryCache.delete(profile.username.toLowerCase());
+  forgetCached(profile.username);
+}
+
+/** Um fato que a memória guardou (sobre a pessoa ou sobre a própria persona). */
+export interface MemoryFact {
+  id: string;
+  fact: string;
+  category?: string;
+  source?: string;
+  createdAt: string;
+}
+
+/** O que a memória sabe de um espectador: fatos e o último resumo de conversa. */
+export async function getMemoryDetails(profileId: string): Promise<{ facts: MemoryFact[]; lastSummary: string | null }> {
+  const data = await apiFetch<{ facts?: Array<Record<string, unknown>>; summaries?: Array<Record<string, unknown>> }>(
+    `/memory/profiles/${encodeURIComponent(profileId)}`,
+  );
+  return {
+    facts: (data?.facts ?? []).filter((f) => !f.hidden).map(toFact),
+    lastSummary: data?.summaries?.[0]?.summary ? String(data.summaries[0].summary) : null,
+  };
+}
+
+function toFact(row: Record<string, unknown>): MemoryFact {
+  return {
+    id: String(row.id),
+    fact: String(row.fact ?? ''),
+    category: row.category ? String(row.category) : undefined,
+    source: row.source ? String(row.source) : undefined,
+    createdAt: String(row.created_at ?? ''),
+  };
+}
+
+export async function deleteViewerFact(factId: string): Promise<void> {
+  await apiFetch(`/memory/facts/${encodeURIComponent(factId)}`, { method: 'DELETE' });
+  memoryCache.clear();
+}
+
+/** O que a persona já contou de si no chat (para ela não se contradizer). */
+export async function listPersonaFacts(personaId: string): Promise<MemoryFact[]> {
+  const data = await apiFetch<{ facts?: Array<Record<string, unknown>> }>(`/memory/persona-facts?persona=${encodeURIComponent(personaId)}`);
+  return (data?.facts ?? []).map(toFact);
+}
+
+export async function deletePersonaFact(factId: string): Promise<void> {
+  await apiFetch(`/memory/persona-facts/${encodeURIComponent(factId)}`, { method: 'DELETE' });
+  memoryCache.clear();
 }

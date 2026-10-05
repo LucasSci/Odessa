@@ -41,6 +41,7 @@ class VideoGenService:
         self._lock = threading.Lock()
         self._processing = False
         self._last_generation_at = 0.0
+        self._auto_thread: Optional[threading.Thread] = None
 
     # ── Ingestão de eventos de chat ─────────────────────────────────────────
     def ingest_event(self, event: Dict[str, Any], persona_id: Optional[str] = None) -> Dict[str, Any]:
@@ -48,8 +49,28 @@ class VideoGenService:
         prompt_service.add_interaction(event, persona_id=persona_id)
         pid = persona_id or storage.get_active_persona_id()
         if prompt_service.should_auto_generate(pid):
-            return self.auto_generate(persona_id=pid)
+            # Nunca dentro do pedido do chat: este método roda no caminho de
+            # cada mensagem (/automation/ingest), e a geração chama a IA. Antes
+            # isso segurava o servidor inteiro enquanto o Ollama escrevia.
+            return {"ok": True, "auto": True, "scheduled": self._schedule_auto(pid), "bufferSize": prompt_service.buffer_size(pid)}
         return {"ok": True, "auto": False, "bufferSize": prompt_service.buffer_size(pid)}
+
+    def _schedule_auto(self, persona_id: str) -> bool:
+        """Dispara a geração automática numa thread própria (uma por vez)."""
+        if self._auto_thread is not None and self._auto_thread.is_alive():
+            return False
+        if time.time() * 1000 - self._last_generation_at < VIDEO_GEN_COOLDOWN_MS:
+            return False
+
+        def run() -> None:
+            try:
+                self.auto_generate(persona_id=persona_id)
+            except Exception:  # noqa: BLE001 — fundo: registra e segue
+                logger.exception("[video-gen] geração automática falhou")
+
+        self._auto_thread = threading.Thread(target=run, name="video-gen-auto", daemon=True)
+        self._auto_thread.start()
+        return True
 
     # ── Geração de prompt ───────────────────────────────────────────────────
     def generate_prompt(

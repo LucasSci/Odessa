@@ -10,7 +10,7 @@ Node ou qualquer dependência de dev na máquina.
 - **Ollama** — os modelos de linguagem pesam vários GB cada; inviável embutir.
 - **OBS Studio** — aplicativo completo de terceiros, com seu próprio instalador.
 
-O launcher (`launcher/start-odessa.ps1`) verifica se cada um está presente na
+O programa (`app\Odessa.exe`, ver `desktop/shell/`) verifica se cada um está presente na
 primeira execução e, se não estiver, abre a página oficial de download no
 navegador (uma única vez por instalação — não fica repetindo a cada abertura).
 
@@ -45,8 +45,8 @@ Isso roda em sequência:
    dependências Python mudarem. Pule com `-SkipRuntimeBuild`.
 2. `stage.ps1` — builda o frontend (`npm run build`) e monta
    `desktop/build/stage/` com tudo que vai pro instalador: `server/`,
-   `tango_chat/`, `dist/`, `assets/`, o runtime Python e os scripts do
-   launcher.
+   `tango_chat/`, `dist/`, `assets/`, o runtime Python e o programa
+   (`desktop/shell` empacotado com `@electron/packager` em `app\Odessa.exe`).
 3. `makensis desktop/odessa.nsi` — compila `desktop/build/OdessaStudioSetup.exe`
    usando a Modern UI 2 do NSIS (tela de boas-vindas, diretório, progresso e
    finalização com imagens próprias — ver "Visual do instalador" abaixo).
@@ -229,17 +229,29 @@ direto.
 ## Como o app instalado funciona
 
 - Instala em `%LOCALAPPDATA%\OdessaStudio` (sem precisar de admin).
-- O atalho (Menu Iniciar / Área de Trabalho) chama
-  `launcher/start-odessa.vbs`, que roda `start-odessa.ps1` escondido (sem
-  janela de console) — ele:
+- O atalho (Menu Iniciar / Área de Trabalho) abre `app\Odessa.exe`, um
+  programa Electron (código em `desktop/shell/main.js`) que:
   1. Gera um `.env` com segredos aleatórios no primeiro uso.
-  2. Sobe `python\python.exe -m uvicorn server.main:app --port 8000` em
-     segundo plano (o próprio FastAPI já serve o frontend de `dist/`, ver
-     `server/main.py` — um único processo basta).
-  3. Espera `/health` responder (até 45s) e abre `http://localhost:8000` no
-     navegador padrão (não `127.0.0.1` — parte do frontend monta URLs de API
-     com o literal `localhost`, então abrir pelo IP causa erro de CORS).
-  4. Verifica Ollama/OBS e abre as páginas de download se faltar algo.
+  2. Sobe `python\python.exe -m uvicorn server.main:app --port 8000` como
+     processo filho (o FastAPI já serve o frontend de `dist/`) e mostra
+     "Iniciando…" até o `/health` responder (até 45 s). Se já houver um
+     Odessa no ar, só abre a janela; se a porta for de outro programa, avisa.
+  3. Abre a interface numa janela própria (`http://localhost:8000`, sem barra
+     de endereço; `localhost` e não o IP por causa do CORS do frontend).
+  4. **Fechar a janela não desliga**: o Odessa fica no ícone perto do relógio
+     (overlay do OBS e respostas no chat continuam; `backgroundThrottling`
+     desligado). Clicar no atalho de novo traz a mesma janela.
+  5. **Desligar** (ícone da bandeja ou botão "Desligar" no app) chama
+     `POST /api/v1/system/shutdown`: para a bridge do Tango, tira a IA local
+     da memória, fecha o `ollama serve` que o Odessa abriu e encerra o
+     servidor pelo caminho normal; se não sair em 10 s, encerra a árvore de
+     processos. Com a live no ar, pede confirmação.
+  6. Se o servidor cair, sobe de novo (2 s, 4 s, 8 s… até 30 s); 5 quedas em
+     2 minutos = desiste e avisa ("Reiniciar servidor" na bandeja).
+  7. Verifica Ollama/OBS e abre as páginas de download se faltar algo.
+- Desenvolvimento do programa: `cd desktop/shell && npm install`, depois
+  `npm run dev` (abre a janela apontando para o Vite em `:3000`, sem gerenciar
+  servidor). Testes das peças sem Electron: `node --test backend-utils.test.js`.
 - Logs em `%LOCALAPPDATA%\Odessa\logs\` (`odessa.log`, `backend.out.log`,
   `backend.err.log`) — útil pra diagnosticar se algo não subir numa máquina
   nova.
@@ -249,9 +261,7 @@ direto.
 
 ## Tentativa anterior (Electron)
 
-Existiu uma tentativa anterior de empacotamento via Electron (`electron/`,
-`installer/odessa-runtime.nsh`, `scripts/build-offline-installer.ps1`,
-`scripts/build-signed-installer.ps1`, `certs/`) que chamava
-`electron-builder` — pacote que já não existe em `package.json`. Já foi
-removida do `main` numa limpeza anterior; este instalador (`desktop/`) é um
-caminho novo e independente, sem depender de nada daquela tentativa.
+Existiu uma tentativa antiga com `electron-builder` (`electron/`, `certs/`…),
+removida numa limpeza. O programa atual (`desktop/shell/`) é independente
+dela: só empacota a janela com `@electron/packager` e o NSIS daqui continua
+sendo o instalador.

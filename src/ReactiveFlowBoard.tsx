@@ -49,7 +49,11 @@ import { apiUrl } from './lib/api';
 import { callFlowDesigner } from './core/aiDecisionContract';
 import { cn, safeImageSrc } from './lib/utils';
 import { usePolling } from './core/usePolling';
+import { useWindowVisible } from './core/windowVisibility';
+import { usePageActive } from './core/pageActivity';
+import { useVideoStateNudge } from './lib/videoStateEvents';
 import { VideoThumb } from './components/VideoThumb';
+import { WORKFLOW_CHANGED_EVENT } from './core/idleStudioApi';
 
 type VideoEntry = {
   id: string;
@@ -592,6 +596,13 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
     return () => window.clearTimeout(timer);
   }, [loadConfig]);
 
+  // O Estúdio da IDLE monta o rascunho no backend: recarrega para não salvar por cima.
+  useEffect(() => {
+    const reload = () => void loadConfig();
+    window.addEventListener(WORKFLOW_CHANGED_EVENT, reload);
+    return () => window.removeEventListener(WORKFLOW_CHANGED_EVENT, reload);
+  }, [loadConfig]);
+
   // Profiles are persisted in localStorage (per-device) so they work
   // independently of backend caching/sync issues. Each profile holds a full
   // workflow snapshot.
@@ -747,7 +758,12 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
   // Página escondida pelo shell (outra aba aberta) = sem polling; ao voltar,
   // sincroniza na hora.
   // Keep the canvas in sync with the live playback in near real time.
-  usePolling(refreshFlowState, 600);
+  // Janela minimizada/na bandeja: ninguém vê a animação.
+  const windowVisible = useWindowVisible();
+  // Avisado pelo servidor quando o palco muda; a consulta vira reserva.
+  const pageActive = usePageActive();
+  const stateStreaming = useVideoStateNudge(() => void refreshFlowState(), windowVisible && pageActive);
+  usePolling(refreshFlowState, stateStreaming ? 10_000 : 1000, { enabled: windowVisible });
 
   useEffect(() => {
     if (!config) return;

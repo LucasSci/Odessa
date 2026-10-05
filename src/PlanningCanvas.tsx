@@ -602,8 +602,16 @@ function PlanningCanvasInner() {
         setTriggers(Array.isArray(config.triggers) ? config.triggers : []);
         setVideos(Array.isArray(config.videos) ? config.videos : []);
 
-        // Load canvas state
-        const canvas: CanvasState = config.planningCanvas || { items: [], connections: [] };
+        // Mural tem armazenamento próprio (/planning/canvas). Se ainda estiver
+        // vazio, aproveita um mural antigo que tenha ficado no workflow.
+        let canvas: CanvasState = { items: [], connections: [] };
+        try {
+          const saved = await fetch(apiUrl('/planning/canvas'));
+          if (saved.ok) canvas = (await saved.json()) as CanvasState;
+        } catch {
+          /* sem mural salvo */
+        }
+        if (!canvas.items?.length && config.planningCanvas?.items?.length) canvas = config.planningCanvas;
         const loadedNodes: Node<CanvasItemData>[] = canvas.items.map((item) => ({
           id: item.id,
           type: item.data.type,
@@ -739,11 +747,11 @@ function PlanningCanvasInner() {
       const viewport = getViewport();
       const canvas: CanvasState = { items, connections, viewport };
 
-      // PATCH the workflow config to include planningCanvas
-      const res = await fetch(apiUrl('/workflow/draft'), {
-        method: 'POST',
+      // Antes ia para /workflow/draft, que descartava o campo: o mural nunca salvava.
+      const res = await fetch(apiUrl('/planning/canvas'), {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planningCanvas: canvas }),
+        body: JSON.stringify(canvas),
       });
       if (res.ok) setDirty(false);
     } catch (err) {

@@ -34,7 +34,7 @@ Regras:
 - Para eventos de baixa relevância use intent: "idle_maintenance" e wait
 `;
 
-export type AiProvider = 'auto' | 'gemini' | 'local' | 'mock' | 'claude';
+export type AiProvider = 'auto' | 'gemini' | 'local' | 'mock' | 'claude' | 'mistral';
 
 /**
  * Nível de autonomia da Diretora de IA.
@@ -47,6 +47,8 @@ export type AiAutonomyLevel = 'manual' | 'assistido' | 'auto';
 export type AiLocalConfig = {
   /** Chave Gemini digitada pelo usuário (nunca vai para o servidor). */
   geminiKey: string;
+  /** Chave da Mistral (salva só neste navegador; vai ao servidor em cada pedido). */
+  mistralKey: string;
   /** Prompt de sistema customizado. '' = usa o padrão. */
   systemPrompt: string;
   /** Provedor: auto = tenta Gemini, cai para mock; gemini = força Gemini; mock = sempre mock. */
@@ -78,10 +80,16 @@ export type AiLocalConfig = {
   localModelName: string;
   /** Temperatura do modelo local (0-2). */
   localModelTemperature: number;
+  /**
+   * Idioma das respostas no chat: 'en' = sempre em inglês (padrão, público do
+   * Tango); 'auto' = no idioma de quem escreveu.
+   */
+  replyLanguage: 'en' | 'auto';
 };
 
 const DEFAULTS: AiLocalConfig = {
   geminiKey: '',
+  mistralKey: '',
   systemPrompt: '',
   provider: 'local',
   confidenceThreshold: 0.65,
@@ -93,9 +101,15 @@ const DEFAULTS: AiLocalConfig = {
   chatReplyMaxPerMinute: 4,
   chatReplyMinConfidence: 0.65,
   localModelUrl: 'http://127.0.0.1:11434',
-  localModelName: 'qwen2.5:latest',
+  // 3B: em notebook (ex.: Ryzen 5 5500U, 16 GB) responde em ~2 s e deixa CPU/RAM
+  // para OBS e navegador; o 7B travava a máquina a cada resposta.
+  localModelName: 'qwen2.5:3b',
   localModelTemperature: 0.7,
+  replyLanguage: 'en',
 };
+
+/** Modelos pesados demais para rodar junto com a live (removidos da máquina). */
+const HEAVY_LOCAL_MODELS = new Set(['llama3.1:8b', 'qwen2.5:latest', 'qwen2.5:7b', 'gemma4:26b']);
 
 function readRaw(): Partial<AiLocalConfig> {
   try {
@@ -110,19 +124,19 @@ function readRaw(): Partial<AiLocalConfig> {
 /** Lê a configuração atual (merged com defaults). */
 export function getAiConfig(): AiLocalConfig {
   const stored = readRaw();
-  // O laboratório local usa Ollama; configurações antigas de mock/Gemini
-  // não devem desviar a conversa para uma chave inválida salva anteriormente.
-  const storedProvider = stored.provider === 'mock' || stored.provider === 'gemini' || stored.provider === 'auto'
-    ? 'local'
-    : stored.provider;
+  // "mock" e "auto" saíram da tela: viram Local. Gemini NÃO é mais convertido —
+  // antes, escolher Gemini voltava para Local em silêncio e a opção parecia não
+  // existir. Sem chave, resolveEffectiveProvider continua usando o Ollama.
+  const storedProvider = stored.provider === 'mock' || stored.provider === 'auto' ? 'local' : stored.provider;
   const storedLocalModelName = typeof stored.localModelName === 'string' ? stored.localModelName.trim() : '';
-  const localModelName = !storedLocalModelName || storedLocalModelName === 'llama3.1:8b'
+  const localModelName = !storedLocalModelName || HEAVY_LOCAL_MODELS.has(storedLocalModelName)
     ? DEFAULTS.localModelName
     : storedLocalModelName;
   return {
     geminiKey: typeof stored.geminiKey === 'string' ? stored.geminiKey : DEFAULTS.geminiKey,
+    mistralKey: typeof stored.mistralKey === 'string' ? stored.mistralKey.trim() : DEFAULTS.mistralKey,
     systemPrompt: typeof stored.systemPrompt === 'string' ? stored.systemPrompt : DEFAULTS.systemPrompt,
-    provider: (['auto','gemini','local','mock','claude'] as AiProvider[]).includes(storedProvider as AiProvider)
+    provider: (['auto','gemini','local','mock','claude','mistral'] as AiProvider[]).includes(storedProvider as AiProvider)
       ? (storedProvider as AiProvider)
       : DEFAULTS.provider,
     confidenceThreshold: typeof stored.confidenceThreshold === 'number'
@@ -148,6 +162,7 @@ export function getAiConfig(): AiLocalConfig {
     localModelTemperature: typeof stored.localModelTemperature === 'number'
       ? Math.max(0, Math.min(2, stored.localModelTemperature))
       : DEFAULTS.localModelTemperature,
+    replyLanguage: stored.replyLanguage === 'auto' ? 'auto' : DEFAULTS.replyLanguage,
   };
 }
 
@@ -158,6 +173,9 @@ export function getGeminiProxyUrl(): string {
 }
 
 /** Persiste uma atualização parcial. */
+/** Disparado a cada gravação: selos e painéis mostram a IA nova na hora da troca. */
+export const AI_CONFIG_EVENT = 'odessa:ai-config-changed';
+
 export function saveAiConfig(patch: Partial<AiLocalConfig>): void {
   try {
     const current = readRaw();
@@ -165,6 +183,7 @@ export function saveAiConfig(patch: Partial<AiLocalConfig>): void {
   } catch {
     // localStorage indisponível — silencioso
   }
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(AI_CONFIG_EVENT));
 }
 
 /**
@@ -192,10 +211,25 @@ export function hasActiveGeminiKey(): boolean {
  * do Claude fica só no servidor, então não há checagem client-side pra ela.
  * Caso contrário, cai em Ollama (motor local padrão).
  */
-export function resolveEffectiveProvider(config: AiLocalConfig = getAiConfig()): 'ollama' | 'gemini' | 'claude' {
+export type EffectiveProvider = 'ollama' | 'gemini' | 'claude' | 'mistral';
+
+export function resolveEffectiveProvider(config: AiLocalConfig = getAiConfig()): EffectiveProvider {
   if (config.provider === 'claude') return 'claude';
+  if (config.provider === 'mistral' && config.mistralKey) return 'mistral';
   if (config.provider === 'gemini' && hasActiveGeminiKey()) return 'gemini';
   return 'ollama';
+}
+
+/**
+ * Chave que acompanha o pedido ao servidor para o provedor efetivo. Toda IA
+ * passa pelo servidor (mesmo prompt, mesma conversa, mesma memória); a chave
+ * vai em cada pedido e o servidor não a guarda.
+ */
+export function providerKeyFor(config: AiLocalConfig = getAiConfig()): string | undefined {
+  const provider = resolveEffectiveProvider(config);
+  if (provider === 'mistral') return config.mistralKey;
+  if (provider === 'gemini') return getEffectiveGeminiKey() || undefined;
+  return undefined;
 }
 
 /**

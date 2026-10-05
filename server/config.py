@@ -82,8 +82,19 @@ AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama").strip().lower()
 # Desligado por padrao: uma fala pronta com HTTP 200 esconde que a IA caiu.
 ENABLE_LOCAL_FALLBACK = os.getenv("ENABLE_LOCAL_FALLBACK", "false").lower() == "true"
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip().rstrip("/")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:latest").strip()
+# 3B por padrão: o 7B (qwen2.5:latest) travava notebooks a cada resposta da persona.
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b").strip()
 OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "90"))
+# Mistral (nuvem). A chave normalmente vem da tela (salva no navegador, como a do
+# Gemini); MISTRAL_API_KEY no .env serve de padrão do servidor.
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "").strip()
+MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-small-latest").strip() or "mistral-small-latest"
+# Consumo da IA local. Sem limite o Ollama usa todos os núcleos físicos e, num
+# notebook, a live inteira (OBS, navegador) trava enquanto a persona "pensa".
+# Padrão: 1/3 das threads lógicas (4 num Ryzen 5 5500U), sobrando CPU para o resto.
+OLLAMA_NUM_THREAD = int(os.getenv("OLLAMA_NUM_THREAD", "0") or 0) or max(2, (os.cpu_count() or 6) // 3)
+# Quanto tempo o modelo fica na RAM depois da última resposta (antes: 30 min).
+OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "10m").strip() or "10m"
 
 ENABLE_TTS = os.getenv("ENABLE_TTS", "false").lower() == "true"
 TTS_SIMULATION_MODE = os.getenv("TTS_SIMULATION_MODE", "true").lower() == "true"
@@ -94,12 +105,14 @@ OBS_WEBSOCKET_PASSWORD = os.getenv("OBS_WEBSOCKET_PASSWORD", "").strip()
 OBS_OCR_SOURCE_NAME = os.getenv("OBS_OCR_SOURCE_NAME", "Odessa Chat OCR").strip() or "Odessa Chat OCR"
 OBS_SCENE_WHITELIST = os.getenv("OBS_SCENE_WHITELIST", "Gameplay Focus,Cena Just Chatting,Tela de reacts").split(",")
 OBS_STAGE_SOURCE_NAME = os.getenv("OBS_STAGE_SOURCE_NAME", "Odessa Stage Overlay").strip() or "Odessa Stage Overlay"
-OBS_STAGE_URL = os.getenv("OBS_STAGE_URL", "http://localhost:3000/#overlay").strip() or "http://localhost:3000/#overlay"
+# Overlay servido pelo próprio backend (o Odessa instalado roda na 8000; a 3000 é só do modo dev).
+OBS_STAGE_URL = os.getenv("OBS_STAGE_URL", "http://127.0.0.1:8000/#overlay").strip() or "http://127.0.0.1:8000/#overlay"
 OBS_STARTUP_SCENE_NAME = os.getenv("OBS_STARTUP_SCENE_NAME", "Odessa START").strip() or "Odessa START"
 OBS_LIVE_SCENE_NAME = os.getenv("OBS_LIVE_SCENE_NAME", "Odessa LIVE").strip() or "Odessa LIVE"
 OBS_TRANSMISSION_MODE = os.getenv("OBS_TRANSMISSION_MODE", "stream").strip().lower() or "stream"
-OBS_STAGE_CANVAS_WIDTH = int(os.getenv("OBS_STAGE_CANVAS_WIDTH", "1080"))
-OBS_STAGE_CANVAS_HEIGHT = int(os.getenv("OBS_STAGE_CANVAS_HEIGHT", "1920"))
+# Mesma tela do perfil do Tango (server/data/obs/tango_profile/basic.ini): 720x1280.
+OBS_STAGE_CANVAS_WIDTH = int(os.getenv("OBS_STAGE_CANVAS_WIDTH", "720"))
+OBS_STAGE_CANVAS_HEIGHT = int(os.getenv("OBS_STAGE_CANVAS_HEIGHT", "1280"))
 
 SIMULATION_MODE = os.getenv("SIMULATION_MODE", "true").lower() == "true"
 
@@ -121,7 +134,10 @@ VIDEO_GEN_PROVIDER = os.getenv("VIDEO_GEN_PROVIDER", "placeholder").strip().lowe
 VIDEO_GEN_API_KEY = os.getenv("VIDEO_GEN_API_KEY", "").strip()
 VIDEO_GEN_MODEL = os.getenv("VIDEO_GEN_MODEL", "video-gen").strip()
 # Gera vídeo automaticamente quando o buffer de prompts atinge o limiar.
-VIDEO_GEN_AUTO = os.getenv("VIDEO_GEN_AUTO", "true").strip().lower() not in {"0", "false", "no"}
+# Desligado por padrão: com o chat da live, pedir um prompt à IA local a cada
+# poucas mensagens disputava o Ollama com as respostas do chat (ver
+# docs/PLANO-OTIMIZACAO.md). Ligue com VIDEO_GEN_AUTO=true.
+VIDEO_GEN_AUTO = os.getenv("VIDEO_GEN_AUTO", "false").strip().lower() in {"1", "true", "yes"}
 # Diretório raiz de persistência por persona (server/runtime/video-gen/{persona_id}/).
 ODESSA_VIDEO_GEN_DIR = Path(os.getenv("ODESSA_VIDEO_GEN_DIR", RUNTIME_DIR / "video-gen"))
 # Tamanho máximo da fila de vídeos pendentes por persona.
@@ -163,5 +179,5 @@ VIDEO_GEN_WIDTH = int(os.getenv("VIDEO_GEN_WIDTH", "720"))
 VIDEO_GEN_HEIGHT = int(os.getenv("VIDEO_GEN_HEIGHT", "1280"))
 # Nº de interações de chat acumuladas antes de gerar um prompt automaticamente.
 VIDEO_GEN_PROMPT_THRESHOLD = int(os.getenv("VIDEO_GEN_PROMPT_THRESHOLD", "5"))
-# Cooldown mínimo (ms) entre gerações automáticas.
-VIDEO_GEN_COOLDOWN_MS = int(os.getenv("VIDEO_GEN_COOLDOWN_MS", "30000"))
+# Cooldown mínimo (ms) entre gerações automáticas (5 min: é conteúdo de fundo).
+VIDEO_GEN_COOLDOWN_MS = int(os.getenv("VIDEO_GEN_COOLDOWN_MS", "300000"))

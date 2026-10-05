@@ -47,7 +47,7 @@ visível no painel  (VideoGenPanel) e no ReactiveFlowBoard
 2. **Geração automática de prompt** — quando o buffer atinge
    `VIDEO_GEN_PROMPT_THRESHOLD` (padrão 5) e `VIDEO_GEN_AUTO=true`, o sistema
    gera um prompt de cena via LLM e enfileira a geração. Um cooldown
-   (`VIDEO_GEN_COOLDOWN_MS`, padrão 30 s) evita rajadas.
+   (`VIDEO_GEN_COOLDOWN_MS`, padrão 5 min) evita rajadas.
 3. **Geração do vídeo** — o provedor recebe o prompt + o último frame base e
    produz um arquivo de vídeo. O processamento roda em thread de fundo, sem
    bloquear a API.
@@ -66,7 +66,7 @@ visível no painel  (VideoGenPanel) e no ReactiveFlowBoard
 | `VIDEO_GEN_PROVIDER` | `placeholder` | Provedor: `placeholder` (teste) ou `routellm` (Abacus.AI) |
 | `VIDEO_GEN_API_KEY` | — | Chave da API de vídeo (formato `org:key` da Abacus.AI) |
 | `VIDEO_GEN_MODEL` | `video-gen` | Modelo de geração de vídeo |
-| `VIDEO_GEN_AUTO` | `true` | Gera automaticamente ao atingir o limiar |
+| `VIDEO_GEN_AUTO` | `false` | Gera automaticamente ao atingir o limiar (em segundo plano, com prioridade abaixo do chat) |
 | `ODESSA_VIDEO_GEN_DIR` | `server/runtime/video-gen` | Raiz de persistência por persona |
 | `VIDEO_GEN_MAX_QUEUE` | `8` | Tamanho máximo da fila por persona |
 | `VIDEO_GEN_FRAME_FORMAT` | `png` | Formato do frame base (`png` ou `jpg`) |
@@ -74,7 +74,7 @@ visível no painel  (VideoGenPanel) e no ReactiveFlowBoard
 | `VIDEO_GEN_WIDTH` | `720` | Largura do vídeo gerado |
 | `VIDEO_GEN_HEIGHT` | `1280` | Altura do vídeo gerado |
 | `VIDEO_GEN_PROMPT_THRESHOLD` | `5` | Interações antes da geração automática |
-| `VIDEO_GEN_COOLDOWN_MS` | `30000` | Cooldown entre gerações automáticas |
+| `VIDEO_GEN_COOLDOWN_MS` | `300000` | Cooldown entre gerações automáticas |
 
 Exemplo de bloco no `.env`:
 

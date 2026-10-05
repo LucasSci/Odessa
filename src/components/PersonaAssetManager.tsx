@@ -334,7 +334,7 @@ export default function PersonaAssetManager({ personaId, personaName }: Props) {
                       <img
                         loading="lazy"
                         decoding="async"
-                        src={assetUrl(personaId, activeCategory, asset.id)}
+                        src={assetUrl(personaId, activeCategory, asset.id, 320)}
                         alt={asset.label}
                         className="h-full w-full object-cover"
                       />

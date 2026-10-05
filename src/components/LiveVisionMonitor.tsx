@@ -29,6 +29,8 @@ import {
 } from 'lucide-react';
 import { Button, Input } from './ui';
 import { cn } from '../lib/utils';
+import { usePageActive } from '../core/pageActivity';
+import { useWindowVisible } from '../core/windowVisibility';
 
 const BRIDGE_URL = '/tango-bridge';
 // WebSocket usa protocolo ws:// (o proxy do Vite sobe o upgrade).
@@ -66,6 +68,11 @@ export function LiveVisionMonitor({ connected }: Props) {
   const pointerDownRef = useRef<{ x: number; y: number; dragging: boolean } | null>(null);
 
   const [streaming, setStreaming] = useState(true);
+  // Ninguém olhando (outra página, janela minimizada ou na bandeja) = fecha o
+  // vídeo. Enquanto o painel assiste, a aba do Tango codifica a tela sem parar.
+  const pageActive = usePageActive();
+  const windowVisible = useWindowVisible();
+  const watching = streaming && pageActive && windowVisible;
   const [live, setLive] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [wsAttempts, setWsAttempts] = useState(0);
@@ -75,6 +82,12 @@ export function LiveVisionMonitor({ connected }: Props) {
   const [busy, setBusy] = useState(false);
   const [lastClick, setLastClick] = useState<{ x: number; y: number } | null>(null);
   const [maximized, setMaximized] = useState(false);
+  // Aviso da bridge/extensão (ex.: extensão desatualizada, aba escondida).
+  // Fica sobre a tela preta até chegar imagem — antes ia só para o console.
+  const [streamNotice, setStreamNotice] = useState<string | null>(null);
+  const [hasFrame, setHasFrame] = useState(false);
+  const hasFrameRef = useRef(false);
+  const noticeRef = useRef<string | null>(null);
 
   // Log de ações pra depuração — nada na UI exibe isso hoje, então usar
   // console em vez de estado React evita acumular um valor que nunca é lido.
@@ -121,7 +134,7 @@ export function LiveVisionMonitor({ connected }: Props) {
   // onclose apenas marcava "Desconectado" e o stream morria até o usuário
   // pausar e retomar manualmente.
   useEffect(() => {
-    if (!connected || !streaming) {
+    if (!connected || !watching) {
       // Nota: o cleanup do effect anterior já fecha o ws e faz setLive(false);
       // resetar estado aqui de novo seria setState sincrono redundante no corpo.
       wsRef.current?.close();
@@ -162,6 +175,15 @@ export function LiveVisionMonitor({ connected }: Props) {
           const jpeg = new Uint8Array(ev.data, 4);
           const canvas = canvasRef.current;
           if (!canvas || jpeg.length === 0) return;
+          if (!hasFrameRef.current) {
+            hasFrameRef.current = true;
+            setHasFrame(true);
+          }
+          if (noticeRef.current) {
+            // Imagem voltou: o aviso anterior deixou de valer.
+            noticeRef.current = null;
+            setStreamNotice(null);
+          }
           if (canvas.width !== fw) canvas.width = fw;
           if (canvas.height !== fh) canvas.height = fh;
           try {
@@ -194,7 +216,12 @@ export function LiveVisionMonitor({ connected }: Props) {
             setGotoUrl(data.url as string);
           }
         } else if (type === 'error') {
-          logAction(`Erro: ${(data.error as string) || 'desconhecido'}`);
+          const text = (data.error as string) || 'desconhecido';
+          logAction(`Erro: ${text}`);
+          // Com imagem já na tela o aviso vira uma faixa discreta (não cobre a
+          // imagem); sem imagem ele ocupa o centro da tela.
+          noticeRef.current = text;
+          setStreamNotice(text);
         }
       };
 
@@ -232,7 +259,7 @@ export function LiveVisionMonitor({ connected }: Props) {
       wsRef.current = null;
       setLive(false);
     };
-  }, [connected, streaming, logAction]);
+  }, [connected, watching, logAction]);
 
   // ── Interação de mouse no canvas ───────────────────────
   // Clique simples = 1 mensagem (action: 'click'). Arrastar = down + moves + up.
@@ -492,6 +519,28 @@ export function LiveVisionMonitor({ connected }: Props) {
         )}
 
 
+
+        {/* Sem imagem ainda: diz o porquê em vez de só uma tela preta */}
+        {live && !hasFrame && (
+          <div data-state="open" className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center p-6 text-center od-pop">
+            <Eye className="mb-3 h-10 w-10 text-slate-600" />
+            <p className="text-sm font-semibold text-slate-300">
+              {streamNotice ? 'Sem imagem da aba' : 'Aguardando a imagem da aba…'}
+            </p>
+            <p className="mt-1 max-w-md text-xs text-slate-400">
+              {streamNotice ?? 'A primeira imagem aparece em alguns segundos.'}
+            </p>
+          </div>
+        )}
+
+        {live && hasFrame && streamNotice && (
+          <div
+            data-state="open"
+            className="pointer-events-none absolute inset-x-3 bottom-3 rounded-lg bg-black/70 px-3 py-2 text-[11px] text-amber-200 backdrop-blur od-pop"
+          >
+            {streamNotice}
+          </div>
+        )}
 
         {/* Conectando */}
         {connecting && (

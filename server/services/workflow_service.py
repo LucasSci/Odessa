@@ -5,7 +5,7 @@ from typing import Any
 from uuid import uuid4
 
 from server.config import VIDEO_TRIGGER_COOLDOWN_MS
-from server.core.config_manager import _normalize_config, load_persona_config, save_persona_config
+from server.core.config_manager import _normalize_config, load_persona_config, public_config, save_persona_config
 from server.core.video_files import get_video_path
 
 
@@ -98,7 +98,8 @@ class WorkflowService:
         workflow = copy.deepcopy(config.get(workflow_key) or {})
         merged = self._merge_workflow_into_config(config, workflow)
         return {
-            **merged,
+            # Sem as cópias internas: era o mesmo fluxo três vezes na resposta.
+            **public_config(merged),
             "workflowMeta": {
                 key: workflow.get(key)
                 for key in [

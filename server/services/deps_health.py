@@ -17,8 +17,10 @@ def build_deps_report(
     ollama: dict[str, Any],
     ollama_installed: bool,
     keys: dict[str, bool],
+    tango_key: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """`ollama` é o dict de `_check_ollama`; `keys` diz quais chaves de nuvem existem."""
+    """`ollama` é o dict de `_check_ollama`; `keys` diz quais chaves de nuvem existem;
+    `tango_key` é o estado da chave do perfil do Tango no OBS (sem a chave)."""
     provider = (provider or "").strip().lower()
     wants_ollama = provider in OLLAMA_PROVIDERS
     cloud_ready = [name for name, present in keys.items() if present]
@@ -59,6 +61,25 @@ def build_deps_report(
             "action": None,
         })
     ai_usable = ollama_ready or bool(cloud_ready)
+
+    # A chave do Tango vence a cada 30 dias e a live simplesmente não conecta
+    # quando isso acontece: avisa antes, com o caminho do conserto.
+    where = "Gere uma nova no Tango e use Configurações › Perfil do Tango no OBS › Configuração limpa."
+    if tango_key and tango_key.get("expired"):
+        issues.append({
+            "code": "tango_key_expired",
+            "severity": "error",
+            "message": f"A chave de transmissão do Tango no OBS venceu. {where}",
+            "action": None,
+        })
+    elif tango_key and tango_key.get("expiringSoon"):
+        days = max(0, int(tango_key.get("daysLeft") or 0))
+        issues.append({
+            "code": "tango_key_expiring",
+            "severity": "warning",
+            "message": f"A chave de transmissão do Tango vence {'hoje' if days == 0 else f'em {days} dia(s)'}. {where}",
+            "action": None,
+        })
 
     return {
         "ok": ai_usable and not any(item["severity"] == "error" for item in issues),
