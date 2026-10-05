@@ -9,19 +9,13 @@ verificando o certificado normalmente).
 """
 from __future__ import annotations
 
+import functools
 import ssl
-import threading
-
-_lock = threading.Lock()
-_context: ssl.SSLContext | None = None
 
 
+@functools.lru_cache(maxsize=1)
 def shared_ssl_context() -> ssl.SSLContext:
-    global _context
-    with _lock:
-        if _context is None:
-            import certifi
+    import certifi
 
-            # Verifica certificado e nome do host (o mesmo que o httpx faz por padrão).
-            _context = ssl.create_default_context(cafile=certifi.where())
-        return _context
+    # Verifica certificado e nome do host (o mesmo que o httpx faz por padrão).
+    return ssl.create_default_context(cafile=certifi.where())

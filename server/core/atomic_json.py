@@ -49,7 +49,9 @@ def _key(path: Path) -> str:
     raw = str(path)
     key = _key_cache.get(raw)
     if key is None:
-        key = _key_cache[raw] = str(Path(path).resolve())
+        # abspath/normcase só mexem na string: a chave da trava não precisa
+        # seguir links, e nada aqui toca o disco.
+        key = _key_cache[raw] = os.path.normcase(os.path.abspath(raw))
     return key
 
 

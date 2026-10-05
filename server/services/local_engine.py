@@ -91,16 +91,21 @@ def resolve_model(name: str, models_dir: Optional[Path] = None) -> Optional[Path
     if not model:
         return None
     namespace, _, short = model.rpartition("/")
-    manifest = models_dir / "manifests" / "registry.ollama.ai" / (namespace or "library") / short / (tag or "latest")
+    root = os.path.realpath(models_dir)
+    manifest = os.path.realpath(os.path.join(root, "manifests", "registry.ollama.ai", namespace or "library", short, tag or "latest"))
+    if not manifest.startswith(root + os.sep):
+        return None
     try:
-        layers = json.loads(manifest.read_text(encoding="utf-8")).get("layers") or []
+        layers = json.loads(Path(manifest).read_text(encoding="utf-8")).get("layers") or []
     except (OSError, ValueError):
         return None
     digest = next((layer.get("digest") for layer in layers if layer.get("mediaType") == "application/vnd.ollama.image.model"), None)
     if not digest or not _BLOB_DIGEST.match(str(digest)):
         return None
-    blob = models_dir / "blobs" / str(digest).replace(":", "-")
-    return blob if blob.is_file() else None
+    blob = os.path.realpath(os.path.join(root, "blobs", str(digest).replace(":", "-")))
+    if not blob.startswith(root + os.sep):
+        return None
+    return Path(blob) if os.path.isfile(blob) else None
 
 
 def _log_safe(value: object) -> str:
