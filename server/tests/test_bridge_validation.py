@@ -40,7 +40,7 @@ def test_rejeita_portas_fora_do_intervalo(bad_port):
 
 def test_launch_nao_dispara_processo_com_url_maliciosa(monkeypatch):
     called = []
-    monkeypatch.setattr(bridge_manager, "find_chrome_executable", lambda: "C:/chrome.exe")
+    monkeypatch.setattr(bridge_manager, "resolve_live_browser", lambda b: {"id": "chrome", "name": "Chrome", "path": "C:/chrome.exe"})
     monkeypatch.setattr(bridge_manager.subprocess, "Popen", lambda *a, **k: called.append(a))
     result = asyncio.run(bridge_manager.launch_chrome_for_live(url="--renderer-cmd-prefix=calc.exe", port=9222))
     assert result["ok"] is False
@@ -49,7 +49,7 @@ def test_launch_nao_dispara_processo_com_url_maliciosa(monkeypatch):
 
 def test_launch_valido_usa_dois_hifens_antes_da_url(monkeypatch, tmp_path):
     captured = {}
-    monkeypatch.setattr(bridge_manager, "find_chrome_executable", lambda: "C:/chrome.exe")
+    monkeypatch.setattr(bridge_manager, "resolve_live_browser", lambda b: {"id": "chrome", "name": "Chrome", "path": "C:/chrome.exe"})
     monkeypatch.setattr(bridge_manager, "RUNTIME_DIR", tmp_path)
     monkeypatch.setattr(bridge_manager.subprocess, "Popen", lambda args, **k: captured.setdefault("args", args))
     result = asyncio.run(bridge_manager.launch_chrome_for_live(url="https://tango.me/x", port=9333))
@@ -60,6 +60,6 @@ def test_launch_valido_usa_dois_hifens_antes_da_url(monkeypatch, tmp_path):
 
 
 def test_atalho_recusa_url_maliciosa(monkeypatch):
-    monkeypatch.setattr(bridge_manager, "find_chrome_executable", lambda: "C:/chrome.exe")
+    monkeypatch.setattr(bridge_manager, "resolve_live_browser", lambda b: {"id": "chrome", "name": "Chrome", "path": "C:/chrome.exe"})
     result = bridge_manager.create_desktop_shortcut(url='https://x.test/" --evil', port=9222)
     assert result["ok"] is False
