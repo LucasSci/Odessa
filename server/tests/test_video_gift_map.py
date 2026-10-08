@@ -12,6 +12,7 @@ def setup_module(module):
 
 def test_exact_gift_match(monkeypatch):
     monkeypatch.setattr("server.core.auth.AUTH_DISABLED", True)
+    monkeypatch.setattr("server.main._request_guard.allowed_hosts", {"testserver"})
     resp = client.get("/api/v1/video/next", params={"trigger": "gift", "giftName": "Rosa"})
     assert resp.status_code == 200
     data = resp.json()
@@ -20,6 +21,7 @@ def test_exact_gift_match(monkeypatch):
 
 def test_regex_gift_match(monkeypatch):
     monkeypatch.setattr("server.core.auth.AUTH_DISABLED", True)
+    monkeypatch.setattr("server.main._request_guard.allowed_hosts", {"testserver"})
     resp = client.get("/api/v1/video/next", params={"trigger": "gift", "giftName": "rosinha"})
     assert resp.status_code == 200
     data = resp.json()
@@ -28,6 +30,7 @@ def test_regex_gift_match(monkeypatch):
 
 def test_wildcard_default(monkeypatch):
     monkeypatch.setattr("server.core.auth.AUTH_DISABLED", True)
+    monkeypatch.setattr("server.main._request_guard.allowed_hosts", {"testserver"})
     resp = client.get("/api/v1/video/next", params={"trigger": "gift", "giftName": "something_unknown"})
     assert resp.status_code == 200
     data = resp.json()
