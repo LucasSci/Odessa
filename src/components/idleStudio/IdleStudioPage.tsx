@@ -39,10 +39,12 @@ const JOB_POLL_MS = 3000;
 const STUDIO_POLL_MS = 30_000;
 const FICHA_LABELS: Record<string, string> = {
   IDENTITY: 'Rosto e cabelo',
+  BODY: 'Corpo',
   WARDROBE: 'Roupa e joias',
   ROOM: 'Cenário',
   LIGHT: 'Luz',
   MIC: 'Microfone',
+  CAMERA: 'Câmera',
   MOTION: 'Jeito de se mexer',
   DRINK: 'Bebida',
   PET: 'Pet',
@@ -344,7 +346,8 @@ export default function IdleStudioPage() {
       <details className="group rounded-[26px] border border-white/10 bg-[#0b0d10] p-4">
         <summary className="cursor-pointer text-sm font-semibold text-slate-200">Ficha de {view.persona.name}: o que vai em todos os prompts</summary>
         <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-          {Object.entries(FICHA_LABELS).map(([k, label]) => (
+          {/* Cada formato tem os seus campos (a academia troca microfone e pet por corpo e câmera). */}
+          {Object.entries(FICHA_LABELS).filter(([k]) => view.persona.ficha[k]).map(([k, label]) => (
             <div key={k}>
               <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">{label}</dt>
               <dd className="text-xs leading-relaxed text-slate-300">{view.persona.ficha[k]}</dd>

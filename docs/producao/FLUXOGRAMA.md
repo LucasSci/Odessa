@@ -1,7 +1,8 @@
 # Fluxograma da produção — da foto de rosto à live no Tango
 
 Mesmo conteúdo da página interativa (com todos os prompts e botão de copiar).
-Prompts por persona: [viktoria/PROMPTS.md](viktoria/PROMPTS.md) · [barbara/PROMPTS.md](barbara/PROMPTS.md)
+Prompts por persona: [viktoria/PROMPTS.md](viktoria/PROMPTS.md) · [barbara/PROMPTS.md](barbara/PROMPTS.md) ·
+formato Academia: [viktoria-academia/PROMPTS.md](viktoria-academia/PROMPTS.md) (seção D)
 (gerados por `scripts/build_idle_prompts.py`).
 
 ## A · Imagens da persona (kit da IDLE)
@@ -105,3 +106,33 @@ flowchart LR
 
 > O motor por estados (A1 quando o chat agita, A2 quando esfria, A3 enquanto a IA responde) está
 > desenhado em IDLE-PRODUCAO.md, mas ainda não foi implementado: hoje o vídeo segue as conexões do fluxo e os gatilhos.
+
+## D · Formato Academia (Viktoria treinando)
+
+Mesmo caminho da IDLE (B e C valem igual), com duas diferenças nas imagens: a referência de
+corpo entra antes da A0 e as âncoras são poses de academia. Fonte: [ACADEMIA-PRODUCAO.md](ACADEMIA-PRODUCAO.md).
+
+```mermaid
+flowchart TD
+  F0["Foto de rosto da Viktoria"] --> C3
+  R0["Etapa 0 · ref_corpo.png<br/>upload da referência de corpo (não gera)"] --> C3
+  G1["Etapa 1 · academia_vazia.png<br/>academia sem pessoa"] --> A0
+  G2["Etapa 2 · figurino.png<br/>conjunto vermelho"] --> C3
+  C3["Etapa 3 · academia_corpo.png<br/>corpo novo, corpo inteiro"] --> D1{"Corpo e rosto certos?"}
+  D1 -->|não| C3
+  D1 -->|sim| A0["Etapa 4 · A0_camera.png<br/>de frente, entre séries"]
+  F0 --> A0
+  A0 --> A1["Etapa 5 · A1_chat.png<br/>lendo o celular"]
+  A0 --> A2["Etapa 5 · A2_lado.png<br/>de perfil, pronta pra agachar"]
+  A0 --> A3["Etapa 5 · A3_perto.png<br/>perto da câmera"]
+  A0 --> RF["Etapa 6 · ref_rosto_frente + ref_corpo_lado<br/>trava rosto e corpo no vídeo"]
+  RF --> EX["Etapa 7 · ref_expressoes.png"]
+  C3 --> FD["Etapa 8 · fotos de divulgação<br/>espelho, ângulo baixo, costas, banco"]
+  A0 --> CP["Etapa 9 · capa_live_9x16.png"]
+  A1 --> V["38 vídeos · lote 0 primeiro<br/>01, 06, 11, 12, 24"]
+  A2 --> V
+  A3 --> V
+  RF --> V
+  V --> ES["Estúdio da IDLE → Viktoria — Academia<br/>aprovar → Montar fluxo (persona Viktoria ativa)"]
+  ES --> LIVE["Live da academia<br/>para voltar à IDLE: Montar fluxo da Viktoria"]
+```

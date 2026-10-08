@@ -1,13 +1,16 @@
-"""Gera TODOS os prompts de produção da IDLE, prontos para colar, por persona.
+"""Gera TODOS os prompts de produção, prontos para colar, por persona e formato.
 
-Fonte única dos clipes: docs/IDLE-PRODUCAO.md §3 (40–94) e
-docs/PLANO-CONTEUDO-LIVE.md §5.1 (95–104). A ficha de cada persona fica aqui
-(FICHAS). Para uma persona nova: acrescente a ficha e rode o script.
+Formatos (FORMATS):
+- IDLE (a live sentada): clipes em docs/IDLE-PRODUCAO.md §3 (40–94) e
+  docs/PLANO-CONTEUDO-LIVE.md §5.1 (95–104); ficha de cada persona em FICHAS.
+- Academia (a live treinando): clipes em docs/producao/ACADEMIA-PRODUCAO.md §4;
+  ficha em ACADEMIA_FICHA.
+Para uma persona nova: acrescente a ficha e rode o script.
 
-Saída por persona:
-    docs/producao/<persona>/PROMPTS.md   imagens (etapa a etapa) + vídeos (clipe a clipe)
-    docs/producao/<persona>/prompts.csv  um clipe por linha, para geração em lote
-    server/data/idle_plan.json           o plano inteiro, lido pelo Estúdio da IDLE no app
+Saída por plano:
+    docs/producao/<plano>/PROMPTS.md   imagens (etapa a etapa) + vídeos (clipe a clipe)
+    docs/producao/<plano>/prompts.csv  um clipe por linha, para geração em lote
+    server/data/idle_plan.json         todos os planos, lidos pelo Estúdio da IDLE no app
 
 Uso:
     python scripts/build_idle_prompts.py [--json saida.json]
@@ -105,10 +108,10 @@ CATEGORY_LABEL = {
 ROW_RE = re.compile(r"^\|\s*(?P<marks>[⭐🔁]*)\s*`(?P<file>\d{2,3}_[A-Z]+_A\d(?:-A\d)?_[^`]+)`(?P<rest>.*)$")
 
 
-def parse_clips() -> list[dict]:
-    """Lê as tabelas de clipes dos dois documentos (fonte única)."""
+def parse_clips(docs: tuple[Path, ...], lote0: set[int]) -> list[dict]:
+    """Lê as tabelas de clipes dos documentos do formato (fonte única)."""
     clips: dict[str, dict] = {}
-    for doc in (DOCS / "IDLE-PRODUCAO.md", DOCS / "PLANO-CONTEUDO-LIVE.md"):
+    for doc in docs:
         for line in doc.read_text(encoding="utf-8").splitlines():
             match = ROW_RE.match(line.strip())
             if not match:
@@ -133,7 +136,6 @@ def parse_clips() -> list[dict]:
                 "action": actions[-1].strip("`"),
             }
     ordered = sorted(clips.values(), key=lambda c: c["number"])
-    lote0 = {40, 45, 52, 53, 74}
     for clip in ordered:
         clip["lote"] = 0 if clip["number"] in lote0 else (1 if clip["lote1"] else 2)
     return ordered
@@ -145,18 +147,22 @@ def fill(text: str, ficha: dict[str, str]) -> str:
     return text
 
 
-def video_prompt(clip: dict, ficha: dict[str, str]) -> str:
+def video_prompt(clip: dict, ficha: dict[str, str], fmt: dict | None = None) -> str:
+    fmt = fmt or IDLE_FORMAT
+    anchor_text = fmt["anchor_text"]
     action = fill(clip["action"], ficha)
     if clip["start"] == clip["end"]:
         loop = (
             f"LOOP RULES: Starts on the start frame and ends on exactly the same pose as the end frame — "
-            f"{ANCHOR_TEXT[clip['end']]}."
+            f"{anchor_text[clip['end']]}."
         )
     else:
         loop = (
-            f"TRANSITION RULES: Starts on the start frame — {ANCHOR_TEXT[clip['start']]} — and ends on exactly the "
-            f"pose of the end frame — {ANCHOR_TEXT[clip['end']]}."
+            f"TRANSITION RULES: Starts on the start frame — {anchor_text[clip['start']]} — and ends on exactly the "
+            f"pose of the end frame — {anchor_text[clip['end']]}."
         )
+    if fmt["kind"] == "academia":
+        return fill(ACADEMIA_SCENE.replace("<ACTION>", action).replace("<LOOP>", loop), ficha)
     return fill(
         "SCENE LOCK — Static locked-off camera, vertical 9:16 chest-up shot, identical framing to the start frame. "
         "The same woman as the start frame: {IDENTITY}, wearing {WARDROBE}. Live streaming at night in {ROOM}, "
@@ -266,30 +272,252 @@ IMAGE_STEPS = [
 ]
 
 
-def build_persona(pid: str, clips: list[dict]) -> dict:
-    ficha = FICHAS[pid]
-    images = [{**s, "prompt": fill(s["prompt"], ficha)} for s in IMAGE_STEPS]
+# ── Formato Academia (a Viktoria treinando) ────────────────────────────────
+# Sensual, nunca explícito: roupa colada e decote marcado; sem nudez, sem
+# mamilo, sem tecido transparente (o que o Higgsfield e o Tango aceitam).
+ACADEMIA_FICHA: dict[str, str] = {
+    "name": "Viktoria — Academia",
+    "IDENTITY": (
+        "a woman in her early thirties with an oval face, high defined cheekbones and a soft narrow chin; "
+        "almond-shaped pale grey-green eyes with a thin black winged eyeliner; thin straight light-brown eyebrows; "
+        "fair skin with a few faint freckles across the nose and cheeks; full soft lips in a muted rosy-beige; "
+        "honey-platinum blonde hair pulled into a high sleek ponytail, curtain bangs framing her face, a few loose "
+        "strands; light fresh gym makeup"
+    ),
+    "BODY": (
+        "a curvy athletic hourglass physique of a fitness model who trains glutes: very full, large and round "
+        "natural-looking bust, narrow cinched waist with soft visible abs lines, wide hips, large round lifted "
+        "glutes, thick toned thighs, defined shoulders and lean toned arms, smooth fair skin with a light healthy sheen"
+    ),
+    "WARDROBE": (
+        "a glossy cherry-red seamless sculpting gym set: a plunging deep V-neck sports bra with thin crisscross "
+        "straps and a very deep cleavage, and matching high-waisted scrunch-butt leggings with a contour seam that "
+        "lifts and shapes the glutes, white training shoes"
+    ),
+    "ROOM": (
+        "an upscale boutique gym at night: black rubber floor, a wall of mirrors, a chrome dumbbell rack, a padded "
+        "bench and a hip-thrust machine, warm amber strip lights and a soft red neon line along the ceiling, a few "
+        "blurred machines in the background, nobody else around"
+    ),
+    "LIGHT": "Warm amber practical lights mixed with a soft red neon rim light, gentle contrast, glossy highlights on the skin",
+    "CAMERA": "a phone on a tripod at chest height, vertical 9:16, 26mm phone lens look, slightly wide",
+    "MOTION": (
+        "Confident and playful: slow controlled reps, glances at the camera between sets, a teasing half-smile, "
+        "breathing visibly after a set; never rushed, never cartoonish."
+    ),
+    "DRINK": "frosted pink shaker bottle",
+    "PALETTE": "cherry red, warm amber and black",
+}
+
+ACADEMIA_ANCHOR_FILES = {"A0": "A0_camera.png", "A1": "A1_chat.png", "A2": "A2_lado.png", "A3": "A3_perto.png"}
+ACADEMIA_ANCHOR_TEXT = {
+    "A0": "standing facing the camera, framed from mid-thigh up, one hand on her hip, confident half-smile at the lens",
+    "A1": "standing facing the camera, holding her phone at chest height with both hands, eyes down reading the screen",
+    "A2": "standing in profile beside the bench, hands on her hips, ready to squat, head turned toward the lens",
+    "A3": "leaning in close to the camera, face and neckline filling more of the frame, warm teasing smile",
+}
+ACADEMIA_NEGATIVE = (
+    "camera movement, zoom, pan, dolly, cut, scene change, morphing face, different person, changing body shape, "
+    "slimmer body, changing hairstyle, changing outfit, outfit color change, extra fingers, deformed hands, extra "
+    "limbs, extra people, new objects, flickering light, exposure change, text, subtitles, watermark, logo, "
+    "fast jerky motion, leaving the frame, nudity, see-through fabric"
+)
+ACADEMIA_SCENE = (
+    "SCENE LOCK — Static locked-off camera ({CAMERA}), framed from mid-thigh up, identical framing to the start "
+    "frame. The same woman as the start frame: {IDENTITY}, with {BODY}, wearing {WARDROBE}. Working out "
+    "in {ROOM}, background softly out of focus. {LIGHT}. Photorealistic.\n\n"
+    "ACTION: <ACTION>\n\n"
+    "STYLE: {MOTION}\n\n"
+    "<LOOP> She stays fully inside the frame. Natural breathing and blinks throughout. Camera completely static. "
+    "Background, outfit, body and lighting never change. No sound."
+)
+ACADEMIA_EDIT_OPEN = (
+    "Edit this image with minimal change. Keep absolutely identical: her identity, face, hair, body shape and "
+    "proportions, outfit, the gym, the lighting, the camera position and the framing. Only change her pose as "
+    "described. Photorealistic, same grain and color grading.\n\n"
+)
+_ACADEMIA_PERSON = (
+    "Identity exactly as the face reference: {IDENTITY}. Body exactly as the body reference: {BODY}. "
+)
+ACADEMIA_IMAGE_STEPS = [
+    {
+        "step": "0", "file": "ref_corpo.png", "ratio": "9:16", "inputs": "nenhuma",
+        "why": "Não é gerada: envie aqui a imagem de referência do corpo (persona de IA). Só as proporções do corpo entram na etapa 3.",
+        "prompt": "",
+    },
+    {
+        "step": "1", "file": "academia_vazia.png", "ratio": "9:16", "inputs": "nenhuma",
+        "why": "Fundo sem pessoa: base da A0 e referência para conferir se o cenário mudou em algum clipe.",
+        "prompt": "Vertical 9:16 photo of an empty gym at night, shot from {CAMERA}. {ROOM}. A padded bench stands in the foreground center with clear floor space around it. {LIGHT}. Photorealistic, natural grain, no people, no text, no logos.",
+    },
+    {
+        "step": "2", "file": "figurino.png", "ratio": "3:4", "inputs": "nenhuma",
+        "why": "Roupa fixa: cor e recortes iguais em todos os clipes.",
+        "prompt": "Flat-lay product photo of this gym outfit, no person: {WARDROBE}. Arranged neatly on a black rubber gym floor, soft even light, true colors, fabric sheen and seams clearly visible. Wardrobe reference, photorealistic.",
+    },
+    {
+        "step": "3 ⭐", "file": "academia_corpo.png", "ratio": "9:16", "inputs": "foto de rosto + ref_corpo.png + figurino.png",
+        "why": "Fixa o corpo novo. Daqui em diante ela substitui a referência de corpo em todas as etapas.",
+        "prompt": "Vertical 9:16 full-body fitness photo of the woman from the face reference, an adult fitness model, standing in a relaxed three-quarter pose. " + _ACADEMIA_PERSON + "Take only the body proportions from the body reference, never its face or hair. She wears {WARDROBE}, as in the outfit reference. Neutral light-grey studio background, soft even light, full body visible from head to feet. Photorealistic, natural skin texture, no text.",
+    },
+    {
+        "step": "4 ⭐", "file": "A0_camera.png", "ratio": "9:16", "inputs": "foto de rosto + academia_corpo.png + academia_vazia.png",
+        "why": "A imagem mais importante: é o primeiro e o último frame de quase todos os vídeos.",
+        "prompt": "Vertical 9:16 photo of the woman from the references, an adult fitness streamer at night, standing in the gym from the scene reference, in exactly that room and light. " + _ACADEMIA_PERSON + "She wears {WARDROBE}.\n\nFraming: {CAMERA}, frame cut at mid-thigh, small headroom above her ponytail, the bench partly visible behind her, background softly out of focus. {LIGHT}.\n\nPose: standing facing the camera, weight on one leg, one hand on her hip, the other arm relaxed at her side, slightly out of breath after a set with a light sheen on her skin, looking straight into the lens with a confident half-smile. Photorealistic, natural skin texture, no text.",
+    },
+    {
+        "step": "5", "file": "A1_chat.png", "ratio": "9:16", "inputs": "A0_camera.png",
+        "why": "Estado \"lendo o chat\" (chat agitado).",
+        "prompt": ACADEMIA_EDIT_OPEN + "She now holds her phone at chest height with both hands, eyes down reading the screen with an amused smile, shoulders relaxed.",
+    },
+    {
+        "step": "5", "file": "A2_lado.png", "ratio": "9:16", "inputs": "A0_camera.png",
+        "why": "Estado \"treinando\": base das séries de agachamento.",
+        "prompt": ACADEMIA_EDIT_OPEN + "She now stands in profile beside the bench, hands on her hips, feet shoulder-width apart, ready to squat, head turned toward the lens with a focused little smile. Her figure is seen from the side: full bust, narrow waist, large round glutes.",
+    },
+    {
+        "step": "5", "file": "A3_perto.png", "ratio": "9:16", "inputs": "A0_camera.png",
+        "why": "Estado \"perto / conversando\" (a IA está respondendo alguém).",
+        "prompt": ACADEMIA_EDIT_OPEN + "She leans in close to the camera, so her face and the deep neckline of her sports bra fill more of the frame, looking into the lens with a warm teasing smile.",
+    },
+    {
+        "step": "6", "file": "ref_rosto_frente.png", "ratio": "3:4", "inputs": "foto de rosto + A0_camera.png",
+        "why": "Trava o rosto no gerador de vídeo (personagem salvo).",
+        "prompt": "Close-up head-and-shoulders portrait of the same woman as the references, identical face and features: {IDENTITY}. Same hair, makeup and outfit ({WARDROBE}). Facing the camera, neutral soft smile, same light as the A0 image, gym softly blurred behind. Identity reference photo, photorealistic, sharp focus on the eyes, natural skin texture, no retouching.",
+    },
+    {
+        "step": "6", "file": "ref_corpo_lado.png", "ratio": "9:16", "inputs": "academia_corpo.png + A2_lado.png",
+        "why": "Trava o corpo de perfil (agachamentos e giros) no gerador de vídeo.",
+        "prompt": "Full-body side view of the same woman as the references, standing in profile: {BODY}. Same face, hair and outfit ({WARDROBE}). Neutral light-grey studio background, soft even light, head to feet visible. Body reference photo, photorealistic.",
+    },
+    {
+        "step": "7", "file": "ref_expressoes.png", "ratio": "1:1", "inputs": "ref_rosto_frente.png + A0_camera.png",
+        "why": "Riso, piscadinha e esforço iguais em todas as reações.",
+        "prompt": "A 3x3 grid expression sheet of the exact same woman in every panel — identical face, hair, makeup and outfit, chest-up crop, same gym lighting, same blurred background, thin white gutters, no text.\n1 neutral calm · 2 confident half-smile · 3 big genuine smile with teeth · 4 laughing with eyes squinting · 5 focused effort mid-rep, lips pressed · 6 out of breath with a tired smile · 7 blowing a kiss · 8 playful wink · 9 teasing look biting her lower lip lightly.\nExpressions in her own style: {MOTION} Natural and believable, not cartoonish. Photorealistic.",
+    },
+    {
+        "step": "8", "file": "foto_selfie_espelho.png", "ratio": "9:16", "inputs": "foto de rosto + academia_corpo.png + academia_vazia.png",
+        "why": "Divulgação: selfie no espelho da academia (look preto).",
+        "prompt": "Vertical 9:16 mirror selfie of the woman from the references in the gym mirror, phone held at face height partly covering one side of her face. " + _ACADEMIA_PERSON + "She wears a matte black ribbed one-piece gym bodysuit with a very low scoop neckline showing deep cleavage and an open low back. Weight on one leg, hip popped to the side, other hand on her waist. {LIGHT}, red neon reflected in the mirror. Photorealistic phone photo, natural skin texture, no text.",
+    },
+    {
+        "step": "8", "file": "foto_angulo_baixo.png", "ratio": "9:16", "inputs": "foto de rosto + academia_corpo.png + academia_vazia.png",
+        "why": "Divulgação: ângulo de baixo para cima, como a foto de referência.",
+        "prompt": "Vertical 9:16 low-angle photo looking slightly up at the woman from the references, standing close to the camera in the gym. " + _ACADEMIA_PERSON + "She wears {WARDROBE}. One hand adjusting the strap of her sports bra, the other on her hip, head tilted, confident teasing half-smile looking down into the lens. {LIGHT}. Photorealistic, 24mm lens, natural skin texture, no text.",
+    },
+    {
+        "step": "8", "file": "foto_costas_espelho.png", "ratio": "9:16", "inputs": "foto de rosto + academia_corpo.png + academia_vazia.png",
+        "why": "Divulgação: de costas, olhando por cima do ombro (look esmeralda).",
+        "prompt": "Vertical 9:16 photo of the woman from the references seen from behind, looking back over her shoulder at the camera with a playful smile, her reflection visible in the gym mirror in front of her. " + _ACADEMIA_PERSON + "She wears an emerald-green halter sports top with a keyhole cutout, cropped high above the navel, and matching tight micro biker shorts, white crew socks and white training shoes. {LIGHT}. Photorealistic, natural skin texture, no text.",
+    },
+    {
+        "step": "8", "file": "foto_banco.png", "ratio": "9:16", "inputs": "foto de rosto + academia_corpo.png + academia_vazia.png",
+        "why": "Divulgação: sentada no banco depois do treino.",
+        "prompt": "Vertical 9:16 photo of the woman from the references sitting on the edge of a padded gym bench, leaning slightly forward with her forearms on her knees, a {DRINK} in one hand, slightly out of breath with a light sheen on her skin. " + _ACADEMIA_PERSON + "She wears {WARDROBE}. Looking up into the lens with a tired satisfied smile. {LIGHT}. Photorealistic, natural skin texture, no text.",
+    },
+    {
+        "step": "9", "file": "capa_live_9x16.png", "ratio": "9:16", "inputs": "A0_camera.png + ref_rosto_frente.png",
+        "why": "Capa da live (story / Tango).",
+        "prompt": "Vertical promotional cover photo for a live workout stream, the same adult woman as the references with identical face, hair, body and outfit: {IDENTITY}, with {BODY}, wearing {WARDROBE}. Confident inviting expression looking into the lens, {ROOM} softly out of focus behind her. {LIGHT}. Clean composition with empty space at the bottom third for a title to be added later. Photorealistic, natural skin texture, no text, no logos.",
+    },
+]
+
+
+# ── Formatos ───────────────────────────────────────────────────────────────
+IDLE_FORMAT: dict = {
+    "kind": "idle",
+    "title": "IDLE",
+    "docs": (DOCS / "IDLE-PRODUCAO.md", DOCS / "PLANO-CONTEUDO-LIVE.md"),
+    "lote0": {40, 45, 52, 53, 74},
+    "steps": IMAGE_STEPS,
+    "anchor_files": ANCHOR_FILES,
+    "anchor_text": ANCHOR_TEXT,
+    "negative": NEGATIVE,
+    "ficha_keys": ("IDENTITY", "WARDROBE", "ROOM", "LIGHT", "MIC", "MOTION", "DRINK", "PET"),
+    "source_note": "`docs/IDLE-PRODUCAO.md` / `docs/PLANO-CONTEUDO-LIVE.md`",
+    "intro": [],
+    "choose_note": "Gere 3–4 variações de cada e escolha a mais **fiel ao rosto**, não a mais bonita.",
+    "video_note": [
+        "Saída: 9:16, 24 fps, **sem áudio**. Personagem salvo, se o modelo aceitar: `ref_rosto_frente`,",
+        "`ref_rosto_34_esq`, `ref_rosto_34_dir` e `A0_camera`.",
+    ],
+    "qc_note": "Olhar também: rosto igual ao `ref_rosto_frente`, joias presentes, microfone no canto, mãos entram e saem.",
+}
+
+ACADEMIA_FORMAT: dict = {
+    "kind": "academia",
+    "title": "Academia",
+    "docs": (DOCS / "producao" / "ACADEMIA-PRODUCAO.md",),
+    "lote0": {1, 6, 11, 12, 24},
+    "steps": ACADEMIA_IMAGE_STEPS,
+    "anchor_files": ACADEMIA_ANCHOR_FILES,
+    "anchor_text": ACADEMIA_ANCHOR_TEXT,
+    "negative": ACADEMIA_NEGATIVE,
+    "ficha_keys": ("IDENTITY", "BODY", "WARDROBE", "ROOM", "LIGHT", "CAMERA", "MOTION", "DRINK"),
+    "source_note": "`docs/producao/ACADEMIA-PRODUCAO.md`",
+    "intro": [
+        "Formato **Academia**: a Viktoria treinando, ao vivo. Conceito, poses, looks e onde gerar:",
+        "[ACADEMIA-PRODUCAO.md](../ACADEMIA-PRODUCAO.md). **Sensual, nunca explícito:** sem nudez, sem",
+        "mamilo, sem tecido transparente.",
+        "",
+    ],
+    "choose_note": "Gere 3–4 variações de cada e escolha a mais **fiel ao rosto e ao corpo** (`academia_corpo.png`).",
+    "video_note": [
+        "Saída: 9:16, 24 fps, **sem áudio**. Personagem salvo, se o modelo aceitar: `ref_rosto_frente`,",
+        "`ref_corpo_lado`, `academia_corpo.png` e `A0_camera`.",
+    ],
+    "qc_note": "Olhar também: rosto igual ao `ref_rosto_frente`, corpo igual ao `academia_corpo.png`, a roupa não muda de cor nem de corte, ela não sai do quadro.",
+    "ficha": ACADEMIA_FICHA,
+    "persona": "viktoria",
+}
+
+
+def plan_formats() -> dict[str, dict]:
+    """Id do plano → formato (IDLE de cada persona + a academia da Viktoria)."""
+    plans = {pid: {**IDLE_FORMAT, "ficha": FICHAS[pid], "persona": pid} for pid in FICHAS}
+    plans["viktoria-academia"] = ACADEMIA_FORMAT
+    return plans
+
+
+def build_persona(pid: str, clips: list[dict], fmt: dict | None = None) -> dict:
+    """Plano de um formato: `pid` é o id do plano (pasta e prefixo dos vídeos)."""
+    fmt = fmt or {**IDLE_FORMAT, "ficha": FICHAS[pid], "persona": pid}
+    ficha = fmt["ficha"]
+    images = [{**s, "prompt": fill(s["prompt"], ficha)} for s in fmt["steps"]]
     videos = []
     for clip in clips:
         videos.append({
             **{k: clip[k] for k in ("file", "number", "category", "start", "end", "lote", "pingpong", "event")},
             "categoryLabel": CATEGORY_LABEL[clip["category"]],
             "duration": DURATION[clip["category"]],
-            "firstFrame": ANCHOR_FILES[clip["start"]],
-            "lastFrame": ANCHOR_FILES[clip["end"]],
-            "prompt": video_prompt(clip, ficha),
+            "firstFrame": fmt["anchor_files"][clip["start"]],
+            "lastFrame": fmt["anchor_files"][clip["end"]],
+            "prompt": video_prompt(clip, ficha, fmt),
         })
-    return {"id": pid, "name": ficha["name"], "ficha": ficha, "images": images, "videos": videos, "negative": NEGATIVE}
+    return {
+        "id": pid,
+        "name": ficha["name"],
+        # A persona do app que recebe o fluxo (o plano da academia é da Viktoria).
+        "personaId": fmt["persona"],
+        "format": fmt["kind"],
+        "ficha": ficha,
+        "images": images,
+        "videos": videos,
+        "negative": fmt["negative"],
+    }
 
 
-def write_markdown(data: dict, out_dir: Path) -> None:
+def write_markdown(data: dict, out_dir: Path, fmt: dict | None = None) -> None:
+    fmt = fmt or IDLE_FORMAT
     f = data["ficha"]
     lines = [
-        f"# {data['name']} — todos os prompts de produção (IDLE)",
+        f"# {data['name']} — todos os prompts de produção"
+        + ("" if fmt["title"] in data["name"] else f" ({fmt['title']})"),
         "",
         "> Gerado por `scripts/build_idle_prompts.py` — não edite à mão: mude a ficha no script ou a lista de",
-        "> clipes em `docs/IDLE-PRODUCAO.md` / `docs/PLANO-CONTEUDO-LIVE.md` e rode de novo.",
+        f"> clipes em {fmt['source_note']} e rode de novo.",
         "",
+        *fmt["intro"],
         "Pasta das imagens: `assets/idle-kit/" + data["id"] + "/` · pasta dos vídeos: `assets/videos/" + data["id"] + "/`",
         "",
         "## Ficha",
@@ -297,14 +525,14 @@ def write_markdown(data: dict, out_dir: Path) -> None:
         "| Campo | Valor |",
         "|---|---|",
     ]
-    for key in ("IDENTITY", "WARDROBE", "ROOM", "LIGHT", "MIC", "MOTION", "DRINK", "PET"):
+    for key in fmt["ficha_keys"]:
         lines.append(f"| `{key}` | {f[key]} |")
     lines += [
         "",
         "## Parte 1 — Imagens (na ordem)",
         "",
         "Modelo de imagem com referência (Nano Banana / Gemini Image, Seedream 4, Flux Kontext, GPT-Image).",
-        "Gere 3–4 variações de cada e escolha a mais **fiel ao rosto**, não a mais bonita.",
+        fmt["choose_note"],
         "",
     ]
     for img in data["images"]:
@@ -313,17 +541,14 @@ def write_markdown(data: dict, out_dir: Path) -> None:
             "",
             f"**Entradas:** {img['inputs']} · **Para quê:** {img['why']}",
             "",
-            "```text",
-            img["prompt"],
-            "```",
-            "",
         ]
+        if img["prompt"]:
+            lines += ["```text", img["prompt"], "```", ""]
     lines += [
         "## Parte 2 — Vídeos (image-to-video, primeiro + último frame)",
         "",
         "Modelos com first + last frame: Kling (start/end frame), Veo 3.1, Seedance, Wan FLF2V.",
-        "Saída: 9:16, 24 fps, **sem áudio**. Personagem salvo, se o modelo aceitar: `ref_rosto_frente`,",
-        "`ref_rosto_34_esq`, `ref_rosto_34_dir` e `A0_camera`.",
+        *fmt["video_note"],
         "",
         "**Prompt negativo (igual para todos os clipes):**",
         "",
@@ -359,7 +584,7 @@ def write_markdown(data: dict, out_dir: Path) -> None:
         "```",
         "",
         "Precisa dar `ok/ok`. Transição: rode com a âncora de início e depois com a de fim.",
-        "Olhar também: rosto igual ao `ref_rosto_frente`, joias presentes, microfone no canto, mãos entram e saem.",
+        fmt["qc_note"],
         "",
     ]
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -376,11 +601,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", help="também grava tudo num JSON (usado pela página de produção)")
     args = parser.parse_args()
-    clips = parse_clips()
     result = []
-    for pid in FICHAS:
-        data = build_persona(pid, clips)
-        write_markdown(data, DOCS / "producao" / pid)
+    for pid, fmt in plan_formats().items():
+        data = build_persona(pid, parse_clips(fmt["docs"], fmt["lote0"]), fmt)
+        write_markdown(data, DOCS / "producao" / pid, fmt)
         result.append(data)
         print(f"{data['name']}: {len(data['images'])} imagens, {len(data['videos'])} vídeos "
               f"(lote0 {sum(v['lote'] == 0 for v in data['videos'])}, lote1 {sum(v['lote'] == 1 for v in data['videos'])}, "

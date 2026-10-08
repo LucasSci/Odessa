@@ -196,7 +196,9 @@ Section "Instalar"
 
     StrCmp $R1 "1" 0 skip_restore
         DetailPrint "Restaurando dados do usuario..."
-        nsExec::ExecToLog 'robocopy "$R0" "$INSTDIR\server\data" /E /R:1 /W:1 /NFL /NDL /NJH /NJS'
+        ; idle_plan.json e o plano de producao gerado pelo programa (nao e dado do
+        ; usuario): fica o da versao nova, senao formatos novos nunca chegariam.
+        nsExec::ExecToLog 'robocopy "$R0" "$INSTDIR\server\data" /E /XF idle_plan.json /R:1 /W:1 /NFL /NDL /NJH /NJS'
         RMDir /r "$R0"
     skip_restore:
 
@@ -211,7 +213,7 @@ Section "Instalar"
     StrCmp $R1 "1" skip_reuse
     IfFileExists "$LOCALAPPDATA\Odessa\data-backup\data\*.*" 0 skip_data_reuse
         DetailPrint "Reaproveitando dados guardados na desinstalacao anterior..."
-        nsExec::ExecToLog 'robocopy "$LOCALAPPDATA\Odessa\data-backup\data" "$INSTDIR\server\data" /E /R:1 /W:1 /NFL /NDL /NJH /NJS'
+        nsExec::ExecToLog 'robocopy "$LOCALAPPDATA\Odessa\data-backup\data" "$INSTDIR\server\data" /E /XF idle_plan.json /R:1 /W:1 /NFL /NDL /NJH /NJS'
         Pop $R2
     skip_data_reuse:
     IfFileExists "$LOCALAPPDATA\Odessa\data-backup\.env" 0 skip_reuse

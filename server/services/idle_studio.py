@@ -388,8 +388,11 @@ def build_flow(persona_id: str, *, publish: bool = False) -> Dict[str, Any]:
     from server.services.workflow_service import workflow_service
 
     plan = persona_plan(persona_id)
-    if persona_manager.get_active_persona_id() != persona_id:
-        raise StudioError(409, f"Ative a persona {plan.get('name') or persona_id} antes de montar o fluxo: ele é salvo na persona ativa.")
+    # Um plano pode ser um formato de outra persona (a academia é da Viktoria):
+    # o fluxo vai para essa persona; os vídeos levam o id do plano no nome.
+    owner = plan.get("personaId") or persona_id
+    if persona_manager.get_active_persona_id() != owner:
+        raise StudioError(409, f"Ative a persona {owner.capitalize()} antes de montar o fluxo de {plan.get('name') or persona_id}: ele é salvo na persona ativa.")
 
     state = _read_state(persona_id)
     approved = [(v, p) for v in plan.get("videos", []) if (p := _approved_path(persona_id, state, v["file"]))]
