@@ -381,7 +381,15 @@ export function buildRoundUserMemorySummary(
   profiles: UserProfileMap,
   maxItems = 5,
 ): string[] {
-  const names = Array.from(new Set(events.map(eventUsername).filter(Boolean) as string[]));
+  // ⚡ Bolt: Using a single-pass loop instead of .map().filter() for faster extraction of unique active users
+  const nameSet = new Set<string>();
+  for (let i = 0; i < events.length; i++) {
+    const name = eventUsername(events[i]);
+    if (name) {
+      nameSet.add(name);
+    }
+  }
+  const names = Array.from(nameSet);
   const summaries: string[] = [];
   for (const name of names) {
     const profile = profiles[name.toLowerCase()];

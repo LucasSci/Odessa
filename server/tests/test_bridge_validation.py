@@ -49,6 +49,8 @@ def test_launch_nao_dispara_processo_com_url_maliciosa(monkeypatch):
 
 def test_launch_valido_usa_dois_hifens_antes_da_url(monkeypatch, tmp_path):
     captured = {}
+    mock_browser = {"id": "chrome", "path": "C:/chrome.exe", "name": "Google Chrome"}
+    monkeypatch.setattr(bridge_manager, "resolve_live_browser", lambda x: mock_browser)
     monkeypatch.setattr(bridge_manager, "find_chrome_executable", lambda: "C:/chrome.exe")
     monkeypatch.setattr(bridge_manager, "RUNTIME_DIR", tmp_path)
     monkeypatch.setattr(bridge_manager.subprocess, "Popen", lambda args, **k: captured.setdefault("args", args))
