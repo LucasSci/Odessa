@@ -1247,8 +1247,7 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
 
   const duplicateSelectedNodes = () => {
     if (!selectedNodeIds.length) return;
-    const selectedNodeIdsSet = new Set(selectedNodeIds);
-    const selected = flowNodes.filter((node) => selectedNodeIdsSet.has(node.nodeId));
+    const selected = flowNodes.filter((node) => selectedNodeIds.includes(node.nodeId));
     const clones = selected.map((node, index) => ({
       ...node,
       nodeId: newNodeId(node.videoId),
@@ -1277,18 +1276,17 @@ function ReactiveFlowCanvas({ onSaved }: { onSaved?: () => void }) {
 
   const alignSelectedNodes = () => {
     if (selectedNodeIds.length < 2) return;
-    const selectedNodeIdsSet = new Set(selectedNodeIds);
-    const selected = flowNodes.filter((node) => selectedNodeIdsSet.has(node.nodeId));
+    const selected = flowNodes.filter((node) => selectedNodeIds.includes(node.nodeId));
     const targetY = Math.round(Math.min(...selected.map((node) => node.position.y)));
     updateConfig((current) => ({
       ...current,
       flowNodes: (current.flowNodes || []).map((node) =>
-        selectedNodeIdsSet.has(node.nodeId) ? { ...node, position: { ...node.position, y: targetY } } : node,
+        selectedNodeIds.includes(node.nodeId) ? { ...node, position: { ...node.position, y: targetY } } : node,
       ),
     }));
     setNodes((current) =>
       current.map((node) =>
-        selectedNodeIdsSet.has(node.id) ? { ...node, position: { ...node.position, y: targetY } } : node,
+        selectedNodeIds.includes(node.id) ? { ...node, position: { ...node.position, y: targetY } } : node,
       ),
     );
     setStatusMessage('Selecao alinhada no rascunho.');

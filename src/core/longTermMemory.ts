@@ -85,15 +85,7 @@ export class LongTermMemoryManager {
 
   /** Fatos de quem está na live, para o prompt da Diretora (sem os ocultos). */
   public retrieveContext(userIds: string[]): string {
-    // ⚡ Bolt: Using a single-pass loop instead of .map().filter() to avoid intermediate array allocations.
-    const wanted = new Set<string>();
-    for (let i = 0; i < userIds.length; i++) {
-      const key = userKey(userIds[i]);
-      if (key && !this.hidden.has(key)) {
-        wanted.add(key);
-      }
-    }
-
+    const wanted = new Set(userIds.map(userKey).filter((key) => key && !this.hidden.has(key)));
     if (wanted.size === 0) return '';
 
     const relevantFacts = this.facts.filter((f) => wanted.has(userKey(f.userId)));

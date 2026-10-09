@@ -558,15 +558,9 @@ async function requestDecision(
   const moodPrompt = globalMoodEngine.getMoodPromptInjection();
 
   // Retrieve RAG Context
-  // ⚡ Bolt: Use a single-pass for loop to collect active users, avoiding .map().filter() and extra iterations.
-  const activeUsersSet = new Set<string>();
-  for (let i = 0; i < events.length; i++) {
-    const user = metadataText(events[i], 'user', '');
-    if (user) {
-      activeUsersSet.add(user);
-    }
-  }
-  const activeUsers = Array.from(activeUsersSet);
+  const activeUsers = Array.from(
+    new Set(events.map((e) => metadataText(e, 'user', '')).filter(Boolean)),
+  );
   const ragContext = globalRAGMemory.retrieveContext(activeUsers);
 
   const contentBlock = buildContentPromptContext(contentUsed);

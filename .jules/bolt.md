@@ -7,6 +7,3 @@
 ## 2026-07-28 - Optimizing React array state deduplication
 **Learning:** Updating React state arrays that require merging and deduplicating new items (e.g. `setCapturedText`) using patterns like `[...current.filter(x => !newItems.some(y => y.id === x.id)), ...newItems]` creates multiple shallow copies and an O(N*M) lookup bottleneck.
 **Action:** Replace chained `.filter().some()` methods inside state setters with a single-pass loop and a `Set` of IDs for fast O(1) lookups, greatly reducing GC pressure and micro-stutters during high-frequency events.
-## 2026-08-01 - Avoid chained `.map().filter()` inside renders and hot paths
-**Learning:** Chaining array methods like `.map().filter()` or `.filter().map()` forces multiple intermediate O(N) memory allocations (shallow arrays) that must be garbage-collected, creating measurable micro-stutters when executed on continuously growing arrays or during high-frequency render loops.
-**Action:** Replace these chains with a single-pass `for` loop combined with an early-initialized `Set` or `Array` to accumulate results efficiently, significantly reducing overhead and memory pressure.

@@ -1350,15 +1350,9 @@ export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
 
 export function normalizeObsSettings(settings?: Partial<ObsSettings>): ObsSettings {
   const rawWhitelist = settings?.allowedScenes || settings?.sceneWhitelist;
-  // ⚡ Bolt: Using a single-pass loop instead of .map().filter()
-  const scenes: string[] = [];
-  if (Array.isArray(rawWhitelist)) {
-    for (let i = 0; i < rawWhitelist.length; i++) {
-      const sceneStr = String(rawWhitelist[i]).trim();
-      if (sceneStr) scenes.push(sceneStr);
-    }
-  }
-
+  const scenes = Array.isArray(rawWhitelist)
+    ? rawWhitelist.map((scene) => String(scene).trim()).filter(Boolean)
+    : [];
   return {
     ...DEFAULT_OBS_SETTINGS,
     ...settings,
