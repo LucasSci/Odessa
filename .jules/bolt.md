@@ -7,3 +7,6 @@
 ## 2026-07-28 - Optimizing React array state deduplication
 **Learning:** Updating React state arrays that require merging and deduplicating new items (e.g. `setCapturedText`) using patterns like `[...current.filter(x => !newItems.some(y => y.id === x.id)), ...newItems]` creates multiple shallow copies and an O(N*M) lookup bottleneck.
 **Action:** Replace chained `.filter().some()` methods inside state setters with a single-pass loop and a `Set` of IDs for fast O(1) lookups, greatly reducing GC pressure and micro-stutters during high-frequency events.
+## 2026-08-15 - Optimizing Array Search for Selection Check in React
+**Learning:** Using `array.filter(node => selectedIds.includes(node.id))` when selecting multiple nodes creates an O(N*M) check bottleneck because `.includes` performs a linear search over `selectedIds` for every item in `array`.
+**Action:** Replace `selectedIds.includes` with `new Set(selectedIds).has()` to reduce the search complexity from O(N*M) to O(N).
