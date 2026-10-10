@@ -2,7 +2,9 @@ from fastapi.testclient import TestClient
 from server.main import app
 from server.services.video_service import video_service
 
-client = TestClient(app)
+# Use um host válido para o RequestGuard (ex: 127.0.0.1 ou localhost) em TestClient,
+# caso contrário ele recebe 'testserver' e devolve 400 Bad Request.
+client = TestClient(app, base_url="http://127.0.0.1")
 
 
 def setup_module(module):
